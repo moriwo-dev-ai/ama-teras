@@ -115,29 +115,22 @@ export class EvolutionManager {
       let artifacts: Awaited<ReturnType<EvolutionJobRunner['generate']>> | null = null;
       let gatesOk = false;
       let feedback: string | undefined;
+      // NOTE: 進化ジョブのキャンセルUIは未実装のため ac.abort() を呼ぶ経路はまだ無い
+      //       (将来キャンセルを足すときのための signal 配線)。
+      const ac = new AbortController();
+      const generate = (): ReturnType<EvolutionJobRunner['generate']> =>
+        this.deps.runner.generate(req, worktree!.dir, (line) => this.log(job, line), ac.signal, feedback);
+
       for (let attempt = 1; attempt <= 2 && !gatesOk; attempt++) {
         this.update(job, { status: 'generating' });
         if (attempt > 1) this.log(job, 'ゲート不合格のため、フィードバック付きで再生成する');
-        const ac = new AbortController();
         try {
-          artifacts = await this.deps.runner.generate(
-            req,
-            worktree.dir,
-            (line) => this.log(job, line),
-            ac.signal,
-            feedback,
-          );
+          artifacts = await generate();
         } catch (err) {
           // 生成自体の失敗は1回だけリトライ
           if (attempt === 2) throw err;
           this.log(job, `生成失敗(リトライする): ${err instanceof Error ? err.message : String(err)}`);
-          artifacts = await this.deps.runner.generate(
-            req,
-            worktree.dir,
-            (line) => this.log(job, line),
-            ac.signal,
-            feedback,
-          );
+          artifacts = await generate();
         }
         this.update(job, { toolName: artifacts.toolName });
 

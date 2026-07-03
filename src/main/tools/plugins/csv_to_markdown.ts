@@ -24,7 +24,6 @@ function parseCsv(csv: string): string[][] {
   };
 
   const pushRow = () => {
-    // finalize last field in row
     pushField();
     rows.push(currentRow);
     currentRow = [];
@@ -35,31 +34,22 @@ function parseCsv(csv: string): string[][] {
 
     if (char === '"') {
       if (inQuotes && csv[i + 1] === '"') {
-        // Escaped quote
-        currentField += '"';
-        i += 1; // skip next quote
+        currentField += '"'; // RFC4180: 引用符内の "" はリテラルの "
+        i += 1;
       } else {
         inQuotes = !inQuotes;
       }
     } else if (char === ',' && !inQuotes) {
       pushField();
     } else if ((char === '\n' || char === '\r') && !inQuotes) {
-      // handle CRLF and LF
-      // if CR followed by LF, skip the LF
-      if (char === '\r' && csv[i + 1] === '\n') {
-        i += 1;
-      }
+      if (char === '\r' && csv[i + 1] === '\n') i += 1; // CRLF は1行区切りとして扱う
       pushRow();
     } else {
       currentField += char;
     }
   }
 
-  // push remaining data if any
-  if (inQuotes) {
-    // unmatched quote - treat as literal
-    // no extra handling, just let it fall through
-  }
+  // 末尾に行区切りが無い場合の最終行を取りこぼさない
   if (currentField.length > 0 || currentRow.length > 0) {
     pushField();
     rows.push(currentRow);
@@ -76,10 +66,8 @@ function toMarkdownTable(rows: string[][]): string {
   const header = rows[0] ?? [];
   const body = rows.slice(1);
 
-  const escapeCell = (cell: string): string => {
-    // Escape pipe characters to avoid breaking the table structure
-    return cell.replace(/\|/g, '\\|');
-  };
+  // セル内の | はエスケープしないと表の列区切りとして誤解釈される
+  const escapeCell = (cell: string): string => cell.replace(/\|/g, '\\|');
 
   const headerLine = `| ${header.map((cell) => escapeCell(cell.trim())).join(' | ')} |`;
   const separatorLine = `| ${header.map(() => '---').join(' | ')} |`;
@@ -91,7 +79,7 @@ function toMarkdownTable(rows: string[][]): string {
   return [headerLine, separatorLine, ...bodyLines].join('\n');
 }
 
-const plugin: ToolPlugin = {
+export default {
   name: 'csv_to_markdown',
   description: 'Convert CSV text into a Markdown table string, using the first row as header.',
   inputSchema: {
@@ -103,16 +91,11 @@ const plugin: ToolPlugin = {
     additionalProperties: false,
   },
   risk: 'safe',
-  async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
+  async execute(input: unknown, _ctx: ToolContext): Promise<ToolResult> {
     if (!isCsvToMarkdownInput(input)) {
       return { content: 'Input must be an object with a string property "csv".', isError: true };
     }
-
     const rows = parseCsv(input.csv);
-    const markdown = toMarkdownTable(rows);
-
-    return { content: markdown };
+    return { content: toMarkdownTable(rows) };
   },
-};
-
-export default plugin;
+} satisfies ToolPlugin;
