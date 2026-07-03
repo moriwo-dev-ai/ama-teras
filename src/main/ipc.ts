@@ -1,4 +1,4 @@
-import { app, ipcMain, safeStorage, type WebContents } from 'electron';
+import { app, dialog, ipcMain, safeStorage, type WebContents } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { IpcChannels } from '../shared/ipc';
@@ -51,7 +51,8 @@ function assertConfig(value: unknown): asserts value is AppConfig {
       (k) => typeof (auto as Record<string, unknown>)[k] === 'boolean',
     ) &&
     (rec['provider'] === 'anthropic' || rec['provider'] === 'openai') &&
-    typeof rec['model'] === 'string';
+    typeof rec['model'] === 'string' &&
+    (rec['workspace'] === undefined || typeof rec['workspace'] === 'string');
   if (!ok) throw new Error('IPC payload config が不正');
 }
 
@@ -166,6 +167,12 @@ export async function registerIpcHandlers(
     }),
   };
 
+  // エージェントの作業ディレクトリ。未設定ならアプリのルート(従来動作)
+  const getWorkspace = (): string => {
+    const ws = config.get().workspace;
+    return ws && ws.trim() !== '' ? ws : app.getAppPath();
+  };
+
   // ---- chat ----
   ipcMain.handle(IpcChannels.chatSend, (_e, text: unknown) => {
     assertString(text, 'text');
@@ -201,7 +208,7 @@ export async function registerIpcHandlers(
           ),
         emit,
         systemPrompt: SYSTEM_PROMPT,
-        cwd: app.getAppPath(),
+        cwd: getWorkspace(),
       },
       sessionId,
       history,
@@ -248,7 +255,7 @@ export async function registerIpcHandlers(
       name,
       input,
       // chatSend と同じく evolution を注入する(request_capability が手動実行でも動くように)
-      { cwd: app.getAppPath(), signal: ac.signal, log: () => {}, evolution: evolutionContext },
+      { cwd: getWorkspace(), signal: ac.signal, log: () => {}, evolution: evolutionContext },
     );
     return { content: result.content, isError: result.isError === true };
   });
@@ -258,6 +265,14 @@ export async function registerIpcHandlers(
   ipcMain.handle(IpcChannels.settingsSet, (_e, next: unknown) => {
     assertConfig(next);
     return config.set(next);
+  });
+  ipcMain.handle(IpcChannels.workspacePick, async () => {
+    const result = await dialog.showOpenDialog({
+      title: '作業ディレクトリを選択',
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: getWorkspace(),
+    });
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
   });
 
   // ---- シークレット ----

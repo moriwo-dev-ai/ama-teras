@@ -24,6 +24,7 @@ export const IpcChannels = {
   toolsReload: 'tools:reload',
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
+  workspacePick: 'workspace:pick',
   secretsSet: 'secrets:set',
   secretsStatus: 'secrets:status',
   evolutionEvent: 'evolution:event',
@@ -49,6 +50,8 @@ export interface MyCodexApi {
 
   settingsGet(): Promise<AppConfig>;
   settingsSet(config: AppConfig): Promise<AppConfig>;
+  /** ディレクトリ選択ダイアログを開き、選ばれたパスを返す(キャンセルで null) */
+  pickWorkspace(): Promise<string | null>;
 
   /** APIキーは書き込みのみ。読み出しは有無のbooleanだけ */
   secretsSet(provider: ProviderId, apiKey: string): Promise<SecretsStatus>;

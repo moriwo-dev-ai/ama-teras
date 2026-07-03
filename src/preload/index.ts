@@ -23,6 +23,7 @@ const api: MyCodexApi = {
 
   settingsGet: () => ipcRenderer.invoke(IpcChannels.settingsGet),
   settingsSet: (config) => ipcRenderer.invoke(IpcChannels.settingsSet, config),
+  pickWorkspace: () => ipcRenderer.invoke(IpcChannels.workspacePick),
 
   secretsSet: (provider, apiKey) => ipcRenderer.invoke(IpcChannels.secretsSet, provider, apiKey),
   secretsStatus: () => ipcRenderer.invoke(IpcChannels.secretsStatus),

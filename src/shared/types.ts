@@ -65,6 +65,8 @@ export interface AppConfig {
   provider: ProviderId;
   /** 空文字ならプロバイダ既定モデル */
   model: string;
+  /** エージェントの作業ディレクトリ。空/未設定なら既定(アプリのルート) */
+  workspace?: string;
 }
 
 /** renderer のツール一覧・デバッグパネル用 */

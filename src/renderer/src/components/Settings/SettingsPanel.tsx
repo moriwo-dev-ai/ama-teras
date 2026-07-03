@@ -120,6 +120,34 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
         </div>
 
         <div className="space-y-1">
+          <label className="text-xs text-zinc-400">作業ディレクトリ(エージェントがファイル操作する場所)</label>
+          <div className="flex gap-2">
+            <input
+              readOnly
+              className="flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs text-zinc-300"
+              value={config.workspace && config.workspace.trim() !== '' ? config.workspace : '(既定: アプリのルート)'}
+            />
+            <button
+              className="rounded bg-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-600"
+              onClick={async () => {
+                const picked = await window.api.pickWorkspace();
+                if (picked) void updateConfig({ workspace: picked });
+              }}
+            >
+              選択…
+            </button>
+            {config.workspace && (
+              <button
+                className="rounded bg-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-600"
+                onClick={() => void updateConfig({ workspace: '' })}
+              >
+                既定に戻す
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-1">
           <label className="text-xs text-zinc-400">ツール自動承認</label>
           <div className="flex gap-4 text-xs text-zinc-300">
             {(['safe', 'write', 'exec'] as const).map((k) => (

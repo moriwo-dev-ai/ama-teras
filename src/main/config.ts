@@ -33,6 +33,7 @@ export class ConfigStore {
         merged.provider = rec['provider'];
       }
       if (typeof rec['model'] === 'string') merged.model = rec['model'];
+      if (typeof rec['workspace'] === 'string' && rec['workspace'] !== '') merged.workspace = rec['workspace'];
       return merged;
     } catch {
       return merged;
