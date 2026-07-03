@@ -65,6 +65,7 @@ interface Overrides {
   runner?: EvolutionJobRunner;
   approve?: boolean;
   healthy?: boolean;
+  runCommand?: EvolutionManagerDeps['runCommand'];
 }
 
 function makeManager(o: Overrides = {}): {
@@ -89,8 +90,8 @@ function makeManager(o: Overrides = {}): {
     },
     healthCheck: async () => o.healthy ?? true,
     onEvent: (e) => events.push(e),
-    // typecheck/vitest/smoke は全成功扱い(差分検査だけ実gitで検証する)
-    runCommand: async () => ({ code: 0, output: 'ok' }),
+    // typecheck/vitest/smoke は既定で全成功扱い(差分検査だけ実gitで検証する)
+    runCommand: o.runCommand ?? (async () => ({ code: 0, output: 'ok' })),
   };
   return { manager: new EvolutionManager(deps), events, reloads };
 }
@@ -189,6 +190,79 @@ describe('EvolutionManager(実git統合)', () => {
     const id2 = await m2.manager.enqueue({ description: '2', expectedIO: 'x' });
     expect(id2).toBe(2);
     await waitForTerminal(m2.events);
+  });
+});
+
+describe('再生成・リトライ', () => {
+  it('ゲート不合格→フィードバック付き再生成→2回目で合格し昇格まで進む', async () => {
+    const feedbacks: (string | undefined)[] = [];
+    const runner: EvolutionJobRunner = {
+      async generate(_req, worktreeDir, _log, _signal, feedback) {
+        feedbacks.push(feedback);
+        const marker = feedback ? 'GOOD' : 'BAD';
+        await writeFile(
+          join(worktreeDir, 'src/main/tools/plugins/json_format.ts'),
+          PLUGIN_SOURCE.replace('formatted', marker),
+        );
+        return { toolName: 'json_format', smokeInput: {} };
+      },
+    };
+    const events: EvolutionEvent[] = [];
+    const deps: EvolutionManagerDeps = {
+      repoDir,
+      worktreeBase: join(base, 'evolve'),
+      runner,
+      requestPromotionApproval: async () => true,
+      reloadPlugins: async () => {},
+      healthCheck: async () => true,
+      onEvent: (e) => events.push(e),
+      // BADマーカーを含む生成物はtypecheckで落とす擬似ゲート
+      runCommand: async (command, cwd) => {
+        if (command.includes('typecheck')) {
+          const { readFile } = await import('node:fs/promises');
+          const src = await readFile(join(cwd, 'src/main/tools/plugins/json_format.ts'), 'utf8');
+          if (src.includes('BAD')) return { code: 1, output: '型エラー: BAD' };
+        }
+        return { code: 0, output: 'ok' };
+      },
+    };
+    const manager = new EvolutionManager(deps);
+    await manager.enqueue({ description: 'x', expectedIO: 'x' });
+    const status = await waitForTerminal(events);
+
+    expect(status).toBe('done');
+    expect(feedbacks).toHaveLength(2);
+    expect(feedbacks[0]).toBeUndefined();
+    expect(feedbacks[1]).toContain('typecheck');
+    expect(feedbacks[1]).toContain('型エラー');
+  });
+
+  it('再生成でも不合格なら failed', async () => {
+    const { manager, events } = makeManager({
+      // 常にvitestで落ちる
+      runCommand: async (command) =>
+        command.includes('vitest') ? { code: 1, output: 'テスト失敗' } : { code: 0, output: 'ok' },
+    });
+    await manager.enqueue({ description: 'x', expectedIO: 'x' });
+    const status = await waitForTerminal(events);
+    expect(status).toBe('failed');
+  });
+
+  it('生成の例外は1回リトライされ、2回目成功で継続する', async () => {
+    let calls = 0;
+    const runner: EvolutionJobRunner = {
+      async generate(_req, worktreeDir) {
+        calls += 1;
+        if (calls === 1) throw new Error('一時的な生成失敗');
+        await writeFile(join(worktreeDir, 'src/main/tools/plugins/json_format.ts'), PLUGIN_SOURCE);
+        return { toolName: 'json_format', smokeInput: {} };
+      },
+    };
+    const { manager, events } = makeManager({ runner });
+    await manager.enqueue({ description: 'x', expectedIO: 'x' });
+    const status = await waitForTerminal(events);
+    expect(status).toBe('done');
+    expect(calls).toBe(2);
   });
 });
 

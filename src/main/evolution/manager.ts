@@ -111,42 +111,71 @@ export class EvolutionManager {
       worktree = await this.worktrees.create(id, this.baseRef);
       this.log(job, `B環境を作成: ${worktree.dir}`);
 
-      this.update(job, { status: 'generating' });
-      const ac = new AbortController();
-      const artifacts = await this.deps.runner.generate(
-        req,
-        worktree.dir,
-        (line) => this.log(job, line),
-        ac.signal,
-      );
-      this.update(job, { toolName: artifacts.toolName });
+      // 生成→ゲートを最大2回試行。1回目のゲート不合格は失敗内容をフィードバックして再生成する
+      let artifacts: Awaited<ReturnType<EvolutionJobRunner['generate']>> | null = null;
+      let gatesOk = false;
+      let feedback: string | undefined;
+      for (let attempt = 1; attempt <= 2 && !gatesOk; attempt++) {
+        this.update(job, { status: 'generating' });
+        if (attempt > 1) this.log(job, 'ゲート不合格のため、フィードバック付きで再生成する');
+        const ac = new AbortController();
+        try {
+          artifacts = await this.deps.runner.generate(
+            req,
+            worktree.dir,
+            (line) => this.log(job, line),
+            ac.signal,
+            feedback,
+          );
+        } catch (err) {
+          // 生成自体の失敗は1回だけリトライ
+          if (attempt === 2) throw err;
+          this.log(job, `生成失敗(リトライする): ${err instanceof Error ? err.message : String(err)}`);
+          artifacts = await this.deps.runner.generate(
+            req,
+            worktree.dir,
+            (line) => this.log(job, line),
+            ac.signal,
+            feedback,
+          );
+        }
+        this.update(job, { toolName: artifacts.toolName });
 
-      // B内の生成物をコミット(差分検査・マージの前提)
-      await runGit(['add', '-A'], worktree.dir);
-      await runGit(
-        ['-c', 'user.name=MyCodex Evolution', '-c', 'user.email=evolution@mycodex.local',
-         'commit', '-m', `evolve: ${artifacts.toolName} を生成 (job-${id})`],
-        worktree.dir,
-      );
+        // B内の生成物をコミット(差分検査・マージの前提)
+        await runGit(['add', '-A'], worktree.dir);
+        await runGit(
+          ['-c', 'user.name=MyCodex Evolution', '-c', 'user.email=evolution@mycodex.local',
+           'commit', '--allow-empty', '-m',
+           `evolve: ${artifacts.toolName} を生成 (job-${id}, 試行${attempt})`],
+          worktree.dir,
+        );
 
-      this.update(job, { status: 'verifying' });
-      const smokeDir = await mkdtemp(join(tmpdir(), 'mycodex-smoke-'));
-      const smokeInputPath = join(smokeDir, 'input.json');
-      await writeFile(smokeInputPath, JSON.stringify(artifacts.smokeInput ?? {}), 'utf8');
+        this.update(job, { status: 'verifying' });
+        const smokeDir = await mkdtemp(join(tmpdir(), 'mycodex-smoke-'));
+        const smokeInputPath = join(smokeDir, 'input.json');
+        await writeFile(smokeInputPath, JSON.stringify(artifacts.smokeInput ?? {}), 'utf8');
 
-      const gates = await (this.deps.runGatesFn ?? defaultRunGates)({
-        repoDir: this.deps.repoDir,
-        worktreeDir: worktree.dir,
-        branch: worktree.branch,
-        baseRef: this.baseRef,
-        allowedPaths: EVOLUTION_WRITE_ALLOWLIST,
-        toolName: artifacts.toolName,
-        smokeInputPath,
-        ...(this.deps.runCommand ? { runCommand: this.deps.runCommand } : {}),
-      });
-      this.update(job, { gates: gates.results });
-      if (!gates.ok) {
-        this.update(job, { status: 'failed', error: '検証ゲート不合格' });
+        const gates = await (this.deps.runGatesFn ?? defaultRunGates)({
+          repoDir: this.deps.repoDir,
+          worktreeDir: worktree.dir,
+          branch: worktree.branch,
+          baseRef: this.baseRef,
+          allowedPaths: EVOLUTION_WRITE_ALLOWLIST,
+          toolName: artifacts.toolName,
+          smokeInputPath,
+          ...(this.deps.runCommand ? { runCommand: this.deps.runCommand } : {}),
+        });
+        this.update(job, { gates: gates.results });
+        gatesOk = gates.ok;
+        if (!gatesOk) {
+          feedback = gates.results
+            .filter((r) => !r.ok)
+            .map((r) => `${r.name}: ${r.detail}`)
+            .join('\n');
+        }
+      }
+      if (!gatesOk || !artifacts) {
+        this.update(job, { status: 'failed', error: '検証ゲート不合格(再生成でも解消せず)' });
         return;
       }
 

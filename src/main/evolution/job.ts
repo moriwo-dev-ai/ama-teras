@@ -25,6 +25,8 @@ export interface EvolutionJobRunner {
     worktreeDir: string,
     log: (line: string) => void,
     signal: AbortSignal,
+    /** 前回の検証ゲート失敗内容。再生成(2回目)のときのみ渡される */
+    feedback?: string,
   ): Promise<JobArtifacts>;
 }
 
@@ -59,6 +61,7 @@ export class AgentJobRunner implements EvolutionJobRunner {
     worktreeDir: string,
     log: (line: string) => void,
     signal: AbortSignal,
+    feedback?: string,
   ): Promise<JobArtifacts> {
     // B内のプラグインを見せるため、B専用のレジストリを作る
     const registry = new ToolRegistry(
@@ -75,7 +78,12 @@ export class AgentJobRunner implements EvolutionJobRunner {
         content: [
           {
             type: 'text',
-            text: `新しい能力が必要: ${req.description}\n期待する入出力: ${req.expectedIO}\nこのworktree(${worktreeDir})内でプラグインとテストを実装せよ。`,
+            text:
+              `新しい能力が必要: ${req.description}\n期待する入出力: ${req.expectedIO}\n` +
+              `このworktree(${worktreeDir})内でプラグインとテストを実装せよ。` +
+              (feedback
+                ? `\n\n【再生成】前回の生成物は検証ゲートに不合格だった。既存ファイルを修正して直せ:\n${feedback}`
+                : ''),
           },
         ],
       },
