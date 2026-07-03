@@ -12,6 +12,7 @@ import type {
   ToolInfo,
 } from '../shared/types';
 import { ApprovalBroker } from './agent/approval';
+import { compactHistory } from './agent/compaction';
 import { runAgentLoop } from './agent/loop';
 import { ConfigStore } from './config';
 import { AgentJobRunner } from './evolution/job';
@@ -201,25 +202,35 @@ export async function registerIpcHandlers(
     activeRun = { sessionId, ac };
     history.push({ role: 'user', content: [{ type: 'text', text }] });
 
-    void runAgentLoop(
-      {
-        provider,
-        tools: registry,
-        executeTool: (name, input, ctx) =>
-          executeToolWithApproval(
-            { registry, broker, getAutoApprove: () => config.get().autoApprove },
-            name,
-            input,
-            { ...ctx, evolution: evolutionContext },
-          ),
-        emit,
-        systemPrompt: SYSTEM_PROMPT,
-        cwd: getWorkspace(),
-      },
-      sessionId,
-      history,
-      ac.signal,
-    ).finally(() => {
+    void (async () => {
+      // 履歴が閾値超なら古いやり取りを要約に畳んでから応答する(M8-1)。
+      // 要約失敗は致命的でないため、失敗しても圧縮せず継続する。
+      try {
+        const compacted = await compactHistory(provider, history, { signal: ac.signal });
+        if (compacted) emit({ kind: 'status', sessionId, status: 'calling_llm' });
+      } catch {
+        /* 圧縮失敗は無視して通常応答へ進む */
+      }
+      return runAgentLoop(
+        {
+          provider,
+          tools: registry,
+          executeTool: (name, input, ctx) =>
+            executeToolWithApproval(
+              { registry, broker, getAutoApprove: () => config.get().autoApprove },
+              name,
+              input,
+              { ...ctx, evolution: evolutionContext },
+            ),
+          emit,
+          systemPrompt: SYSTEM_PROMPT,
+          cwd: getWorkspace(),
+        },
+        sessionId,
+        history,
+        ac.signal,
+      );
+    })().finally(() => {
       activeRun = null;
     });
 
