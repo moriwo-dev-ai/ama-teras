@@ -1,15 +1,28 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IpcChannels, type MyCodexApi } from '../shared/ipc';
-import type { AgentEvent } from '../shared/types';
+import type { AgentEvent, ApprovalRequestPayload } from '../shared/types';
+
+function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
+  const wrapped = (_e: Electron.IpcRendererEvent, payload: T): void => listener(payload);
+  ipcRenderer.on(channel, wrapped);
+  return () => ipcRenderer.removeListener(channel, wrapped);
+}
 
 const api: MyCodexApi = {
   chatSend: (text) => ipcRenderer.invoke(IpcChannels.chatSend, text),
   chatCancel: (sessionId) => ipcRenderer.invoke(IpcChannels.chatCancel, sessionId),
-  onChatEvent: (listener) => {
-    const wrapped = (_e: Electron.IpcRendererEvent, event: AgentEvent): void => listener(event);
-    ipcRenderer.on(IpcChannels.chatEvent, wrapped);
-    return () => ipcRenderer.removeListener(IpcChannels.chatEvent, wrapped);
-  },
+  onChatEvent: (listener) => subscribe<AgentEvent>(IpcChannels.chatEvent, listener),
+
+  onApprovalRequest: (listener) =>
+    subscribe<ApprovalRequestPayload>(IpcChannels.approvalRequest, listener),
+  approvalRespond: (id, decision) => ipcRenderer.invoke(IpcChannels.approvalRespond, id, decision),
+
+  toolsList: () => ipcRenderer.invoke(IpcChannels.toolsList),
+  toolsExecute: (name, inputJson) => ipcRenderer.invoke(IpcChannels.toolsExecute, name, inputJson),
+  toolsReload: () => ipcRenderer.invoke(IpcChannels.toolsReload),
+
+  settingsGet: () => ipcRenderer.invoke(IpcChannels.settingsGet),
+  settingsSet: (config) => ipcRenderer.invoke(IpcChannels.settingsSet, config),
 };
 
 contextBridge.exposeInMainWorld('api', api);

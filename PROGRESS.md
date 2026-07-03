@@ -2,7 +2,7 @@
 
 ## 現在の状態
 
-- M1完了。次は M2(ツールプラグイン基盤+組み込みツール+承認UI)
+- M2完了。次は M3(エージェントループ+Anthropicプロバイダ+APIキー管理)
 
 ## 完了項目
 
@@ -11,11 +11,17 @@
   チャットUI(zustand、ストリーミング表示、キャンセル)、エコー応答、スモークモード起動分岐。
   検証: typecheck / vitest 6件 / ビルド / スモーク起動 / CDP経由E2E(UI入力→エコー表示)すべて成功
 
+- 2026-07-03: M2 — ツールプラグイン基盤(esbuild動的ローダー+内容ハッシュでimportキャッシュ迂回、
+  registry.reload()でホットリロード)、組み込み6ツール、承認ブローカー+承認ダイアログ(diff表示・
+  risk別警告・自動承認設定)、ツールデバッグパネル、スモークモード実装
+  (`MYCODEX_SMOKE=1 electron . --tool <name> --input <json>`)。
+  検証: typecheck / vitest 40件 / スモーク実行 / CDP経由E2E(承認ダイアログ・diff・許可・拒否)すべて成功
+
 ## 次のタスク
 
-- M2: ToolPlugin型+esbuild動的ローダー+registry(最初から動的ロード)
-- M2: 組み込み6ツール(read_file/write_file/edit_file/list_dir/grep/bash)
-- M2: 承認UI(diff表示、risk別警告、自動承認モード)
+- M3: LLMProvider型+Anthropic実装(ストリーミング、prompt caching、AbortSignal)
+- M3: APIキー保管(safeStorage)+設定UI
+- M3: エージェントループ本体(tool_use連鎖、maxTurns、キャンセル)
 
 ## 既知のバグ
 

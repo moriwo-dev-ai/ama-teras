@@ -1,16 +1,52 @@
 import { app, BrowserWindow } from 'electron';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { registerIpcHandlers } from './ipc';
+import { getPluginCacheDir, getPluginsDir, registerIpcHandlers } from './ipc';
+import { ToolRegistry } from './tools/registry';
 
 const dirname = fileURLToPath(new URL('.', import.meta.url));
 
-// スモークモード: ウィンドウを開かずツールを1回実行して終了する(進化ゲートが使う)。
-// M1では分岐だけ用意し、プラグイン基盤(M2)導入後に実行本体を実装する。
-async function runSmokeMode(): Promise<never> {
-  console.log(JSON.stringify({ smoke: true, ok: false, reason: 'tools not implemented yet (M2)' }));
-  app.exit(1);
-  throw new Error('unreachable');
+/**
+ * スモークモード: ウィンドウを開かずツールを1回実行して終了する。
+ * 進化の検証ゲートが `MYCODEX_SMOKE=1 electron . --tool <name> --input <sample.json>` で使う。
+ * ゲート内の実行はジョブ承認フローの一部なので、ここでは承認ダイアログを通さない。
+ */
+async function runSmokeMode(): Promise<void> {
+  const finish = (ok: boolean, detail: Record<string, string>): void => {
+    console.log(JSON.stringify({ smoke: true, ok, ...detail }));
+    app.exit(ok ? 0 : 1);
+  };
+
+  try {
+    const argv = process.argv;
+    const toolIdx = argv.indexOf('--tool');
+    const inputIdx = argv.indexOf('--input');
+    const toolName = toolIdx >= 0 ? argv[toolIdx + 1] : undefined;
+    const inputPath = inputIdx >= 0 ? argv[inputIdx + 1] : undefined;
+    if (!toolName) return finish(false, { reason: '--tool <name> が必要' });
+
+    const registry = new ToolRegistry(getPluginsDir(), getPluginCacheDir());
+    await registry.reload();
+    if (registry.errors.length > 0) {
+      return finish(false, { reason: `プラグインロード失敗: ${JSON.stringify(registry.errors)}` });
+    }
+    const plugin = registry.get(toolName);
+    if (!plugin) return finish(false, { reason: `ツールが見つからない: ${toolName}` });
+
+    const input: unknown = inputPath ? JSON.parse(await readFile(inputPath, 'utf8')) : {};
+    const result = await plugin.execute(input, {
+      cwd: process.cwd(),
+      signal: new AbortController().signal,
+      log: () => {},
+    });
+    if (result.isError === true) {
+      return finish(false, { reason: `ツールがエラーを返した: ${result.content.slice(0, 500)}` });
+    }
+    finish(true, { content: result.content.slice(0, 500) });
+  } catch (err) {
+    finish(false, { reason: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -40,12 +76,12 @@ function createWindow(): void {
   }
 }
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   if (process.env['MYCODEX_SMOKE'] === '1') {
-    void runSmokeMode();
+    await runSmokeMode();
     return;
   }
-  registerIpcHandlers(() => mainWindow?.webContents ?? null);
+  await registerIpcHandlers(() => mainWindow?.webContents ?? null);
   createWindow();
 
   app.on('activate', () => {
