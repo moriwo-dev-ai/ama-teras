@@ -9,10 +9,12 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
   const [status, setStatus] = useState<SecretsStatus | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [notice, setNotice] = useState('');
+  const [memory, setMemory] = useState('');
 
   useEffect(() => {
     void window.api.settingsGet().then(setConfig);
     void window.api.secretsStatus().then(setStatus);
+    void window.api.memoryGet().then(setMemory);
   }, []);
 
   if (!config) return <div className="p-4 text-sm text-zinc-400">読込中…</div>;
@@ -165,6 +167,27 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
               </label>
             ))}
           </div>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs text-zinc-400">
+            プロジェクト記憶(MYCODEX.md・作業フォルダに保存され system プロンプトへ注入)
+          </label>
+          <textarea
+            className="h-24 w-full resize-y rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
+            value={memory}
+            placeholder={'例:\n- 返答は必ず日本語\n- このリポジトリのテストは vitest'}
+            onChange={(e) => setMemory(e.target.value)}
+          />
+          <button
+            className="rounded bg-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-600"
+            onClick={async () => {
+              await window.api.memorySet(memory);
+              setNotice('プロジェクト記憶を保存した(MYCODEX.md)');
+            }}
+          >
+            記憶を保存
+          </button>
         </div>
 
         {notice && <p className="text-xs text-zinc-400">{notice}</p>}

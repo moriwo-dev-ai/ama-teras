@@ -15,6 +15,7 @@ import { ApprovalBroker } from './agent/approval';
 import { compactHistory } from './agent/compaction';
 import { runAgentLoop } from './agent/loop';
 import { ConfigStore } from './config';
+import { composeSystemPrompt, readProjectMemory, writeProjectMemory } from './memory';
 import { AgentJobRunner } from './evolution/job';
 import { EvolutionManager } from './evolution/manager';
 import { healthCheckAfterPromotion } from './evolution/supervisor';
@@ -223,7 +224,8 @@ export async function registerIpcHandlers(
               { ...ctx, evolution: evolutionContext },
             ),
           emit,
-          systemPrompt: SYSTEM_PROMPT,
+          // プロジェクト記憶(MYCODEX.md)を system プロンプトへ注入する(M8-2)
+          systemPrompt: composeSystemPrompt(SYSTEM_PROMPT, readProjectMemory(getWorkspace())),
           cwd: getWorkspace(),
         },
         sessionId,
@@ -282,6 +284,11 @@ export async function registerIpcHandlers(
   ipcMain.handle(IpcChannels.settingsSet, (_e, next: unknown) => {
     assertConfig(next);
     return config.set(next);
+  });
+  ipcMain.handle(IpcChannels.memoryGet, () => readProjectMemory(getWorkspace()));
+  ipcMain.handle(IpcChannels.memorySet, (_e, content: unknown) => {
+    assertString(content, 'content');
+    writeProjectMemory(getWorkspace(), content);
   });
   ipcMain.handle(IpcChannels.workspacePick, async () => {
     const result = await dialog.showOpenDialog({
