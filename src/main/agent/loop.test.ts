@@ -76,6 +76,21 @@ const userMsg = (text: string): { role: 'user'; content: [{ type: 'text'; text: 
   content: [{ type: 'text', text }],
 });
 
+/** 履歴の整合性検査: すべての tool_use ブロックに対応する tool_result が存在する(API 400 防止の不変条件) */
+function assertToolPairing(history: { role: string; content: unknown[] }[]): void {
+  const toolUseIds = new Set<string>();
+  const toolResultIds = new Set<string>();
+  for (const msg of history) {
+    for (const b of msg.content as { type?: string; id?: string; toolUseId?: string }[]) {
+      if (b.type === 'tool_use' && typeof b.id === 'string') toolUseIds.add(b.id);
+      if (b.type === 'tool_result' && typeof b.toolUseId === 'string') toolResultIds.add(b.toolUseId);
+    }
+  }
+  for (const id of toolUseIds) {
+    expect(toolResultIds.has(id), `tool_use ${id} に対応する tool_result が無い`).toBe(true);
+  }
+}
+
 describe('runAgentLoop', () => {
   it('テキスト応答のみで done、履歴にassistantが積まれる', async () => {
     const provider = mockProvider([textResponse('こんにちは')]);
@@ -159,6 +174,101 @@ describe('runAgentLoop', () => {
     const status = await runAgentLoop(h.deps, 's1', [userMsg('go')], new AbortController().signal);
     expect(status).toBe('error');
     expect(h.events.some((e) => e.kind === 'error' && e.message.includes('API死んだ'))).toBe(true);
+  });
+
+  // --- 回帰: キャンセル/max_tokens で tool_use が tool_result 無しで残ると次リクエストが恒久的に 400 になる ---
+
+  it('ツール実行ループ中のキャンセルでも全 tool_use に tool_result が対応する(履歴整合)', async () => {
+    const ac = new AbortController();
+    // 1メッセージに2つの tool_use。1つ目実行時に abort する。
+    const provider = mockProvider([
+      [
+        { type: 'tool_use_start', id: 'tu1', name: 'grep' },
+        { type: 'tool_use_start', id: 'tu2', name: 'grep' },
+        {
+          type: 'message_done',
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'tu1', name: 'grep', input: {} },
+              { type: 'tool_use', id: 'tu2', name: 'grep', input: {} },
+            ],
+          },
+          stopReason: 'tool_use',
+          usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0 },
+        },
+      ],
+    ]);
+    const h = harness(provider, { content: 'x' }, {
+      executeTool: async () => {
+        ac.abort(); // 1つ目のツール実行中にキャンセルされる状況を再現
+        return { content: 'x' };
+      },
+    });
+    const history = [userMsg('go')];
+    const status = await runAgentLoop(h.deps, 's1', history, ac.signal);
+
+    expect(status).toBe('cancelled');
+    // 末尾は tool_result をまとめた user メッセージで、tool_use と同数(2件)対応する
+    const lastMsg = history[history.length - 1]!;
+    expect(lastMsg.role).toBe('user');
+    expect(lastMsg.content.filter((b) => (b as { type: string }).type === 'tool_result')).toHaveLength(2);
+    assertToolPairing(history);
+  });
+
+  it('max_tokens で tool_use を含む応答が来ても合成 tool_result で履歴が閉じる', async () => {
+    const provider = mockProvider([
+      [
+        {
+          type: 'message_done',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'tool_use', id: 'cut1', name: 'write_file', input: { path: 'a' } }],
+          },
+          stopReason: 'max_tokens',
+          usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0 },
+        },
+      ],
+    ]);
+    const h = harness(provider);
+    const history = [userMsg('go')];
+    const status = await runAgentLoop(h.deps, 's1', history, new AbortController().signal);
+
+    expect(status).toBe('done');
+    // 途中終了なのでツールは実行されない
+    expect(h.toolCalls).toHaveLength(0);
+    assertToolPairing(history);
+    expect(h.events.some((e) => e.kind === 'error' && e.message.includes('トークン上限'))).toBe(true);
+  });
+
+  it('キャンセル後の履歴で follow-up リクエストが tool_result 欠落にならない', async () => {
+    // 1ターン目: tool_use → 実行中に abort。2ターン目(別 runAgentLoop 呼び出し)が
+    // 壊れた履歴を送っても provider へ渡る messages が整合していることを確認する。
+    const ac = new AbortController();
+    const provider = mockProvider([
+      toolUseResponse('tu1', 'read_file', { path: 'a.txt' }),
+      textResponse('ok'),
+    ]);
+    const h = harness(provider, { content: 'x' }, {
+      executeTool: async () => {
+        ac.abort();
+        return { content: 'x' };
+      },
+    });
+    const history = [userMsg('go')];
+    await runAgentLoop(h.deps, 's1', history, ac.signal);
+    assertToolPairing(history);
+
+    // 履歴を引き継いで2回目を実行(キャンセルしない新しい signal)
+    history.push(userMsg('続けて'));
+    const status2 = await runAgentLoop(h.deps, 's2', history, new AbortController().signal);
+    expect(status2).toBe('done');
+    // 2回目のリクエストに渡った messages 内で tool_use/tool_result が対応している
+    const sent = provider.requests[provider.requests.length - 1]!.messages as {
+      role: string;
+      content: unknown[];
+    }[];
+    assertToolPairing(sent);
   });
 
   it('空コンテンツ応答(refusal等)は error', async () => {

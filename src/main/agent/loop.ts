@@ -27,6 +27,11 @@ function preview(value: unknown): string {
   return json.length > 500 ? `${json.slice(0, 500)}…` : json;
 }
 
+/** 実行されなかった tool_use を履歴上で閉じるための合成 tool_result(整合性維持用) */
+function syntheticToolResult(toolUseId: string, reason: string): Extract<ContentBlock, { type: 'tool_result' }> {
+  return { type: 'tool_result', toolUseId, content: reason, isError: true };
+}
+
 /**
  * エージェントループ本体: 応答 → tool_use → 承認+実行 → tool_result → ループ。
  * history は呼び出し側が保持し、この関数が assistant / tool_result メッセージを追記する。
@@ -94,7 +99,21 @@ export async function runAgentLoop(
     history.push(finalMessage);
     deps.emit({ kind: 'message_done', sessionId });
 
+    // tool_use が1つでも積まれたら、対応する tool_result を必ず同数返さないと
+    // 次リクエストで API が 400 を返し履歴が恒久破損する。実行有無に関わらず整合を保つ。
+    const toolUses = finalMessage.content.filter(
+      (b): b is Extract<ContentBlock, { type: 'tool_use' }> => b.type === 'tool_use',
+    );
+
     if (stopReason !== 'tool_use') {
+      // max_tokens 等で応答が途中終了しつつ tool_use ブロックを含む場合、
+      // それらを合成 tool_result で閉じてから終了する(未応答 tool_use を残さない)。
+      if (toolUses.length > 0) {
+        history.push({
+          role: 'user',
+          content: toolUses.map((tu) => syntheticToolResult(tu.id, '応答が途中で終了したためツールは実行されなかった')),
+        });
+      }
       if (stopReason === 'max_tokens') {
         deps.emit({ kind: 'error', sessionId, message: '出力トークン上限に達した(応答は途中で切れている)' });
       }
@@ -102,12 +121,13 @@ export async function runAgentLoop(
     }
 
     // tool_use ブロックを順に実行し、結果を1つの user メッセージにまとめて返す
-    const toolUses = finalMessage.content.filter(
-      (b): b is Extract<ContentBlock, { type: 'tool_use' }> => b.type === 'tool_use',
-    );
     const results: ContentBlock[] = [];
+    let cancelledMidLoop = false;
     for (const tu of toolUses) {
-      if (signal.aborted) return finish('cancelled');
+      if (signal.aborted) {
+        cancelledMidLoop = true;
+        break;
+      }
       deps.emit({
         kind: 'tool_start',
         sessionId,
@@ -136,7 +156,12 @@ export async function runAgentLoop(
         isError: result.isError,
       });
     }
+    // キャンセルで未実行のまま抜けた tool_use にも合成結果を対応させ、履歴を整合させてから閉じる
+    for (const tu of toolUses.slice(results.length)) {
+      results.push(syntheticToolResult(tu.id, 'ユーザーによりキャンセルされたためツールは実行されなかった'));
+    }
     history.push({ role: 'user', content: results });
+    if (cancelledMidLoop || signal.aborted) return finish('cancelled');
   }
 
   return finish('max_turns_reached');
