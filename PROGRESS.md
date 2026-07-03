@@ -2,8 +2,15 @@
 
 ## 現在の状態
 
-- **M1〜M6完了**(M3/M5/M6の実API確認はOpenAIプロバイダで実施済み)。M7(磨き込み)は7/7以降
+- **M1〜M8まで実装**(M3/M5/M6の実API確認はOpenAIプロバイダで実施済み)。
+  テスト136件・typecheck・build・スモークE2E 全合格。
 - 進化ジョブ#1が成功済み: `csv_to_markdown` ツールが evolve/1 として昇格・稼働中
+- **コードレビュー指摘10件を全修正**(各回帰テスト付き)。セキュリティ2件は攻撃再現テストで実証。
+- **M7磨き込み**: モデルUXドロップダウン / ワークスペース選択 / electron-builder構成。
+  ※NSISインストーラ生成のみ現環境ブロック(winCodeSignのシンボリックリンク展開に権限要。
+  開発者モード or 管理者実行で `npm run dist` 完走。構成・パッケージ版プラグインロードは検証済)。
+- **M8ハーネス強化**: M8-1 コンテキスト自動圧縮 / M8-2 プロジェクト記憶(MYCODEX.md) /
+  M8-3 プランモード / M8-4 サブエージェント。
 
 ## ユーザーへの依頼事項
 
@@ -71,6 +78,22 @@
 
 (なし)
 
+## 完了項目(2026-07-04 夜間・自律作業)
+
+- レビュー指摘修正(全10件、個別コミット・回帰テスト付き):
+  1. 履歴破損: キャンセル/max_tokens時にtool_useを合成tool_resultで必ず閉じる(loop.ts)
+  2. 承認ハング: ApprovalBrokerをAbortSignal対応化(キャンセルでdeny解決)
+  3. コマンドインジェクション: LLM由来toolNameを tools/name.ts で厳格検証(攻撃再現テスト)
+  4. bash保護領域バイパス: ToolContext.restrictExecで進化ジョブのbashを検証コマンドのみに制限
+  5. activeSessionId恒久ロック: 終端イベント先着時の復活を防止(earlyFinished)
+  6. 昇格の頑健化: assertPromotable前倒し・過剰dirty検査撤廃・merge --abort回復
+  7. ツール引数JSON握りつぶし: parseToolArguments+inputErrorで表面化
+  8. read_fileサイズ上限(10MB, OOM防止) / 9. grep ReDoS防御(looksCatastrophic+行長cap)
+  10. tools:executeにevolution/subagent注入(request_capability手動実行)
+- cleanup: echo.ts削除 / loaderメモ化+孤児mjs掃除 / manager生成呼び出し重複解消 / csv整形
+- M7: モデルUX(shared/models.ts) / ワークスペース選択(config.workspace) / electron-builder
+- M8-1〜4: 圧縮(compaction.ts) / 記憶(memory.ts) / プランモード(loop.planMode) / サブエージェント(subagent.ts)
+
 ## 決定事項ログ
 
 - 2026-07-03: 開発マシンに Node.js が無かったため winget で LTS (v24.18.0) を導入
@@ -88,3 +111,17 @@
   (vitest等)で走らせる前に落とすため(ARCHITECTURE.md §6.2も更新済み)
 - 2026-07-03: 進化ジョブ内のツール実行は自動承認(昇格時に人間の承認+diff全文表示があるため)。
   昇格承認ダイアログでは child_process/ネットワークをdiffから機械検出して明示警告
+- 2026-07-04: bashの保護領域バイパス対策は、executor層でのパス強制が不可能(shellをパースできない)
+  ため、進化ジョブでは実行できるコマンド自体を検証系(npm run/npx vitest/npx tsc)に限定する方式を採用
+  (ToolContext.restrictExec)。判定はプラグイン規約によりbash.ts内に持つ。残余リスク: npm scriptsの
+  範囲内。node_modulesジャンクション経由の改変はbashからの任意コマンドを塞いだことで大幅に縮小
+- 2026-07-04: コンテキスト圧縮の境界はuserテキストターンの先頭。tool_use/tool_resultを分断すると
+  API400になるため(指摘#1と同根)。要約は現行プロバイダのcompleteで実施(プロバイダ非依存)
+- 2026-07-04: サブエージェントは ToolContext.subagent 経由で注入(evolutionと同パターン。プラグインは
+  コアをimportできないため)。子は読み取り専用ツールのみ・別history・要約のみ親へ返す
+- 2026-07-04: パッケージ版のプラグインは .ts を extraResources で resources/plugins へ同梱し、
+  esbuildで実行時トランスパイル。esbuildネイティブバイナリはasarUnpack+ESBUILD_BINARY_PATHで解決。
+  進化(git/worktree)はソースツリー前提のためパッケージ版では基本ツールのみ(既知の制約)
+- 2026-07-04: electron-builderのNSISインストーラ生成は、winCodeSign展開時のmacOSシンボリックリンク
+  作成にWindowsのシンボリックリンク権限が要り現環境でブロック。開発者モードON or 管理者実行で解消。
+  コード署名は不要方針(CSC_IDENTITY_AUTO_DISCOVERY=false)
