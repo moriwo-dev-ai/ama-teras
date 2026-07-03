@@ -6,9 +6,9 @@
 
 ## サマリ(随時更新)
 
-- 上位1〜4(履歴破損・承認ハング・コマンドインジェクション・bashバイパス)修正完了。
-  ベースライン78件 → 98件(回帰テスト+20)。typecheck通過。各修正を個別コミット。
-- 進行中: 中程度5〜10
+- **レビュー指摘1a(上位1〜4)+1b(中程度5〜10)すべて修正完了**。
+  ベースライン78件 → 119件(回帰テスト+41)。typecheck通過。各修正を個別コミット。
+- 進行中: 1c 補足cleanup(echo削除・重複集約・loaderリーク等)
 
 ## 完了
 
@@ -35,10 +35,16 @@
 | 2 | 承認ハング(AbortSignal) | ✅完了 | broker signal対応+回帰7件 |
 | 3 | 昇格前コマンドインジェクション | ✅完了 | tools/name.ts検証+攻撃再現 |
 | 4 | bash保護領域バイパス | ✅完了 | restrictExec+攻撃再現12種 |
-| 5 | activeSessionId恒久ロック | 未着手 | - |
-| 6 | 昇格の構造的失敗 | 未着手 | - |
-| 7 | ツール引数JSON握りつぶし | 未着手 | - |
-| 8 | read_fileサイズ無制限OOM | 未着手 | - |
-| 9 | grep ReDoSハング | 未着手 | - |
-| 10 | request_capabilityデバッグパネル失敗 | 未着手 | - |
-| cleanup | echo削除・重複集約・loaderリーク等 | 未着手 | - |
+| 5 | activeSessionId恒久ロック | ✅完了 | earlyFinished+store回帰3件 |
+| 6 | 昇格の構造的失敗 | ✅完了 | assertPromotable+--abort+回帰5件 |
+| 7 | ツール引数JSON握りつぶし | ✅完了 | parseToolArguments+inputError |
+| 8 | read_fileサイズ無制限OOM | ✅完了 | 10MB上限+回帰2件 |
+| 9 | grep ReDoSハング | ✅完了 | looksCatastrophic+行長cap |
+| 10 | request_capabilityデバッグパネル失敗 | ✅完了 | ctx.evolution注入+契約3件 |
+| cleanup | echo削除・重複集約・loaderリーク等 | 進行中 | - |
+
+### #9 ReDoSの残余リスク(要認識)
+looksCatastrophic はヒューリスティックで、ネスト量指定子の典型形のみ検出。
+バックリファレンス由来の破滅パターンや非自明な形は素通りしうる。行長capも
+短い(~40字)壊滅入力には無力。完全対策には worker_thread + タイムアウト or
+safe-regex 依存が必要。現状は「典型形の即時拒否+入力サイズ抑制」の多層緩和。

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -87,6 +87,19 @@ describe('ToolRegistry.reload(動的ロード)', () => {
     await writeFile(join(dir, 'tool.ts'), VALID_PLUGIN('tool', 'v2'));
     await registry.reload();
     expect((await registry.get('tool')!.execute({}, dummyCtx())).content).toBe('v2');
+  });
+
+  // 効率: 内容変更で古い .mjs が溜まらない(孤児プルーニング)
+  it('reload を重ねても cacheDir に古い .mjs が蓄積しない', async () => {
+    await writeFile(join(dir, 'tool.ts'), VALID_PLUGIN('tool', 'v1'));
+    const registry = new ToolRegistry(dir, cacheDir);
+    await registry.reload();
+    for (const v of ['v2', 'v3', 'v4']) {
+      await writeFile(join(dir, 'tool.ts'), VALID_PLUGIN('tool', v));
+      await registry.reload();
+    }
+    const mjs = (await readdir(cacheDir)).filter((f) => f.endsWith('.mjs'));
+    expect(mjs).toHaveLength(1); // 現行版のみ残る
   });
 });
 

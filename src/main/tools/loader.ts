@@ -1,9 +1,15 @@
 import { transform } from 'esbuild';
 import { createHash } from 'node:crypto';
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { JsonSchema, ToolPlugin } from './types';
+
+// ソース内容ハッシュでトランスパイル済みプラグインをメモ化する。
+// reload のたびに全プラグインを再トランスパイル+再import すると無駄で、
+// 変更が無いのに動的import が増え続けESMモジュールキャッシュが肥大していた。
+// 変更が無いファイルはキャッシュ済みプラグインを返し、再importを避ける。
+const transpileCache = new Map<string, { sourceHash: string; compiledPath: string; plugin: ToolPlugin }>();
 
 export interface LoadedPlugin {
   plugin: ToolPlugin;
@@ -56,15 +62,31 @@ export function validatePlugin(mod: unknown, expectedName: string): ToolPlugin {
  */
 export async function loadPluginFile(filePath: string, cacheDir: string): Promise<ToolPlugin> {
   const source = await readFile(filePath, 'utf8');
+  const sourceHash = createHash('sha1').update(source).digest('hex').slice(0, 12);
+  // 内容が変わっていなければ再トランスパイル・再importせずキャッシュを返す
+  const cached = transpileCache.get(filePath);
+  if (cached && cached.sourceHash === sourceHash) return cached.plugin;
+
   const { code } = await transform(source, { loader: 'ts', format: 'esm', target: 'es2022' });
-  const hash = createHash('sha1').update(code).digest('hex').slice(0, 12);
   const name = basename(filePath, '.ts');
-  const compiledPath = join(cacheDir, `${name}.${hash}.mjs`);
+  const compiledPath = join(cacheDir, `${name}.${sourceHash}.mjs`);
   await mkdir(cacheDir, { recursive: true });
   await writeFile(compiledPath, code, 'utf8');
   const mod: unknown = await import(pathToFileURL(compiledPath).href);
   if (!isRecord(mod)) throw new Error('モジュール評価に失敗');
-  return validatePlugin(mod['default'], name);
+  const plugin = validatePlugin(mod['default'], name);
+  transpileCache.set(filePath, { sourceHash, compiledPath, plugin });
+  return plugin;
+}
+
+/** cacheDir から、現在使用中でない古い .mjs を削除する(内容変更ごとに孤児が溜まるため) */
+async function pruneCache(cacheDir: string, keep: Set<string>): Promise<void> {
+  const entries = await readdir(cacheDir).catch(() => [] as string[]);
+  await Promise.all(
+    entries
+      .filter((e) => e.endsWith('.mjs') && !keep.has(join(cacheDir, e)))
+      .map((e) => rm(join(cacheDir, e), { force: true }).catch(() => {})),
+  );
 }
 
 /** dir 直下の *.ts(テストを除く)を全ロード。壊れたプラグインはスキップして errors に積む */
@@ -83,6 +105,9 @@ export async function loadPlugins(dir: string, cacheDir: string): Promise<LoadRe
       errors.push({ filePath, message: err instanceof Error ? err.message : String(err) });
     }
   }
+  // 現行プラグインの .mjs 以外(=内容変更で残った古い版)を掃除する
+  const keep = new Set(files.map((f) => transpileCache.get(f)?.compiledPath).filter((p): p is string => !!p));
+  await pruneCache(cacheDir, keep);
   return { plugins, errors };
 }
 
