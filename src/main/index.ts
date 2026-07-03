@@ -7,6 +7,21 @@ import { ToolRegistry } from './tools/registry';
 
 const dirname = fileURLToPath(new URL('.', import.meta.url));
 
+// パッケージ版では esbuild のネイティブバイナリが asar 外(app.asar.unpacked)に
+// 展開されるが、esbuild 本体は asar 内パスを見に行き ENOENT になる。
+// ESBUILD_BINARY_PATH で展開先を明示する(プラグインの実行時トランスパイルに必須)。
+if (app.isPackaged && !process.env['ESBUILD_BINARY_PATH']) {
+  const binName = process.platform === 'win32' ? 'esbuild.exe' : 'bin/esbuild';
+  process.env['ESBUILD_BINARY_PATH'] = join(
+    process.resourcesPath,
+    'app.asar.unpacked',
+    'node_modules',
+    '@esbuild',
+    `${process.platform}-${process.arch}`,
+    binName,
+  );
+}
+
 /**
  * スモークモード: ウィンドウを開かずツールを1回実行して終了する。
  * 進化の検証ゲートが `MYCODEX_SMOKE=1 electron . --tool <name> --input <sample.json>` で使う。

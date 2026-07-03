@@ -56,9 +56,15 @@ function assertConfig(value: unknown): asserts value is AppConfig {
   if (!ok) throw new Error('IPC payload config が不正');
 }
 
-/** 稼働リポジトリ直上のプラグインソースを直接ロードする(進化昇格後のホットリロードも同経路) */
+/**
+ * プラグインソースの場所。開発時はリポジトリ内、パッケージ版は extraResources に
+ * 同梱した plugins/ を読む(asar 内の src は実行時に解決できないため)。
+ * ※進化(worktree/git/昇格)はソースツリー前提のため、パッケージ版では基本ツールのみ。
+ */
 export function getPluginsDir(): string {
-  return process.env['MYCODEX_PLUGINS_DIR'] ?? join(app.getAppPath(), 'src/main/tools/plugins');
+  if (process.env['MYCODEX_PLUGINS_DIR']) return process.env['MYCODEX_PLUGINS_DIR'];
+  if (app.isPackaged) return join(process.resourcesPath, 'plugins');
+  return join(app.getAppPath(), 'src/main/tools/plugins');
 }
 
 export function getPluginCacheDir(): string {

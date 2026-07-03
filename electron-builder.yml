@@ -1,0 +1,27 @@
+appId: local.mycodex.app
+productName: MyCodex
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - package.json
+# 動的ロードするプラグインの .ts ソースを同梱する(asar内srcは実行時に読めないため)。
+# 実行時に esbuild でトランスパイルして読むため .ts のまま resources/plugins へ置く。
+extraResources:
+  - from: src/main/tools/plugins
+    to: plugins
+    filter:
+      - '**/*.ts'
+      - '!**/*.test.ts'
+# esbuild はネイティブバイナリを持つため asar から展開しないと実行できない
+asarUnpack:
+  - node_modules/esbuild/**
+  - node_modules/@esbuild/**
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
