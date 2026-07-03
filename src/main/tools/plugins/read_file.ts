@@ -3,6 +3,9 @@ import { isAbsolute, resolve } from 'node:path';
 import type { ToolContext, ToolPlugin, ToolResult } from '../types';
 
 const MAX_CHARS = 50_000;
+// 巨大/バイナリファイルを全読み込みして main プロセスを OOM させないための上限。
+// 出力自体は MAX_CHARS で切るが、読み込み前に stat のサイズで弾く必要がある。
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const NUL = '\x00';
 
 export default {
@@ -26,6 +29,13 @@ export default {
 
     const st = await stat(abs).catch(() => null);
     if (!st || !st.isFile()) return { content: `ファイルが存在しない: ${abs}`, isError: true };
+    if (st.size > MAX_FILE_SIZE) {
+      const mb = (st.size / 1024 / 1024).toFixed(1);
+      return {
+        content: `ファイルが大きすぎる(${mb}MB > 上限${MAX_FILE_SIZE / 1024 / 1024}MB)。offset/limitで部分読みするか、grepで検索すること: ${abs}`,
+        isError: true,
+      };
+    }
 
     const raw = await readFile(abs, 'utf8');
     if (raw.includes(NUL)) return { content: `バイナリファイルは読めない: ${abs}`, isError: true };
