@@ -28,6 +28,9 @@ export type AgentEvent =
 
 export type ProviderId = 'anthropic' | 'openai';
 
+/** 送信モード。plan は実装前に計画を提示し、ツールを実行しない(承認後に通常モードで実行) */
+export type ChatMode = 'normal' | 'plan';
+
 export interface SecretsStatus {
   anthropic: boolean;
   openai: boolean;

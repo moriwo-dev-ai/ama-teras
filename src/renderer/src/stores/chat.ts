@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AgentEvent, AgentStatus } from '../../../shared/types';
+import type { AgentEvent, AgentStatus, ChatMode } from '../../../shared/types';
 
 export type UiMessage =
   | { id: string; role: 'user' | 'assistant'; text: string; streaming: boolean }
@@ -17,7 +17,7 @@ interface ChatState {
   messages: UiMessage[];
   status: AgentStatus;
   activeSessionId: string | null;
-  send: (text: string) => Promise<void>;
+  send: (text: string, mode?: ChatMode) => Promise<void>;
   cancel: () => void;
   handleEvent: (event: AgentEvent) => void;
 }
@@ -45,17 +45,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
   status: 'idle',
   activeSessionId: null,
 
-  send: async (text) => {
+  send: async (text, mode = 'normal') => {
     const trimmed = text.trim();
     if (!trimmed || get().activeSessionId) return;
+    const shown = mode === 'plan' ? `📝 [プラン] ${trimmed}` : trimmed;
     set((s) => ({
       messages: [
         ...s.messages,
-        { id: crypto.randomUUID(), role: 'user', text: trimmed, streaming: false },
+        { id: crypto.randomUUID(), role: 'user', text: shown, streaming: false },
       ],
     }));
     try {
-      const { sessionId } = await window.api.chatSend(trimmed);
+      const { sessionId } = await window.api.chatSend(trimmed, mode);
       // このセッションの終端イベントが既に届いていたら activeSessionId を復活させない
       if (earlyFinished.delete(sessionId)) return;
       set({ activeSessionId: sessionId });

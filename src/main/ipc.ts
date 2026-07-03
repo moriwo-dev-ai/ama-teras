@@ -182,8 +182,13 @@ export async function registerIpcHandlers(
   };
 
   // ---- chat ----
-  ipcMain.handle(IpcChannels.chatSend, (_e, text: unknown) => {
+  const PLAN_SUFFIX = `\n\n# プランモード\n今回は「計画のみ」を求められている。実装に入らず、
+何をどの順で行うか(触るファイル・使うツール・確認事項)を簡潔な計画として提示せよ。
+ツールは実行しない。ユーザーが計画を承認したら、次のメッセージで通常モードとして実行する。`;
+
+  ipcMain.handle(IpcChannels.chatSend, (_e, text: unknown, mode: unknown) => {
     assertString(text, 'text');
+    const planMode = mode === 'plan';
     const sessionId = randomUUID();
     const emit = (event: AgentEvent): void => push(IpcChannels.chatEvent, event);
 
@@ -215,7 +220,9 @@ export async function registerIpcHandlers(
       return runAgentLoop(
         {
           provider,
-          tools: registry,
+          // プランモードではツール定義を渡さない(モデルがtool_useを出せない)。
+          // 併せて loop 側 planMode でも実行を機械的に禁止する(二重防御)。
+          tools: planMode ? { list: () => [] } : registry,
           executeTool: (name, input, ctx) =>
             executeToolWithApproval(
               { registry, broker, getAutoApprove: () => config.get().autoApprove },
@@ -225,8 +232,11 @@ export async function registerIpcHandlers(
             ),
           emit,
           // プロジェクト記憶(MYCODEX.md)を system プロンプトへ注入する(M8-2)
-          systemPrompt: composeSystemPrompt(SYSTEM_PROMPT, readProjectMemory(getWorkspace())),
+          systemPrompt:
+            composeSystemPrompt(SYSTEM_PROMPT, readProjectMemory(getWorkspace())) +
+            (planMode ? PLAN_SUFFIX : ''),
           cwd: getWorkspace(),
+          planMode,
         },
         sessionId,
         history,

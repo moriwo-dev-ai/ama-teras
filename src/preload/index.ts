@@ -9,7 +9,7 @@ function subscribe<T>(channel: string, listener: (payload: T) => void): () => vo
 }
 
 const api: MyCodexApi = {
-  chatSend: (text) => ipcRenderer.invoke(IpcChannels.chatSend, text),
+  chatSend: (text, mode) => ipcRenderer.invoke(IpcChannels.chatSend, text, mode),
   chatCancel: (sessionId) => ipcRenderer.invoke(IpcChannels.chatCancel, sessionId),
   onChatEvent: (listener) => subscribe<AgentEvent>(IpcChannels.chatEvent, listener),
 

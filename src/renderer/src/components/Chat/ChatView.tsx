@@ -32,6 +32,7 @@ function ToolCard({ msg }: { msg: Extract<UiMessage, { role: 'tool' }> }): JSX.E
 export function ChatView(): JSX.Element {
   const { messages, status, activeSessionId, send, cancel } = useChatStore();
   const [input, setInput] = useState('');
+  const [planMode, setPlanMode] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const busy = activeSessionId !== null;
 
@@ -41,7 +42,7 @@ export function ChatView(): JSX.Element {
 
   const submit = (): void => {
     if (busy) return;
-    void send(input);
+    void send(input, planMode ? 'plan' : 'normal');
     setInput('');
   };
 
@@ -81,6 +82,12 @@ export function ChatView(): JSX.Element {
             状態: {status === 'calling_llm' ? 'モデル応答中' : status === 'executing_tool' ? 'ツール実行中' : status}
           </p>
         )}
+        <div className="mb-2 flex items-center gap-3 text-xs">
+          <label className="flex items-center gap-1 text-zinc-400">
+            <input type="checkbox" checked={planMode} onChange={(e) => setPlanMode(e.target.checked)} />
+            プランモード(実装前に計画のみ提示・ツール不実行)
+          </label>
+        </div>
         <div className="flex gap-2">
           <textarea
             className="max-h-40 flex-1 resize-none rounded-md border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm outline-none focus:border-blue-500"

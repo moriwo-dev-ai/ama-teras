@@ -300,6 +300,22 @@ describe('runAgentLoop', () => {
     expect(history[2]!.content[0]).toMatchObject({ type: 'tool_result', toolUseId: 'bad1', isError: true });
   });
 
+  it('プランモードではツールを実行しない(承認前実行の防止・M8-3)', async () => {
+    const provider = mockProvider([
+      // モデルが(誤って)tool_use を出しても実行されないこと
+      toolUseResponse('p1', 'write_file', { path: 'a', content: 'x' }),
+      textResponse('これは計画です'),
+    ]);
+    const h = harness(provider, { content: 'MUST-NOT-RUN' }, { planMode: true });
+    const history = [userMsg('実装して')];
+    const status = await runAgentLoop(h.deps, 's1', history, new AbortController().signal);
+
+    expect(status).toBe('done');
+    expect(h.toolCalls).toHaveLength(0); // 一切実行されない
+    assertToolPairing(history); // 履歴整合(合成tool_resultで閉じる)
+    expect(history[2]!.content[0]).toMatchObject({ type: 'tool_result', isError: true });
+  });
+
   it('空コンテンツ応答(refusal等)は error', async () => {
     const provider = mockProvider([
       [

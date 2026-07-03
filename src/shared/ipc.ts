@@ -3,6 +3,7 @@ import type {
   ApprovalDecision,
   ApprovalRequestPayload,
   AppConfig,
+  ChatMode,
   EvolutionEvent,
   EvolutionJobSummary,
   PluginErrorInfo,
@@ -37,7 +38,7 @@ export const IpcChannels = {
 
 /** preload が window.api として公開するAPIの型。renderer はこれ経由でしか main と話せない */
 export interface MyCodexApi {
-  chatSend(text: string): Promise<{ sessionId: string }>;
+  chatSend(text: string, mode?: ChatMode): Promise<{ sessionId: string }>;
   chatCancel(sessionId: string): Promise<void>;
   /** 戻り値は購読解除関数 */
   onChatEvent(listener: (event: AgentEvent) => void): () => void;

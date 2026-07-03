@@ -13,6 +13,8 @@ export interface AgentLoopDeps {
   cwd: string;
   maxTurns?: number;
   maxTokens?: number;
+  /** プランモード: ツールを一切実行しない(計画提示のみ)。承認前の実行を機械的に防ぐ(M8-3) */
+  planMode?: boolean;
 }
 
 const DEFAULT_MAX_TURNS = 30;
@@ -127,6 +129,12 @@ export async function runAgentLoop(
       if (signal.aborted) {
         cancelledMidLoop = true;
         break;
+      }
+      // プランモードでは承認前のツール実行を機械的に禁止する(計画のみ提示)
+      if (deps.planMode) {
+        const msg = 'プランモードのためツールは実行しない。計画を提示し、ユーザーの承認を待て。';
+        results.push({ type: 'tool_result', toolUseId: tu.id, content: msg, isError: true });
+        continue;
       }
       // 引数JSONの解析に失敗したツールは実行せず、原因をモデルとUIに明示して返す
       // (空入力での実行は無関係なバリデーションエラーを招きモデルがループするため)
