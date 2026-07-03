@@ -90,4 +90,17 @@ describe('executeToolWithApproval', () => {
     expect(requests).toHaveLength(0);
     expect(r.content).toBe('written');
   });
+
+  // 回帰: 承認待ち中にキャンセルすると Promise が永久未解決になりループがハングしていた(指摘#2)
+  it('承認待ち中に signal が abort されたらハングせず deny 結果を返す', async () => {
+    const ac = new AbortController();
+    const abortCtx = { cwd: dir, signal: ac.signal, log: () => {} };
+    const promise = executeToolWithApproval(deps(), 'fake_write', {}, abortCtx);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(requests).toHaveLength(1); // ダイアログは出ている
+    ac.abort(); // ユーザーがチャットをキャンセル
+    const r = await promise; // ハングせず解決すること(タイムアウトしないのが要点)
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain('拒否');
+  });
 });

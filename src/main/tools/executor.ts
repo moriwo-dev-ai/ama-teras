@@ -56,13 +56,16 @@ export async function executeToolWithApproval(
   const needsApproval = !auto[plugin.risk] && !deps.broker.isSessionAllowed(name);
 
   if (needsApproval) {
-    const decision = await deps.broker.request({
-      toolName: plugin.name,
-      risk: plugin.risk,
-      inputPreview: JSON.stringify(input, null, 2) ?? String(input),
-      diff: await buildDiffPreview(plugin.name, input, ctx),
-      warnings: plugin.warnings ?? [],
-    });
+    const decision = await deps.broker.request(
+      {
+        toolName: plugin.name,
+        risk: plugin.risk,
+        inputPreview: JSON.stringify(input, null, 2) ?? String(input),
+        diff: await buildDiffPreview(plugin.name, input, ctx),
+        warnings: plugin.warnings ?? [],
+      },
+      ctx.signal,
+    );
     if (decision === 'deny') {
       return { content: 'ユーザーがツール実行を拒否した', isError: true };
     }

@@ -12,19 +12,30 @@ export class ApprovalBroker {
 
   constructor(private readonly pushToRenderer: (req: ApprovalRequestPayload) => void) {}
 
-  request(req: Omit<ApprovalRequestPayload, 'id'>): Promise<ApprovalDecision> {
+  /**
+   * 承認を要求する。signal が渡され、待機中に abort されたら 'deny' で解決する
+   * (キャンセルしても承認待ちが未解決のまま残りループがハングするのを防ぐ)。
+   */
+  request(req: Omit<ApprovalRequestPayload, 'id'>, signal?: AbortSignal): Promise<ApprovalDecision> {
+    if (signal?.aborted) return Promise.resolve('deny');
     const id = randomUUID();
     return new Promise((resolve) => {
-      this.pending.set(id, resolve);
+      const settle = (decision: ApprovalDecision): void => {
+        if (!this.pending.has(id)) return; // 二重解決を防ぐ(respond と abort の競合)
+        this.pending.delete(id);
+        if (signal) signal.removeEventListener('abort', onAbort);
+        resolve(decision);
+      };
+      const onAbort = (): void => settle('deny');
+      this.pending.set(id, settle);
+      if (signal) signal.addEventListener('abort', onAbort, { once: true });
       this.pushToRenderer({ ...req, id });
     });
   }
 
   respond(id: string, decision: ApprovalDecision): void {
-    const resolve = this.pending.get(id);
-    if (!resolve) return;
-    this.pending.delete(id);
-    resolve(decision);
+    const settle = this.pending.get(id);
+    if (settle) settle(decision);
   }
 
   allowForSession(toolName: string): void {
@@ -37,8 +48,9 @@ export class ApprovalBroker {
 
   resetSession(): void {
     this.sessionAllowed.clear();
-    // 未応答の承認は拒否として解決(ダイアログの取り残し防止)
-    for (const resolve of this.pending.values()) resolve('deny');
+    // 未応答の承認は拒否として解決(ダイアログの取り残し防止)。
+    // settle は pending を書き換えるためスナップショットしてから回す。
+    for (const settle of [...this.pending.values()]) settle('deny');
     this.pending.clear();
   }
 }
