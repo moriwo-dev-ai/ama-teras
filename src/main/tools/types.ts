@@ -37,6 +37,13 @@ export interface ToolContext {
   evolution?: {
     requestCapability(description: string, expectedIO: string): Promise<{ jobId: number }>;
   };
+  /**
+   * サブエージェント委譲(M8-4)。dispatch_agent プラグインだけが使う。
+   * 調査タスクを読み取り専用の子エージェントへ渡し、結果の要約だけを返す。
+   */
+  subagent?: {
+    run(task: string, signal: AbortSignal): Promise<string>;
+  };
 }
 
 export interface ToolResult {

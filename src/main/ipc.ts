@@ -14,6 +14,7 @@ import type {
 import { ApprovalBroker } from './agent/approval';
 import { compactHistory } from './agent/compaction';
 import { runAgentLoop } from './agent/loop';
+import { runSubAgent } from './agent/subagent';
 import { ConfigStore } from './config';
 import { composeSystemPrompt, readProjectMemory, writeProjectMemory } from './memory';
 import { AgentJobRunner } from './evolution/job';
@@ -228,7 +229,13 @@ export async function registerIpcHandlers(
               { registry, broker, getAutoApprove: () => config.get().autoApprove },
               name,
               input,
-              { ...ctx, evolution: evolutionContext },
+              {
+                ...ctx,
+                evolution: evolutionContext,
+                subagent: {
+                  run: (task, signal) => runSubAgent({ provider, tools: registry, cwd: getWorkspace() }, task, signal),
+                },
+              },
             ),
           emit,
           // プロジェクト記憶(MYCODEX.md)を system プロンプトへ注入する(M8-2)
