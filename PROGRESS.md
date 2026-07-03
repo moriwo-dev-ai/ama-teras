@@ -40,6 +40,8 @@
   検証: typecheck / vitest 64件(実gitでの正常系・保護領域fail・却下・ロールバック・連番ID)/
   CDP E2E(進化パネル→手動enqueue→job_update反映→failed表示→worktree掃除確認)
 
+- 2026-07-03: M5(部分)— ゲート不合格時のフィードバック付き再生成(1回)と生成例外リトライ(1回)。
+  残りの実LLM通しE2Eはキー登録待ち
 - 2026-07-03: M6 — OpenAIプロバイダ実装。tool_use⇔tool_calls / tool_result⇔role:tool の相互変換、
   ストリームチャンク正規化(分割arguments組み立て、finish_reason写像、usage/cached_tokens)、
   設定UIでの切替。既定モデル gpt-5.1。
