@@ -271,6 +271,35 @@ describe('runAgentLoop', () => {
     assertToolPairing(sent);
   });
 
+  it('引数JSON解析失敗(inputError付きtool_use)は実行せずエラーtool_resultを返す(指摘#7)', async () => {
+    const provider = mockProvider([
+      [
+        {
+          type: 'message_done',
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'bad1', name: 'write_file', input: {}, inputError: '引数のJSON解析に失敗した(途中切れ)' },
+            ],
+          },
+          stopReason: 'tool_use',
+          usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0 },
+        },
+      ],
+      textResponse('やり直す'),
+    ]);
+    const h = harness(provider, { content: 'should-not-run' });
+    const history = [userMsg('go')];
+    const status = await runAgentLoop(h.deps, 's1', history, new AbortController().signal);
+
+    expect(status).toBe('done');
+    expect(h.toolCalls).toHaveLength(0); // 実行されない
+    expect(h.events.some((e) => e.kind === 'error' && e.message.includes('解析に失敗'))).toBe(true);
+    assertToolPairing(history);
+    // tool_result はエラーとして積まれ、次ターンへ整合した履歴が渡る
+    expect(history[2]!.content[0]).toMatchObject({ type: 'tool_result', toolUseId: 'bad1', isError: true });
+  });
+
   it('空コンテンツ応答(refusal等)は error', async () => {
     const provider = mockProvider([
       [

@@ -128,6 +128,21 @@ export async function runAgentLoop(
         cancelledMidLoop = true;
         break;
       }
+      // 引数JSONの解析に失敗したツールは実行せず、原因をモデルとUIに明示して返す
+      // (空入力での実行は無関係なバリデーションエラーを招きモデルがループするため)
+      if (tu.inputError) {
+        deps.emit({ kind: 'error', sessionId, message: `${tu.name}: ${tu.inputError}` });
+        deps.emit({
+          kind: 'tool_result',
+          sessionId,
+          toolUseId: tu.id,
+          name: tu.name,
+          content: tu.inputError,
+          isError: true,
+        });
+        results.push({ type: 'tool_result', toolUseId: tu.id, content: tu.inputError, isError: true });
+        continue;
+      }
       deps.emit({
         kind: 'tool_start',
         sessionId,

@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { parseToolArguments } from './toolArgs';
 import type {
   ChatMessage,
   CompletionRequest,
@@ -161,13 +162,8 @@ export async function* normalizeOpenAIStream(
   const content: ContentBlock[] = [];
   if (text !== '') content.push({ type: 'text', text });
   for (const [, tc] of [...toolCalls.entries()].sort((a, b) => a[0] - b[0])) {
-    let input: unknown = {};
-    try {
-      input = tc.args.trim() === '' ? {} : JSON.parse(tc.args);
-    } catch {
-      input = {};
-    }
-    content.push({ type: 'tool_use', id: tc.id, name: tc.name, input });
+    const { input, error } = parseToolArguments(tc.args);
+    content.push({ type: 'tool_use', id: tc.id, name: tc.name, input, ...(error ? { inputError: error } : {}) });
   }
 
   const message: ChatMessage = { role: 'assistant', content };

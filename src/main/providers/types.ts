@@ -3,7 +3,7 @@ import type { JsonSchema } from '../tools/types';
 /** プロバイダ非依存の共通メッセージ形式。Anthropicのブロック構造に寄せ、OpenAI側(M6)で変換する */
 export type ContentBlock =
   | { type: 'text'; text: string }
-  | { type: 'tool_use'; id: string; name: string; input: unknown }
+  | { type: 'tool_use'; id: string; name: string; input: unknown; inputError?: string }
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean };
 
 export interface ChatMessage {

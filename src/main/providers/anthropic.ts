@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { parseToolArguments } from './toolArgs';
 import type {
   ChatMessage,
   CompletionRequest,
@@ -145,12 +146,9 @@ export async function* normalizeAnthropicStream(
         if (typeof index !== 'number') break;
         const block = blocks[index];
         if (block?.type === 'tool_use') {
-          const json = jsonAcc.get(index) ?? '';
-          try {
-            block.input = json.trim() === '' ? {} : JSON.parse(json);
-          } catch {
-            block.input = {};
-          }
+          const { input, error } = parseToolArguments(jsonAcc.get(index) ?? '');
+          block.input = input;
+          if (error) block.inputError = error;
         }
         break;
       }
