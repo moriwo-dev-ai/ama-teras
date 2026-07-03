@@ -247,7 +247,8 @@ export async function registerIpcHandlers(
       { registry, broker, getAutoApprove: () => config.get().autoApprove },
       name,
       input,
-      { cwd: app.getAppPath(), signal: ac.signal, log: () => {} },
+      // chatSend と同じく evolution を注入する(request_capability が手動実行でも動くように)
+      { cwd: app.getAppPath(), signal: ac.signal, log: () => {}, evolution: evolutionContext },
     );
     return { content: result.content, isError: result.isError === true };
   });
