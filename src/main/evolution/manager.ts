@@ -6,7 +6,7 @@ import { runGates as defaultRunGates, type CommandRunner, type GateOptions, type
 import { runGit } from './git';
 import type { EvolutionJobRunner, EvolutionRequest } from './job';
 import { EVOLUTION_WRITE_ALLOWLIST } from './job';
-import { nextJobId, promoteBranch, rollbackMerge } from './promote';
+import { assertPromotable, nextJobId, promoteBranch, rollbackMerge } from './promote';
 import { WorktreeManager } from './worktree';
 
 export interface EvolutionManagerDeps {
@@ -178,6 +178,9 @@ export class EvolutionManager {
         this.update(job, { status: 'failed', error: '検証ゲート不合格(再生成でも解消せず)' });
         return;
       }
+
+      // 承認ダイアログを出す前に昇格の前提を検査する(承認後に落ちるUX破綻を避ける)
+      await assertPromotable(this.deps.repoDir, this.baseRef);
 
       this.update(job, { status: 'awaiting_promotion' });
       const diff = await runGit(
