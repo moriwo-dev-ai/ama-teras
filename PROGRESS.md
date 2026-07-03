@@ -2,17 +2,20 @@
 
 ## 現在の状態
 
-- フェーズ0完了: ARCHITECTURE.md / PLAN.md / PROGRESS.md 作成
-- 作業中: M1(骨組み+チャットUI)
+- M1完了。次は M2(ツールプラグイン基盤+組み込みツール+承認UI)
 
 ## 完了項目
 
 - 2026-07-03: フェーズ0 — 設計ドキュメント作成
+- 2026-07-03: M1 — electron-vite 骨組み、型付きIPC(chat:send/cancel/event)、
+  チャットUI(zustand、ストリーミング表示、キャンセル)、エコー応答、スモークモード起動分岐。
+  検証: typecheck / vitest 6件 / ビルド / スモーク起動 / CDP経由E2E(UI入力→エコー表示)すべて成功
 
 ## 次のタスク
 
-- M1: electron-vite 骨組み、型付きIPC、チャットUI(エコー応答)
-- M2: プラグインローダー+組み込みツール+承認UI
+- M2: ToolPlugin型+esbuild動的ローダー+registry(最初から動的ロード)
+- M2: 組み込み6ツール(read_file/write_file/edit_file/list_dir/grep/bash)
+- M2: 承認UI(diff表示、risk別警告、自動承認モード)
 
 ## 既知のバグ
 
