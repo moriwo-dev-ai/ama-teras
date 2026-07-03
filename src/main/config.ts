@@ -4,6 +4,8 @@ import type { AppConfig } from '../shared/types';
 
 const DEFAULTS: AppConfig = {
   autoApprove: { safe: true, write: false, exec: false },
+  provider: 'anthropic',
+  model: '',
 };
 
 /** 設定の永続化。electron非依存(テスト可能にするためファイルパスを注入) */
@@ -15,20 +17,25 @@ export class ConfigStore {
   }
 
   private read(): AppConfig {
+    const merged = structuredClone(DEFAULTS);
     try {
       const raw: unknown = JSON.parse(readFileSync(this.filePath, 'utf8'));
-      if (typeof raw !== 'object' || raw === null) return structuredClone(DEFAULTS);
-      const auto = (raw as Record<string, unknown>)['autoApprove'];
-      const merged = structuredClone(DEFAULTS);
+      if (typeof raw !== 'object' || raw === null) return merged;
+      const rec = raw as Record<string, unknown>;
+      const auto = rec['autoApprove'];
       if (typeof auto === 'object' && auto !== null) {
         for (const key of ['safe', 'write', 'exec'] as const) {
           const v = (auto as Record<string, unknown>)[key];
           if (typeof v === 'boolean') merged.autoApprove[key] = v;
         }
       }
+      if (rec['provider'] === 'anthropic' || rec['provider'] === 'openai') {
+        merged.provider = rec['provider'];
+      }
+      if (typeof rec['model'] === 'string') merged.model = rec['model'];
       return merged;
     } catch {
-      return structuredClone(DEFAULTS);
+      return merged;
     }
   }
 

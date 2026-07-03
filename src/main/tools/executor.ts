@@ -3,11 +3,15 @@ import { isAbsolute, resolve } from 'node:path';
 import type { AutoApproveSettings, DiffLine } from '../../shared/types';
 import type { ApprovalBroker } from '../agent/approval';
 import { lineDiff } from '../util/diff';
-import type { ToolRegistry } from './registry';
-import type { ToolContext, ToolResult } from './types';
+import type { ToolContext, ToolPlugin, ToolResult } from './types';
+
+/** ToolRegistry を構造的に満たす最小インターフェース(テスト・エージェントループから注入) */
+export interface ToolLookup {
+  get(name: string): ToolPlugin | undefined;
+}
 
 export interface ExecutorDeps {
-  registry: ToolRegistry;
+  registry: ToolLookup;
   broker: ApprovalBroker;
   getAutoApprove: () => AutoApproveSettings;
 }

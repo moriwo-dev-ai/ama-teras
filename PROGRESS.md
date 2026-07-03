@@ -2,7 +2,13 @@
 
 ## 現在の状態
 
-- M2完了。次は M3(エージェントループ+Anthropicプロバイダ+APIキー管理)
+- M3実装完了(実APIでの最終確認のみ保留)。次は M4(自己進化基盤)
+
+## ユーザーへの依頼事項
+
+- **Anthropic APIキーの登録**: アプリの「設定」からAPIキーを保存してください。
+  M3完了条件の実API疎通確認(list_dir→read_file連鎖)と、M5の自己進化E2Eに必要です。
+  キー登録後に「実APIでの動作確認をして」と指示いただければ検証を実行します。
 
 ## 完了項目
 
@@ -17,11 +23,20 @@
   (`MYCODEX_SMOKE=1 electron . --tool <name> --input <json>`)。
   検証: typecheck / vitest 40件 / スモーク実行 / CDP経由E2E(承認ダイアログ・diff・許可・拒否)すべて成功
 
+- 2026-07-03: M3 — LLMProvider抽象+Anthropic実装(messages.streamのイベント正規化、
+  cache_controlをsystem/ツール末尾/履歴末尾に配置、AbortSignal対応)、
+  エージェントループ(tool_use連鎖・maxTurns=30・キャンセル・refusal/max_tokens処理)、
+  SecretStore(safeStorage暗号化、平文保存禁止)、設定UI(プロバイダ/モデル/APIキー/自動承認)、
+  チャットUIにツール実行カード表示。
+  検証: typecheck / vitest 58件 / ビルド / CDP E2E(設定パネル・キー未設定エラー・idle復帰)。
+  実APIでのtool_use連鎖確認はユーザーのキー登録待ち
+
 ## 次のタスク
 
-- M3: LLMProvider型+Anthropic実装(ストリーミング、prompt caching、AbortSignal)
-- M3: APIキー保管(safeStorage)+設定UI
-- M3: エージェントループ本体(tool_use連鎖、maxTurns、キャンセル)
+- M4: worktree管理(B作成/破棄、node_modulesジャンクション)
+- M4: 進化ジョブ(子エージェントセッション、writeAllowlist強制)
+- M4: 検証ゲート(typecheck→vitest→スモーク→差分検査)
+- M4: 昇格(承認→merge→tag→ホットリロード)+ロールバック
 
 ## 既知のバグ
 
@@ -35,3 +50,7 @@
 - 2026-07-03: IPC payload の実行時検証は手書きガード(zod 不採用 — 外部依存最小方針)
 - 2026-07-03: 進化ジョブの B worktree は `../mycodex-evolve/job-<N>`、node_modules は
   ジャンクションで A と共有。依存追加を要するジョブは fail 扱い(依存最小方針)
+- 2026-07-03: 既定モデルは claude-opus-4-8(設定で変更可)。thinkingは未使用
+  (tool_use連鎖でthinkingブロックのエコーバック管理が必要になるため、M7以降で検討)
+- 2026-07-03: M3のエージェント作業ディレクトリは暫定でアプリのルート(app.getAppPath())。
+  ワークスペース選択UIはM7で追加予定

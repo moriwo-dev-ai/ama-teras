@@ -15,7 +15,23 @@ export type AgentEvent =
   | { kind: 'status'; sessionId: string; status: AgentStatus }
   | { kind: 'text_delta'; sessionId: string; text: string }
   | { kind: 'message_done'; sessionId: string }
+  | { kind: 'tool_start'; sessionId: string; toolUseId: string; name: string; inputPreview: string }
+  | {
+      kind: 'tool_result';
+      sessionId: string;
+      toolUseId: string;
+      name: string;
+      content: string;
+      isError: boolean;
+    }
   | { kind: 'error'; sessionId: string; message: string };
+
+export type ProviderId = 'anthropic' | 'openai';
+
+export interface SecretsStatus {
+  anthropic: boolean;
+  openai: boolean;
+}
 
 export type ToolRisk = 'safe' | 'write' | 'exec';
 
@@ -46,6 +62,9 @@ export interface AutoApproveSettings {
 
 export interface AppConfig {
   autoApprove: AutoApproveSettings;
+  provider: ProviderId;
+  /** 空文字ならプロバイダ既定モデル */
+  model: string;
 }
 
 /** renderer のツール一覧・デバッグパネル用 */

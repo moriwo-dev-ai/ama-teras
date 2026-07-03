@@ -4,6 +4,8 @@ import type {
   ApprovalRequestPayload,
   AppConfig,
   PluginErrorInfo,
+  ProviderId,
+  SecretsStatus,
   ToolExecResultPayload,
   ToolInfo,
 } from './types';
@@ -20,6 +22,8 @@ export const IpcChannels = {
   toolsReload: 'tools:reload',
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
+  secretsSet: 'secrets:set',
+  secretsStatus: 'secrets:status',
 } as const;
 
 /** preload が window.api として公開するAPIの型。renderer はこれ経由でしか main と話せない */
@@ -39,4 +43,8 @@ export interface MyCodexApi {
 
   settingsGet(): Promise<AppConfig>;
   settingsSet(config: AppConfig): Promise<AppConfig>;
+
+  /** APIキーは書き込みのみ。読み出しは有無のbooleanだけ */
+  secretsSet(provider: ProviderId, apiKey: string): Promise<SecretsStatus>;
+  secretsStatus(): Promise<SecretsStatus>;
 }

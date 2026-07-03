@@ -1,4 +1,4 @@
-import { app, ipcMain, type WebContents } from 'electron';
+import { app, ipcMain, safeStorage, type WebContents } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { IpcChannels } from '../shared/ipc';
@@ -7,16 +7,18 @@ import type {
   ApprovalDecision,
   AppConfig,
   PluginErrorInfo,
+  ProviderId,
+  SecretsStatus,
   ToolInfo,
 } from '../shared/types';
 import { ApprovalBroker } from './agent/approval';
-import { streamEcho } from './agent/echo';
+import { runAgentLoop } from './agent/loop';
 import { ConfigStore } from './config';
+import { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from './providers/anthropic';
+import type { ChatMessage, LLMProvider } from './providers/types';
+import { SecretStore, type SecretCipher } from './secrets';
 import { executeToolWithApproval } from './tools/executor';
 import { ToolRegistry } from './tools/registry';
-
-// セッションごとのキャンセル用。M3でセッション管理(agent/session.ts)へ移す。
-const controllers = new Map<string, AbortController>();
 
 function assertString(value: unknown, name: string): asserts value is string {
   if (typeof value !== 'string') throw new Error(`IPC payload ${name} must be a string`);
@@ -30,17 +32,22 @@ function assertDecision(value: unknown): asserts value is ApprovalDecision {
   }
 }
 
+function assertProvider(value: unknown): asserts value is ProviderId {
+  if (value !== 'anthropic' && value !== 'openai') throw new Error('IPC payload provider が不正');
+}
+
 function assertConfig(value: unknown): asserts value is AppConfig {
-  const auto =
-    typeof value === 'object' && value !== null
-      ? (value as Record<string, unknown>)['autoApprove']
-      : null;
+  const rec = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
+  const auto = rec?.['autoApprove'];
   const ok =
+    rec !== null &&
     typeof auto === 'object' &&
     auto !== null &&
     (['safe', 'write', 'exec'] as const).every(
       (k) => typeof (auto as Record<string, unknown>)[k] === 'boolean',
-    );
+    ) &&
+    (rec['provider'] === 'anthropic' || rec['provider'] === 'openai') &&
+    typeof rec['model'] === 'string';
   if (!ok) throw new Error('IPC payload config が不正');
 }
 
@@ -53,11 +60,22 @@ export function getPluginCacheDir(): string {
   return join(app.getPath('userData'), 'plugin-cache');
 }
 
-export interface MainServices {
-  registry: ToolRegistry;
-  broker: ApprovalBroker;
-  config: ConfigStore;
+function electronSafeStorageCipher(): SecretCipher {
+  return {
+    isAvailable: () => safeStorage.isEncryptionAvailable(),
+    encrypt: (plain) => safeStorage.encryptString(plain),
+    decrypt: (encrypted) => safeStorage.decryptString(encrypted),
+  };
 }
+
+const SYSTEM_PROMPT = `あなたは MyCodex — ユーザーのマシン上で動くコーディングエージェント。
+与えられたツールを使ってファイルの調査・編集・コマンド実行を行い、ユーザーの指示を完遂する。
+
+規範:
+- 手を動かす前に不明点があれば read_file / list_dir / grep で自分で調べる
+- 変更は最小限に。既存のコードスタイルに合わせる
+- 破壊的な操作は慎重に。ツール実行はユーザー承認制の場合がある
+- 完了したら何をしたか簡潔に日本語で報告する`;
 
 function toToolInfos(registry: ToolRegistry): { tools: ToolInfo[]; errors: PluginErrorInfo[] } {
   return {
@@ -69,6 +87,13 @@ function toToolInfos(registry: ToolRegistry): { tools: ToolInfo[]; errors: Plugi
     })),
     errors: registry.errors,
   };
+}
+
+export interface MainServices {
+  registry: ToolRegistry;
+  broker: ApprovalBroker;
+  config: ConfigStore;
+  secrets: SecretStore;
 }
 
 export async function registerIpcHandlers(
@@ -83,32 +108,65 @@ export async function registerIpcHandlers(
   await registry.reload();
   const broker = new ApprovalBroker((req) => push(IpcChannels.approvalRequest, req));
   const config = new ConfigStore(join(app.getPath('userData'), 'config.json'));
+  const secrets = new SecretStore(
+    join(app.getPath('userData'), 'secrets.json'),
+    electronSafeStorageCipher(),
+  );
 
-  // ---- chat(M1のエコー。M3で本物のループに差し替え) ----
+  // 会話は1本(M3)。sessionId は実行(run)単位でUIのライフサイクルに使う
+  const history: ChatMessage[] = [];
+  let activeRun: { sessionId: string; ac: AbortController } | null = null;
+
+  const createProvider = (): LLMProvider | string => {
+    const cfg = config.get();
+    if (cfg.provider === 'openai') return 'OpenAIプロバイダはM6で対応予定';
+    const key = secrets.get('anthropic');
+    if (!key) return 'Anthropic APIキーが未設定(設定画面から登録)';
+    return new AnthropicProvider(key, cfg.model || DEFAULT_ANTHROPIC_MODEL);
+  };
+
+  // ---- chat ----
   ipcMain.handle(IpcChannels.chatSend, (_e, text: unknown) => {
     assertString(text, 'text');
     const sessionId = randomUUID();
-    const ac = new AbortController();
-    controllers.set(sessionId, ac);
-    const pushEvent = (event: AgentEvent): void => push(IpcChannels.chatEvent, event);
+    const emit = (event: AgentEvent): void => push(IpcChannels.chatEvent, event);
 
-    pushEvent({ kind: 'status', sessionId, status: 'calling_llm' });
-    void streamEcho(text, ac.signal, {
-      onDelta: (t) => pushEvent({ kind: 'text_delta', sessionId, text: t }),
-      onDone: () => {
-        controllers.delete(sessionId);
-        pushEvent({ kind: 'message_done', sessionId });
-        pushEvent({ kind: 'status', sessionId, status: 'done' });
+    if (activeRun) {
+      emit({ kind: 'error', sessionId, message: '別の実行が進行中' });
+      emit({ kind: 'status', sessionId, status: 'error' });
+      return { sessionId };
+    }
+    const provider = createProvider();
+    if (typeof provider === 'string') {
+      emit({ kind: 'error', sessionId, message: provider });
+      emit({ kind: 'status', sessionId, status: 'error' });
+      return { sessionId };
+    }
+
+    const ac = new AbortController();
+    activeRun = { sessionId, ac };
+    history.push({ role: 'user', content: [{ type: 'text', text }] });
+
+    void runAgentLoop(
+      {
+        provider,
+        tools: registry,
+        executeTool: (name, input, ctx) =>
+          executeToolWithApproval(
+            { registry, broker, getAutoApprove: () => config.get().autoApprove },
+            name,
+            input,
+            ctx,
+          ),
+        emit,
+        systemPrompt: SYSTEM_PROMPT,
+        cwd: app.getAppPath(),
       },
-      onCancelled: () => {
-        controllers.delete(sessionId);
-        pushEvent({ kind: 'message_done', sessionId });
-        pushEvent({ kind: 'status', sessionId, status: 'cancelled' });
-      },
-    }).catch((err: unknown) => {
-      controllers.delete(sessionId);
-      pushEvent({ kind: 'error', sessionId, message: err instanceof Error ? err.message : String(err) });
-      pushEvent({ kind: 'status', sessionId, status: 'error' });
+      sessionId,
+      history,
+      ac.signal,
+    ).finally(() => {
+      activeRun = null;
     });
 
     return { sessionId };
@@ -116,7 +174,7 @@ export async function registerIpcHandlers(
 
   ipcMain.handle(IpcChannels.chatCancel, (_e, sessionId: unknown) => {
     assertString(sessionId, 'sessionId');
-    controllers.get(sessionId)?.abort();
+    if (activeRun?.sessionId === sessionId) activeRun.ac.abort();
   });
 
   // ---- 承認 ----
@@ -160,5 +218,18 @@ export async function registerIpcHandlers(
     return config.set(next);
   });
 
-  return { registry, broker, config };
+  // ---- シークレット ----
+  const secretsStatus = (): SecretsStatus => ({
+    anthropic: secrets.has('anthropic'),
+    openai: secrets.has('openai'),
+  });
+  ipcMain.handle(IpcChannels.secretsStatus, () => secretsStatus());
+  ipcMain.handle(IpcChannels.secretsSet, (_e, provider: unknown, apiKey: unknown) => {
+    assertProvider(provider);
+    assertString(apiKey, 'apiKey');
+    secrets.set(provider, apiKey.trim());
+    return secretsStatus();
+  });
+
+  return { registry, broker, config, secrets };
 }
