@@ -22,6 +22,12 @@ export interface ToolContext {
   cwd: string;
   /** 書き込み許可パス(cwd相対のディレクトリ接頭辞)。undefined なら無制限 */
   writeAllowlist?: string[];
+  /**
+   * true の場合、exec 系(bash)を検証コマンド(npm run / npx vitest / npx tsc)のみに制限する。
+   * 進化ジョブ用: bash は writeAllowlist を強制できず任意パスへ書けてしまうため、
+   * 実行できるコマンド自体を機械的に絞ってA環境・保護領域への書き込みを防ぐ。
+   */
+  restrictExec?: boolean;
   signal: AbortSignal;
   log: (line: string) => void;
   /**

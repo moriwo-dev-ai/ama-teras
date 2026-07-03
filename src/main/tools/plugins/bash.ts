@@ -4,6 +4,27 @@ import type { ToolContext, ToolPlugin, ToolResult } from '../types';
 const MAX_OUTPUT = 30_000;
 const DEFAULT_TIMEOUT_MS = 120_000;
 
+// 進化ジョブ用の制限モード(ctx.restrictExec)で許可するコマンド。
+// bash は writeAllowlist を強制できないため、実行できるコマンド自体を検証系だけに絞る。
+// シェル連結・リダイレクト・コマンド置換・node -e などによる任意書き込みを排除する。
+const SHELL_METACHARS = /[;&|<>`\n]|\$\(|\$\{|\|\||&&/;
+const RESTRICTED_ALLOW = [
+  /^npm run [\w:-]+$/,
+  /^npx vitest run(?: [^\s;&|<>`$]+)*$/,
+  /^npx tsc(?: [^\s;&|<>`$]+)*$/,
+];
+
+/**
+ * 制限モードでコマンドを許可してよいか。検証コマンド(npm run/npx vitest/npx tsc)のみ許可し、
+ * シェルメタ文字(連結・リダイレクト・置換)を一切含まないことを要求する。
+ * bash.ts はプラグイン規約により外部 import 不可のため、この判定をファイル内に持つ。
+ */
+export function isRestrictedCommandAllowed(command: string): boolean {
+  const trimmed = command.trim();
+  if (SHELL_METACHARS.test(trimmed)) return false;
+  return RESTRICTED_ALLOW.some((re) => re.test(trimmed));
+}
+
 export default {
   name: 'bash',
   description:
@@ -22,6 +43,15 @@ export default {
     const { command, timeout_ms } = input as { command?: unknown; timeout_ms?: unknown };
     if (typeof command !== 'string' || command.trim() === '') {
       return { content: 'command は空でない文字列で指定すること', isError: true };
+    }
+    if (ctx.restrictExec && !isRestrictedCommandAllowed(command)) {
+      return {
+        content:
+          '制限モード: このコマンドは許可されていない。進化ジョブでは検証コマンド' +
+          '(npm run <script> / npx vitest run <path> / npx tsc)のみ実行できる。' +
+          'ファイル変更は write_file / edit_file(plugins配下のみ)を使うこと。',
+        isError: true,
+      };
     }
     const timeout = Math.min(typeof timeout_ms === 'number' && timeout_ms > 0 ? timeout_ms : DEFAULT_TIMEOUT_MS, 600_000);
 
