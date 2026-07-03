@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { AppConfig, ProviderId, SecretsStatus } from '../../../../shared/types';
+import { DEFAULT_MODELS, KNOWN_MODELS, isKnownModel } from '../../../../shared/models';
+
+const CUSTOM = '__custom__';
 
 export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element {
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -55,16 +58,43 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
         </div>
 
         <div className="space-y-1">
-          <label className="text-xs text-zinc-400">
-            モデル(空欄で既定: Anthropic=claude-opus-4-8 / OpenAI=gpt-5.1)
-          </label>
-          <input
-            className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
-            value={config.model}
-            placeholder="claude-opus-4-8"
-            onChange={(e) => setConfig({ ...config, model: e.target.value })}
-            onBlur={() => void updateConfig({ model: config.model })}
-          />
+          <label className="text-xs text-zinc-400">モデル</label>
+          {(() => {
+            // 空欄=既定。候補外の値は「カスタム」として自由入力欄を出す(誤入力事故の防止)。
+            const isCustom = config.model !== '' && !isKnownModel(config.provider, config.model);
+            const selectValue = config.model === '' ? '' : isCustom ? CUSTOM : config.model;
+            return (
+              <>
+                <select
+                  className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5"
+                  value={selectValue}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === CUSTOM) setConfig({ ...config, model: ' ' }); // カスタム欄を開く(空白は保存時にtrim)
+                    else void updateConfig({ model: v });
+                  }}
+                >
+                  <option value="">既定({DEFAULT_MODELS[config.provider]})</option>
+                  {KNOWN_MODELS[config.provider].map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                  <option value={CUSTOM}>カスタム(モデルIDを直接入力)</option>
+                </select>
+                {(isCustom || selectValue === CUSTOM) && (
+                  <input
+                    className="mt-1 w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
+                    value={config.model.trim()}
+                    placeholder="例: claude-opus-4-8"
+                    autoFocus
+                    onChange={(e) => setConfig({ ...config, model: e.target.value })}
+                    onBlur={() => void updateConfig({ model: config.model.trim() })}
+                  />
+                )}
+              </>
+            );
+          })()}
         </div>
 
         <div className="space-y-1">
