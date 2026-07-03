@@ -18,6 +18,7 @@ import { AgentJobRunner } from './evolution/job';
 import { EvolutionManager } from './evolution/manager';
 import { healthCheckAfterPromotion } from './evolution/supervisor';
 import { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from './providers/anthropic';
+import { DEFAULT_OPENAI_MODEL, OpenAIProvider } from './providers/openai';
 import type { ChatMessage, LLMProvider } from './providers/types';
 import { SecretStore, type SecretCipher } from './secrets';
 import { executeToolWithApproval } from './tools/executor';
@@ -122,7 +123,11 @@ export async function registerIpcHandlers(
 
   const createProvider = (): LLMProvider | string => {
     const cfg = config.get();
-    if (cfg.provider === 'openai') return 'OpenAIプロバイダはM6で対応予定';
+    if (cfg.provider === 'openai') {
+      const key = secrets.get('openai');
+      if (!key) return 'OpenAI APIキーが未設定(設定画面から登録)';
+      return new OpenAIProvider(key, cfg.model || DEFAULT_OPENAI_MODEL);
+    }
     const key = secrets.get('anthropic');
     if (!key) return 'Anthropic APIキーが未設定(設定画面から登録)';
     return new AnthropicProvider(key, cfg.model || DEFAULT_ANTHROPIC_MODEL);

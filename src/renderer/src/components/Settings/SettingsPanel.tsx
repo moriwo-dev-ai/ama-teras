@@ -50,12 +50,14 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
             onChange={(e) => void updateConfig({ provider: e.target.value as ProviderId })}
           >
             <option value="anthropic">Anthropic</option>
-            <option value="openai">OpenAI(M6で対応予定)</option>
+            <option value="openai">OpenAI</option>
           </select>
         </div>
 
         <div className="space-y-1">
-          <label className="text-xs text-zinc-400">モデル(空欄で既定: claude-opus-4-8)</label>
+          <label className="text-xs text-zinc-400">
+            モデル(空欄で既定: Anthropic=claude-opus-4-8 / OpenAI=gpt-5.1)
+          </label>
           <input
             className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
             value={config.model}

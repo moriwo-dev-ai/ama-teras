@@ -2,7 +2,8 @@
 
 ## 現在の状態
 
-- M4完了。次は M5(自己進化E2E — 実APIキーが必要)とM6(OpenAIプロバイダ)
+- M1〜M4完了、M6実装完了(実APIでの確認のみ保留)。
+- 残: M5(自己進化E2E)とM3/M6の実API確認 — いずれもAPIキー登録待ち。M7(磨き込み)は7/7以降
 
 ## ユーザーへの依頼事項
 
@@ -39,11 +40,17 @@
   検証: typecheck / vitest 64件(実gitでの正常系・保護領域fail・却下・ロールバック・連番ID)/
   CDP E2E(進化パネル→手動enqueue→job_update反映→failed表示→worktree掃除確認)
 
+- 2026-07-03: M6 — OpenAIプロバイダ実装。tool_use⇔tool_calls / tool_result⇔role:tool の相互変換、
+  ストリームチャンク正規化(分割arguments組み立て、finish_reason写像、usage/cached_tokens)、
+  設定UIでの切替。既定モデル gpt-5.1。
+  検証: typecheck / vitest 70件。実APIでの疎通確認はキー登録待ち
+
 ## 次のタスク
 
 - M5: 実APIで request_capability→生成→検証→昇格→新ツール利用のE2E(ユーザーのキー登録待ち)
 - M5: 失敗時のフィードバック付き再生成(リトライ1回)
-- M6: OpenAIプロバイダ(キー不要で実装・ユニットテストまで可能)
+- M3/M6の実API疎通確認(キー登録待ち)
+- M7: 磨き込み(7/7以降)
 
 ## 既知のバグ
 
