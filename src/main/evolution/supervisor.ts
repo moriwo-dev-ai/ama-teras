@@ -1,6 +1,7 @@
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { assertSafeToolName } from '../tools/name';
 import { defaultRunCommand, type CommandRunner } from './gates';
 
 /**
@@ -14,6 +15,7 @@ export async function healthCheckAfterPromotion(
   smokeInput: unknown,
   runCommand: CommandRunner = defaultRunCommand,
 ): Promise<boolean> {
+  assertSafeToolName(toolName); // shell 補間前の防御(gates と同じ理由)
   const dir = await mkdtemp(join(tmpdir(), 'mycodex-health-'));
   const inputPath = join(dir, 'input.json');
   await writeFile(inputPath, JSON.stringify(smokeInput ?? {}), 'utf8');

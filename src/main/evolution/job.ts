@@ -3,6 +3,7 @@ import { runAgentLoop } from '../agent/loop';
 import { executeToolWithApproval } from '../tools/executor';
 import { ToolRegistry } from '../tools/registry';
 import { ApprovalBroker } from '../agent/approval';
+import { assertSafeToolName } from '../tools/name';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -146,16 +147,15 @@ export class AgentJobRunner implements EvolutionJobRunner {
     const match = /```json\s*([\s\S]*?)```/.exec(finalText);
     if (!match) throw new Error('生成結果のメタデータ(toolName/smokeInput)が見つからない');
     const meta: unknown = JSON.parse(match[1]!);
-    if (
-      typeof meta !== 'object' ||
-      meta === null ||
-      typeof (meta as Record<string, unknown>)['toolName'] !== 'string'
-    ) {
+    if (typeof meta !== 'object' || meta === null) {
       throw new Error('メタデータ形式が不正');
     }
+    const rec = meta as Record<string, unknown>;
+    // toolName はこの後シェルコマンドへ補間される(gates/supervisor)ため厳格に検証する
+    assertSafeToolName(rec['toolName']);
     return {
-      toolName: (meta as Record<string, unknown>)['toolName'] as string,
-      smokeInput: (meta as Record<string, unknown>)['smokeInput'] ?? {},
+      toolName: rec['toolName'],
+      smokeInput: rec['smokeInput'] ?? {},
     };
   }
 }

@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import type { EvolutionGateResult } from '../../shared/types';
+import { assertSafeToolName } from '../tools/name';
 import { runGit } from './git';
 
 export type CommandRunner = (
@@ -87,6 +88,8 @@ export async function checkDiffAllowlist(
  * 後続ゲート(=コード実行を伴う)で走らせる前に落とすため。
  */
 export async function runGates(opts: GateOptions): Promise<GatesOutcome> {
+  // toolName はスモークコマンドへ shell 補間されるため、コマンド組み立て前に必ず検証する
+  assertSafeToolName(opts.toolName);
   const run = opts.runCommand ?? defaultRunCommand;
   const results: EvolutionGateResult[] = [];
   const fail = (): GatesOutcome => ({ ok: false, results });
