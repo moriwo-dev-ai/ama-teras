@@ -24,6 +24,12 @@ interface ChatState {
 
 const TERMINAL: AgentStatus[] = ['done', 'cancelled', 'error', 'max_turns_reached'];
 
+// main が同期的に error+終端status を送ってから sessionId を返す経路では、
+// 終端イベントが send() の activeSessionId 設定より先に届きうる。その場合に
+// 死んだ sessionId を activeSessionId へ再セットすると送信が恒久ロックするため、
+// 「先に終了した sessionId」をここへ記録し send 側で無視する(指摘#5)。
+const earlyFinished = new Set<string>();
+
 function appendAssistantDelta(messages: UiMessage[], text: string): UiMessage[] {
   const last = messages[messages.length - 1];
   if (last && last.role === 'assistant' && last.streaming) {
@@ -50,6 +56,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
     try {
       const { sessionId } = await window.api.chatSend(trimmed);
+      // このセッションの終端イベントが既に届いていたら activeSessionId を復活させない
+      if (earlyFinished.delete(sessionId)) return;
       set({ activeSessionId: sessionId });
     } catch (err) {
       set((s) => ({
@@ -75,8 +83,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   handleEvent: (event) => {
     switch (event.kind) {
       case 'status':
-        set({ status: event.status });
         if (TERMINAL.includes(event.status)) {
+          // activeSessionId 未設定の状態で終端が来た(= send の await 前に先着した)なら
+          // 後から来る sessionId を無視させるため記録する
+          if (get().activeSessionId !== event.sessionId) earlyFinished.add(event.sessionId);
           set((s) => ({
             activeSessionId: null,
             status: 'idle',
@@ -84,6 +94,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
               m.role === 'assistant' && m.streaming ? { ...m, streaming: false } : m,
             ),
           }));
+        } else {
+          set({ status: event.status });
         }
         break;
       case 'text_delta':
