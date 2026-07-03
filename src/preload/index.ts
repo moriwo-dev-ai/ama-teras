@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IpcChannels, type MyCodexApi } from '../shared/ipc';
-import type { AgentEvent, ApprovalRequestPayload } from '../shared/types';
+import type { AgentEvent, ApprovalRequestPayload, EvolutionEvent } from '../shared/types';
 
 function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
   const wrapped = (_e: Electron.IpcRendererEvent, payload: T): void => listener(payload);
@@ -26,6 +26,13 @@ const api: MyCodexApi = {
 
   secretsSet: (provider, apiKey) => ipcRenderer.invoke(IpcChannels.secretsSet, provider, apiKey),
   secretsStatus: () => ipcRenderer.invoke(IpcChannels.secretsStatus),
+
+  onEvolutionEvent: (listener) => subscribe<EvolutionEvent>(IpcChannels.evolutionEvent, listener),
+  evolutionPromoteRespond: (jobId, approved) =>
+    ipcRenderer.invoke(IpcChannels.evolutionPromoteRespond, jobId, approved),
+  evolutionEnqueue: (description, expectedIo) =>
+    ipcRenderer.invoke(IpcChannels.evolutionEnqueue, description, expectedIo),
+  evolutionList: () => ipcRenderer.invoke(IpcChannels.evolutionList),
 };
 
 contextBridge.exposeInMainWorld('api', api);

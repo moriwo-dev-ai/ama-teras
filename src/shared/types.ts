@@ -85,3 +85,45 @@ export interface PluginErrorInfo {
   filePath: string;
   message: string;
 }
+
+// ---- 自己進化サブシステム ----
+
+export type EvolutionJobStatus =
+  | 'queued'
+  | 'preparing_worktree'
+  | 'generating'
+  | 'verifying'
+  | 'awaiting_promotion'
+  | 'promoting'
+  | 'done'
+  | 'failed'
+  | 'rejected'
+  | 'rolled_back';
+
+export interface EvolutionGateResult {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface EvolutionJobSummary {
+  id: number;
+  description: string;
+  status: EvolutionJobStatus;
+  toolName?: string;
+  log: string[];
+  gates: EvolutionGateResult[];
+  error?: string;
+}
+
+/** main → renderer: 進化ジョブの状態遷移・昇格承認依頼 */
+export type EvolutionEvent =
+  | { kind: 'job_update'; job: EvolutionJobSummary }
+  | {
+      kind: 'promotion_request';
+      jobId: number;
+      toolName: string;
+      diff: string;
+      /** child_process / ネットワークアクセス検出時の明示警告 */
+      warnings: string[];
+    };

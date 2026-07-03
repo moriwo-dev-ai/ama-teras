@@ -234,13 +234,15 @@ queued → preparing_worktree → generating → verifying → awaiting_promotio
    - ToolContext.writeAllowlist で機械的にも強制(write_file/edit_file が許可外パスを拒否)
    - 成果物: 新ツールプラグイン1ファイル + vitest ユニットテスト + スモーク用サンプル入力(JSON)
 3. **検証ゲート**(gates.ts、全合格が昇格条件。B内で子プロセス実行):
-   1. `npm run typecheck`
-   2. `npx vitest run`
-   3. スモーク: `MYCODEX_SMOKE=1 electron . --tool <name> --input <sample.json>` を B で実行し exit 0 を確認
-   4. **差分検査**: `git diff --name-only main...evolve/job-<N>` が許可パスのみか検査。
-      保護領域(`src/main/evolution/**`, `src/main/agent/**`, preload, 承認UI, CLAUDE.md)に
+   1. **差分検査(最初に実行)**: `git diff --name-only main...evolve/job-<N>` が許可パス
+      (`src/main/tools/plugins/**`)のみか検査。許可外・保護領域(`src/main/evolution/**` 等)に
       1ファイルでも触れていたら **無条件fail**。これが保護領域の機械的な実装
-      (プロンプトによる指示 + writeAllowlist + 差分検査の三重防御。最後の差分検査が最終防衛線)
+      (プロンプトによる指示 + writeAllowlist + 差分検査の三重防御)。
+      最初に置くのは、保護領域を書き換えた生成コードを後続ゲート(=コード実行を伴う)で
+      走らせる前に落とすため
+   2. `npm run typecheck`
+   3. `npx vitest run`
+   4. スモーク: B内で `npm run build` 後、`MYCODEX_SMOKE=1 electron . --tool <name> --input <sample.json>` を実行し exit 0 を確認
 4. **昇格**(promote.ts):
    - renderer に承認ダイアログを push(ツール名、説明、全diff、警告[child_process/ネットワーク使用])
    - 承認 → A側で `git merge --no-ff evolve/job-<N>` → タグ `evolve/<N>` → worktree/ブランチ掃除

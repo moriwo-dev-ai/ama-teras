@@ -14,6 +14,9 @@ import type {
 import { ApprovalBroker } from './agent/approval';
 import { runAgentLoop } from './agent/loop';
 import { ConfigStore } from './config';
+import { AgentJobRunner } from './evolution/job';
+import { EvolutionManager } from './evolution/manager';
+import { healthCheckAfterPromotion } from './evolution/supervisor';
 import { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from './providers/anthropic';
 import type { ChatMessage, LLMProvider } from './providers/types';
 import { SecretStore, type SecretCipher } from './secrets';
@@ -125,6 +128,39 @@ export async function registerIpcHandlers(
     return new AnthropicProvider(key, cfg.model || DEFAULT_ANTHROPIC_MODEL);
   };
 
+  // ---- 自己進化 ----
+  const pendingPromotions = new Map<number, (approved: boolean) => void>();
+  const repoDir = app.getAppPath();
+  const evolution = new EvolutionManager({
+    repoDir,
+    worktreeBase: join(repoDir, '..', 'mycodex-evolve'),
+    runner: new AgentJobRunner(() => {
+      const provider = createProvider();
+      if (typeof provider === 'string') throw new Error(provider);
+      return provider;
+    }),
+    requestPromotionApproval: (job, diff, warnings) =>
+      new Promise<boolean>((resolve) => {
+        pendingPromotions.set(job.id, resolve);
+        push(IpcChannels.evolutionEvent, {
+          kind: 'promotion_request',
+          jobId: job.id,
+          toolName: job.toolName ?? '(不明)',
+          diff,
+          warnings,
+        });
+      }),
+    reloadPlugins: () => registry.reload(),
+    healthCheck: (toolName, smokeInput) => healthCheckAfterPromotion(repoDir, toolName, smokeInput),
+    onEvent: (e) => push(IpcChannels.evolutionEvent, e),
+  });
+
+  const evolutionContext = {
+    requestCapability: async (description: string, expectedIO: string) => ({
+      jobId: await evolution.enqueue({ description, expectedIO }),
+    }),
+  };
+
   // ---- chat ----
   ipcMain.handle(IpcChannels.chatSend, (_e, text: unknown) => {
     assertString(text, 'text');
@@ -156,7 +192,7 @@ export async function registerIpcHandlers(
             { registry, broker, getAutoApprove: () => config.get().autoApprove },
             name,
             input,
-            ctx,
+            { ...ctx, evolution: evolutionContext },
           ),
         emit,
         systemPrompt: SYSTEM_PROMPT,
@@ -230,6 +266,26 @@ export async function registerIpcHandlers(
     secrets.set(provider, apiKey.trim());
     return secretsStatus();
   });
+
+  // ---- 進化 ----
+  ipcMain.handle(IpcChannels.evolutionPromoteRespond, (_e, jobId: unknown, approved: unknown) => {
+    if (typeof jobId !== 'number' || typeof approved !== 'boolean') {
+      throw new Error('IPC payload evolution:promote-respond が不正');
+    }
+    const resolve = pendingPromotions.get(jobId);
+    if (resolve) {
+      pendingPromotions.delete(jobId);
+      resolve(approved);
+    }
+  });
+
+  ipcMain.handle(IpcChannels.evolutionEnqueue, async (_e, description: unknown, expectedIo: unknown) => {
+    assertString(description, 'description');
+    assertString(expectedIo, 'expectedIo');
+    return { jobId: await evolution.enqueue({ description, expectedIO: expectedIo }) };
+  });
+
+  ipcMain.handle(IpcChannels.evolutionList, () => evolution.list());
 
   return { registry, broker, config, secrets };
 }

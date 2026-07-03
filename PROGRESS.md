@@ -2,7 +2,7 @@
 
 ## 現在の状態
 
-- M3実装完了(実APIでの最終確認のみ保留)。次は M4(自己進化基盤)
+- M4完了。次は M5(自己進化E2E — 実APIキーが必要)とM6(OpenAIプロバイダ)
 
 ## ユーザーへの依頼事項
 
@@ -31,12 +31,19 @@
   検証: typecheck / vitest 58件 / ビルド / CDP E2E(設定パネル・キー未設定エラー・idle復帰)。
   実APIでのtool_use連鎖確認はユーザーのキー登録待ち
 
+- 2026-07-03: M4 — 自己進化基盤。WorktreeManager(B作成/破棄、node_modulesジャンクション共有)、
+  EvolutionJobRunner(実LLM用AgentJobRunner+モック差し替え可能なインターフェース)、
+  検証ゲート(差分検査→typecheck→vitest→build+スモーク)、EvolutionManager(直列キュー、
+  承認付き昇格 merge --no-ff + evolve/Nタグ + ホットリロード、健全性チェック失敗時の自動revert)、
+  request_capabilityツール(ToolContext.evolution経由で注入)、進化パネル+昇格承認ダイアログ(diff・危険警告表示)。
+  検証: typecheck / vitest 64件(実gitでの正常系・保護領域fail・却下・ロールバック・連番ID)/
+  CDP E2E(進化パネル→手動enqueue→job_update反映→failed表示→worktree掃除確認)
+
 ## 次のタスク
 
-- M4: worktree管理(B作成/破棄、node_modulesジャンクション)
-- M4: 進化ジョブ(子エージェントセッション、writeAllowlist強制)
-- M4: 検証ゲート(typecheck→vitest→スモーク→差分検査)
-- M4: 昇格(承認→merge→tag→ホットリロード)+ロールバック
+- M5: 実APIで request_capability→生成→検証→昇格→新ツール利用のE2E(ユーザーのキー登録待ち)
+- M5: 失敗時のフィードバック付き再生成(リトライ1回)
+- M6: OpenAIプロバイダ(キー不要で実装・ユニットテストまで可能)
 
 ## 既知のバグ
 
@@ -54,3 +61,8 @@
   (tool_use連鎖でthinkingブロックのエコーバック管理が必要になるため、M7以降で検討)
 - 2026-07-03: M3のエージェント作業ディレクトリは暫定でアプリのルート(app.getAppPath())。
   ワークスペース選択UIはM7で追加予定
+- 2026-07-03: 検証ゲートの順序をARCHITECTURE.md原案(typecheck→vitest→smoke→差分検査)から
+  「差分検査を最初」に変更。保護領域を書き換えた生成コードを、コード実行を伴う後続ゲート
+  (vitest等)で走らせる前に落とすため(ARCHITECTURE.md §6.2も更新済み)
+- 2026-07-03: 進化ジョブ内のツール実行は自動承認(昇格時に人間の承認+diff全文表示があるため)。
+  昇格承認ダイアログでは child_process/ネットワークをdiffから機械検出して明示警告

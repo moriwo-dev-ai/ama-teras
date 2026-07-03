@@ -24,6 +24,13 @@ export interface ToolContext {
   writeAllowlist?: string[];
   signal: AbortSignal;
   log: (line: string) => void;
+  /**
+   * 自己進化への入口。request_capability プラグインだけが使う。
+   * (プラグインは evolution モジュールを import できないため、コンテキスト経由で注入する)
+   */
+  evolution?: {
+    requestCapability(description: string, expectedIO: string): Promise<{ jobId: number }>;
+  };
 }
 
 export interface ToolResult {

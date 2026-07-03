@@ -3,6 +3,8 @@ import type {
   ApprovalDecision,
   ApprovalRequestPayload,
   AppConfig,
+  EvolutionEvent,
+  EvolutionJobSummary,
   PluginErrorInfo,
   ProviderId,
   SecretsStatus,
@@ -24,6 +26,10 @@ export const IpcChannels = {
   settingsSet: 'settings:set',
   secretsSet: 'secrets:set',
   secretsStatus: 'secrets:status',
+  evolutionEvent: 'evolution:event',
+  evolutionPromoteRespond: 'evolution:promote-respond',
+  evolutionEnqueue: 'evolution:enqueue',
+  evolutionList: 'evolution:list',
 } as const;
 
 /** preload が window.api として公開するAPIの型。renderer はこれ経由でしか main と話せない */
@@ -47,4 +53,10 @@ export interface MyCodexApi {
   /** APIキーは書き込みのみ。読み出しは有無のbooleanだけ */
   secretsSet(provider: ProviderId, apiKey: string): Promise<SecretsStatus>;
   secretsStatus(): Promise<SecretsStatus>;
+
+  onEvolutionEvent(listener: (event: EvolutionEvent) => void): () => void;
+  evolutionPromoteRespond(jobId: number, approved: boolean): Promise<void>;
+  /** 手動で進化ジョブを起動(デバッグ・検証用) */
+  evolutionEnqueue(description: string, expectedIo: string): Promise<{ jobId: number }>;
+  evolutionList(): Promise<EvolutionJobSummary[]>;
 }
