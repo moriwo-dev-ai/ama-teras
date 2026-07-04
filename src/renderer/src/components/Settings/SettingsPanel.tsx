@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AppConfig, ProviderId, SecretsStatus } from '../../../../shared/types';
 import { DEFAULT_MODELS, KNOWN_MODELS, isKnownModel } from '../../../../shared/models';
+import { RemoteAccessSection } from './RemoteAccessSection';
 
 const CUSTOM = '__custom__';
 
@@ -41,7 +42,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60">
-      <div className="w-[520px] max-w-[90vw] space-y-4 rounded-lg border border-zinc-600 bg-zinc-900 p-5 text-sm shadow-xl">
+      <div className="max-h-[90vh] w-[520px] max-w-[90vw] space-y-4 overflow-y-auto rounded-lg border border-zinc-600 bg-zinc-900 p-5 text-sm shadow-xl">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">設定</h2>
           <button className="text-zinc-400 hover:text-zinc-200" onClick={onClose}>
@@ -201,6 +202,8 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
             ))}
           </div>
         </div>
+
+        <RemoteAccessSection />
 
         <div className="space-y-1">
           <label className="text-xs text-zinc-400">

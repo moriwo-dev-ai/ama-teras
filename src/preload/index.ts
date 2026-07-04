@@ -1,6 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IpcChannels, type MyCodexApi } from '../shared/ipc';
-import type { AgentEvent, ApprovalRequestPayload, EvolutionEvent } from '../shared/types';
+import type {
+  AgentEvent,
+  ApprovalRequestPayload,
+  ApprovalResolvedPayload,
+  EvolutionEvent,
+} from '../shared/types';
 
 function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
   const wrapped = (_e: Electron.IpcRendererEvent, payload: T): void => listener(payload);
@@ -16,6 +21,8 @@ const api: MyCodexApi = {
   onApprovalRequest: (listener) =>
     subscribe<ApprovalRequestPayload>(IpcChannels.approvalRequest, listener),
   approvalRespond: (id, decision) => ipcRenderer.invoke(IpcChannels.approvalRespond, id, decision),
+  onApprovalResolved: (listener) =>
+    subscribe<ApprovalResolvedPayload>(IpcChannels.approvalResolved, listener),
 
   toolsList: () => ipcRenderer.invoke(IpcChannels.toolsList),
   toolsExecute: (name, inputJson) => ipcRenderer.invoke(IpcChannels.toolsExecute, name, inputJson),
@@ -36,6 +43,11 @@ const api: MyCodexApi = {
   evolutionEnqueue: (description, expectedIo) =>
     ipcRenderer.invoke(IpcChannels.evolutionEnqueue, description, expectedIo),
   evolutionList: () => ipcRenderer.invoke(IpcChannels.evolutionList),
+
+  remoteStatus: () => ipcRenderer.invoke(IpcChannels.remoteStatus),
+  remoteSetEnabled: (enabled, port) =>
+    ipcRenderer.invoke(IpcChannels.remoteSetEnabled, enabled, port),
+  remoteRegenerateToken: () => ipcRenderer.invoke(IpcChannels.remoteRegenerateToken),
 };
 
 contextBridge.exposeInMainWorld('api', api);

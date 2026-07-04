@@ -25,7 +25,12 @@ export const useEvolutionStore = create<EvolutionState>((set, get) => ({
       set((s) => {
         const idx = s.jobs.findIndex((j) => j.id === event.job.id);
         const jobs = idx >= 0 ? s.jobs.map((j, i) => (i === idx ? event.job : j)) : [...s.jobs, event.job];
-        return { jobs };
+        // M10: リモート側で昇格承認/却下されたら、開いたままの昇格ダイアログを閉じる
+        const promotion =
+          s.promotion && s.promotion.jobId === event.job.id && event.job.status !== 'awaiting_promotion'
+            ? null
+            : s.promotion;
+        return { jobs, promotion };
       });
     } else if (event.kind === 'promotion_request') {
       set({

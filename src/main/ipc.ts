@@ -5,6 +5,8 @@ import type {
   AppConfig,
   ApprovalDecision,
   ProviderId,
+  RemoteConfig,
+  RemoteStatusPayload,
   SecretsStatus,
 } from '../shared/types';
 import { AuditLog } from './audit';
@@ -15,6 +17,8 @@ import { readProjectMemory, writeProjectMemory } from './memory';
 import { AgentJobRunner } from './evolution/job';
 import { EvolutionManager } from './evolution/manager';
 import { healthCheckAfterPromotion } from './evolution/supervisor';
+import { generateToken, RemoteAuth } from './remote/auth';
+import { RemoteServer } from './remote/server';
 import { SecretStore, type SecretCipher } from './secrets';
 import { ToolRegistry } from './tools/registry';
 import type { ApprovalBroker } from './agent/approval';
@@ -65,6 +69,15 @@ export function getPluginsDir(): string {
 
 export function getPluginCacheDir(): string {
   return join(app.getPath('userData'), 'plugin-cache');
+}
+
+/**
+ * remote-ui のビルド出力。開発時はリポジトリの out/remote-ui、パッケージ版は
+ * asar 内の out/remote-ui(electron-builder の files に out/** が含まれ、
+ * electron の fs は asar 内パスを透過的に読める)。
+ */
+export function getRemoteUiDir(): string {
+  return join(app.getAppPath(), 'out', 'remote-ui');
 }
 
 function electronSafeStorageCipher(): SecretCipher {
@@ -215,6 +228,91 @@ export async function registerIpcHandlers(
   });
 
   ipcMain.handle(IpcChannels.evolutionList, () => service.evolutionList());
+
+  // ---- リモートアクセス(M10-5。管理はデスクトップ専用、トークン平文は保存しない) ----
+  const remoteAuth = new RemoteAuth({ getTokenHash: () => config.get().remote?.tokenHash });
+  let remoteServer: RemoteServer | null = null;
+  let remoteLastError: string | undefined;
+
+  const getRemoteConfig = (): RemoteConfig => config.get().remote ?? { enabled: false, port: 8787 };
+  const setRemoteConfig = (remote: RemoteConfig): void => {
+    config.set({ ...config.get(), remote });
+  };
+  const remoteStatus = (): RemoteStatusPayload => {
+    const rc = getRemoteConfig();
+    const status: RemoteStatusPayload = {
+      enabled: rc.enabled,
+      port: rc.port,
+      running: remoteServer?.isRunning() ?? false,
+      tokenSet: rc.tokenHash !== undefined,
+    };
+    if (remoteLastError !== undefined) status.lastError = remoteLastError;
+    return status;
+  };
+
+  /** config.remote と実際の listen 状態を一致させる。失敗は lastError に記録(起動は止めない) */
+  const applyRemoteState = async (): Promise<void> => {
+    if (remoteServer) {
+      await remoteServer.stop();
+      remoteServer = null;
+    }
+    remoteLastError = undefined;
+    const rc = getRemoteConfig();
+    if (!rc.enabled) return; // 無効時は一切 listen しない
+    const server = new RemoteServer({
+      facade: service,
+      bus,
+      auth: remoteAuth,
+      staticDir: getRemoteUiDir(),
+      auditTail: (limit) => audit.tail(limit),
+    });
+    try {
+      await server.start(rc.port);
+      remoteServer = server;
+    } catch (err) {
+      remoteLastError = err instanceof Error ? err.message : String(err);
+    }
+  };
+
+  ipcMain.handle(IpcChannels.remoteStatus, () => remoteStatus());
+
+  ipcMain.handle(IpcChannels.remoteSetEnabled, async (_e, enabled: unknown, port: unknown) => {
+    if (
+      typeof enabled !== 'boolean' ||
+      typeof port !== 'number' ||
+      !Number.isInteger(port) ||
+      port < 1 ||
+      port > 65535
+    ) {
+      throw new Error('IPC payload remote:set-enabled が不正');
+    }
+    const rc = getRemoteConfig();
+    // 初回有効化時にトークンを発行する。平文は戻り値でUIに一度だけ渡す
+    let token: string | undefined;
+    let tokenHash = rc.tokenHash;
+    if (enabled && tokenHash === undefined) {
+      const pair = generateToken();
+      token = pair.token;
+      tokenHash = pair.tokenHash;
+    }
+    const next: RemoteConfig = { enabled, port };
+    if (tokenHash !== undefined) next.tokenHash = tokenHash;
+    setRemoteConfig(next);
+    await applyRemoteState();
+    const result: { status: RemoteStatusPayload; token?: string } = { status: remoteStatus() };
+    if (token !== undefined) result.token = token;
+    return result;
+  });
+
+  ipcMain.handle(IpcChannels.remoteRegenerateToken, () => {
+    // ハッシュ差し替えのみで旧トークンは即失効する(RemoteAuth は config を毎回参照)
+    const pair = generateToken();
+    setRemoteConfig({ ...getRemoteConfig(), tokenHash: pair.tokenHash });
+    return { status: remoteStatus(), token: pair.token };
+  });
+
+  // 起動時: 設定が有効ならサーバを立てる(失敗しても起動は続行、状態はUIで見える)
+  await applyRemoteState();
 
   return { registry, broker: service.broker, config, secrets, service, bus };
 }

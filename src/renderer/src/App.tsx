@@ -11,6 +11,7 @@ import { useEvolutionStore } from './stores/evolution';
 export default function App(): JSX.Element {
   const handleChatEvent = useChatStore((s) => s.handleEvent);
   const enqueueApproval = useApprovalStore((s) => s.enqueue);
+  const resolveApprovalExternally = useApprovalStore((s) => s.resolveExternally);
   const handleEvolutionEvent = useEvolutionStore((s) => s.handleEvent);
   const [showDebug, setShowDebug] = useState(false);
   const [showEvolution, setShowEvolution] = useState(false);
@@ -18,6 +19,10 @@ export default function App(): JSX.Element {
 
   useEffect(() => window.api.onChatEvent(handleChatEvent), [handleChatEvent]);
   useEffect(() => window.api.onApprovalRequest(enqueueApproval), [enqueueApproval]);
+  useEffect(
+    () => window.api.onApprovalResolved((p) => resolveApprovalExternally(p.id)),
+    [resolveApprovalExternally],
+  );
   useEffect(() => window.api.onEvolutionEvent(handleEvolutionEvent), [handleEvolutionEvent]);
 
   return (

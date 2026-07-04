@@ -2,12 +2,14 @@ import type {
   AgentEvent,
   ApprovalDecision,
   ApprovalRequestPayload,
+  ApprovalResolvedPayload,
   AppConfig,
   ChatMode,
   EvolutionEvent,
   EvolutionJobSummary,
   PluginErrorInfo,
   ProviderId,
+  RemoteStatusPayload,
   SecretsStatus,
   ToolExecResultPayload,
   ToolInfo,
@@ -36,6 +38,10 @@ export const IpcChannels = {
   evolutionPromoteRespond: 'evolution:promote-respond',
   evolutionEnqueue: 'evolution:enqueue',
   evolutionList: 'evolution:list',
+  /** M10: リモートアクセス管理(デスクトップ専用) */
+  remoteStatus: 'remote:status',
+  remoteSetEnabled: 'remote:set-enabled',
+  remoteRegenerateToken: 'remote:regenerate-token',
 } as const;
 
 /** preload が window.api として公開するAPIの型。renderer はこれ経由でしか main と話せない */
@@ -47,6 +53,8 @@ export interface MyCodexApi {
 
   onApprovalRequest(listener: (req: ApprovalRequestPayload) => void): () => void;
   approvalRespond(id: string, decision: ApprovalDecision): Promise<void>;
+  /** M10: 別画面(リモート等)で承認が解決されたらダイアログを閉じるための通知 */
+  onApprovalResolved(listener: (payload: ApprovalResolvedPayload) => void): () => void;
 
   toolsList(): Promise<{ tools: ToolInfo[]; errors: PluginErrorInfo[] }>;
   /** デバッグパネル用の手動ツール実行(承認フローを通る) */
@@ -71,4 +79,9 @@ export interface MyCodexApi {
   /** 手動で進化ジョブを起動(デバッグ・検証用) */
   evolutionEnqueue(description: string, expectedIo: string): Promise<{ jobId: number }>;
   evolutionList(): Promise<EvolutionJobSummary[]>;
+
+  /** M10: リモートアクセス(スマホWeb)管理。トークン平文は生成時に一度だけ返る */
+  remoteStatus(): Promise<RemoteStatusPayload>;
+  remoteSetEnabled(enabled: boolean, port: number): Promise<{ status: RemoteStatusPayload; token?: string }>;
+  remoteRegenerateToken(): Promise<{ status: RemoteStatusPayload; token: string }>;
 }
