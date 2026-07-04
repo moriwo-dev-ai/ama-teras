@@ -12,6 +12,7 @@ import type {
   ToolInfo,
 } from '../shared/types';
 import { ApprovalBroker } from './agent/approval';
+import { AuditLog } from './audit';
 import { compactHistory } from './agent/compaction';
 import { runAgentLoop } from './agent/loop';
 import { runSubAgent } from './agent/subagent';
@@ -24,7 +25,7 @@ import { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from './providers/anthropi
 import { DEFAULT_OPENAI_MODEL, OpenAIProvider } from './providers/openai';
 import type { ChatMessage, LLMProvider } from './providers/types';
 import { SecretStore, type SecretCipher } from './secrets';
-import { executeToolWithApproval } from './tools/executor';
+import { executeToolWithApproval, type ScopePolicy } from './tools/executor';
 import { ToolRegistry } from './tools/registry';
 
 function assertString(value: unknown, name: string): asserts value is string {
@@ -55,7 +56,8 @@ function assertConfig(value: unknown): asserts value is AppConfig {
     ) &&
     (rec['provider'] === 'anthropic' || rec['provider'] === 'openai') &&
     typeof rec['model'] === 'string' &&
-    (rec['workspace'] === undefined || typeof rec['workspace'] === 'string');
+    (rec['workspace'] === undefined || typeof rec['workspace'] === 'string') &&
+    (rec['scopeMode'] === 'project' || rec['scopeMode'] === 'fullPc');
   if (!ok) throw new Error('IPC payload config が不正');
 }
 
@@ -182,6 +184,26 @@ export async function registerIpcHandlers(
     return ws && ws.trim() !== '' ? ws : app.getAppPath();
   };
 
+  // ---- M9: スコープ制御と監査ログ ----
+  // 通常セッションにのみ注入する。進化ジョブ(AgentJobRunner)は writeAllowlist / restrictExec が
+  // 別途制限しており、このポリシーの影響を受けない(受けさせない)。
+  const audit = new AuditLog(join(app.getPath('userData'), 'audit.jsonl'));
+  const getScopePolicy = (): ScopePolicy => ({
+    mode: config.get().scopeMode,
+    workspaceRoot: getWorkspace(),
+    deny: {
+      userDataDir: app.getPath('userData'),
+      repoGitDir: join(app.getAppPath(), '.git'),
+    },
+  });
+  const executorDeps = {
+    registry,
+    broker,
+    getAutoApprove: () => config.get().autoApprove,
+    getScopePolicy,
+    audit: (e: Parameters<AuditLog['append']>[0]): void => audit.append(e),
+  };
+
   // ---- chat ----
   const PLAN_SUFFIX = `\n\n# プランモード\n今回は「計画のみ」を求められている。実装に入らず、
 何をどの順で行うか(触るファイル・使うツール・確認事項)を簡潔な計画として提示せよ。
@@ -226,7 +248,7 @@ export async function registerIpcHandlers(
           tools: planMode ? { list: () => [] } : registry,
           executeTool: (name, input, ctx) =>
             executeToolWithApproval(
-              { registry, broker, getAutoApprove: () => config.get().autoApprove },
+              executorDeps,
               name,
               input,
               {
@@ -287,7 +309,7 @@ export async function registerIpcHandlers(
     }
     const ac = new AbortController();
     const result = await executeToolWithApproval(
-      { registry, broker, getAutoApprove: () => config.get().autoApprove },
+      executorDeps,
       name,
       input,
       // chatSend と同じく evolution を注入する(request_capability が手動実行でも動くように)

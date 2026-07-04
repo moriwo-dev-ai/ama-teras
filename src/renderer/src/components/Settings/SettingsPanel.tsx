@@ -10,6 +10,8 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
   const [apiKey, setApiKey] = useState('');
   const [notice, setNotice] = useState('');
   const [memory, setMemory] = useState('');
+  // fullPc 有効化は影響が大きいため確認モーダルを挟む(M9-4)
+  const [confirmFullPc, setConfirmFullPc] = useState(false);
 
   useEffect(() => {
     void window.api.settingsGet().then(setConfig);
@@ -150,6 +152,37 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
         </div>
 
         <div className="space-y-1">
+          <label className="text-xs text-zinc-400">操作範囲(scopeMode)</label>
+          <div className="space-y-1 text-xs text-zinc-300">
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="scopeMode"
+                checked={config.scopeMode === 'project'}
+                onChange={() => void updateConfig({ scopeMode: 'project' })}
+              />
+              project — 作業ディレクトリ内のみ(既定・従来どおり)
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="scopeMode"
+                checked={config.scopeMode === 'fullPc'}
+                onChange={() => {
+                  if (config.scopeMode !== 'fullPc') setConfirmFullPc(true);
+                }}
+              />
+              fullPc — PC全体を承認制で許可(プロジェクト外は毎回承認)
+            </label>
+          </div>
+          {config.scopeMode === 'fullPc' && (
+            <p className="text-xs text-amber-400">
+              ⚠ fullPc 有効中: プロジェクト外の操作は毎回承認ダイアログが出る(自動承認・セッション許可は無効)
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-1">
           <label className="text-xs text-zinc-400">ツール自動承認</label>
           <div className="flex gap-4 text-xs text-zinc-300">
             {(['safe', 'write', 'exec'] as const).map((k) => (
@@ -192,6 +225,38 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
 
         {notice && <p className="text-xs text-zinc-400">{notice}</p>}
       </div>
+
+      {confirmFullPc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-[440px] max-w-[90vw] space-y-3 rounded-lg border border-amber-600 bg-zinc-900 p-5 text-sm shadow-xl">
+            <h3 className="font-semibold text-amber-400">⚠ PC全体スコープを有効にする</h3>
+            <p className="text-xs leading-relaxed text-zinc-300">
+              エージェントが作業ディレクトリの外(デスクトップ・ドキュメント等、PC全体)の
+              ファイル操作とコマンド実行を要求できるようになる。プロジェクト外の操作は
+              risk や自動承認設定に関係なく<span className="font-semibold text-amber-300">毎回</span>
+              承認ダイアログで確認される。アプリ設定領域(userData)と Windows システム領域への
+              書き込みは引き続き拒否される。
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                className="rounded-md border border-zinc-600 px-3 py-1.5 text-sm hover:bg-zinc-800"
+                onClick={() => setConfirmFullPc(false)}
+              >
+                キャンセル
+              </button>
+              <button
+                className="rounded-md bg-amber-600 px-4 py-1.5 text-sm hover:bg-amber-500"
+                onClick={() => {
+                  setConfirmFullPc(false);
+                  void updateConfig({ scopeMode: 'fullPc' });
+                }}
+              >
+                有効にする
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

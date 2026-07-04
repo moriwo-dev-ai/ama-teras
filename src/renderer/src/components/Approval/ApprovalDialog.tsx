@@ -13,6 +13,8 @@ export function ApprovalDialog(): JSX.Element | null {
   if (!req) return null;
 
   const risk = RISK_LABEL[req.risk];
+  // M9: system スコープは毎回承認(allow-session を出さない)+警告バナー
+  const isSystemScope = req.scope === 'system';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
@@ -24,6 +26,22 @@ export function ApprovalDialog(): JSX.Element | null {
           </h2>
           {queue.length > 1 && <span className="text-xs text-zinc-500">(+{queue.length - 1} 件待ち)</span>}
         </div>
+
+        {isSystemScope && (
+          <div className="mb-2 rounded-md border border-amber-500 bg-amber-950 p-2 text-xs text-amber-200">
+            <div className="mb-1 font-semibold">⚠ プロジェクト外の操作(PC全体スコープ)</div>
+            <div className="text-amber-300/90">この操作は作業ディレクトリの外に影響する。毎回承認が必要。</div>
+            {req.resolvedPaths && req.resolvedPaths.length > 0 && (
+              <ul className="mt-1 space-y-0.5">
+                {req.resolvedPaths.map((p) => (
+                  <li key={p} className="break-all font-mono text-amber-100">
+                    {p}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         {req.warnings.length > 0 && (
           <div className="mb-2 rounded-md border border-red-700 bg-red-950 p-2 text-xs text-red-300">
@@ -51,12 +69,14 @@ export function ApprovalDialog(): JSX.Element | null {
           >
             拒否
           </button>
-          <button
-            className="rounded-md border border-zinc-600 px-3 py-1.5 text-sm hover:bg-zinc-800"
-            onClick={() => respond(req.id, 'allow-session')}
-          >
-            このセッションでは常に許可
-          </button>
+          {!isSystemScope && (
+            <button
+              className="rounded-md border border-zinc-600 px-3 py-1.5 text-sm hover:bg-zinc-800"
+              onClick={() => respond(req.id, 'allow-session')}
+            >
+              このセッションでは常に許可
+            </button>
+          )}
           <button
             className="rounded-md bg-blue-600 px-4 py-1.5 text-sm hover:bg-blue-500"
             onClick={() => respond(req.id, 'allow')}
