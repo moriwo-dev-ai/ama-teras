@@ -2,8 +2,12 @@
 
 ## 現在の状態
 
-- **M1〜M11まで実装**(M3/M5/M6の実API確認はOpenAIプロバイダで実施済み)。
-  テスト281件・typecheck(node/web/remote)全合格。
+- **M1〜M12まで実装**。テスト337件・typecheck(node/web/remote)全合格。
+- **M12完了(2026-07-05・Windows実機で実装/検証)**: 長丁場対応 —
+  多重起動ガード(smoke非ロック)/セッション永続化+再開(強制終了→復元→文脈保持を実機確認)/
+  計画ファイル(planツール+system prompt注入+パネル)/並列サブエージェント
+  (mode:'work'・最大3並列・executor経由承認・write衝突拒否・出所バナー)。
+  手動確認の残りは `docs/M12-manual-test.md`、ベンチ実測は `docs/autonomy-comparison.md`
 - **M11完了(コード・5点全部)**: 自律開発能力の強化 — maxTurns設定化/バックグラウンドbash/
   自動チェックポイント/編集後フック/既定モデル claude-fable-5。
   Windows実機確認(taskkill・復元・フック体感・Fable実測)は `docs/M11-manual-test.md`
@@ -137,17 +141,46 @@
   - M11-5: 既定モデルを claude-fable-5 へ(shared/models.ts / providers/anthropic.ts)。
     既定モデルでの cache_control 配置をテストで確認。実API検証はキー登録後
 
+- 2026-07-05: **M12 — 長丁場対応(セッション永続化・計画ファイル・並列サブエージェント)**。
+  テスト281→337件。設計書 `docs/M12-longrun-design.md`。Windows実機で実装・E2E確認
+  - M12-0: 多重起動ガード。`requestSingleInstanceLock`(スモークモードでは取得しない —
+    進化ゲートのheadless並行起動を壊さない。index.guard.test.ts+guardrailsで固定)。
+    実機確認: A稼働中の二重起動は即quit・A稼働中の MYCODEX_SMOKE=1 は成功
+  - M12-1: `src/main/core/sessions.ts` SessionStore(userData/sessions/<会話ID>.json、
+    tmp→renameアトミック書き込み、8MB超は既存compactionで畳んでから保存、ロード時に
+    未完了tool_useを合成tool_resultで修復=API 400対策)。会話IDを新設し
+    ユーザー送信直後+各ターン完了+終了時に随時保存。sessions:list/load/delete/new IPC+
+    セッション切替ドロップダウン。実機確認: 強制終了→再起動→復元→文脈保持(合言葉)
+  - M12-2: planツール(workspace直下 MYCODEX_PLAN.md 固定・path入力なし・risk safe)。
+    system promptへ「## 現在の計画」を毎ターン注入(compactionで失われない)+plan運用規範。
+    計画パネル(checkbox進捗・自動更新)。進化ジョブではwrite拒否・読み取り専用サブエージェント非公開
+  - M12-3: dispatch_agent拡張 `{task?, mode?: 'read'|'work', parallel?: {task}[]}`
+    (未指定=完全従来挙動)。work子は全ツールを親のexecutor経由で実行(承認・スコープ・監査・
+    フックがそのまま効く)、最大3並列・子maxTurns設定可(subAgentMaxTurns、既定30)。
+    WriteLockTable(同一パスwriteは最初の子が所有)、fan-out直前チェックポイント、
+    agent:sub_updateイベント+エージェントパネル、承認ダイアログ/remote-uiに出所バナー。
+    ネスト1段・進化非注入をguardrailsで固定。
+    実機確認: 2体並列で別ファイル同時生成・出所バナー・チェックポイント・git不変
+  - 判断記録: セッション復元でworkspace設定は自動切替しない(メタ保存のみ)/
+    work子にはprocesses(バックグラウンドbash)非注入(v1簡素化)/
+    planはwork子から書けない(親が単独管理)
+  - M12-4: ベンチ3課題を実測(docs/autonomy-comparison.md「実測」節)。
+    ①TODO CLI 1.5分/7T ②Express+sqlite REST 2.9分/19T ③React 1.1分/6T、
+    **全課題を介入ゼロで完遂・独立検証合格**。②初回試行で同期bashの
+    キャンセル不能ハングが実害化 → bash修正(c8884a9: タイムアウト/キャンセル時に
+    子孫ツリーtaskkill+フォールバック解決)
+
 ## 次のタスク
 
-- (ユーザー)Windows側 `npm run build` → docs/M10-manual-test.md の手動確認
-- (ユーザー)docs/M11-manual-test.md の手動確認(特に taskkill /T の実動作)
-- Anthropicキー登録後: claude-fable-5 で「TODO管理CLI」1本自走+ベンチ3課題実測(M11-5)
+- (ユーザー)iPhone実機+Tailscale(docs/M10-manual-test.md B節)、NSISインストーラ
+  (開発者モードONで `npm run dist`)
+- docs/M12-manual-test.md の残り体感確認(ツール実行中の強制終了→復元、キャンセル伝播、
+  スマホからのサブエージェント承認)
 - **QRコード表示**(設計書の後続タスク): `qrcode` 依存を追加し、Settingsの接続URLを
   QR表示する。依存追加を伴うためユーザー承認後に実施
-- M9残: dispatch_agent のサブエージェントを executor 経由に統一(workspace外読み取りの
-  スコープ判定)/ 進化ジョブ生成プロンプトへの pathParams 宣言の追加
+- M9残: 進化ジョブ生成プロンプトへの pathParams 宣言の追加
 - SSE の Last-Event-ID 対応(現状は再接続時 snapshot で全量回復。会話が長大化したら検討)
-- Anthropic固有部分の実API検証(キー登録待ち)
+- 多重起動ガード導入済みだが、`second-instance` での引数引き継ぎ(ファイルを開く等)は未対応
 
 ## 既知のバグ・課題
 
@@ -167,7 +200,16 @@
   (メッセージで明示。spawn timeout はシェルしか殺さないため)
 - (M11) postEditHook の発火はツール名 write_file / edit_file 固定。生成ツール(csv_to_markdown等)
   の書き込みには発火しない(M9のpathParams未宣言問題と同系)
-- (M11) taskkill /T /F の実動作は Windows 実機未確認(コマンド組み立てのみ単体テスト済み)
+- (M11) ~~taskkill /T /F の実動作は Windows 実機未確認~~ → 2026-07-05 実機確認済み
+  (孫プロセスまで死亡。VERIFICATION_REPORT.md)
+- (M12) セッション復元は履歴のみ。実行中だったバックグラウンドproc・承認待ちは復元しない(仕様)
+- (M12) work サブエージェントに processes 非注入(バックグラウンドbash不可)。必要になったら注入検討
+- (M12) WriteLockTable は pathParams 宣言済みツールの write のみ対象(bash 経由の書き込みは対象外。
+  restrictExec と同根の制約)
+- (M12) **チェックポイントが .gitignore の無い workspace で node_modules ごと snapshot する**:
+  `git add -A` が数十秒かかり、その間 UI は idle 表示でも activeRun が未クリアで
+  次の送信が「別の実行が進行中」になる。対策候補: 一時 index への add 時に
+  node_modules/dist を既定除外、または activeRun クリアを終端イベント直後へ移す
 - (M11) セッションキャンセルでバックグラウンドprocも全kill(設計どおり)。セッションを跨いで
   dev server を維持したい場合は再起動が必要
 - (M9) スコープ判定は `pathParams` を宣言したツールのみ対象。未宣言ツール
