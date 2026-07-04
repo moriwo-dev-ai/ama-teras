@@ -32,6 +32,13 @@ describe('進化パイプラインの制限(M9で不変)', () => {
     expect(source).not.toContain('ProcessManager');
   });
 
+  it('M11-3: 自動チェックポイントは進化ジョブに波及しない(ソース・トリップワイヤ)', () => {
+    const source = readFileSync(fileURLToPath(new URL('./job.ts', import.meta.url)), 'utf8');
+    // チェックポイントはメインループ(AgentService)専用。B worktree での実行に混ぜない
+    expect(source.toLowerCase()).not.toContain('checkpoint');
+    expect(source).not.toContain('snapshot');
+  });
+
   it('restrictExec の許可コマンドは検証系のみ(書き込み・任意実行は拒否)', () => {
     expect(isRestrictedCommandAllowed('npm run typecheck')).toBe(true);
     expect(isRestrictedCommandAllowed('npx vitest run src/main/tools/plugins/x.test.ts')).toBe(true);

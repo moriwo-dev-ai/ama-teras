@@ -7,6 +7,8 @@ import type {
   ApprovalDecision,
   ApprovalRequestPayload,
   ChatMode,
+  CheckpointInfo,
+  CheckpointRestoreResult,
   EvolutionEvent,
   EvolutionJobSummary,
   HistoryMessageView,
@@ -65,6 +67,14 @@ export interface EvolutionHooks {
 
 export type PromotionRequestEvent = Extract<EvolutionEvent, { kind: 'promotion_request' }>;
 
+/** CheckpointManager を構造的に満たす最小インターフェース(M11-3。テストではモック可能) */
+export interface CheckpointsLike {
+  readonly workspace: string;
+  snapshot(sessionId: string, label: string): Promise<string | null>;
+  list(): Promise<CheckpointInfo[]>;
+  restore(sha: string): Promise<CheckpointRestoreResult>;
+}
+
 export interface AgentServiceDeps {
   bus: EventBus;
   registry: RegistryLike;
@@ -79,6 +89,11 @@ export interface AgentServiceDeps {
   createEvolution: (hooks: EvolutionHooks) => EvolutionLike;
   /** テスト用: プロバイダ生成の差し替え(未指定なら config/secrets から実プロバイダを作る) */
   providerFactory?: () => LLMProvider | string;
+  /**
+   * M11-3: 自動チェックポイントの生成(workspace ごと)。未指定なら機能全体が無効。
+   * メインループ専用 — 進化ジョブ(AgentJobRunner)はこの service を経由しないため波及しない。
+   */
+  createCheckpoints?: (workspace: string) => CheckpointsLike;
 }
 
 const SYSTEM_PROMPT = `あなたは MyCodex — ユーザーのマシン上で動くコーディングエージェント。
@@ -117,6 +132,7 @@ export class AgentService {
   private activeRun: { sessionId: string; ac: AbortController } | null = null;
   private lastStatus: AgentStatus = 'idle';
   private readonly pendingApprovals = new Map<string, ApprovalRequestPayload>();
+  private checkpointsCache: CheckpointsLike | null = null;
   private readonly pendingPromotions = new Map<number, (approved: boolean) => void>();
   private readonly pendingPromotionEvents = new Map<number, PromotionRequestEvent>();
 
@@ -196,6 +212,17 @@ export class AgentService {
     };
   }
 
+  /** workspace 変更に追従してチェックポイント管理を作り直す(未設定なら null = 無効) */
+  private getCheckpoints(): CheckpointsLike | null {
+    const factory = this.deps.createCheckpoints;
+    if (!factory) return null;
+    const ws = this.getWorkspace();
+    if (!this.checkpointsCache || this.checkpointsCache.workspace !== ws) {
+      this.checkpointsCache = factory(ws);
+    }
+    return this.checkpointsCache;
+  }
+
   private evolutionContext() {
     return {
       requestCapability: async (description: string, expectedIO: string) => ({
@@ -243,14 +270,14 @@ export class AgentService {
       } catch {
         /* 圧縮失敗は無視して通常応答へ進む */
       }
-      return runAgentLoop(
+      const status = await runAgentLoop(
         {
           provider,
           // プランモードではツール定義を渡さない(モデルがtool_useを出せない)。
           // 併せて loop 側 planMode でも実行を機械的に禁止する(二重防御)。
           tools: planMode ? { list: () => [] } : this.deps.registry,
-          executeTool: (name, input, ctx) =>
-            executeToolWithApproval(this.executorDeps(), name, input, {
+          executeTool: async (name, input, ctx) => {
+            const result = await executeToolWithApproval(this.executorDeps(), name, input, {
               ...ctx,
               evolution: this.evolutionContext(),
               processes: this.processes,
@@ -262,7 +289,17 @@ export class AgentService {
                     signal,
                   ),
               },
-            }),
+            });
+            // M11-3: 書き込み/実行系ツールの成功直後に自動チェックポイント(メインループのみ)。
+            // 失敗してもツール結果・ループは止めない(manager 側でログ済み)
+            const risk = this.deps.registry.get(name)?.risk;
+            if (result.isError !== true && (risk === 'write' || risk === 'exec')) {
+              await this.getCheckpoints()
+                ?.snapshot(sessionId, `${name} 実行後`)
+                .catch(() => null);
+            }
+            return result;
+          },
           emit,
           // プロジェクト記憶(MYCODEX.md)を system プロンプトへ注入する(M8-2)
           systemPrompt:
@@ -276,6 +313,11 @@ export class AgentService {
         this.history,
         ac.signal,
       );
+      // M11-3: ループ完了時にも1回スナップショット(直近ツール以降の変更を確定)
+      await this.getCheckpoints()
+        ?.snapshot(sessionId, `セッション終了(${status})`)
+        .catch(() => null);
+      return status;
     })().finally(() => {
       this.activeRun = null;
     });
@@ -347,6 +389,23 @@ export class AgentService {
       },
     );
     return { content: result.content, isError: result.isError === true };
+  }
+
+  // ---- チェックポイント(M11-3) ----
+
+  async checkpointList(): Promise<CheckpointInfo[]> {
+    return (await this.getCheckpoints()?.list()) ?? [];
+  }
+
+  async checkpointRestore(sha: string): Promise<CheckpointRestoreResult> {
+    if (this.activeRun) {
+      return { ok: false, message: 'エージェント実行中は復元できない(完了かキャンセル後に実行)' };
+    }
+    const ckpt = this.getCheckpoints();
+    if (!ckpt) {
+      return { ok: false, message: 'チェックポイント機能が無効(workspace が git リポジトリでない等)' };
+    }
+    return ckpt.restore(sha);
   }
 
   // ---- 進化 ----

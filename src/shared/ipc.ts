@@ -5,6 +5,8 @@ import type {
   ApprovalResolvedPayload,
   AppConfig,
   ChatMode,
+  CheckpointInfo,
+  CheckpointRestoreResult,
   EvolutionEvent,
   EvolutionJobSummary,
   PluginErrorInfo,
@@ -38,6 +40,9 @@ export const IpcChannels = {
   evolutionPromoteRespond: 'evolution:promote-respond',
   evolutionEnqueue: 'evolution:enqueue',
   evolutionList: 'evolution:list',
+  /** M11-3: 自動チェックポイント(Debugパネル) */
+  checkpointList: 'checkpoint:list',
+  checkpointRestore: 'checkpoint:restore',
   /** M10: リモートアクセス管理(デスクトップ専用) */
   remoteStatus: 'remote:status',
   remoteSetEnabled: 'remote:set-enabled',
@@ -79,6 +84,10 @@ export interface MyCodexApi {
   /** 手動で進化ジョブを起動(デバッグ・検証用) */
   evolutionEnqueue(description: string, expectedIo: string): Promise<{ jobId: number }>;
   evolutionList(): Promise<EvolutionJobSummary[]>;
+
+  /** M11-3: 自動チェックポイントの一覧と作業ツリーへの復元(HEAD/indexは変更しない) */
+  checkpointList(): Promise<CheckpointInfo[]>;
+  checkpointRestore(sha: string): Promise<CheckpointRestoreResult>;
 
   /** M10: リモートアクセス(スマホWeb)管理。トークン平文は生成時に一度だけ返る */
   remoteStatus(): Promise<RemoteStatusPayload>;

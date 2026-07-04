@@ -180,6 +180,91 @@ describe('AgentService: maxTurns 配線(M11-1)', () => {
   });
 });
 
+describe('AgentService: チェックポイント配線(M11-3)', () => {
+  const mkPlugin = (name: string, risk: 'safe' | 'write' | 'exec') => ({
+    name,
+    description: 'テスト用',
+    risk,
+    inputSchema: { type: 'object' as const, properties: {} },
+    execute: async () => ({ content: 'ok' }),
+  });
+
+  it('write 成功後とループ完了時に snapshot、safe ツールでは呼ばれない', async () => {
+    const snapshots: { sessionId: string; label: string }[] = [];
+    const fake = {
+      workspace: process.cwd(),
+      snapshot: async (sessionId: string, label: string) => {
+        snapshots.push({ sessionId, label });
+        return 'f'.repeat(40);
+      },
+      list: async () => [],
+      restore: async () => ({ ok: true, message: '' }),
+    };
+    const plugins = [mkPlugin('write_x', 'write'), mkPlugin('read_x', 'safe')];
+    let turn = 0;
+    const provider: LLMProvider = {
+      id: 'anthropic',
+      async *complete(): AsyncGenerator<ProviderEvent> {
+        turn++;
+        if (turn === 1) {
+          yield {
+            type: 'message_done',
+            message: {
+              role: 'assistant',
+              content: [
+                { type: 'tool_use', id: 't1', name: 'write_x', input: {} },
+                { type: 'tool_use', id: 't2', name: 'read_x', input: {} },
+              ],
+            },
+            stopReason: 'tool_use',
+            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0 },
+          };
+        } else {
+          yield {
+            type: 'message_done',
+            message: { role: 'assistant', content: [{ type: 'text', text: '完了' }] },
+            stopReason: 'end_turn',
+            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0 },
+          };
+        }
+      },
+    };
+    const { svc, bus } = makeService({
+      providerFactory: () => provider,
+      registry: {
+        list: () => plugins,
+        get: (n) => plugins.find((p) => p.name === n),
+        reload: async () => {},
+        errors: [],
+      },
+      config: {
+        get: () => ({
+          ...structuredClone(BASE_CONFIG),
+          autoApprove: { safe: true, write: true, exec: true },
+        }),
+      },
+      createCheckpoints: () => fake,
+    });
+    const done = waitForStatus(bus, ['done', 'error']);
+    const { sessionId } = svc.chatSend('書いて', 'normal');
+    await done;
+    // done ステータス後の loop 完了スナップショットまで待つ(finally の1tick)
+    await new Promise((r) => setTimeout(r, 0));
+    expect(snapshots).toEqual([
+      { sessionId, label: 'write_x 実行後' },
+      { sessionId, label: 'セッション終了(done)' },
+    ]);
+  });
+
+  it('createCheckpoints 未指定なら list は空・restore は無効メッセージ(完全noop)', async () => {
+    const { svc } = makeService();
+    expect(await svc.checkpointList()).toEqual([]);
+    const r = await svc.checkpointRestore('a'.repeat(40));
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('無効');
+  });
+});
+
 describe('AgentService: 承認の追跡', () => {
   it('承認要求は pending に載り、respond で approval:resolved が流れて消える', async () => {
     const { svc, bus } = makeService();

@@ -11,6 +11,7 @@ import type {
 } from '../shared/types';
 import { AuditLog } from './audit';
 import { ConfigStore } from './config';
+import { CheckpointManager } from './core/checkpoints';
 import { EventBus } from './core/events';
 import { AgentService } from './core/service';
 import { readProjectMemory, writeProjectMemory } from './memory';
@@ -134,6 +135,9 @@ export async function registerIpcHandlers(
       userDataDir: app.getPath('userData'),
       repoGitDir: join(app.getAppPath(), '.git'),
     },
+    // M11-3: 自動チェックポイント(git の無い workspace では manager 側で noop)
+    createCheckpoints: (workspace) =>
+      new CheckpointManager(workspace, (line) => console.log(`[checkpoint] ${line}`)),
     createEvolution: (hooks) =>
       new EvolutionManager({
         repoDir,
@@ -230,6 +234,13 @@ export async function registerIpcHandlers(
   });
 
   ipcMain.handle(IpcChannels.evolutionList, () => service.evolutionList());
+
+  // ---- チェックポイント(M11-3) ----
+  ipcMain.handle(IpcChannels.checkpointList, () => service.checkpointList());
+  ipcMain.handle(IpcChannels.checkpointRestore, (_e, sha: unknown) => {
+    assertString(sha, 'sha');
+    return service.checkpointRestore(sha);
+  });
 
   // ---- リモートアクセス(M10-5。管理はデスクトップ専用、トークン平文は保存しない) ----
   const remoteAuth = new RemoteAuth({ getTokenHash: () => config.get().remote?.tokenHash });

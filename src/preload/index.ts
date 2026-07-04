@@ -44,6 +44,9 @@ const api: MyCodexApi = {
     ipcRenderer.invoke(IpcChannels.evolutionEnqueue, description, expectedIo),
   evolutionList: () => ipcRenderer.invoke(IpcChannels.evolutionList),
 
+  checkpointList: () => ipcRenderer.invoke(IpcChannels.checkpointList),
+  checkpointRestore: (sha) => ipcRenderer.invoke(IpcChannels.checkpointRestore, sha),
+
   remoteStatus: () => ipcRenderer.invoke(IpcChannels.remoteStatus),
   remoteSetEnabled: (enabled, port) =>
     ipcRenderer.invoke(IpcChannels.remoteSetEnabled, enabled, port),
