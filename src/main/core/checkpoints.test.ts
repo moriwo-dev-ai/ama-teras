@@ -30,7 +30,8 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true }).catch(() => {});
 });
 
-describe('CheckpointManager(M11-3・実git)', () => {
+// Windows では git のプロセス起動が遅く、並列実行時の負荷次第で既定5sを超える
+describe('CheckpointManager(M11-3・実git)', { timeout: 20_000 }, () => {
   it('スナップショット→破壊→復元で作業ツリーが戻る。HEAD・index・他refsは不変', async () => {
     const cm = new CheckpointManager(dir);
     const headBefore = await git(['rev-parse', 'HEAD'], dir);
@@ -92,8 +93,7 @@ describe('CheckpointManager(M11-3・実git)', () => {
     expect(await readFile(join(dir, 'later.txt'), 'utf8')).toBe('created-after');
   });
 
-  // restore 2回で git 呼び出しが最多になり、Windows のプロセス起動コストで既定5sを超えることがある
-  it('復元前に現状態が pre-restore へ自動退避され、往復できる', { timeout: 20_000 }, async () => {
+  it('復元前に現状態が pre-restore へ自動退避され、往復できる', async () => {
     const cm = new CheckpointManager(dir);
     await writeFile(join(dir, 'a.txt'), 'v2');
     const sha1 = await cm.snapshot('s1', 'one');
