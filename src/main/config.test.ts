@@ -22,6 +22,7 @@ describe('ConfigStore', () => {
     expect(c.provider).toBe('anthropic');
     expect(c.model).toBe('');
     expect(c.workspace).toBeUndefined();
+    expect(c.scopeMode).toBe('project');
   });
 
   it('set した内容が永続化され再読込で復元される(workspace含む)', () => {
@@ -31,12 +32,24 @@ describe('ConfigStore', () => {
       provider: 'openai',
       model: 'gpt-5.1',
       workspace: 'C:/work/proj',
+      scopeMode: 'fullPc',
     });
     const reloaded = new ConfigStore(file);
     const c = reloaded.get();
     expect(c.provider).toBe('openai');
     expect(c.workspace).toBe('C:/work/proj');
     expect(c.autoApprove.write).toBe(true);
+    expect(c.scopeMode).toBe('fullPc');
+  });
+
+  it('scopeMode が無い既存設定ファイルは project にフォールバック(後方互換)', async () => {
+    await writeFile(file, JSON.stringify({ provider: 'openai', model: '' }));
+    expect(new ConfigStore(file).get().scopeMode).toBe('project');
+  });
+
+  it('不正な scopeMode は project にフォールバック', async () => {
+    await writeFile(file, JSON.stringify({ scopeMode: 'yolo' }));
+    expect(new ConfigStore(file).get().scopeMode).toBe('project');
   });
 
   it('空文字の workspace は未設定として扱う', async () => {

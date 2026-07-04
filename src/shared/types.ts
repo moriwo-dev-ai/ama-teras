@@ -38,6 +38,12 @@ export interface SecretsStatus {
 
 export type ToolRisk = 'safe' | 'write' | 'exec';
 
+/** M9: 操作スコープ。workspace = config.workspace 配下 / system = それ以外のPC全体 */
+export type OperationScope = 'workspace' | 'system';
+
+/** M9: 'project' = 従来どおりworkspace内のみ / 'fullPc' = system スコープを承認制で許可 */
+export type ScopeMode = 'project' | 'fullPc';
+
 export interface DiffLine {
   kind: 'same' | 'add' | 'del';
   text: string;
@@ -53,6 +59,10 @@ export interface ApprovalRequestPayload {
   /** write_file / edit_file のときのみ */
   diff?: DiffLine[];
   warnings: string[];
+  /** M9: 操作スコープ。'system' はプロジェクト外(毎回承認・allow-session 不可) */
+  scope?: OperationScope;
+  /** M9: スコープ判定に使った解決済み絶対パス('system' のときのみ) */
+  resolvedPaths?: string[];
 }
 
 export type ApprovalDecision = 'allow' | 'allow-session' | 'deny';
@@ -70,6 +80,8 @@ export interface AppConfig {
   model: string;
   /** エージェントの作業ディレクトリ。空/未設定なら既定(アプリのルート) */
   workspace?: string;
+  /** M9: 操作範囲。既定 'project'(後方互換) */
+  scopeMode: ScopeMode;
 }
 
 /** renderer のツール一覧・デバッグパネル用 */

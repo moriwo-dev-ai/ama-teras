@@ -6,6 +6,8 @@ const DEFAULTS: AppConfig = {
   autoApprove: { safe: true, write: false, exec: false },
   provider: 'anthropic',
   model: '',
+  // 後方互換: 既存ユーザーの設定ファイルに scopeMode が無くても従来挙動(project)になる
+  scopeMode: 'project',
 };
 
 /** 設定の永続化。electron非依存(テスト可能にするためファイルパスを注入) */
@@ -34,6 +36,7 @@ export class ConfigStore {
       }
       if (typeof rec['model'] === 'string') merged.model = rec['model'];
       if (typeof rec['workspace'] === 'string' && rec['workspace'] !== '') merged.workspace = rec['workspace'];
+      if (rec['scopeMode'] === 'project' || rec['scopeMode'] === 'fullPc') merged.scopeMode = rec['scopeMode'];
       return merged;
     } catch {
       return merged;
