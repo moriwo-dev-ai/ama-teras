@@ -20,6 +20,8 @@ export const IpcChannels = {
   chatEvent: 'chat:event',
   approvalRequest: 'approval:request',
   approvalRespond: 'approval:respond',
+  /** M10: 承認がいずれかの画面(デスクトップ/リモート)で解決された通知 */
+  approvalResolved: 'approval:resolved',
   toolsList: 'tools:list',
   toolsExecute: 'tools:execute',
   toolsReload: 'tools:reload',

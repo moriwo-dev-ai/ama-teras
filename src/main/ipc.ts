@@ -1,32 +1,23 @@
 import { app, dialog, ipcMain, safeStorage, type WebContents } from 'electron';
-import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { IpcChannels } from '../shared/ipc';
 import type {
-  AgentEvent,
-  ApprovalDecision,
   AppConfig,
-  PluginErrorInfo,
+  ApprovalDecision,
   ProviderId,
   SecretsStatus,
-  ToolInfo,
 } from '../shared/types';
-import { ApprovalBroker } from './agent/approval';
 import { AuditLog } from './audit';
-import { compactHistory } from './agent/compaction';
-import { runAgentLoop } from './agent/loop';
-import { runSubAgent } from './agent/subagent';
 import { ConfigStore } from './config';
-import { composeSystemPrompt, readProjectMemory, writeProjectMemory } from './memory';
+import { EventBus } from './core/events';
+import { AgentService } from './core/service';
+import { readProjectMemory, writeProjectMemory } from './memory';
 import { AgentJobRunner } from './evolution/job';
 import { EvolutionManager } from './evolution/manager';
 import { healthCheckAfterPromotion } from './evolution/supervisor';
-import { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from './providers/anthropic';
-import { DEFAULT_OPENAI_MODEL, OpenAIProvider } from './providers/openai';
-import type { ChatMessage, LLMProvider } from './providers/types';
 import { SecretStore, type SecretCipher } from './secrets';
-import { executeToolWithApproval, type ScopePolicy } from './tools/executor';
 import { ToolRegistry } from './tools/registry';
+import type { ApprovalBroker } from './agent/approval';
 
 function assertString(value: unknown, name: string): asserts value is string {
   if (typeof value !== 'string') throw new Error(`IPC payload ${name} must be a string`);
@@ -84,34 +75,20 @@ function electronSafeStorageCipher(): SecretCipher {
   };
 }
 
-const SYSTEM_PROMPT = `あなたは MyCodex — ユーザーのマシン上で動くコーディングエージェント。
-与えられたツールを使ってファイルの調査・編集・コマンド実行を行い、ユーザーの指示を完遂する。
-
-規範:
-- 手を動かす前に不明点があれば read_file / list_dir / grep で自分で調べる
-- 変更は最小限に。既存のコードスタイルに合わせる
-- 破壊的な操作は慎重に。ツール実行はユーザー承認制の場合がある
-- 完了したら何をしたか簡潔に日本語で報告する`;
-
-function toToolInfos(registry: ToolRegistry): { tools: ToolInfo[]; errors: PluginErrorInfo[] } {
-  return {
-    tools: registry.list().map((p) => ({
-      name: p.name,
-      description: p.description,
-      risk: p.risk,
-      warnings: p.warnings ?? [],
-    })),
-    errors: registry.errors,
-  };
-}
-
 export interface MainServices {
   registry: ToolRegistry;
   broker: ApprovalBroker;
   config: ConfigStore;
   secrets: SecretStore;
+  service: AgentService;
+  bus: EventBus;
 }
 
+/**
+ * M10-1 以降、ロジックの実体は core/service.ts(AgentService)にあり、
+ * ここは「IPCチャネル ⇔ サービス呼び出し」の薄い写像だけを持つ。
+ * IPCチャネル名・payload 型は M10 以前から不変(挙動変更ゼロが条件)。
+ */
 export async function registerIpcHandlers(
   getWebContents: () => WebContents | null,
 ): Promise<MainServices> {
@@ -122,223 +99,93 @@ export async function registerIpcHandlers(
 
   const registry = new ToolRegistry(getPluginsDir(), getPluginCacheDir());
   await registry.reload();
-  const broker = new ApprovalBroker((req) => push(IpcChannels.approvalRequest, req));
   const config = new ConfigStore(join(app.getPath('userData'), 'config.json'));
   const secrets = new SecretStore(
     join(app.getPath('userData'), 'secrets.json'),
     electronSafeStorageCipher(),
   );
-
-  // 会話は1本(M3)。sessionId は実行(run)単位でUIのライフサイクルに使う
-  const history: ChatMessage[] = [];
-  let activeRun: { sessionId: string; ac: AbortController } | null = null;
-
-  const createProvider = (): LLMProvider | string => {
-    const cfg = config.get();
-    if (cfg.provider === 'openai') {
-      const key = secrets.get('openai');
-      if (!key) return 'OpenAI APIキーが未設定(設定画面から登録)';
-      return new OpenAIProvider(key, cfg.model || DEFAULT_OPENAI_MODEL);
-    }
-    const key = secrets.get('anthropic');
-    if (!key) return 'Anthropic APIキーが未設定(設定画面から登録)';
-    return new AnthropicProvider(key, cfg.model || DEFAULT_ANTHROPIC_MODEL);
-  };
-
-  // ---- 自己進化 ----
-  const pendingPromotions = new Map<number, (approved: boolean) => void>();
-  const repoDir = app.getAppPath();
-  const evolution = new EvolutionManager({
-    repoDir,
-    worktreeBase: join(repoDir, '..', 'mycodex-evolve'),
-    runner: new AgentJobRunner(() => {
-      const provider = createProvider();
-      if (typeof provider === 'string') throw new Error(provider);
-      return provider;
-    }),
-    requestPromotionApproval: (job, diff, warnings) =>
-      new Promise<boolean>((resolve) => {
-        pendingPromotions.set(job.id, resolve);
-        push(IpcChannels.evolutionEvent, {
-          kind: 'promotion_request',
-          jobId: job.id,
-          toolName: job.toolName ?? '(不明)',
-          diff,
-          warnings,
-        });
-      }),
-    reloadPlugins: () => registry.reload(),
-    healthCheck: (toolName, smokeInput) => healthCheckAfterPromotion(repoDir, toolName, smokeInput),
-    onEvent: (e) => push(IpcChannels.evolutionEvent, e),
-  });
-
-  const evolutionContext = {
-    requestCapability: async (description: string, expectedIO: string) => ({
-      jobId: await evolution.enqueue({ description, expectedIO }),
-    }),
-  };
-
-  // エージェントの作業ディレクトリ。未設定ならアプリのルート(従来動作)
-  const getWorkspace = (): string => {
-    const ws = config.get().workspace;
-    return ws && ws.trim() !== '' ? ws : app.getAppPath();
-  };
-
-  // ---- M9: スコープ制御と監査ログ ----
-  // 通常セッションにのみ注入する。進化ジョブ(AgentJobRunner)は writeAllowlist / restrictExec が
-  // 別途制限しており、このポリシーの影響を受けない(受けさせない)。
   const audit = new AuditLog(join(app.getPath('userData'), 'audit.jsonl'));
-  const getScopePolicy = (): ScopePolicy => ({
-    mode: config.get().scopeMode,
-    workspaceRoot: getWorkspace(),
-    deny: {
+  const bus = new EventBus();
+  const repoDir = app.getAppPath();
+
+  const service: AgentService = new AgentService({
+    bus,
+    registry,
+    config,
+    secrets,
+    audit,
+    defaultWorkspace: () => app.getAppPath(),
+    denyPaths: {
       userDataDir: app.getPath('userData'),
       repoGitDir: join(app.getAppPath(), '.git'),
     },
+    createEvolution: (hooks) =>
+      new EvolutionManager({
+        repoDir,
+        worktreeBase: join(repoDir, '..', 'mycodex-evolve'),
+        runner: new AgentJobRunner(() => service.createProviderOrThrow()),
+        requestPromotionApproval: hooks.requestPromotionApproval,
+        reloadPlugins: () => registry.reload(),
+        healthCheck: (toolName, smokeInput) =>
+          healthCheckAfterPromotion(repoDir, toolName, smokeInput),
+        onEvent: hooks.onEvent,
+      }),
   });
-  const executorDeps = {
-    registry,
-    broker,
-    getAutoApprove: () => config.get().autoApprove,
-    getScopePolicy,
-    audit: (e: Parameters<AuditLog['append']>[0]): void => audit.append(e),
-  };
+
+  // bus → renderer(webContents.send)。チャネル名はバスとIPCで同一
+  bus.subscribe('chat:event', (e) => push(IpcChannels.chatEvent, e));
+  bus.subscribe('approval:request', (r) => push(IpcChannels.approvalRequest, r));
+  bus.subscribe('approval:resolved', (r) => push(IpcChannels.approvalResolved, r));
+  bus.subscribe('evolution:event', (e) => push(IpcChannels.evolutionEvent, e));
 
   // ---- chat ----
-  const PLAN_SUFFIX = `\n\n# プランモード\n今回は「計画のみ」を求められている。実装に入らず、
-何をどの順で行うか(触るファイル・使うツール・確認事項)を簡潔な計画として提示せよ。
-ツールは実行しない。ユーザーが計画を承認したら、次のメッセージで通常モードとして実行する。`;
-
   ipcMain.handle(IpcChannels.chatSend, (_e, text: unknown, mode: unknown) => {
     assertString(text, 'text');
-    const planMode = mode === 'plan';
-    const sessionId = randomUUID();
-    const emit = (event: AgentEvent): void => push(IpcChannels.chatEvent, event);
-
-    if (activeRun) {
-      emit({ kind: 'error', sessionId, message: '別の実行が進行中' });
-      emit({ kind: 'status', sessionId, status: 'error' });
-      return { sessionId };
-    }
-    const provider = createProvider();
-    if (typeof provider === 'string') {
-      emit({ kind: 'error', sessionId, message: provider });
-      emit({ kind: 'status', sessionId, status: 'error' });
-      return { sessionId };
-    }
-
-    const ac = new AbortController();
-    activeRun = { sessionId, ac };
-    history.push({ role: 'user', content: [{ type: 'text', text }] });
-
-    void (async () => {
-      // 履歴が閾値超なら古いやり取りを要約に畳んでから応答する(M8-1)。
-      // 要約失敗は致命的でないため、失敗しても圧縮せず継続する。
-      try {
-        const compacted = await compactHistory(provider, history, { signal: ac.signal });
-        if (compacted) emit({ kind: 'status', sessionId, status: 'calling_llm' });
-      } catch {
-        /* 圧縮失敗は無視して通常応答へ進む */
-      }
-      return runAgentLoop(
-        {
-          provider,
-          // プランモードではツール定義を渡さない(モデルがtool_useを出せない)。
-          // 併せて loop 側 planMode でも実行を機械的に禁止する(二重防御)。
-          tools: planMode ? { list: () => [] } : registry,
-          executeTool: (name, input, ctx) =>
-            executeToolWithApproval(
-              executorDeps,
-              name,
-              input,
-              {
-                ...ctx,
-                evolution: evolutionContext,
-                subagent: {
-                  run: (task, signal) => runSubAgent({ provider, tools: registry, cwd: getWorkspace() }, task, signal),
-                },
-              },
-            ),
-          emit,
-          // プロジェクト記憶(MYCODEX.md)を system プロンプトへ注入する(M8-2)
-          systemPrompt:
-            composeSystemPrompt(SYSTEM_PROMPT, readProjectMemory(getWorkspace())) +
-            (planMode ? PLAN_SUFFIX : ''),
-          cwd: getWorkspace(),
-          planMode,
-        },
-        sessionId,
-        history,
-        ac.signal,
-      );
-    })().finally(() => {
-      activeRun = null;
-    });
-
-    return { sessionId };
+    return service.chatSend(text, mode === 'plan' ? 'plan' : 'normal');
   });
 
   ipcMain.handle(IpcChannels.chatCancel, (_e, sessionId: unknown) => {
     assertString(sessionId, 'sessionId');
-    if (activeRun?.sessionId === sessionId) activeRun.ac.abort();
+    service.chatCancel(sessionId);
   });
 
   // ---- 承認 ----
   ipcMain.handle(IpcChannels.approvalRespond, (_e, id: unknown, decision: unknown) => {
     assertString(id, 'id');
     assertDecision(decision);
-    broker.respond(id, decision);
+    service.approvalRespond(id, decision);
   });
 
   // ---- ツール ----
-  ipcMain.handle(IpcChannels.toolsList, () => toToolInfos(registry));
-
-  ipcMain.handle(IpcChannels.toolsReload, async () => {
-    await registry.reload();
-    return toToolInfos(registry);
-  });
-
-  ipcMain.handle(IpcChannels.toolsExecute, async (_e, name: unknown, inputJson: unknown) => {
+  ipcMain.handle(IpcChannels.toolsList, () => service.toolsList());
+  ipcMain.handle(IpcChannels.toolsReload, () => service.toolsReload());
+  ipcMain.handle(IpcChannels.toolsExecute, (_e, name: unknown, inputJson: unknown) => {
     assertString(name, 'name');
     assertString(inputJson, 'inputJson');
-    let input: unknown;
-    try {
-      input = inputJson.trim() === '' ? {} : JSON.parse(inputJson);
-    } catch {
-      return { content: '入力がJSONとして不正', isError: true };
-    }
-    const ac = new AbortController();
-    const result = await executeToolWithApproval(
-      executorDeps,
-      name,
-      input,
-      // chatSend と同じく evolution を注入する(request_capability が手動実行でも動くように)
-      { cwd: getWorkspace(), signal: ac.signal, log: () => {}, evolution: evolutionContext },
-    );
-    return { content: result.content, isError: result.isError === true };
+    return service.toolsExecute(name, inputJson);
   });
 
-  // ---- 設定 ----
+  // ---- 設定(デスクトップ専用。リモートAPIへは公開しない) ----
   ipcMain.handle(IpcChannels.settingsGet, () => config.get());
   ipcMain.handle(IpcChannels.settingsSet, (_e, next: unknown) => {
     assertConfig(next);
     return config.set(next);
   });
-  ipcMain.handle(IpcChannels.memoryGet, () => readProjectMemory(getWorkspace()));
+  ipcMain.handle(IpcChannels.memoryGet, () => readProjectMemory(service.getWorkspace()));
   ipcMain.handle(IpcChannels.memorySet, (_e, content: unknown) => {
     assertString(content, 'content');
-    writeProjectMemory(getWorkspace(), content);
+    writeProjectMemory(service.getWorkspace(), content);
   });
   ipcMain.handle(IpcChannels.workspacePick, async () => {
     const result = await dialog.showOpenDialog({
       title: '作業ディレクトリを選択',
       properties: ['openDirectory', 'createDirectory'],
-      defaultPath: getWorkspace(),
+      defaultPath: service.getWorkspace(),
     });
     return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
   });
 
-  // ---- シークレット ----
+  // ---- シークレット(デスクトップ専用。リモートAPIへは公開しない) ----
   const secretsStatus = (): SecretsStatus => ({
     anthropic: secrets.has('anthropic'),
     openai: secrets.has('openai'),
@@ -356,20 +203,16 @@ export async function registerIpcHandlers(
     if (typeof jobId !== 'number' || typeof approved !== 'boolean') {
       throw new Error('IPC payload evolution:promote-respond が不正');
     }
-    const resolve = pendingPromotions.get(jobId);
-    if (resolve) {
-      pendingPromotions.delete(jobId);
-      resolve(approved);
-    }
+    service.evolutionPromoteRespond(jobId, approved);
   });
 
-  ipcMain.handle(IpcChannels.evolutionEnqueue, async (_e, description: unknown, expectedIo: unknown) => {
+  ipcMain.handle(IpcChannels.evolutionEnqueue, (_e, description: unknown, expectedIo: unknown) => {
     assertString(description, 'description');
     assertString(expectedIo, 'expectedIo');
-    return { jobId: await evolution.enqueue({ description, expectedIO: expectedIo }) };
+    return service.evolutionEnqueue(description, expectedIo);
   });
 
-  ipcMain.handle(IpcChannels.evolutionList, () => evolution.list());
+  ipcMain.handle(IpcChannels.evolutionList, () => service.evolutionList());
 
-  return { registry, broker, config, secrets };
+  return { registry, broker: service.broker, config, secrets, service, bus };
 }

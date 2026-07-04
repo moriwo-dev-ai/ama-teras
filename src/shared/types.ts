@@ -103,6 +103,27 @@ export interface PluginErrorInfo {
   message: string;
 }
 
+// ---- M10: リモートアクセス(スマホWeb) ----
+
+/** main → renderer/remote: 承認要求がいずれかの画面で解決された通知(開いたままのダイアログを閉じる) */
+export interface ApprovalResolvedPayload {
+  id: string;
+  decision: ApprovalDecision;
+}
+
+/** GET /api/history 用の表示用メッセージ(tool_result 等の内部ブロックは省く) */
+export interface HistoryMessageView {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+/** GET /api/status と SSE snapshot の共通形 */
+export interface AgentStatusView {
+  status: AgentStatus;
+  activeSessionId: string | null;
+  scopeMode: ScopeMode;
+}
+
 // ---- 自己進化サブシステム ----
 
 export type EvolutionJobStatus =

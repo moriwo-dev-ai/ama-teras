@@ -10,7 +10,11 @@ export class ApprovalBroker {
   private pending = new Map<string, (decision: ApprovalDecision) => void>();
   private sessionAllowed = new Set<string>();
 
-  constructor(private readonly pushToRenderer: (req: ApprovalRequestPayload) => void) {}
+  constructor(
+    private readonly pushToRenderer: (req: ApprovalRequestPayload) => void,
+    /** M10: 解決(respond / abort / resetSession)の通知。開いたままの他画面のダイアログを閉じるのに使う */
+    private readonly onSettled?: (id: string, decision: ApprovalDecision) => void,
+  ) {}
 
   /**
    * 承認を要求する。signal が渡され、待機中に abort されたら 'deny' で解決する
@@ -25,6 +29,7 @@ export class ApprovalBroker {
         this.pending.delete(id);
         if (signal) signal.removeEventListener('abort', onAbort);
         resolve(decision);
+        this.onSettled?.(id, decision);
       };
       const onAbort = (): void => settle('deny');
       this.pending.set(id, settle);
