@@ -171,6 +171,25 @@ export interface RemoteSnapshot {
   tools: ToolInfo[];
 }
 
+// ---- M12-1: セッション永続化 ----
+
+/** userData/sessions/ に保存された会話の一覧表示用メタ情報 */
+export interface SessionMeta {
+  id: string;
+  title: string;
+  workspace: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+}
+
+export interface SessionLoadResult {
+  ok: boolean;
+  message?: string;
+  /** ok 時のみ: 復元された履歴の表示用ビュー */
+  history?: HistoryMessageView[];
+}
+
 // ---- M11-3: 自動チェックポイント ----
 
 /** refs/mycodex/checkpoints/ 配下に積まれる作業ツリースナップショット(HEAD/indexは汚さない) */

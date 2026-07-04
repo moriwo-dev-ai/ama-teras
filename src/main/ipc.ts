@@ -14,6 +14,7 @@ import { ConfigStore } from './config';
 import { CheckpointManager } from './core/checkpoints';
 import { EventBus } from './core/events';
 import { AgentService } from './core/service';
+import { SessionStore } from './core/sessions';
 import { readProjectMemory, writeProjectMemory } from './memory';
 import { AgentJobRunner } from './evolution/job';
 import { EvolutionManager } from './evolution/manager';
@@ -139,6 +140,8 @@ export async function registerIpcHandlers(
     // M11-3: 自動チェックポイント(git の無い workspace では manager 側で noop)
     createCheckpoints: (workspace) =>
       new CheckpointManager(workspace, (line) => console.log(`[checkpoint] ${line}`)),
+    // M12-1: セッション永続化(userData/sessions/)
+    sessions: new SessionStore(join(app.getPath('userData'), 'sessions')),
     createEvolution: (hooks) =>
       new EvolutionManager({
         repoDir,
@@ -242,6 +245,18 @@ export async function registerIpcHandlers(
     assertString(sha, 'sha');
     return service.checkpointRestore(sha);
   });
+
+  // ---- セッション永続化(M12-1) ----
+  ipcMain.handle(IpcChannels.sessionsList, () => service.sessionsList());
+  ipcMain.handle(IpcChannels.sessionsLoad, (_e, id: unknown) => {
+    assertString(id, 'id');
+    return service.sessionLoad(id);
+  });
+  ipcMain.handle(IpcChannels.sessionsDelete, (_e, id: unknown) => {
+    assertString(id, 'id');
+    return service.sessionDelete(id);
+  });
+  ipcMain.handle(IpcChannels.sessionsNew, () => service.sessionNew());
 
   // ---- リモートアクセス(M10-5。管理はデスクトップ専用、トークン平文は保存しない) ----
   const remoteAuth = new RemoteAuth({ getTokenHash: () => config.get().remote?.tokenHash });

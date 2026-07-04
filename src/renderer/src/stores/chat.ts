@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AgentEvent, AgentStatus, ChatMode } from '../../../shared/types';
+import type { AgentEvent, AgentStatus, ChatMode, SessionMeta } from '../../../shared/types';
 
 export type UiMessage =
   | { id: string; role: 'user' | 'assistant'; text: string; streaming: boolean }
@@ -17,9 +17,14 @@ interface ChatState {
   messages: UiMessage[];
   status: AgentStatus;
   activeSessionId: string | null;
+  /** M12-1: 保存済みセッションの一覧(切替ドロップダウン用) */
+  sessions: SessionMeta[];
   send: (text: string, mode?: ChatMode) => Promise<void>;
   cancel: () => void;
   handleEvent: (event: AgentEvent) => void;
+  refreshSessions: () => Promise<void>;
+  loadSession: (id: string) => Promise<void>;
+  newSession: () => Promise<void>;
 }
 
 const TERMINAL: AgentStatus[] = ['done', 'cancelled', 'error', 'max_turns_reached'];
@@ -44,6 +49,50 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   status: 'idle',
   activeSessionId: null,
+  sessions: [],
+
+  refreshSessions: async () => {
+    try {
+      set({ sessions: await window.api.sessionsList() });
+    } catch {
+      // 一覧取得失敗は致命的でない(次回の更新で回復)
+    }
+  },
+
+  loadSession: async (id) => {
+    if (get().activeSessionId) return; // 実行中は切替不可(main側でも拒否される)
+    const result = await window.api.sessionsLoad(id);
+    if (!result.ok || !result.history) {
+      set((s) => ({
+        messages: [
+          ...s.messages,
+          {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            text: `[エラー] ${result.message ?? 'セッションを開けない'}`,
+            streaming: false,
+          },
+        ],
+      }));
+      return;
+    }
+    set({
+      messages: result.history.map((h) => ({
+        id: crypto.randomUUID(),
+        role: h.role,
+        text: h.text,
+        streaming: false,
+      })),
+      status: 'idle',
+    });
+  },
+
+  newSession: async () => {
+    if (get().activeSessionId) return;
+    const result = await window.api.sessionsNew();
+    if (result.ok) set({ messages: [], status: 'idle' });
+    await get().refreshSessions();
+  },
 
   send: async (text, mode = 'normal') => {
     const trimmed = text.trim();

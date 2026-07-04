@@ -14,6 +14,8 @@ import type {
   HistoryMessageView,
   PluginErrorInfo,
   ProviderId,
+  SessionLoadResult,
+  SessionMeta,
   ToolExecResultPayload,
   ToolInfo,
 } from '../../shared/types';
@@ -34,6 +36,7 @@ import {
 import type { ToolPlugin } from '../tools/types';
 import type { EventBus } from './events';
 import { ProcessManager } from './processes';
+import { foldHistoryIfOversize, SESSION_SCHEMA_VERSION, type SessionData } from './sessions';
 
 /**
  * M10-1: transport 非依存のコアサービス。
@@ -67,6 +70,14 @@ export interface EvolutionHooks {
 
 export type PromotionRequestEvent = Extract<EvolutionEvent, { kind: 'promotion_request' }>;
 
+/** SessionStore を構造的に満たす最小インターフェース(M12-1。テストではモック可能) */
+export interface SessionsLike {
+  save(data: SessionData): Promise<void>;
+  load(id: string): Promise<SessionData | null>;
+  list(): Promise<SessionMeta[]>;
+  delete(id: string): Promise<void>;
+}
+
 /** CheckpointManager を構造的に満たす最小インターフェース(M11-3。テストではモック可能) */
 export interface CheckpointsLike {
   readonly workspace: string;
@@ -94,6 +105,8 @@ export interface AgentServiceDeps {
    * メインループ専用 — 進化ジョブ(AgentJobRunner)はこの service を経由しないため波及しない。
    */
   createCheckpoints?: (workspace: string) => CheckpointsLike;
+  /** M12-1: セッション永続化ストア。未指定なら機能全体が無効(保存もUIも動かないだけ) */
+  sessions?: SessionsLike;
 }
 
 const SYSTEM_PROMPT = `あなたは MyCodex — ユーザーのマシン上で動くコーディングエージェント。
@@ -135,6 +148,10 @@ export class AgentService {
   private checkpointsCache: CheckpointsLike | null = null;
   private readonly pendingPromotions = new Map<number, (approved: boolean) => void>();
   private readonly pendingPromotionEvents = new Map<number, PromotionRequestEvent>();
+  /** M12-1: 継続中の会話の永続化メタ(イベント用 sessionId とは別で、送信を跨いで維持される) */
+  private conversation: { id: string; title: string; createdAt: string } | null = null;
+  /** 保存の直列化(fold と save が並行実行で交錯しないように) */
+  private persistChain: Promise<void> = Promise.resolve();
 
   constructor(private readonly deps: AgentServiceDeps) {
     this.broker = new ApprovalBroker(
@@ -245,6 +262,68 @@ export class AgentService {
     this.deps.bus.publish('chat:event', event);
   }
 
+  // ---- セッション永続化(M12-1) ----
+
+  /**
+   * 現在の会話を userData/sessions へ保存する(fire-and-forget・直列化)。
+   * 履歴JSONが上限超過なら provider で畳んでから保存。保存失敗でチャットは止めない。
+   */
+  private persistSession(provider?: LLMProvider): void {
+    const store = this.deps.sessions;
+    const conv = this.conversation;
+    if (!store || !conv) return;
+    this.persistChain = this.persistChain.then(async () => {
+      try {
+        if (provider) await foldHistoryIfOversize(provider, this.history);
+        const data: SessionData = {
+          version: SESSION_SCHEMA_VERSION,
+          id: conv.id,
+          title: conv.title,
+          workspace: this.getWorkspace(),
+          createdAt: conv.createdAt,
+          updatedAt: new Date().toISOString(),
+          history: this.history,
+        };
+        await store.save(data);
+      } catch (err) {
+        console.error('[sessions] 保存失敗:', err instanceof Error ? err.message : err);
+      }
+    });
+  }
+
+  async sessionsList(): Promise<SessionMeta[]> {
+    return (await this.deps.sessions?.list()) ?? [];
+  }
+
+  async sessionLoad(id: string): Promise<SessionLoadResult> {
+    if (this.activeRun) return { ok: false, message: 'エージェント実行中はセッションを切り替えられない' };
+    const store = this.deps.sessions;
+    if (!store) return { ok: false, message: 'セッション永続化が無効' };
+    const data = await store.load(id);
+    if (!data) return { ok: false, message: 'セッションが見つからない(または壊れている)' };
+    // 履歴配列は loop と参照共有しているため、置換ではなく中身を差し替える
+    this.history.length = 0;
+    this.history.push(...data.history);
+    this.conversation = { id: data.id, title: data.title, createdAt: data.createdAt };
+    return { ok: true, history: toHistoryView(this.history) };
+  }
+
+  sessionNew(): { ok: boolean; message?: string } {
+    if (this.activeRun) return { ok: false, message: 'エージェント実行中は新規セッションを開始できない' };
+    this.history.length = 0;
+    this.conversation = null;
+    return { ok: true };
+  }
+
+  async sessionDelete(id: string): Promise<void> {
+    await this.deps.sessions?.delete(id);
+    // 表示中の会話を消した場合はメモリ側もリセット(実行中は触らない)
+    if (this.conversation?.id === id && !this.activeRun) {
+      this.history.length = 0;
+      this.conversation = null;
+    }
+  }
+
   chatSend(text: string, mode: ChatMode): { sessionId: string } {
     const planMode = mode === 'plan';
     const sessionId = randomUUID();
@@ -265,6 +344,20 @@ export class AgentService {
     const ac = new AbortController();
     this.activeRun = { sessionId, ac };
     this.history.push({ role: 'user', content: [{ type: 'text', text }] });
+    // M12-1: 会話の永続化メタ(初回送信時に確定。タイトルは先頭行)
+    if (!this.conversation) {
+      this.conversation = {
+        id: randomUUID(),
+        title: (text.split('\n')[0] ?? text).slice(0, 60),
+        createdAt: new Date().toISOString(),
+      };
+    }
+    this.persistSession(provider); // ユーザーメッセージを即座に保存(クラッシュ耐性)
+    // M12-1: 各ターン完了(assistantメッセージ確定)ごとに随時保存する
+    const emitWithPersist = (event: AgentEvent): void => {
+      emit(event);
+      if (event.kind === 'message_done') this.persistSession(provider);
+    };
     // M11-1: 設定された maxTurns をループへ配線(未設定ならループ既定の30)
     const maxTurns = this.deps.config.get().maxTurns;
 
@@ -307,7 +400,7 @@ export class AgentService {
             }
             return result;
           },
-          emit,
+          emit: emitWithPersist,
           // プロジェクト記憶(MYCODEX.md)を system プロンプトへ注入する(M8-2)
           systemPrompt:
             composeSystemPrompt(SYSTEM_PROMPT, readProjectMemory(this.getWorkspace())) +
@@ -324,6 +417,8 @@ export class AgentService {
       await this.getCheckpoints()
         ?.snapshot(sessionId, `セッション終了(${status})`)
         .catch(() => null);
+      // M12-1: 終了時に最終状態を保存(tool_result 追記分を含めて確定)
+      this.persistSession(provider);
       return status;
     })().finally(() => {
       this.activeRun = null;

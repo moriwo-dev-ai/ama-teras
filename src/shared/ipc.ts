@@ -13,6 +13,8 @@ import type {
   ProviderId,
   RemoteStatusPayload,
   SecretsStatus,
+  SessionLoadResult,
+  SessionMeta,
   ToolExecResultPayload,
   ToolInfo,
 } from './types';
@@ -43,6 +45,11 @@ export const IpcChannels = {
   /** M11-3: 自動チェックポイント(Debugパネル) */
   checkpointList: 'checkpoint:list',
   checkpointRestore: 'checkpoint:restore',
+  /** M12-1: セッション永続化(一覧・ロード・削除・新規) */
+  sessionsList: 'sessions:list',
+  sessionsLoad: 'sessions:load',
+  sessionsDelete: 'sessions:delete',
+  sessionsNew: 'sessions:new',
   /** M10: リモートアクセス管理(デスクトップ専用) */
   remoteStatus: 'remote:status',
   remoteSetEnabled: 'remote:set-enabled',
@@ -88,6 +95,12 @@ export interface MyCodexApi {
   /** M11-3: 自動チェックポイントの一覧と作業ツリーへの復元(HEAD/indexは変更しない) */
   checkpointList(): Promise<CheckpointInfo[]>;
   checkpointRestore(sha: string): Promise<CheckpointRestoreResult>;
+
+  /** M12-1: セッション永続化。load は実行中不可、履歴の表示用ビューを返す */
+  sessionsList(): Promise<SessionMeta[]>;
+  sessionsLoad(id: string): Promise<SessionLoadResult>;
+  sessionsDelete(id: string): Promise<void>;
+  sessionsNew(): Promise<{ ok: boolean; message?: string }>;
 
   /** M10: リモートアクセス(スマホWeb)管理。トークン平文は生成時に一度だけ返る */
   remoteStatus(): Promise<RemoteStatusPayload>;

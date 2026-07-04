@@ -47,6 +47,11 @@ const api: MyCodexApi = {
   checkpointList: () => ipcRenderer.invoke(IpcChannels.checkpointList),
   checkpointRestore: (sha) => ipcRenderer.invoke(IpcChannels.checkpointRestore, sha),
 
+  sessionsList: () => ipcRenderer.invoke(IpcChannels.sessionsList),
+  sessionsLoad: (id) => ipcRenderer.invoke(IpcChannels.sessionsLoad, id),
+  sessionsDelete: (id) => ipcRenderer.invoke(IpcChannels.sessionsDelete, id),
+  sessionsNew: () => ipcRenderer.invoke(IpcChannels.sessionsNew),
+
   remoteStatus: () => ipcRenderer.invoke(IpcChannels.remoteStatus),
   remoteSetEnabled: (enabled, port) =>
     ipcRenderer.invoke(IpcChannels.remoteSetEnabled, enabled, port),
