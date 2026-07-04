@@ -2,26 +2,27 @@
 
 ## 現在の状態
 
-- **M1〜M9まで実装**(M3/M5/M6の実API確認はOpenAIプロバイダで実施済み)。
-  テスト175件・typecheck 全合格。
-- **M9完了**: 操作範囲のPC全体拡大(scopeMode: project / fullPc、全操作承認制)。
-  手動確認手順は `docs/M9-manual-test.md`(実行はユーザー)。
+- **M1〜M10まで実装**(M3/M5/M6の実API確認はOpenAIプロバイダで実施済み)。
+  テスト235件・typecheck(node/web/remote)全合格。
+- **M10完了(コード)**: スマホ(iPhone)Webアクセス。main内蔵HTTPサーバ(REST+SSE、
+  Node標準httpのみ・新規依存ゼロ)+独立ビルドのモバイルSPA(src/remote-ui)+
+  トークン認証(sha256ハッシュ保存・timingSafeEqual・失敗バン)。
+  ※**remote-ui の Vite ビルドのみ未実行**(サンドボックス制約)。Windows側で
+  `npm run build` を一度実行すると out/remote-ui が生成され配信可能になる
+- **M9完了**: 操作範囲のPC全体拡大(scopeMode: project / fullPc、全操作承認制)
 - 進化ジョブ#1が成功済み: `csv_to_markdown` ツールが evolve/1 として昇格・稼働中
-- **コードレビュー指摘10件を全修正**(各回帰テスト付き)。セキュリティ2件は攻撃再現テストで実証。
-- **M7磨き込み**: モデルUXドロップダウン / ワークスペース選択 / electron-builder構成。
-  ※NSISインストーラ生成のみ現環境ブロック(winCodeSignのシンボリックリンク展開に権限要。
-  開発者モード or 管理者実行で `npm run dist` 完走。構成・パッケージ版プラグインロードは検証済)。
-- **M8ハーネス強化**: M8-1 コンテキスト自動圧縮 / M8-2 プロジェクト記憶(MYCODEX.md) /
-  M8-3 プランモード / M8-4 サブエージェント。
 
 ## ユーザーへの依頼事項
 
-- **M9の手動確認**: `docs/M9-manual-test.md` のシナリオ(特に fullPc の毎回承認と
-  userData ハード拒否)を一度実施してほしい
+- **Windows側で `npm run build` を一度実行**(remote-ui の生成。サンドボックスでは
+  rollupネイティブパーサが使えず Vite ビルド不可のため未実行。esbuildによる
+  バンドル検証と typecheck/ユニットテストは通してある)
+- **M10の手動確認**: `docs/M10-manual-test.md`(PCのChromeをiPhoneサイズにして
+  localhost:8787 → Tailscale実機の順)
+- **M9の手動確認**: `docs/M9-manual-test.md`(未実施のまま)
 - **Anthropic APIキーの登録(任意・時期が来たら)**: Anthropic固有部分の実API検証
-  (prompt cachingのcache_read確認、Anthropicストリーム正規化の実挙動、claude系モデルでの
-  ツール連鎖・自己進化)が未実施。キー登録後に指示いただければ検証します。
-  ロジック自体はユニットテスト済みのため、リスクは低い想定
+  (prompt cachingのcache_read確認、Anthropicストリーム正規化、claude系モデルでの
+  ツール連鎖・自己進化)が未実施
 
 ## 完了項目
 
@@ -85,23 +86,60 @@
   - M9-5: 回帰テスト(進化ガードレール guardrails.test.ts / executor.scope.test.ts)と
     `docs/M9-manual-test.md`(手動確認はユーザー実施待ち)
 
+- 2026-07-04: **M10 — スマホ(iPhone)Webアクセス(SSE方式・新規依存ゼロ)**。
+  テスト175→235件(新規60件)。設計書 `docs/M10-mobile-web-design.md`。
+  - M10-1: コア抽出リファクタ(挙動変更ゼロ・単独コミット)。`src/main/core/service.ts`
+    (AgentService: chatSend/chatCancel/approvalRespond/toolsList/evolution*/getStatus/
+    getHistoryView/承認・昇格のpending追跡)+ `src/main/core/events.ts`(EventBus)。
+    ipc.ts はIPCチャネル⇔サービスの薄い写像へ。ApprovalBroker に onSettled フック追加
+  - M10-2: `src/main/remote/auth.ts` — トークン生成(randomBytes 32)/sha256ハッシュのみ
+    config保存/timingSafeEqual比較/失敗5回で60秒IPバン。`AppConfig.remote`
+    (enabled/port/tokenHash、既定 disabled・8787)。settings:set は remote を常に保持
+    (専用IPCでのみ変更可)
+  - M10-3: `src/main/remote/server.ts` — Node標準httpのみ。REST
+    (/api/status|chat|chat/cancel|approval/respond|tools|evolution|evolution/enqueue|
+    evolution/promote-respond|audit|history)+ SSE /api/events(接続直後にsnapshot、
+    EventBus全チャネル中継、25sハートビート)+静的配信(パストラバーサル対策、
+    ../ %2e%2e ..%5c を全て遮断するテスト付き)。audit.tail(limit) 追加
+  - M10-4: `src/remote-ui/` — Vite+React+TSの独立SPA(window.api非依存・既存devDeps
+    のみ・Tailwind不使用の素CSS)。Chat(ストリーミング/キャンセル/plan切替)、
+    承認(diff・警告・systemバナー・昇格承認)、進化(一覧+enqueue)、監査タブ。
+    トークンは #t= フラグメント→localStorage。`npm run build` に組み込み
+    (`build:remote-ui`)。typecheck は tsconfig.remote.json を追加
+  - M10-5: ipc.ts にサーバ起動配線(起動時 enabled なら listen、失敗は lastError で
+    UI表示)+ remote:status/set-enabled/regenerate-token IPC + Settings
+    「リモートアクセス」節(トークンは応答で一度だけ表示・URL組み立て・再生成確認)。
+    承認競合: approval:resolved / job_update で両画面のダイアログを閉じる
+    (first-response-wins。store単位の回帰テスト付き)
+  - M10-6: README(セットアップ+Tailscale手順+セキュリティ前提)、
+    docs/M10-manual-test.md、PROGRESS更新
+
 ## 次のタスク
 
-- M10: スマホWebアクセス(docs/M10-mobile-web-design.md)。M9のaudit.jsonlを閲覧UIで使う
-- M9手動確認(ユーザー実施): docs/M9-manual-test.md
-- Anthropic固有部分の実API検証(キー登録待ち): prompt caching(cache_read_input_tokens)、
-  claude系モデルでのツール連鎖・自己進化E2E
+- (ユーザー)Windows側 `npm run build` → docs/M10-manual-test.md の手動確認
+- **QRコード表示**(設計書の後続タスク): `qrcode` 依存を追加し、Settingsの接続URLを
+  QR表示する。依存追加を伴うためユーザー承認後に実施
+- M9残: dispatch_agent のサブエージェントを executor 経由に統一(workspace外読み取りの
+  スコープ判定)/ 進化ジョブ生成プロンプトへの pathParams 宣言の追加
+- SSE の Last-Event-ID 対応(現状は再接続時 snapshot で全量回復。会話が長大化したら検討)
+- Anthropic固有部分の実API検証(キー登録待ち)
 
 ## 既知のバグ・課題
 
+- (M10) **remote-ui の Vite ビルドが未実行**(サンドボックスは rollup のネイティブ
+  パーサ不可)。`npm run build` 実行までリモートUIは配信されない(サーバ自体・APIは稼働)。
+  esbuildバンドル(構文・import解決)と typecheck・ユニットテスト235件は合格済み
+- (M10) パッケージ(NSIS)版では out/remote-ui が asar 内に含まれる想定
+  (electron-builder files: out/**)だが、パッケージ版での配信動作は未検証
+- (M10) SSE snapshot の履歴はテキスト+ツール名のみ(実行中のツールカードの生死は
+  復元しない)。リモート接続中のライブイベントでは完全表示される
+- (M10) 認証バンは接続元IP単位。Tailscale内(=同一tailnetの少数端末)前提の簡易実装
 - (M9) スコープ判定は `pathParams` を宣言したツールのみ対象。未宣言ツール
   (csv_to_markdown 等の生成ツール)がパスを受け取る場合は判定対象外
-  (safe/writeのrisk承認は従来どおり効く)。進化ジョブの生成プロンプトへの
-  pathParams 宣言の追加は M10 以降で検討
+  (safe/writeのrisk承認は従来どおり効く)
 - (M9) dispatch_agent のサブエージェントは executor を通さず safe ツールを直接実行するため、
-  workspace外の「読み取り」がスコープ判定を受けない(書き込み/実行は元々不可)。
-  影響は読み取りのみだが、M10で executor 経由に統一することを検討
-- (M9) audit.jsonl の閲覧UIは未実装(M10のスマホUIで提供予定)
+  workspace外の「読み取り」がスコープ判定を受けない(書き込み/実行は元々不可)
+- ~~(M9) audit.jsonl の閲覧UIは未実装~~ → M10 のスマホUI監査タブで提供済み
 
 ## 決定事項ログ
 
@@ -155,3 +193,30 @@
   rollup(parseAstをacornに差替)のサンドボックス限定パッチで vitest を駆動した
   (リポジトリのコードには一切影響なし)。検証は最終ツリーで typecheck+vitest 175件一括合格を
   確認後にステップ単位でコミット分割(コミットごとの逐次検証は環境制約により省略)
+
+### M10での判断(2026-07-04 自律作業・ユーザー確認なしで決定)
+
+- **設計書のM10-1〜M10-6のステップ定義が文書末尾の欠損で読めなかった**
+  (docs/M10-mobile-web-design.md が「apple-mobile-we」で途切れている)ため、
+  文書の構成に沿って自分でステップを再構成した:
+  M10-1=コア抽出 / M10-2=認証+config / M10-3=HTTP+SSEサーバ / M10-4=remote-ui /
+  M10-5=配線+デスクトップUI+承認競合 / M10-6=ドキュメント
+- **EventBus のチャネル名は既存IPCチャネル名と同一**('chat:event' 等)にして
+  IPC・SSE双方への写像を単純化。SSE の event 名もそのまま使う
+- **静的配信(UI本体)は認証不要**とした。SPAシェルは秘匿情報を含まず、トークン入力前に
+  ブラウザがページを読めないと成立しないため。/api/* は全て認証必須
+- **リモートからの allow-session はサーバ側で allow に降格**(UI側でもボタンを出さない)。
+  セッション永続の許可は端末を目視しているデスクトップ操作に限る
+- **remote設定はsettings:setから変更不可**(専用IPCのみ)。renderer全体を信頼はしているが、
+  tokenHash の誤消去・改変経路を機械的に塞ぐため
+- **トークン平文は remoteSetEnabled / remoteRegenerateToken の戻り値でのみ返し、
+  どこにも保存しない**。UIを閉じたら再表示不可(再生成で対応)
+- **remote-ui は Tailwind 不使用の素CSS**。既存devDepsのみ制約下でビルド構成を最小化し、
+  サンドボックスでのビルド失敗要因を減らすため
+- **snapshot方式の状態回復**(Last-Event-ID なし)。再接続時は全量snapshotで十分小さい
+- **サンドボックスでは vite build(rollupネイティブparseAsync)が動かない**ことを確認
+  (acornパッチはparseAst系のみ有効。バイナリASTを返すparseAsyncは代替不能)。
+  代替として esbuild で remote-ui をバンドルして構文・依存解決を検証し、
+  Vite実ビルドは「Windows側で npm run build」に委ねた
+- **out/remote-ui はパッケージ版では asar 内から配信**(electron-builder files に out/**
+  が既に含まれ、electronのfsはasarを透過的に読めるため extraResources 追加は不要と判断)
