@@ -3,6 +3,7 @@ import { ApprovalDialog } from './components/Approval/ApprovalDialog';
 import { ChatView } from './components/Chat/ChatView';
 import { ToolDebugPanel } from './components/Debug/ToolDebugPanel';
 import { EvolutionPanel, PromotionDialog } from './components/Evolution/EvolutionPanel';
+import { PlanPanel } from './components/Plan/PlanPanel';
 import { SettingsPanel } from './components/Settings/SettingsPanel';
 import { useApprovalStore } from './stores/approval';
 import { useChatStore } from './stores/chat';
@@ -16,6 +17,7 @@ export default function App(): JSX.Element {
   const [showDebug, setShowDebug] = useState(false);
   const [showEvolution, setShowEvolution] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showPlan, setShowPlan] = useState(false);
 
   useEffect(() => window.api.onChatEvent(handleChatEvent), [handleChatEvent]);
   useEffect(() => window.api.onApprovalRequest(enqueueApproval), [enqueueApproval]);
@@ -38,6 +40,12 @@ export default function App(): JSX.Element {
             設定
           </button>
           <button
+            className="rounded border border-emerald-800 px-2 py-0.5 text-xs text-emerald-300 hover:bg-zinc-800"
+            onClick={() => setShowPlan((v) => !v)}
+          >
+            計画
+          </button>
+          <button
             className="rounded border border-purple-800 px-2 py-0.5 text-xs text-purple-300 hover:bg-zinc-800"
             onClick={() => setShowEvolution((v) => !v)}
           >
@@ -52,6 +60,7 @@ export default function App(): JSX.Element {
         </div>
       </header>
       <ChatView />
+      {showPlan && <PlanPanel />}
       {showEvolution && <EvolutionPanel />}
       {showDebug && <ToolDebugPanel />}
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}

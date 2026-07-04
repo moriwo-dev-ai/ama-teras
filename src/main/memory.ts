@@ -35,3 +35,32 @@ export function composeSystemPrompt(base: string, memory: string): string {
     memory.trim()
   );
 }
+
+/**
+ * M12-2: 計画ファイル(MYCODEX_PLAN.md)。plan ツールが書き、毎ターン system prompt へ
+ * 注入することで、compaction(要約畳み込み)後もタスクリストが失われないようにする。
+ */
+export const PLAN_FILENAME = 'MYCODEX_PLAN.md';
+
+export function planPath(workspaceDir: string): string {
+  return join(workspaceDir, PLAN_FILENAME);
+}
+
+/** MYCODEX_PLAN.md を読む。無ければ空文字(不在は正常) */
+export function readProjectPlan(workspaceDir: string): string {
+  try {
+    return readFileSync(planPath(workspaceDir), 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+/** system プロンプト末尾に現在の計画を連結する(空なら素通し) */
+export function composePlanSection(base: string, plan: string): string {
+  if (plan.trim() === '') return base;
+  return (
+    `${base}\n\n## 現在の計画(${PLAN_FILENAME})\n` +
+    '進行中のタスクリスト。作業を進めたら plan ツールで「- [x]」へ更新すること。\n\n' +
+    plan.trim()
+  );
+}

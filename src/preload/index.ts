@@ -52,6 +52,8 @@ const api: MyCodexApi = {
   sessionsDelete: (id) => ipcRenderer.invoke(IpcChannels.sessionsDelete, id),
   sessionsNew: () => ipcRenderer.invoke(IpcChannels.sessionsNew),
 
+  planGet: () => ipcRenderer.invoke(IpcChannels.planGet),
+
   remoteStatus: () => ipcRenderer.invoke(IpcChannels.remoteStatus),
   remoteSetEnabled: (enabled, port) =>
     ipcRenderer.invoke(IpcChannels.remoteSetEnabled, enabled, port),

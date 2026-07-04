@@ -2,7 +2,15 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { composeSystemPrompt, readProjectMemory, writeProjectMemory } from './memory';
+import { writeFileSync } from 'node:fs';
+import {
+  composePlanSection,
+  composeSystemPrompt,
+  planPath,
+  readProjectMemory,
+  readProjectPlan,
+  writeProjectMemory,
+} from './memory';
 
 let dir: string;
 beforeEach(async () => {
@@ -33,5 +41,22 @@ describe('project memory(M8-2)', () => {
   it('記憶が空なら base をそのまま返す', () => {
     expect(composeSystemPrompt('base', '')).toBe('base');
     expect(composeSystemPrompt('base', '   \n  ')).toBe('base');
+  });
+});
+
+describe('project plan(M12-2)', () => {
+  it('不在なら空文字、あれば内容を返す', () => {
+    expect(readProjectPlan(dir)).toBe('');
+    writeFileSync(planPath(dir), '- [ ] 手順1', 'utf8');
+    expect(readProjectPlan(dir)).toBe('- [ ] 手順1');
+  });
+
+  it('composePlanSection は計画を「## 現在の計画」として注入する(空なら素通し)', () => {
+    const composed = composePlanSection('base', '- [x] 済み\n- [ ] 未了');
+    expect(composed).toContain('base');
+    expect(composed).toContain('## 現在の計画');
+    expect(composed).toContain('MYCODEX_PLAN.md');
+    expect(composed).toContain('- [ ] 未了');
+    expect(composePlanSection('base', '')).toBe('base');
   });
 });

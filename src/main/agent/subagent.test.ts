@@ -55,6 +55,23 @@ describe('runSubAgent(M8-4)', () => {
     expect(provider.requests[0]!.tools.map((t) => t.name)).toEqual(['grep']);
   });
 
+  it('plan(risk:safe だが書き込みアクションを持つ)は子に渡らない(M12-2)', async () => {
+    const planExec = vi.fn(async () => ({ content: 'plan' }));
+    const registry = fakeRegistry([
+      fakeTool('grep', 'safe', async () => ({ content: 'ok' })),
+      fakeTool('plan', 'safe', planExec),
+    ]);
+    const provider = mockProvider([
+      done([{ type: 'tool_use', id: 't1', name: 'plan', input: { action: 'write' } }], 'tool_use'),
+      done([{ type: 'text', text: '完了' }], 'end_turn'),
+    ]);
+
+    await runSubAgent({ provider, tools: registry, cwd: '/x' }, 'x', new AbortController().signal);
+
+    expect(provider.requests[0]!.tools.map((t) => t.name)).toEqual(['grep']);
+    expect(planExec).not.toHaveBeenCalled(); // 要求しても実行されない
+  });
+
   it('子が非safeツールを要求しても実行を拒否する(読み取り専用の担保)', async () => {
     const writeExec = vi.fn(async () => ({ content: 'wrote' }));
     const registry = fakeRegistry([

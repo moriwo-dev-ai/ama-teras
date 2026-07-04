@@ -15,7 +15,7 @@ import { CheckpointManager } from './core/checkpoints';
 import { EventBus } from './core/events';
 import { AgentService } from './core/service';
 import { SessionStore } from './core/sessions';
-import { readProjectMemory, writeProjectMemory } from './memory';
+import { readProjectMemory, readProjectPlan, writeProjectMemory } from './memory';
 import { AgentJobRunner } from './evolution/job';
 import { EvolutionManager } from './evolution/manager';
 import { healthCheckAfterPromotion } from './evolution/supervisor';
@@ -257,6 +257,9 @@ export async function registerIpcHandlers(
     return service.sessionDelete(id);
   });
   ipcMain.handle(IpcChannels.sessionsNew, () => service.sessionNew());
+
+  // ---- 計画ファイル(M12-2) ----
+  ipcMain.handle(IpcChannels.planGet, () => readProjectPlan(service.getWorkspace()));
 
   // ---- リモートアクセス(M10-5。管理はデスクトップ専用、トークン平文は保存しない) ----
   const remoteAuth = new RemoteAuth({ getTokenHash: () => config.get().remote?.tokenHash });
