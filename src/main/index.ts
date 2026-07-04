@@ -91,20 +91,40 @@ function createWindow(): void {
   }
 }
 
-void app.whenReady().then(async () => {
-  if (process.env['MYCODEX_SMOKE'] === '1') {
-    await runSmokeMode();
-    return;
-  }
-  const services = await registerIpcHandlers(() => mainWindow?.webContents ?? null);
-  // M11-2: アプリ終了時にバックグラウンドプロセスを残さない
-  app.on('will-quit', () => services.service.shutdown());
-  createWindow();
+// M12-0: 多重起動ガード。同一userDataの多重起動はdisk cache競合を起こす。
+// スモークモード(MYCODEX_SMOKE=1)では絶対にロックを取らない: 進化ゲートのスモークは
+// 稼働中のAと並行してheadless起動するため、ロックすると進化パイプラインが壊れる
+// (この不変条件は index.guard.test.ts で固定。変更時はそちらも見ること)。
+const smokeMode = process.env['MYCODEX_SMOKE'] === '1';
+const gotSingleInstanceLock = smokeMode ? true : app.requestSingleInstanceLock();
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  if (!smokeMode) {
+    app.on('second-instance', () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+      }
+    });
+  }
+
+  void app.whenReady().then(async () => {
+    if (smokeMode) {
+      await runSmokeMode();
+      return;
+    }
+    const services = await registerIpcHandlers(() => mainWindow?.webContents ?? null);
+    // M11-2: アプリ終了時にバックグラウンドプロセスを残さない
+    app.on('will-quit', () => services.service.shutdown());
+    createWindow();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
   });
-});
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
