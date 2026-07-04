@@ -2,8 +2,11 @@
 
 ## 現在の状態
 
-- **M1〜M10まで実装**(M3/M5/M6の実API確認はOpenAIプロバイダで実施済み)。
-  テスト235件・typecheck(node/web/remote)全合格。
+- **M1〜M11まで実装**(M3/M5/M6の実API確認はOpenAIプロバイダで実施済み)。
+  テスト281件・typecheck(node/web/remote)全合格。
+- **M11完了(コード・5点全部)**: 自律開発能力の強化 — maxTurns設定化/バックグラウンドbash/
+  自動チェックポイント/編集後フック/既定モデル claude-fable-5。
+  Windows実機確認(taskkill・復元・フック体感・Fable実測)は `docs/M11-manual-test.md`
 - **M10完了(コード)**: スマホ(iPhone)Webアクセス。main内蔵HTTPサーバ(REST+SSE、
   Node標準httpのみ・新規依存ゼロ)+独立ビルドのモバイルSPA(src/remote-ui)+
   トークン認証(sha256ハッシュ保存・timingSafeEqual・失敗バン)。
@@ -20,6 +23,8 @@
 - **M10の手動確認**: `docs/M10-manual-test.md`(PCのChromeをiPhoneサイズにして
   localhost:8787 → Tailscale実機の順)
 - **M9の手動確認**: `docs/M9-manual-test.md`(未実施のまま)
+- **M11の手動確認**: `docs/M11-manual-test.md`(バックグラウンドprocの taskkill /T、
+  チェックポイント復元、postEditHook の体感、Fable 5 実測はキー登録後)
 - **Anthropic APIキーの登録(任意・時期が来たら)**: Anthropic固有部分の実API検証
   (prompt cachingのcache_read確認、Anthropicストリーム正規化、claude系モデルでの
   ツール連鎖・自己進化)が未実施
@@ -114,9 +119,33 @@
   - M10-6: README(セットアップ+Tailscale手順+セキュリティ前提)、
     docs/M10-manual-test.md、PROGRESS更新
 
+- 2026-07-04: **M11 — 自律開発能力の強化(5点)**。テスト235→281件(新規46件)。
+  設計書 `docs/M11-autonomy-design.md`。全ステップで進化ジョブへの非波及を
+  guardrails.test.ts のソース・トリップワイヤ+挙動テストで機械的に固定
+  - M11-1: `AppConfig.maxTurns`(未設定=30、1〜200クランプ、読込/保存の両方で正規化)を
+    service 経由で runAgentLoop へ配線。Settings に数値入力
+  - M11-2: `src/main/core/processes.ts` ProcessManager(出力リングバッファ256KB/proc、
+    kill: Windows=`taskkill /pid <pid> /T /F`・他OS=detachedプロセスグループへSIGKILL、killAll)。
+    bash に `background:true`、新ツール bash_output(safe)/ bash_kill(exec)。
+    ToolContext.processes はメインセッションのみ注入。セッションキャンセルと
+    アプリ終了(will-quit)で全kill
+  - M11-3: `src/main/core/checkpoints.ts` CheckpointManager。一時 GIT_INDEX_FILE 上で
+    add -A → write-tree → commit-tree(親=前チェックポイント or HEAD)→
+    `refs/mycodex/checkpoints/<sessionId>` のみ更新。HEAD/index/他refs不変を実gitテストで固定。
+    write/exec 成功後+ループ完了時に自動snapshot(変更なしskip)。
+    checkpoint:list / checkpoint:restore IPC + Debugパネル復元UI(復元前に pre-restore へ自動退避)。
+    非gitワークスペースでは完全noop
+  - M11-4: `AppConfig.postEditHook`(空=無効)。executor で write_file / edit_file 成功直後に
+    実行し、出力末尾4KBを `[post-edit hook]` として tool_result に追記(non-zeroでも成功のまま)。
+    タイムアウト60s+フォールバックタイマー。restrictExec では注入されていても実行しない(二重防御)
+  - M11-5: 既定モデルを claude-fable-5 へ(shared/models.ts / providers/anthropic.ts)。
+    既定モデルでの cache_control 配置をテストで確認。実API検証はキー登録後
+
 ## 次のタスク
 
 - (ユーザー)Windows側 `npm run build` → docs/M10-manual-test.md の手動確認
+- (ユーザー)docs/M11-manual-test.md の手動確認(特に taskkill /T の実動作)
+- Anthropicキー登録後: claude-fable-5 で「TODO管理CLI」1本自走+ベンチ3課題実測(M11-5)
 - **QRコード表示**(設計書の後続タスク): `qrcode` 依存を追加し、Settingsの接続URLを
   QR表示する。依存追加を伴うためユーザー承認後に実施
 - M9残: dispatch_agent のサブエージェントを executor 経由に統一(workspace外読み取りの
@@ -134,6 +163,17 @@
 - (M10) SSE snapshot の履歴はテキスト+ツール名のみ(実行中のツールカードの生死は
   復元しない)。リモート接続中のライブイベントでは完全表示される
 - (M10) 認証バンは接続元IP単位。Tailscale内(=同一tailnetの少数端末)前提の簡易実装
+- (M11) チェックポイント復元は「上書き」方式。復元先チェックポイント作成後に新規作成された
+  ファイルは削除されない(pre-restore 退避で往復は可能)
+- (M11) `refs/mycodex/checkpoints/*` の自動掃除(世代上限・GC)は未実装。手動削除手順は
+  docs/M11-manual-test.md に記載
+- (M11) postEditHook タイムアウト打ち切り時、フックの孫プロセスが残る可能性
+  (メッセージで明示。spawn timeout はシェルしか殺さないため)
+- (M11) postEditHook の発火はツール名 write_file / edit_file 固定。生成ツール(csv_to_markdown等)
+  の書き込みには発火しない(M9のpathParams未宣言問題と同系)
+- (M11) taskkill /T /F の実動作は Windows 実機未確認(コマンド組み立てのみ単体テスト済み)
+- (M11) セッションキャンセルでバックグラウンドprocも全kill(設計どおり)。セッションを跨いで
+  dev server を維持したい場合は再起動が必要
 - (M9) スコープ判定は `pathParams` を宣言したツールのみ対象。未宣言ツール
   (csv_to_markdown 等の生成ツール)がパスを受け取る場合は判定対象外
   (safe/writeのrisk承認は従来どおり効く)
@@ -193,6 +233,37 @@
   rollup(parseAstをacornに差替)のサンドボックス限定パッチで vitest を駆動した
   (リポジトリのコードには一切影響なし)。検証は最終ツリーで typecheck+vitest 175件一括合格を
   確認後にステップ単位でコミット分割(コミットごとの逐次検証は環境制約により省略)
+
+### M11での判断(2026-07-04 深夜 自律作業・ユーザー確認なしで決定)
+
+- **チェックポイントは `AgentServiceDeps.createCheckpoints` で注入する opt-in 構成**
+  (service 内で CheckpointManager を直接 new しない)。理由: (1)ユニットテストが
+  実行中リポジトリへ refs を書かない (2)進化ジョブ・テスト環境への非波及が構成レベルで
+  保証される。実配線は ipc.ts のみ
+- **チェックポイント復元は「上書き」**(`git restore --source=<sha> --worktree -- .` 相当)。
+  チェックポイント後に増えたファイルは削除しない — 誤削除より安全側に倒した
+  (pre-restore への自動退避で往復可能)
+- **snapshot の skip 判定は「直近チェックポイント(無ければHEAD)との tree 比較」**。
+  クリーンな作業ツリーでは ref を作らない。一覧はコミットメッセージ接頭辞
+  `[mycodex-checkpoint]` でチェーンを打ち切る(親がHEAD以前の通常履歴に繋がるため)
+- **一時indexは read-tree HEAD から開始**(空indexからの add -A だと tracked かつ
+  .gitignore 対象のファイルを取りこぼすため)
+- **postEditHook の発火対象はツール名 write_file / edit_file 固定**(risk:'write' 全般ではない。
+  設計書の文言どおり。生成ツールへの適用は見送り=既知の課題へ)
+- **postEditHook は spawn timeout + フォールバックタイマーの二段構え**。spawn の timeout は
+  シェルのみを kill し、孫プロセスが stdio を握ると close イベントが発火せずループが固まる
+  ことをテストで確認したため(タイムアウト+0.5秒で必ず戻る)
+- **セッションキャンセルでバックグラウンドprocも全kill**(設計どおり)。ProcessManager の
+  platform とバッファ上限はコンストラクタ注入にし、Windows kill コマンドの組み立て
+  (`taskkill /pid <pid> /T /F`)を単体テストで固定(実動作は実機確認事項)
+- **bash の background は restrictExec 判定の後**に処理(進化ジョブでは許可コマンド自体が
+  検証系のみ+processes 未注入の明示エラーで二重に塞がる)
+- **チェックポイントの committer は `mycodex-checkpoint` に固定**(`-c user.name/email`)。
+  git identity 未設定の workspace でも snapshot が失敗しない
+- **検証環境**: M9/M10 と同じ /tmp クローン+パッチ済み node_modules。mountキャッシュ不整合
+  (host編集済みファイルが mount から古い/切詰め内容で見える)に複数回遭遇したため、
+  「/tmp へスクリプトでパッチ→typecheck+vitest→cp+rename(.fresh→mv)で mount へ配置→
+  git diff --cached 確認→コミット」の手順に固定した
 
 ### M10での判断(2026-07-04 自律作業・ユーザー確認なしで決定)
 
