@@ -38,4 +38,25 @@ describe('AuditLog', () => {
       log.append({ tool: 'bash', scope: 'system', paths: [], event: 'hard-deny', detail: 'x' }),
     ).not.toThrow();
   });
+
+  // ---- M10: tail(スマホUIの閲覧用) ----
+
+  it('tail は末尾 limit 件を新しい順で返す', () => {
+    const log = new AuditLog(join(dir, 'audit.jsonl'));
+    for (let i = 1; i <= 5; i++) {
+      log.append({ tool: `tool-${i}`, scope: 'system', paths: [], event: 'result', detail: 'ok' });
+    }
+    const tail = log.tail(2);
+    expect(tail.map((e) => e.tool)).toEqual(['tool-5', 'tool-4']);
+    expect(typeof tail[0]?.ts).toBe('string');
+  });
+
+  it('tail はファイル無し・壊れた行でも例外を出さない', async () => {
+    expect(new AuditLog(join(dir, 'missing.jsonl')).tail(10)).toEqual([]);
+    const log = new AuditLog(join(dir, 'mixed.jsonl'));
+    log.append({ tool: 'ok-tool', scope: 'system', paths: [], event: 'result', detail: 'ok' });
+    const { appendFileSync } = await import('node:fs');
+    appendFileSync(join(dir, 'mixed.jsonl'), 'not-json\n{"noTs":true}\n', 'utf8');
+    expect(log.tail(10).map((e) => e.tool)).toEqual(['ok-tool']);
+  });
 });
