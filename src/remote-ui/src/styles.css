@@ -1,0 +1,150 @@
+/* M10-4: モバイルファースト・1カラム。Tailwind非依存(remote-uiは独立ビルド) */
+:root {
+  color-scheme: dark;
+  --bg: #18181b;
+  --panel: #27272a;
+  --border: #3f3f46;
+  --text: #e4e4e7;
+  --muted: #a1a1aa;
+  --blue: #2563eb;
+  --amber: #d97706;
+  --red: #dc2626;
+  --green: #16a34a;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', sans-serif;
+  font-size: 15px;
+  -webkit-text-size-adjust: 100%;
+}
+
+.app { display: flex; flex-direction: column; height: 100%; height: 100dvh; }
+
+.topbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: calc(env(safe-area-inset-top) + 8px) 12px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.topbar h1 { font-size: 15px; margin: 0; flex: 1; }
+.conn { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+.conn.on { background: #14532d; color: #bbf7d0; }
+.conn.off { background: #7f1d1d; color: #fecaca; }
+
+.tabs {
+  display: flex; border-bottom: 1px solid var(--border); background: var(--panel);
+}
+.tabs button {
+  flex: 1; padding: 10px 4px; background: none; border: none; color: var(--muted);
+  font-size: 13px; border-bottom: 2px solid transparent; position: relative;
+}
+.tabs button.active { color: var(--text); border-bottom-color: var(--blue); }
+.badge {
+  position: absolute; top: 4px; right: 8px; min-width: 16px; height: 16px;
+  border-radius: 999px; background: var(--red); color: #fff; font-size: 10px;
+  line-height: 16px; padding: 0 4px;
+}
+
+.content { flex: 1; overflow-y: auto; padding: 12px; -webkit-overflow-scrolling: touch; }
+
+/* chat */
+.msg { margin-bottom: 10px; max-width: 92%; }
+.msg .bubble {
+  padding: 8px 10px; border-radius: 10px; white-space: pre-wrap; word-break: break-word;
+}
+.msg.user { margin-left: auto; }
+.msg.user .bubble { background: var(--blue); color: #fff; }
+.msg.assistant .bubble { background: var(--panel); }
+.msg.tool .bubble {
+  background: #1e1b4b; border: 1px solid #4338ca; font-family: ui-monospace, monospace;
+  font-size: 12px; color: #c7d2fe;
+}
+.msg.tool .bubble.error { background: #450a0a; border-color: var(--red); color: #fecaca; }
+.msg .streaming::after { content: '▌'; animation: blink 1s step-end infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+.composer {
+  display: flex; gap: 8px; padding: 8px 12px calc(env(safe-area-inset-bottom) + 8px);
+  border-top: 1px solid var(--border); background: var(--panel); align-items: flex-end;
+}
+.composer textarea {
+  flex: 1; resize: none; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); padding: 8px 10px; font: inherit;
+  max-height: 120px; min-height: 40px;
+}
+.composer .send, .composer .cancel {
+  border: none; border-radius: 10px; padding: 10px 14px; font-size: 14px; color: #fff;
+}
+.composer .send { background: var(--blue); }
+.composer .send:disabled { opacity: 0.4; }
+.composer .cancel { background: var(--red); }
+.modebar { display: flex; gap: 8px; padding: 6px 12px 0; background: var(--panel); font-size: 12px; color: var(--muted); }
+.modebar label { display: flex; align-items: center; gap: 4px; }
+.statusline { font-size: 11px; color: var(--muted); padding: 2px 12px; background: var(--panel); }
+
+/* 承認 */
+.card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px; margin-bottom: 12px;
+}
+.card h3 { margin: 0 0 8px; font-size: 14px; }
+.risk { display: inline-block; font-size: 11px; color: #fff; border-radius: 4px; padding: 1px 6px; margin-right: 6px; }
+.risk.safe { background: #52525b; }
+.risk.write { background: var(--amber); }
+.risk.exec { background: var(--red); }
+.warn-banner {
+  border: 1px solid var(--amber); background: #451a03; color: #fcd34d;
+  border-radius: 8px; padding: 8px; font-size: 12px; margin: 8px 0;
+}
+.error-banner {
+  border: 1px solid var(--red); background: #450a0a; color: #fca5a5;
+  border-radius: 8px; padding: 8px; font-size: 12px; margin: 8px 0;
+}
+pre.preview {
+  background: #09090b; border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px; font-size: 11px; overflow-x: auto; max-height: 160px; overflow-y: auto;
+  white-space: pre-wrap; word-break: break-all;
+}
+.diff { font-family: ui-monospace, monospace; font-size: 11px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); max-height: 220px; overflow-y: auto; }
+.diff div { padding: 1px 6px; white-space: pre-wrap; word-break: break-all; }
+.diff .add { background: #052e16; color: #86efac; }
+.diff .del { background: #450a0a; color: #fca5a5; }
+.diff .same { color: var(--muted); }
+.btnrow { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.btnrow button { border: none; border-radius: 8px; padding: 10px 16px; font-size: 14px; color: #fff; }
+.btn-deny { background: #3f3f46; }
+.btn-allow { background: var(--blue); }
+.btn-approve { background: var(--green); }
+
+/* 進化 */
+.job { border-left: 3px solid var(--border); padding-left: 8px; margin-bottom: 10px; font-size: 13px; }
+.job .st { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #3f3f46; margin-left: 6px; }
+.job .st.done { background: #14532d; }
+.job .st.failed, .job .st.rolled_back { background: #7f1d1d; }
+.job .st.awaiting_promotion { background: #78350f; }
+.job .log { color: var(--muted); font-size: 11px; margin-top: 4px; white-space: pre-wrap; }
+.enqueue textarea, .enqueue input {
+  width: 100%; border-radius: 8px; border: 1px solid var(--border); background: var(--bg);
+  color: var(--text); padding: 8px; font: inherit; font-size: 13px; margin-bottom: 8px;
+}
+
+/* 監査 */
+.audit-entry { border-bottom: 1px solid var(--border); padding: 8px 0; font-size: 12px; }
+.audit-entry .ts { color: var(--muted); font-size: 11px; }
+.audit-entry .paths { font-family: ui-monospace, monospace; font-size: 11px; color: #93c5fd; word-break: break-all; }
+
+/* トークン入力 */
+.gate { display: flex; flex-direction: column; gap: 12px; padding: 48px 24px; max-width: 420px; margin: 0 auto; }
+.gate input {
+  border-radius: 10px; border: 1px solid var(--border); background: var(--panel);
+  color: var(--text); padding: 12px; font-family: ui-monospace, monospace; font-size: 13px;
+}
+.gate button { border: none; border-radius: 10px; background: var(--blue); color: #fff; padding: 12px; font-size: 15px; }
+.gate .hint { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.muted { color: var(--muted); font-size: 12px; }

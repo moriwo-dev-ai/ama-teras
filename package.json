@@ -7,11 +7,13 @@
   "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "dev:remote-ui": "vite --config src/remote-ui/vite.config.ts",
+    "build": "electron-vite build && npm run build:remote-ui",
+    "build:remote-ui": "vite build --config src/remote-ui/vite.config.ts",
     "start": "electron-vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.remote.json",
     "test": "vitest run",
-    "dist": "electron-vite build && electron-builder --win --publish never"
+    "dist": "electron-vite build && npm run build:remote-ui && electron-builder --win --publish never"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.57.0",
