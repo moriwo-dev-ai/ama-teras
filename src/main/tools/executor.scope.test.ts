@@ -220,6 +220,35 @@ describe('ハード拒否(userData)', () => {
   });
 });
 
+describe('bash(exec)の扱い', () => {
+  it('fullPc では autoApprove.exec が true でも毎回承認+警告が付く', async () => {
+    const promise = executeToolWithApproval(deps('fullPc'), 'fake_exec', { command: 'echo hi' }, ctx());
+    await respondNext('allow');
+    const r = await promise;
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.scope).toBe('system');
+    expect(requests[0]!.warnings.some((w) => w.includes('PC全体'))).toBe(true);
+    expect(r.content).toBe('executed');
+  });
+
+  it('fullPc では exec の allow-session も記憶されない', async () => {
+    const p1 = executeToolWithApproval(deps('fullPc'), 'fake_exec', {}, ctx());
+    await respondNext('allow-session');
+    await p1;
+    expect(broker.isSessionAllowed('fake_exec')).toBe(false);
+    const p2 = executeToolWithApproval(deps('fullPc'), 'fake_exec', {}, ctx());
+    await respondNext('allow');
+    await p2;
+    expect(requests).toHaveLength(2);
+  });
+
+  it('project では exec は従来どおり(autoApprove.exec が効く)', async () => {
+    const r = await executeToolWithApproval(deps('project'), 'fake_exec', {}, ctx());
+    expect(requests).toHaveLength(0);
+    expect(r.content).toBe('executed');
+  });
+});
+
 describe('audit log', () => {
   it('system スコープの承認と実行結果が記録される', async () => {
     const promise = executeToolWithApproval(deps('fullPc'), 'fake_write', { path: join(outside, 'a.txt') }, ctx());

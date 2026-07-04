@@ -108,6 +108,11 @@ export async function executeToolWithApproval(
       }
     }
     scope = paths.some((p) => classifyPath(p, policy.workspaceRoot) === 'system') ? 'system' : 'workspace';
+    if (plugin.risk === 'exec' && policy.mode === 'fullPc') {
+      // bash 等はどのパスに触るか静的に判定できない → fullPc では常に system 扱い(毎回承認)
+      scope = 'system';
+      scopeWarnings.push('このコマンドはPC全体に影響し得ます(fullPcモードのため毎回承認)');
+    }
     if (scope === 'system') {
       if (policy.mode === 'project') {
         return {
