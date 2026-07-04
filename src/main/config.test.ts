@@ -93,6 +93,23 @@ describe('ConfigStore', () => {
     expect(new ConfigStore(file).get().maxTurns).toBe(200);
   });
 
+  // ---- M11-4: postEditHook ----
+
+  it('postEditHook の既定は未設定(=無効)で、設定すると永続化される', () => {
+    const store = new ConfigStore(file);
+    expect(store.get().postEditHook).toBeUndefined();
+    store.set({ ...store.get(), postEditHook: 'npx vitest run --changed' });
+    expect(new ConfigStore(file).get().postEditHook).toBe('npx vitest run --changed');
+  });
+
+  it('空文字・空白のみの postEditHook は未設定に正規化される', async () => {
+    const store = new ConfigStore(file);
+    const saved = store.set({ ...store.get(), postEditHook: '   ' });
+    expect(saved.postEditHook).toBeUndefined();
+    await writeFile(file, JSON.stringify({ postEditHook: '' }));
+    expect(new ConfigStore(file).get().postEditHook).toBeUndefined();
+  });
+
   // ---- M10: remote 設定 ----
 
   it('remote の既定は disabled / port 8787 / トークン未発行', () => {

@@ -39,6 +39,13 @@ describe('進化パイプラインの制限(M9で不変)', () => {
     expect(source).not.toContain('snapshot');
   });
 
+  it('M11-4: postEditHook は進化ジョブへ注入しない(ソース・トリップワイヤ)', () => {
+    const source = readFileSync(fileURLToPath(new URL('./job.ts', import.meta.url)), 'utf8');
+    // 注入しないことに加え、executor 側でも restrictExec コンテキストでは実行しない(二重防御。
+    // executor.hook.test.ts で挙動を固定)
+    expect(source.toLowerCase()).not.toContain('postedithook');
+  });
+
   it('restrictExec の許可コマンドは検証系のみ(書き込み・任意実行は拒否)', () => {
     expect(isRestrictedCommandAllowed('npm run typecheck')).toBe(true);
     expect(isRestrictedCommandAllowed('npx vitest run src/main/tools/plugins/x.test.ts')).toBe(true);

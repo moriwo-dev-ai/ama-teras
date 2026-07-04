@@ -209,6 +209,13 @@ export class AgentService {
       getAutoApprove: () => this.deps.config.get().autoApprove,
       getScopePolicy: () => this.getScopePolicy(),
       audit: (e) => this.deps.audit.append(e),
+      // M11-4: 編集後フック。fullPc でも cwd は workspace に固定する
+      getPostEditHook: () => {
+        const cmd = this.deps.config.get().postEditHook;
+        return cmd !== undefined && cmd.trim() !== ''
+          ? { command: cmd, cwd: this.getWorkspace() }
+          : null;
+      },
     };
   }
 

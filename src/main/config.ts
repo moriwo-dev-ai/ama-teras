@@ -51,6 +51,10 @@ export class ConfigStore {
       if (typeof rec['maxTurns'] === 'number' && Number.isFinite(rec['maxTurns'])) {
         merged.maxTurns = clampMaxTurns(rec['maxTurns']);
       }
+      // M11-4: 空文字の postEditHook は未設定(無効)として扱う
+      if (typeof rec['postEditHook'] === 'string' && rec['postEditHook'].trim() !== '') {
+        merged.postEditHook = rec['postEditHook'];
+      }
       const remote = rec['remote'];
       if (typeof remote === 'object' && remote !== null && merged.remote) {
         const r = remote as Record<string, unknown>;
@@ -79,6 +83,10 @@ export class ConfigStore {
     if (clone.maxTurns !== undefined) {
       if (Number.isFinite(clone.maxTurns)) clone.maxTurns = clampMaxTurns(clone.maxTurns);
       else delete clone.maxTurns;
+    }
+    // M11-4: 空文字は「無効化」= 未設定に正規化する
+    if (clone.postEditHook !== undefined && clone.postEditHook.trim() === '') {
+      delete clone.postEditHook;
     }
     this.config = clone;
     mkdirSync(dirname(this.filePath), { recursive: true });

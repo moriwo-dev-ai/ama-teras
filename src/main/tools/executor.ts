@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import type { AutoApproveSettings, DiffLine, OperationScope, ScopeMode } from '../../shared/types';
@@ -38,6 +39,69 @@ export interface ExecutorDeps {
   getScopePolicy?: () => ScopePolicy;
   /** M9-4: system スコープの承認/拒否/実行結果の監査ログ。失敗しても実行は止めない */
   audit?: (e: ScopeAuditEvent) => void;
+  /**
+   * M11-4: 編集後フック。write_file / edit_file 成功直後に実行するコマンドと cwd
+   * (fullPc でも cwd は workspace)。null なら無効。進化ジョブには注入されず、
+   * さらに restrictExec コンテキストでは注入されていても実行しない(二重防御)。
+   */
+  getPostEditHook?: () => { command: string; cwd: string } | null;
+}
+
+const HOOK_TIMEOUT_MS = 60_000;
+const HOOK_TAIL_BYTES = 4096;
+
+/**
+ * M11-4: 編集後フックの実行。結果は常に文字列で返し、例外を投げない
+ * (フックの失敗はツール結果への「情報」であり、ツール実行自体は成功のまま)。
+ * timeoutMs はテスト用に注入可能(既定60秒)。
+ */
+export async function runPostEditHook(
+  command: string,
+  cwd: string,
+  signal: AbortSignal,
+  timeoutMs: number = HOOK_TIMEOUT_MS,
+): Promise<string> {
+  return new Promise((resolvePromise) => {
+    try {
+      const child = spawn(command, { cwd, shell: true, windowsHide: true, timeout: timeoutMs, signal });
+      let out = '';
+      const append = (chunk: Buffer): void => {
+        out += chunk.toString('utf8');
+        // 末尾4KBだけ使うため、溜め込みすぎない
+        if (out.length > 64_000) out = out.slice(-HOOK_TAIL_BYTES * 2);
+      };
+      const tailOf = (): string =>
+        out.length > HOOK_TAIL_BYTES ? `…(先頭切り詰め)\n${out.slice(-HOOK_TAIL_BYTES)}` : out;
+      // spawn の timeout はシェルのみを kill し、孫プロセスが stdio を握ったままだと
+      // 'close' が発火しない。フォールバックタイマーで必ず戻る(ループを固めない)
+      const fallback = setTimeout(() => {
+        child.kill();
+        resolvePromise(
+          `${tailOf()}\n[フックはタイムアウト(${Math.round(timeoutMs / 1000)}s)で打ち切られた(子プロセスが残っている可能性あり)]`,
+        );
+      }, timeoutMs + 500);
+      fallback.unref?.();
+      child.stdout?.on('data', append);
+      child.stderr?.on('data', append);
+      child.on('error', (err) => {
+        clearTimeout(fallback);
+        resolvePromise(`(フック起動エラー: ${err.message})`);
+      });
+      child.on('close', (code, sig) => {
+        clearTimeout(fallback);
+        const tail = tailOf();
+        if (sig) {
+          resolvePromise(`${tail}\n[フックはシグナル ${sig} で終了(タイムアウトまたはキャンセル)]`);
+        } else if (code !== 0) {
+          resolvePromise(`${tail}\n[フック exit code: ${code}]`);
+        } else {
+          resolvePromise(tail.trim() === '' ? '(フック成功・出力なし)' : tail);
+        }
+      });
+    } catch (err) {
+      resolvePromise(`(フック起動エラー: ${err instanceof Error ? err.message : String(err)})`);
+    }
+  });
 }
 
 /** write_file / edit_file の承認ダイアログ用diffを作る。失敗しても承認自体は止めない */
@@ -170,6 +234,22 @@ export async function executeToolWithApproval(
         event: 'result',
         detail: result.isError === true ? `error: ${result.content.slice(0, 200)}` : 'ok',
       });
+    }
+    // M11-4: 編集後フック。編集成功時のみ・restrictExec(進化ジョブ)では実行しない。
+    // フックの成否に関わらずツール結果は成功のまま、出力を情報として追記する
+    if (
+      result.isError !== true &&
+      ctx.restrictExec !== true &&
+      (plugin.name === 'write_file' || plugin.name === 'edit_file')
+    ) {
+      const hook = deps.getPostEditHook?.();
+      if (hook && hook.command.trim() !== '') {
+        const hookOut = await runPostEditHook(hook.command, hook.cwd, ctx.signal);
+        return {
+          ...result,
+          content: `${result.content}\n\n[post-edit hook] ${hook.command}\n${hookOut}`,
+        };
+      }
     }
     return result;
   } catch (err) {

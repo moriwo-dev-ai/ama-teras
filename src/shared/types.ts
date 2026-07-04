@@ -88,6 +88,11 @@ export interface AppConfig {
    */
   maxTurns?: number;
   /**
+   * M11-4: 編集後フック。write_file / edit_file 成功のたびに workspace で実行され、
+   * 出力(末尾4KB)が tool_result に追記される。空/未設定=無効。進化ジョブでは実行しない。
+   */
+  postEditHook?: string;
+  /**
    * M10: スマホWebアクセス。既定 disabled。省略可(後方互換)で、ConfigStore が既定値を補う。
    * renderer からの settings:set では上書きされない(専用IPCでのみ変更)。
    */
