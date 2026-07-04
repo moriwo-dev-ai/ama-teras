@@ -63,4 +63,36 @@ describe('ConfigStore', () => {
     const c = new ConfigStore(file).get();
     expect(c.provider).toBe('anthropic');
   });
+
+  // ---- M10: remote 設定 ----
+
+  it('remote の既定は disabled / port 8787 / トークン未発行', () => {
+    const c = new ConfigStore(file).get();
+    expect(c.remote).toEqual({ enabled: false, port: 8787 });
+  });
+
+  it('remote 設定(tokenHash 含む)が永続化される', () => {
+    const store = new ConfigStore(file);
+    const hash = 'a'.repeat(64);
+    store.set({
+      ...store.get(),
+      remote: { enabled: true, port: 9000, tokenHash: hash },
+    });
+    const c = new ConfigStore(file).get();
+    expect(c.remote).toEqual({ enabled: true, port: 9000, tokenHash: hash });
+  });
+
+  it('remote が無い既存設定ファイルは既定(disabled)にフォールバック(後方互換)', async () => {
+    await writeFile(file, JSON.stringify({ provider: 'openai', model: '' }));
+    expect(new ConfigStore(file).get().remote).toEqual({ enabled: false, port: 8787 });
+  });
+
+  it('不正な tokenHash(sha256 hex 以外)と不正な port は無視される', async () => {
+    await writeFile(
+      file,
+      JSON.stringify({ remote: { enabled: true, port: 99999, tokenHash: 'plaintext-token' } }),
+    );
+    const c = new ConfigStore(file).get();
+    expect(c.remote).toEqual({ enabled: true, port: 8787 });
+  });
 });

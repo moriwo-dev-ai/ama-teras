@@ -82,6 +82,11 @@ export interface AppConfig {
   workspace?: string;
   /** M9: 操作範囲。既定 'project'(後方互換) */
   scopeMode: ScopeMode;
+  /**
+   * M10: スマホWebアクセス。既定 disabled。省略可(後方互換)で、ConfigStore が既定値を補う。
+   * renderer からの settings:set では上書きされない(専用IPCでのみ変更)。
+   */
+  remote?: RemoteConfig;
 }
 
 /** renderer のツール一覧・デバッグパネル用 */
@@ -105,6 +110,28 @@ export interface PluginErrorInfo {
 
 // ---- M10: リモートアクセス(スマホWeb) ----
 
+/**
+ * リモートアクセス設定。tokenHash は sha256(hex)のみ保存し、平文トークンは
+ * 生成時にデスクトップUIへ一度だけ表示する(平文保存禁止)。
+ */
+export interface RemoteConfig {
+  enabled: boolean;
+  port: number;
+  tokenHash?: string;
+}
+
+/** デスクトップ設定UI用のリモートサーバ状態 */
+export interface RemoteStatusPayload {
+  enabled: boolean;
+  port: number;
+  /** サーバが実際に listen 中か */
+  running: boolean;
+  /** トークンが発行済みか(平文は返さない) */
+  tokenSet: boolean;
+  /** listen 失敗等のエラー(UI表示用) */
+  lastError?: string;
+}
+
 /** main → renderer/remote: 承認要求がいずれかの画面で解決された通知(開いたままのダイアログを閉じる) */
 export interface ApprovalResolvedPayload {
   id: string;
@@ -122,6 +149,16 @@ export interface AgentStatusView {
   status: AgentStatus;
   activeSessionId: string | null;
   scopeMode: ScopeMode;
+}
+
+/** SSE 接続直後に送る現在状態(スマホUIの再接続時の状態回復用) */
+export interface RemoteSnapshot {
+  status: AgentStatusView;
+  history: HistoryMessageView[];
+  pendingApprovals: ApprovalRequestPayload[];
+  pendingPromotions: Extract<EvolutionEvent, { kind: 'promotion_request' }>[];
+  jobs: EvolutionJobSummary[];
+  tools: ToolInfo[];
 }
 
 // ---- 自己進化サブシステム ----

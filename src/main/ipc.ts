@@ -169,7 +169,9 @@ export async function registerIpcHandlers(
   ipcMain.handle(IpcChannels.settingsGet, () => config.get());
   ipcMain.handle(IpcChannels.settingsSet, (_e, next: unknown) => {
     assertConfig(next);
-    return config.set(next);
+    // remote 設定(tokenHash 含む)は専用IPCでのみ変更する。settings:set 経由の
+    // 上書き・消去を防ぐため常に現在値を維持する(M10-2)
+    return config.set({ ...next, remote: config.get().remote });
   });
   ipcMain.handle(IpcChannels.memoryGet, () => readProjectMemory(service.getWorkspace()));
   ipcMain.handle(IpcChannels.memorySet, (_e, content: unknown) => {

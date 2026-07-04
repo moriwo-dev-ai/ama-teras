@@ -8,6 +8,8 @@ const DEFAULTS: AppConfig = {
   model: '',
   // 後方互換: 既存ユーザーの設定ファイルに scopeMode が無くても従来挙動(project)になる
   scopeMode: 'project',
+  // M10: リモートアクセスは既定で無効(有効化はデスクトップの設定UIからのみ)
+  remote: { enabled: false, port: 8787 },
 };
 
 /** 設定の永続化。electron非依存(テスト可能にするためファイルパスを注入) */
@@ -37,6 +39,18 @@ export class ConfigStore {
       if (typeof rec['model'] === 'string') merged.model = rec['model'];
       if (typeof rec['workspace'] === 'string' && rec['workspace'] !== '') merged.workspace = rec['workspace'];
       if (rec['scopeMode'] === 'project' || rec['scopeMode'] === 'fullPc') merged.scopeMode = rec['scopeMode'];
+      const remote = rec['remote'];
+      if (typeof remote === 'object' && remote !== null && merged.remote) {
+        const r = remote as Record<string, unknown>;
+        if (typeof r['enabled'] === 'boolean') merged.remote.enabled = r['enabled'];
+        if (typeof r['port'] === 'number' && Number.isInteger(r['port']) && r['port'] > 0 && r['port'] < 65536) {
+          merged.remote.port = r['port'];
+        }
+        // 平文トークンは保存しない(sha256 hex のみ受け入れる)
+        if (typeof r['tokenHash'] === 'string' && /^[0-9a-f]{64}$/.test(r['tokenHash'])) {
+          merged.remote.tokenHash = r['tokenHash'];
+        }
+      }
       return merged;
     } catch {
       return merged;
