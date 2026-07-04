@@ -63,6 +63,38 @@ describe('bash.execute の制限モード', () => {
   });
 });
 
+describe('bash 同期実行のキャンセル/タイムアウト確実解決(M12-4修正)', () => {
+  it('キャンセルで await が必ず返る(孫プロセスがいても固まらない)', async () => {
+    const ac = new AbortController();
+    const c: ToolContext = { cwd: process.cwd(), signal: ac.signal, log: () => {} };
+    const start = Date.now();
+    const p = bash.execute({ command: 'node -e "setTimeout(() => {}, 60000)"', timeout_ms: 60000 }, c);
+    setTimeout(() => ac.abort(), 300);
+    const r = await p;
+    expect(Date.now() - start).toBeLessThan(8000);
+    expect(r.isError).toBe(true);
+    // 直接の子はspawnのAbortErrorで即返る。孫が残る場合はフォールバックの「キャンセル」文言
+    expect(r.content).toMatch(/キャンセル|シグナル|aborted/);
+  }, 15000);
+
+  it.skipIf(process.platform !== 'win32')(
+    'Windows: 孫プロセスが stdio を握っていてもタイムアウトで必ず返り、ツリーごと死ぬ',
+    async () => {
+      // 外側cmdをspawnのtimeoutが殺しても、内側cmd+pingがパイプを握り続けるハングの再現
+      const c: ToolContext = { cwd: process.cwd(), signal: new AbortController().signal, log: () => {} };
+      const start = Date.now();
+      const r = await bash.execute(
+        { command: 'cmd /c "cmd /c ping -n 60 127.0.0.1 > nul"', timeout_ms: 1500 },
+        c,
+      );
+      expect(Date.now() - start).toBeLessThan(10000);
+      expect(r.isError).toBe(true);
+      expect(r.content).toMatch(/タイムアウト|シグナル/);
+    },
+    20000,
+  );
+});
+
 describe('bash の background 実行(M11-2)', () => {
   it('processes 未注入のコンテキストでは spawn せず明示エラー(進化ジョブ非波及)', async () => {
     const r = await bash.execute({ command: 'echo hi', background: true }, ctx(false));

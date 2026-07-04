@@ -82,6 +82,9 @@ export default {
     }
     const timeout = Math.min(typeof timeout_ms === 'number' && timeout_ms > 0 ? timeout_ms : DEFAULT_TIMEOUT_MS, 600_000);
 
+    // spawn の signal / timeout はシェルだけを殺し、孫プロセスが stdio を握っていると
+    // 'close' が発火せず await が永久に返らない(M11で既知・M12ベンチで実害化)。
+    // → タイムアウト/キャンセル時は子孫ツリーごと強制killし、フォールバックタイマーで必ず解決する。
     return new Promise<ToolResult>((resolvePromise) => {
       const child = spawn(command, {
         cwd: ctx.cwd,
@@ -89,9 +92,57 @@ export default {
         signal: ctx.signal,
         timeout,
         env: process.env,
+        windowsHide: true,
       });
 
       let out = '';
+      let settled = false;
+      const timers: NodeJS.Timeout[] = [];
+      const finish = (result: ToolResult): void => {
+        if (settled) return;
+        settled = true;
+        for (const t of timers) clearTimeout(t);
+        ctx.signal.removeEventListener('abort', onAbort);
+        resolvePromise(result);
+      };
+      const tailOf = (): string => {
+        let content = out.length > MAX_OUTPUT ? `${out.slice(0, MAX_OUTPUT)}\n…(出力切り詰め)` : out;
+        if (content.trim() === '') content = '(出力なし)';
+        return content;
+      };
+      const killTree = (): void => {
+        const pid = child.pid;
+        if (pid === undefined) return;
+        if (process.platform === 'win32') {
+          spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }).on(
+            'error',
+            () => child.kill(),
+          );
+        } else {
+          child.kill('SIGKILL'); // POSIXは直接の子のみ(孫はspawnのsignal/timeoutが処理)
+        }
+      };
+      const forceResolveAfter = (ms: number, reason: string): void => {
+        const t = setTimeout(() => finish({ content: `${tailOf()}\n[${reason}]`, isError: true }), ms);
+        t.unref?.();
+        timers.push(t);
+      };
+      const onAbort = (): void => {
+        killTree();
+        forceResolveAfter(2000, 'キャンセルにより子プロセスツリーを強制終了した');
+      };
+      ctx.signal.addEventListener('abort', onAbort, { once: true });
+      // タイムアウト時: spawn 自身のkillで close が来なければツリーkill→強制解決
+      const timeoutFallback = setTimeout(() => {
+        killTree();
+        forceResolveAfter(
+          2000,
+          `タイムアウト(${Math.round(timeout / 1000)}s)により子プロセスツリーを強制終了した`,
+        );
+      }, timeout + 500);
+      timeoutFallback.unref?.();
+      timers.push(timeoutFallback);
+
       const append = (chunk: Buffer): void => {
         if (out.length < MAX_OUTPUT) out += chunk.toString('utf8');
       };
@@ -99,17 +150,16 @@ export default {
       child.stderr.on('data', append);
 
       child.on('error', (err) => {
-        resolvePromise({ content: `実行エラー: ${err.message}`, isError: true });
+        finish({ content: `実行エラー: ${err.message}`, isError: true });
       });
       child.on('close', (code, signal) => {
-        let content = out.length > MAX_OUTPUT ? `${out.slice(0, MAX_OUTPUT)}\n…(出力切り詰め)` : out;
-        if (content.trim() === '') content = '(出力なし)';
+        const content = tailOf();
         if (signal) {
-          resolvePromise({ content: `${content}\n[シグナル ${signal} で終了(タイムアウトまたはキャンセル)]`, isError: true });
+          finish({ content: `${content}\n[シグナル ${signal} で終了(タイムアウトまたはキャンセル)]`, isError: true });
         } else if (code !== 0) {
-          resolvePromise({ content: `${content}\n[exit code: ${code}]`, isError: true });
+          finish({ content: `${content}\n[exit code: ${code}]`, isError: true });
         } else {
-          resolvePromise({ content });
+          finish({ content });
         }
       });
     });
