@@ -17,17 +17,13 @@
 
 ## ユーザーへの依頼事項
 
-- **Windows側で `npm run build` を一度実行**(remote-ui の生成。サンドボックスでは
-  rollupネイティブパーサが使えず Vite ビルド不可のため未実行。esbuildによる
-  バンドル検証と typecheck/ユニットテストは通してある)
-- **M10の手動確認**: `docs/M10-manual-test.md`(PCのChromeをiPhoneサイズにして
-  localhost:8787 → Tailscale実機の順)
-- **M9の手動確認**: `docs/M9-manual-test.md`(未実施のまま)
-- **M11の手動確認**: `docs/M11-manual-test.md`(バックグラウンドprocの taskkill /T、
-  チェックポイント復元、postEditHook の体感、Fable 5 実測はキー登録後)
-- **Anthropic APIキーの登録(任意・時期が来たら)**: Anthropic固有部分の実API検証
-  (prompt cachingのcache_read確認、Anthropicストリーム正規化、claude系モデルでの
-  ツール連鎖・自己進化)が未実施
+- **iPhone実機 + Tailscale の確認のみ残**(`docs/M10-manual-test.md` B節)。
+  リモートアクセスは有効化済み・PC側検証(401/200/SSE/remote-ui描画/履歴同期)は完了。
+  Tailscale はオンライン(morikawa.tailb1fb66.ts.net)
+- **NSISインストーラ**: 開発者モードON または管理者ターミナルで `npm run dist`
+- 済: Windowsビルド(out/remote-ui生成)、M9/M10(PC側)/M11 のWindows実機確認、
+  Anthropicキー登録と実API検証(claude-fable-5 ツール連鎖・cache_read非ゼロ実測)。
+  詳細は `VERIFICATION_REPORT.md`(2026-07-04〜05 帰宅後検証)
 
 ## 完了項目
 

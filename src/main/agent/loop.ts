@@ -73,6 +73,10 @@ export async function runAgentLoop(
           case 'message_done':
             finalMessage = ev.message;
             stopReason = ev.stopReason;
+            // prompt caching の効き(cacheReadTokens)を実測できる唯一の場所。mainログに残す
+            console.log(
+              `[usage] session=${sessionId} turn=${turn} in=${ev.usage.inputTokens} out=${ev.usage.outputTokens} cache_read=${ev.usage.cacheReadTokens}`,
+            );
             break;
           default:
             break;
