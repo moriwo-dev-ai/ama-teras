@@ -228,6 +228,8 @@ export class AgentService {
     const ac = new AbortController();
     this.activeRun = { sessionId, ac };
     this.history.push({ role: 'user', content: [{ type: 'text', text }] });
+    // M11-1: 設定された maxTurns をループへ配線(未設定ならループ既定の30)
+    const maxTurns = this.deps.config.get().maxTurns;
 
     void (async () => {
       // 履歴が閾値超なら古いやり取りを要約に畳んでから応答する(M8-1)。
@@ -264,6 +266,7 @@ export class AgentService {
             (planMode ? PLAN_SUFFIX : ''),
           cwd: this.getWorkspace(),
           planMode,
+          ...(maxTurns !== undefined ? { maxTurns } : {}),
         },
         sessionId,
         this.history,

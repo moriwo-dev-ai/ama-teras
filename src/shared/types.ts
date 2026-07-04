@@ -83,6 +83,11 @@ export interface AppConfig {
   /** M9: 操作範囲。既定 'project'(後方互換) */
   scopeMode: ScopeMode;
   /**
+   * M11-1: エージェントループの最大ターン数。未設定=ループ既定の30。
+   * 1〜200にクランプ(大きいほど長いタスクを自走できるがAPIコスト増)。
+   */
+  maxTurns?: number;
+  /**
    * M10: スマホWebアクセス。既定 disabled。省略可(後方互換)で、ConfigStore が既定値を補う。
    * renderer からの settings:set では上書きされない(専用IPCでのみ変更)。
    */

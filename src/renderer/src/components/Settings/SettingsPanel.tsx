@@ -184,6 +184,32 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
         </div>
 
         <div className="space-y-1">
+          <label className="text-xs text-zinc-400">最大ターン数(maxTurns)</label>
+          <input
+            type="number"
+            min={1}
+            max={200}
+            className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5"
+            defaultValue={config.maxTurns ?? ''}
+            placeholder="既定: 30"
+            onBlur={(e) => {
+              const raw = e.target.value.trim();
+              const next: AppConfig = { ...config };
+              delete next.maxTurns;
+              const n = Number(raw);
+              if (raw !== '' && Number.isFinite(n)) {
+                next.maxTurns = Math.min(200, Math.max(1, Math.round(n)));
+              }
+              void window.api.settingsSet(next).then(setConfig);
+            }}
+          />
+          <p className="text-xs text-zinc-500">
+            1回の指示でエージェントが自走できる最大ターン数(1〜200)。大きいほど長いタスクを
+            続けられるがAPIコストが増える。空欄=既定(30)
+          </p>
+        </div>
+
+        <div className="space-y-1">
           <label className="text-xs text-zinc-400">ツール自動承認</label>
           <div className="flex gap-4 text-xs text-zinc-300">
             {(['safe', 'write', 'exec'] as const).map((k) => (

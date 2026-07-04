@@ -137,6 +137,16 @@ describe('runAgentLoop', () => {
     expect(provider.requests).toHaveLength(2);
   });
 
+  it('maxTurns 未設定の既定は30(M11-1 後方互換)', async () => {
+    const provider = mockProvider(
+      Array.from({ length: 31 }, (_, i) => toolUseResponse(`d${i}`, 'grep', {})),
+    );
+    const h = harness(provider, { content: 'x' });
+    const status = await runAgentLoop(h.deps, 's1', [userMsg('go')], new AbortController().signal);
+    expect(status).toBe('max_turns_reached');
+    expect(provider.requests).toHaveLength(30);
+  });
+
   it('開始前にabort済みなら cancelled', async () => {
     const ac = new AbortController();
     ac.abort();

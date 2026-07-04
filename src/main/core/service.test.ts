@@ -133,6 +133,50 @@ describe('AgentService: chat', () => {
   });
 });
 
+describe('AgentService: maxTurns 配線(M11-1)', () => {
+  it('config.maxTurns がループへ渡り、上限到達で max_turns_reached になる', async () => {
+    const plugin = {
+      name: 'noop',
+      description: 'テスト用',
+      risk: 'safe' as const,
+      inputSchema: { type: 'object' as const, properties: {} },
+      execute: async () => ({ content: 'ok' }),
+    };
+    let calls = 0;
+    // 毎ターン tool_use を返し続けるプロバイダ(自然終了しない)
+    const provider: LLMProvider = {
+      id: 'anthropic',
+      async *complete(): AsyncGenerator<ProviderEvent> {
+        calls++;
+        yield {
+          type: 'message_done',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'tool_use', id: `t${calls}`, name: 'noop', input: {} }],
+          },
+          stopReason: 'tool_use',
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0 },
+        };
+      },
+    };
+    const { svc, bus } = makeService({
+      providerFactory: () => provider,
+      registry: {
+        list: () => [plugin],
+        get: (n) => (n === 'noop' ? plugin : undefined),
+        reload: async () => {},
+        errors: [],
+      },
+      config: { get: () => ({ ...structuredClone(BASE_CONFIG), maxTurns: 2 }) },
+    });
+    const done = waitForStatus(bus, ['max_turns_reached', 'done', 'error']);
+    svc.chatSend('自走して', 'normal');
+    const last = await done;
+    expect(last).toMatchObject({ kind: 'status', status: 'max_turns_reached' });
+    expect(calls).toBe(2); // 未設定なら30まで回る(loop.test.ts の既定値テストと対)
+  });
+});
+
 describe('AgentService: 承認の追跡', () => {
   it('承認要求は pending に載り、respond で approval:resolved が流れて消える', async () => {
     const { svc, bus } = makeService();

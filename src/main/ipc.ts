@@ -52,7 +52,9 @@ function assertConfig(value: unknown): asserts value is AppConfig {
     (rec['provider'] === 'anthropic' || rec['provider'] === 'openai') &&
     typeof rec['model'] === 'string' &&
     (rec['workspace'] === undefined || typeof rec['workspace'] === 'string') &&
-    (rec['scopeMode'] === 'project' || rec['scopeMode'] === 'fullPc');
+    (rec['scopeMode'] === 'project' || rec['scopeMode'] === 'fullPc') &&
+    (rec['maxTurns'] === undefined ||
+      (typeof rec['maxTurns'] === 'number' && Number.isFinite(rec['maxTurns'])));
   if (!ok) throw new Error('IPC payload config が不正');
 }
 

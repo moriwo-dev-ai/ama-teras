@@ -64,6 +64,35 @@ describe('ConfigStore', () => {
     expect(c.provider).toBe('anthropic');
   });
 
+  // ---- M11-1: maxTurns ----
+
+  it('maxTurns の既定は未設定(=ループ側の既定30に委ねる・後方互換)', async () => {
+    expect(new ConfigStore(file).get().maxTurns).toBeUndefined();
+    await writeFile(file, JSON.stringify({ provider: 'openai', model: '' }));
+    expect(new ConfigStore(file).get().maxTurns).toBeUndefined();
+  });
+
+  it('範囲外の maxTurns は 1〜200 にクランプして読み込む', async () => {
+    await writeFile(file, JSON.stringify({ maxTurns: 0 }));
+    expect(new ConfigStore(file).get().maxTurns).toBe(1);
+    await writeFile(file, JSON.stringify({ maxTurns: 9999 }));
+    expect(new ConfigStore(file).get().maxTurns).toBe(200);
+    await writeFile(file, JSON.stringify({ maxTurns: 50 }));
+    expect(new ConfigStore(file).get().maxTurns).toBe(50);
+  });
+
+  it('数値でない・非有限の maxTurns は未設定として扱う', async () => {
+    await writeFile(file, JSON.stringify({ maxTurns: 'many' }));
+    expect(new ConfigStore(file).get().maxTurns).toBeUndefined();
+  });
+
+  it('set 経由の maxTurns もクランプされ永続化される', () => {
+    const store = new ConfigStore(file);
+    const saved = store.set({ ...store.get(), maxTurns: 500 });
+    expect(saved.maxTurns).toBe(200);
+    expect(new ConfigStore(file).get().maxTurns).toBe(200);
+  });
+
   // ---- M10: remote 設定 ----
 
   it('remote の既定は disabled / port 8787 / トークン未発行', () => {

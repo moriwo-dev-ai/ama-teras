@@ -2,6 +2,14 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { AppConfig } from '../shared/types';
 
+/** M11-1: maxTurns のクランプ範囲。未設定はループ側の既定(30)に委ねる */
+export const MAX_TURNS_MIN = 1;
+export const MAX_TURNS_MAX = 200;
+
+export function clampMaxTurns(value: number): number {
+  return Math.min(MAX_TURNS_MAX, Math.max(MAX_TURNS_MIN, Math.round(value)));
+}
+
 const DEFAULTS: AppConfig = {
   autoApprove: { safe: true, write: false, exec: false },
   provider: 'anthropic',
@@ -39,6 +47,10 @@ export class ConfigStore {
       if (typeof rec['model'] === 'string') merged.model = rec['model'];
       if (typeof rec['workspace'] === 'string' && rec['workspace'] !== '') merged.workspace = rec['workspace'];
       if (rec['scopeMode'] === 'project' || rec['scopeMode'] === 'fullPc') merged.scopeMode = rec['scopeMode'];
+      // M11-1: 数値でない・非有限の maxTurns は未設定として扱う(後方互換)
+      if (typeof rec['maxTurns'] === 'number' && Number.isFinite(rec['maxTurns'])) {
+        merged.maxTurns = clampMaxTurns(rec['maxTurns']);
+      }
       const remote = rec['remote'];
       if (typeof remote === 'object' && remote !== null && merged.remote) {
         const r = remote as Record<string, unknown>;
@@ -62,7 +74,13 @@ export class ConfigStore {
   }
 
   set(next: AppConfig): AppConfig {
-    this.config = structuredClone(next);
+    const clone = structuredClone(next);
+    // M11-1: 保存時にもクランプして正規化する(UI・IPC経由の範囲外値を防ぐ)
+    if (clone.maxTurns !== undefined) {
+      if (Number.isFinite(clone.maxTurns)) clone.maxTurns = clampMaxTurns(clone.maxTurns);
+      else delete clone.maxTurns;
+    }
+    this.config = clone;
     mkdirSync(dirname(this.filePath), { recursive: true });
     writeFileSync(this.filePath, JSON.stringify(this.config, null, 2), 'utf8');
     return this.get();
