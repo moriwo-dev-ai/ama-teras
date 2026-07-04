@@ -12,6 +12,7 @@ export default {
     },
   },
   risk: 'safe',
+  pathParams: ['path'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { path } = input as { path?: unknown };
     const target = typeof path === 'string' ? (isAbsolute(path) ? path : resolve(ctx.cwd, path)) : ctx.cwd;

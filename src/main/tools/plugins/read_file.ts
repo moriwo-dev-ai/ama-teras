@@ -22,6 +22,7 @@ export default {
     required: ['path'],
   },
   risk: 'safe',
+  pathParams: ['path'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { path, offset, limit } = input as { path?: unknown; offset?: unknown; limit?: unknown };
     if (typeof path !== 'string') return { content: 'path は文字列で指定すること', isError: true };

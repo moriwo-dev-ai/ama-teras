@@ -35,7 +35,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 /** default export がToolPlugin規約を満たすか検証。満たさなければ理由付きで例外 */
 export function validatePlugin(mod: unknown, expectedName: string): ToolPlugin {
   if (!isRecord(mod)) throw new Error('default export がオブジェクトではない');
-  const { name, description, inputSchema, risk, warnings, execute } = mod;
+  const { name, description, inputSchema, risk, warnings, pathParams, execute } = mod;
   if (typeof name !== 'string' || name !== expectedName) {
     throw new Error(`name はファイル名 '${expectedName}' と一致する文字列であること(実際: ${String(name)})`);
   }
@@ -50,6 +50,9 @@ export function validatePlugin(mod: unknown, expectedName: string): ToolPlugin {
   }
   if (warnings !== undefined && (!Array.isArray(warnings) || warnings.some((w) => typeof w !== 'string'))) {
     throw new Error('warnings は string[] であること');
+  }
+  if (pathParams !== undefined && (!Array.isArray(pathParams) || pathParams.some((p) => typeof p !== 'string'))) {
+    throw new Error('pathParams は string[] であること');
   }
   if (typeof execute !== 'function') throw new Error('execute は関数であること');
   return mod as unknown as ToolPlugin;

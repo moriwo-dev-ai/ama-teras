@@ -27,6 +27,7 @@ export default {
     required: ['path', 'old_string', 'new_string'],
   },
   risk: 'write',
+  pathParams: ['path'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { path, old_string, new_string, replace_all } = input as {
       path?: unknown;

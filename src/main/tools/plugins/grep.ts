@@ -49,6 +49,7 @@ export default {
     required: ['pattern'],
   },
   risk: 'safe',
+  pathParams: ['path'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { pattern, path, include } = input as { pattern?: unknown; path?: unknown; include?: unknown };
     if (typeof pattern !== 'string') return { content: 'pattern は文字列で指定すること', isError: true };

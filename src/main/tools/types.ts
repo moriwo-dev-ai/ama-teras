@@ -66,5 +66,10 @@ export interface ToolPlugin {
   risk: ToolRisk;
   /** 承認ダイアログに出す追加警告(child_process / ネットワーク使用は必ず自己申告) */
   warnings?: string[];
+  /**
+   * input のうちファイルパスを表すフィールド名(M9)。executor が実行前のスコープ判定
+   * (workspace / system)と保護領域のハード拒否に使う。パスを触るツールは必ず宣言する。
+   */
+  pathParams?: string[];
   execute(input: unknown, ctx: ToolContext): Promise<ToolResult>;
 }

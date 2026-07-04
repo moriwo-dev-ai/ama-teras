@@ -24,6 +24,7 @@ export default {
     required: ['path', 'content'],
   },
   risk: 'write',
+  pathParams: ['path'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { path, content } = input as { path?: unknown; content?: unknown };
     if (typeof path !== 'string' || typeof content !== 'string') {
