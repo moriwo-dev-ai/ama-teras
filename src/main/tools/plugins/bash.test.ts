@@ -62,3 +62,34 @@ describe('bash.execute の制限モード', () => {
     expect(r.content).toContain('hello');
   });
 });
+
+describe('bash の background 実行(M11-2)', () => {
+  it('processes 未注入のコンテキストでは spawn せず明示エラー(進化ジョブ非波及)', async () => {
+    const r = await bash.execute({ command: 'echo hi', background: true }, ctx(false));
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain('processes');
+  });
+
+  it('restrictExec コンテキストでは background でもコマンド制限が先に効く', async () => {
+    const r = await bash.execute({ command: 'echo hi', background: true }, ctx(true));
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain('制限モード');
+  });
+
+  it('processes 注入時は start へ委譲して即 id を返す(完了を待たない)', async () => {
+    const calls: { command: string; cwd: string }[] = [];
+    const c = ctx(false);
+    c.processes = {
+      start: (command, cwd) => {
+        calls.push({ command, cwd });
+        return { id: 7, pid: 123 };
+      },
+      read: () => undefined,
+      kill: () => 'not-found',
+    };
+    const r = await bash.execute({ command: 'sleep 100', background: true }, c);
+    expect(r.isError).toBeUndefined();
+    expect(r.content).toContain('id=7');
+    expect(calls).toEqual([{ command: 'sleep 100', cwd: process.cwd() }]);
+  });
+});

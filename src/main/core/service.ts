@@ -31,6 +31,7 @@ import {
 } from '../tools/executor';
 import type { ToolPlugin } from '../tools/types';
 import type { EventBus } from './events';
+import { ProcessManager } from './processes';
 
 /**
  * M10-1: transport 非依存のコアサービス。
@@ -109,6 +110,8 @@ export function toHistoryView(messages: ChatMessage[]): HistoryMessageView[] {
 
 export class AgentService {
   readonly broker: ApprovalBroker;
+  /** M11-2: バックグラウンドプロセス管理(メインセッション専用。進化ジョブには注入しない) */
+  readonly processes = new ProcessManager();
   private readonly evolution: EvolutionLike;
   private readonly history: ChatMessage[] = [];
   private activeRun: { sessionId: string; ac: AbortController } | null = null;
@@ -250,6 +253,7 @@ export class AgentService {
             executeToolWithApproval(this.executorDeps(), name, input, {
               ...ctx,
               evolution: this.evolutionContext(),
+              processes: this.processes,
               subagent: {
                 run: (task, signal) =>
                   runSubAgent(
@@ -280,7 +284,16 @@ export class AgentService {
   }
 
   chatCancel(sessionId: string): void {
-    if (this.activeRun?.sessionId === sessionId) this.activeRun.ac.abort();
+    if (this.activeRun?.sessionId === sessionId) {
+      this.activeRun.ac.abort();
+      // M11-2: セッションキャンセルでバックグラウンドプロセスも全て止める(設計どおり)
+      this.processes.killAll();
+    }
+  }
+
+  /** アプリ終了時の後始末(index.ts の will-quit から呼ばれる) */
+  shutdown(): void {
+    this.processes.killAll();
   }
 
   // ---- 承認 ----
@@ -324,8 +337,14 @@ export class AgentService {
       this.executorDeps(),
       name,
       input,
-      // chatSend と同じく evolution を注入する(request_capability が手動実行でも動くように)
-      { cwd: this.getWorkspace(), signal: ac.signal, log: () => {}, evolution: this.evolutionContext() },
+      // chatSend と同じく evolution / processes を注入する(手動実行でも同じ能力を持つ)
+      {
+        cwd: this.getWorkspace(),
+        signal: ac.signal,
+        log: () => {},
+        evolution: this.evolutionContext(),
+        processes: this.processes,
+      },
     );
     return { content: result.content, isError: result.isError === true };
   }

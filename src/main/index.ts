@@ -96,7 +96,9 @@ void app.whenReady().then(async () => {
     await runSmokeMode();
     return;
   }
-  await registerIpcHandlers(() => mainWindow?.webContents ?? null);
+  const services = await registerIpcHandlers(() => mainWindow?.webContents ?? null);
+  // M11-2: アプリ終了時にバックグラウンドプロセスを残さない
+  app.on('will-quit', () => services.service.shutdown());
   createWindow();
 
   app.on('activate', () => {

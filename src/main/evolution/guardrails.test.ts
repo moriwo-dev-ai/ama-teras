@@ -24,6 +24,14 @@ describe('進化パイプラインの制限(M9で不変)', () => {
     expect(source).not.toContain('getScopePolicy');
   });
 
+  it('M11-2: バックグラウンドプロセス(ToolContext.processes)を進化ジョブへ注入しない(ソース・トリップワイヤ)', () => {
+    const source = readFileSync(fileURLToPath(new URL('./job.ts', import.meta.url)), 'utf8');
+    // job.ts が processes を注入するコードを持たないことを機械的に固定する。
+    // 進化ジョブ内では bash(background) / bash_output / bash_kill は「processes 未注入」エラーになる
+    expect(source).not.toContain('processes');
+    expect(source).not.toContain('ProcessManager');
+  });
+
   it('restrictExec の許可コマンドは検証系のみ(書き込み・任意実行は拒否)', () => {
     expect(isRestrictedCommandAllowed('npm run typecheck')).toBe(true);
     expect(isRestrictedCommandAllowed('npx vitest run src/main/tools/plugins/x.test.ts')).toBe(true);

@@ -100,9 +100,12 @@ describe('AgentService: chat', () => {
       ),
     ).toBe(true);
 
+    // M11-2: セッションキャンセルでバックグラウンドプロセスが全て kill される
+    const killAll = vi.spyOn(svc.processes, 'killAll');
     const done = waitForStatus(bus, ['cancelled']);
     svc.chatCancel(sessionId);
     await done;
+    expect(killAll).toHaveBeenCalled();
     // activeRun のクリアは終端イベントの1マイクロタスク後(finally)なので1tick待つ
     await new Promise((r) => setTimeout(r, 0));
     expect(svc.getStatus()).toEqual({ status: 'idle', activeSessionId: null, scopeMode: 'project' });

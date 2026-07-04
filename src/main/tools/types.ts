@@ -17,6 +17,21 @@ export interface JsonSchema {
   additionalProperties?: boolean;
 }
 
+/** M11-2: バックグラウンドプロセスの状態スナップショット(bash_output が整形して返す) */
+export interface BackgroundProcessSnapshot {
+  id: number;
+  command: string;
+  running: boolean;
+  exitCode: number | null;
+  exitSignal: string | null;
+  /** sinceByte 以降の出力。リングバッファで切り捨て済みの範囲は返らない */
+  output: string;
+  /** これまでの総出力バイト数(次回の sinceByte に使う) */
+  totalBytes: number;
+  /** リングバッファ上限で先頭から切り捨てられたバイト数 */
+  droppedBytes: number;
+}
+
 export interface ToolContext {
   /** セッションの作業ディレクトリ(進化ジョブでは B worktree) */
   cwd: string;
@@ -43,6 +58,15 @@ export interface ToolContext {
    */
   subagent?: {
     run(task: string, signal: AbortSignal): Promise<string>;
+  };
+  /**
+   * M11-2: バックグラウンドプロセス管理。bash(background:true)/ bash_output / bash_kill が使う。
+   * 進化ジョブ(restrictExec コンテキスト)には注入されない(未注入時は各ツールが明示エラー)。
+   */
+  processes?: {
+    start(command: string, cwd: string): { id: number; pid: number | undefined };
+    read(id: number, sinceByte?: number): BackgroundProcessSnapshot | undefined;
+    kill(id: number): 'killed' | 'already-exited' | 'not-found';
   };
 }
 
