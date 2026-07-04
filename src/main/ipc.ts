@@ -57,7 +57,9 @@ function assertConfig(value: unknown): asserts value is AppConfig {
     (rec['scopeMode'] === 'project' || rec['scopeMode'] === 'fullPc') &&
     (rec['maxTurns'] === undefined ||
       (typeof rec['maxTurns'] === 'number' && Number.isFinite(rec['maxTurns']))) &&
-    (rec['postEditHook'] === undefined || typeof rec['postEditHook'] === 'string');
+    (rec['postEditHook'] === undefined || typeof rec['postEditHook'] === 'string') &&
+    (rec['subAgentMaxTurns'] === undefined ||
+      (typeof rec['subAgentMaxTurns'] === 'number' && Number.isFinite(rec['subAgentMaxTurns'])));
   if (!ok) throw new Error('IPC payload config が不正');
 }
 
@@ -160,6 +162,7 @@ export async function registerIpcHandlers(
   bus.subscribe('approval:request', (r) => push(IpcChannels.approvalRequest, r));
   bus.subscribe('approval:resolved', (r) => push(IpcChannels.approvalResolved, r));
   bus.subscribe('evolution:event', (e) => push(IpcChannels.evolutionEvent, e));
+  bus.subscribe('agent:sub_update', (u) => push(IpcChannels.subAgentUpdate, u));
 
   // ---- chat ----
   ipcMain.handle(IpcChannels.chatSend, (_e, text: unknown, mode: unknown) => {

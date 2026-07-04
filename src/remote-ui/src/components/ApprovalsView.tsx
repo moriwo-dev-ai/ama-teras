@@ -33,6 +33,9 @@ function ApprovalCard({ req, api }: { req: ApprovalRequestPayload; api: RemoteAp
         <span className={`risk ${req.risk}`}>{RISK_LABEL[req.risk]}</span>
         {req.toolName}
       </h3>
+      {req.subAgentId !== undefined && (
+        <div className="warn-banner">🤖 サブエージェント #{req.subAgentId} からの要求</div>
+      )}
       {isSystem && (
         <div className="warn-banner">
           ⚠ プロジェクト外の操作(PC全体スコープ)。毎回承認が必要。

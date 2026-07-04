@@ -15,6 +15,7 @@ import type {
   SecretsStatus,
   SessionLoadResult,
   SessionMeta,
+  SubAgentUpdate,
   ToolExecResultPayload,
   ToolInfo,
 } from './types';
@@ -52,6 +53,8 @@ export const IpcChannels = {
   sessionsNew: 'sessions:new',
   /** M12-2: 計画ファイル(MYCODEX_PLAN.md)の内容取得(計画パネル用・読み取り専用) */
   planGet: 'plan:get',
+  /** M12-3: 並列サブエージェントの進行状況(エージェントパネル用) */
+  subAgentUpdate: 'agent:sub_update',
   /** M10: リモートアクセス管理(デスクトップ専用) */
   remoteStatus: 'remote:status',
   remoteSetEnabled: 'remote:set-enabled',
@@ -106,6 +109,9 @@ export interface MyCodexApi {
 
   /** M12-2: 現在のワークスペースの MYCODEX_PLAN.md の内容(無ければ空文字) */
   planGet(): Promise<string>;
+
+  /** M12-3: 並列サブエージェントの進行イベント購読 */
+  onSubAgentUpdate(listener: (update: SubAgentUpdate) => void): () => void;
 
   /** M10: リモートアクセス(スマホWeb)管理。トークン平文は生成時に一度だけ返る */
   remoteStatus(): Promise<RemoteStatusPayload>;

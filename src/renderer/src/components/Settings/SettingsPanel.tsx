@@ -210,6 +210,31 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
         </div>
 
         <div className="space-y-1">
+          <label className="text-xs text-zinc-400">サブエージェント最大ターン数(subAgentMaxTurns)</label>
+          <input
+            type="number"
+            min={1}
+            max={100}
+            className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5"
+            defaultValue={config.subAgentMaxTurns ?? ''}
+            placeholder="既定: 30"
+            onBlur={(e) => {
+              const raw = e.target.value.trim();
+              const next: AppConfig = { ...config };
+              delete next.subAgentMaxTurns;
+              const n = Number(raw);
+              if (raw !== '' && Number.isFinite(n)) {
+                next.subAgentMaxTurns = Math.min(100, Math.max(1, Math.round(n)));
+              }
+              void window.api.settingsSet(next).then(setConfig);
+            }}
+          />
+          <p className="text-xs text-zinc-500">
+            dispatch_agent(mode:"work" / parallel)の子エージェント1体あたりの上限(1〜100)。空欄=既定(30)
+          </p>
+        </div>
+
+        <div className="space-y-1">
           <label className="text-xs text-zinc-400">編集後フック(postEditHook)</label>
           <input
             className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"

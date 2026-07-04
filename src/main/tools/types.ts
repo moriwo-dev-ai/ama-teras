@@ -53,12 +53,19 @@ export interface ToolContext {
     requestCapability(description: string, expectedIO: string): Promise<{ jobId: number }>;
   };
   /**
-   * サブエージェント委譲(M8-4)。dispatch_agent プラグインだけが使う。
-   * 調査タスクを読み取り専用の子エージェントへ渡し、結果の要約だけを返す。
+   * サブエージェント委譲(M8-4 / M12-3)。dispatch_agent プラグインだけが使う。
+   * run は従来の読み取り専用の単発委譲。runParallel は最大3並列で、
+   * mode:'work' なら書き込み/実行込みの子(すべて executor=承認フロー経由)。
    */
   subagent?: {
     run(task: string, signal: AbortSignal): Promise<string>;
+    runParallel?(tasks: string[], mode: 'read' | 'work', signal: AbortSignal): Promise<string[]>;
   };
+  /**
+   * M12-3: サブエージェント実行由来のツール呼び出し識別(1始まりの子番号)。
+   * executor が承認ダイアログへ「サブエージェント #N からの要求」を表示するのに使う
+   */
+  subAgentId?: number;
   /**
    * M11-2: バックグラウンドプロセス管理。bash(background:true)/ bash_output / bash_kill が使う。
    * 進化ジョブ(restrictExec コンテキスト)には注入されない(未注入時は各ツールが明示エラー)。

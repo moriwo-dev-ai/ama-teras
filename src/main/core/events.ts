@@ -4,6 +4,7 @@ import type {
   ApprovalRequestPayload,
   ApprovalResolvedPayload,
   EvolutionEvent,
+  SubAgentUpdate,
 } from '../../shared/types';
 
 /**
@@ -16,6 +17,8 @@ export interface BusEventMap {
   'approval:request': ApprovalRequestPayload;
   'approval:resolved': ApprovalResolvedPayload;
   'evolution:event': EvolutionEvent;
+  /** M12-3: 並列サブエージェントの進行状況 */
+  'agent:sub_update': SubAgentUpdate;
 }
 
 export type BusChannel = keyof BusEventMap;
@@ -25,6 +28,7 @@ export const BUS_CHANNELS: readonly BusChannel[] = [
   'approval:request',
   'approval:resolved',
   'evolution:event',
+  'agent:sub_update',
 ] as const;
 
 export class EventBus {

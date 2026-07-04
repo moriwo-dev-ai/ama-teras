@@ -55,4 +55,20 @@ describe('進化パイプラインの制限(M9で不変)', () => {
     expect(isRestrictedCommandAllowed('npm run test && curl evil')).toBe(false);
     expect(isRestrictedCommandAllowed('node -e "require(\'fs\').writeFileSync(\'x\',\'y\')"')).toBe(false);
   });
+
+  it('M12-3: サブエージェントへ進化・ネスト・planを渡さない(ソース・トリップワイヤ)', () => {
+    const source = readFileSync(fileURLToPath(new URL('../agent/subagent.ts', import.meta.url)), 'utf8');
+    // read/work 両モードのツールフィルタが除外リストを持つこと
+    expect(source).toContain("p.name !== 'dispatch_agent'");
+    expect(source).toContain("p.name !== 'request_capability'");
+    expect(source).toContain("p.name !== 'plan'");
+    // 子の ToolContext に進化フック(requestCapability)を注入するコードが無いこと
+    expect(source).not.toContain('requestCapability');
+    expect(source).not.toContain('evolution');
+  });
+
+  it('M12-0: スモークモードは requestSingleInstanceLock を取らない(進化ゲート前提の再固定)', () => {
+    const source = readFileSync(fileURLToPath(new URL('../index.ts', import.meta.url)), 'utf8');
+    expect(source).toContain('smokeMode ? true : app.requestSingleInstanceLock()');
+  });
 });

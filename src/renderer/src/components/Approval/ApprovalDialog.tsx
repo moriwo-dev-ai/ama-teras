@@ -27,6 +27,12 @@ export function ApprovalDialog(): JSX.Element | null {
           {queue.length > 1 && <span className="text-xs text-zinc-500">(+{queue.length - 1} 件待ち)</span>}
         </div>
 
+        {req.subAgentId !== undefined && (
+          <div className="mb-2 rounded-md border border-sky-700 bg-sky-950 p-2 text-xs text-sky-200">
+            🤖 サブエージェント #{req.subAgentId} からの要求(dispatch_agent 経由の並列作業)
+          </div>
+        )}
+
         {isSystemScope && (
           <div className="mb-2 rounded-md border border-amber-500 bg-amber-950 p-2 text-xs text-amber-200">
             <div className="mb-1 font-semibold">⚠ プロジェクト外の操作(PC全体スコープ)</div>

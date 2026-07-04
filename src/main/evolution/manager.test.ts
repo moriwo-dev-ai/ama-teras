@@ -112,7 +112,8 @@ async function waitForTerminal(events: EvolutionEvent[], timeoutMs = 30_000): Pr
   }
 }
 
-describe('EvolutionManager(実git統合)', () => {
+// Windows では git のプロセス起動が遅く、並列負荷で既定5sを超えることがある
+describe('EvolutionManager(実git統合)', { timeout: 30_000 }, () => {
   it('正常系: 生成→ゲート→承認→mainへマージ+タグ→ホットリロード→done', async () => {
     const { manager, events, reloads } = makeManager();
     const jobId = await manager.enqueue({ description: 'JSON整形ツール', expectedIO: 'json in/out' });
@@ -193,7 +194,7 @@ describe('EvolutionManager(実git統合)', () => {
   });
 });
 
-describe('再生成・リトライ', () => {
+describe('再生成・リトライ', { timeout: 30_000 }, () => {
   it('ゲート不合格→フィードバック付き再生成→2回目で合格し昇格まで進む', async () => {
     const feedbacks: (string | undefined)[] = [];
     const runner: EvolutionJobRunner = {

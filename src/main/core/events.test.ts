@@ -47,10 +47,11 @@ describe('EventBus', () => {
       kind: 'job_update',
       job: { id: 1, description: 'd', status: 'queued', log: [], gates: [] },
     });
-    expect(seen).toHaveLength(4);
+    bus.publish('agent:sub_update', { id: 1, task: 't', mode: 'work', status: 'running' });
+    expect(seen).toHaveLength(5);
     expect(new Set(seen)).toEqual(new Set(BUS_CHANNELS));
     unsub();
     bus.publish('chat:event', chatEvent);
-    expect(seen.length).toBe(4);
+    expect(seen.length).toBe(5);
   });
 });

@@ -63,6 +63,8 @@ export interface ApprovalRequestPayload {
   scope?: OperationScope;
   /** M9: スコープ判定に使った解決済み絶対パス('system' のときのみ) */
   resolvedPaths?: string[];
+  /** M12-3: サブエージェント発の要求のとき、その子エージェント番号(UIで明示表示) */
+  subAgentId?: number;
 }
 
 export type ApprovalDecision = 'allow' | 'allow-session' | 'deny';
@@ -92,6 +94,8 @@ export interface AppConfig {
    * 出力(末尾4KB)が tool_result に追記される。空/未設定=無効。進化ジョブでは実行しない。
    */
   postEditHook?: string;
+  /** M12-3: work サブエージェント1体あたりの最大ターン数。未設定=既定30(1〜100にクランプ) */
+  subAgentMaxTurns?: number;
   /**
    * M10: スマホWebアクセス。既定 disabled。省略可(後方互換)で、ConfigStore が既定値を補う。
    * renderer からの settings:set では上書きされない(専用IPCでのみ変更)。
@@ -169,6 +173,21 @@ export interface RemoteSnapshot {
   pendingPromotions: Extract<EvolutionEvent, { kind: 'promotion_request' }>[];
   jobs: EvolutionJobSummary[];
   tools: ToolInfo[];
+}
+
+// ---- M12-3: 並列サブエージェント ----
+
+/** main → renderer/remote: 子エージェントの進行状況(エージェントパネル用) */
+export interface SubAgentUpdate {
+  /** 会話内の子エージェント連番(1始まり) */
+  id: number;
+  task: string;
+  mode: 'read' | 'work';
+  status: 'running' | 'done' | 'error' | 'cancelled';
+  /** 実行中のツール名(running のときのみ意味を持つ) */
+  currentTool?: string;
+  /** 子の最終テキスト(完了時)またはエラー概要の末尾 */
+  summaryTail?: string;
 }
 
 // ---- M12-1: セッション永続化 ----

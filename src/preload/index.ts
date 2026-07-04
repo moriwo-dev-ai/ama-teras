@@ -5,6 +5,7 @@ import type {
   ApprovalRequestPayload,
   ApprovalResolvedPayload,
   EvolutionEvent,
+  SubAgentUpdate,
 } from '../shared/types';
 
 function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
@@ -53,6 +54,8 @@ const api: MyCodexApi = {
   sessionsNew: () => ipcRenderer.invoke(IpcChannels.sessionsNew),
 
   planGet: () => ipcRenderer.invoke(IpcChannels.planGet),
+
+  onSubAgentUpdate: (listener) => subscribe<SubAgentUpdate>(IpcChannels.subAgentUpdate, listener),
 
   remoteStatus: () => ipcRenderer.invoke(IpcChannels.remoteStatus),
   remoteSetEnabled: (enabled, port) =>

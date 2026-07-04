@@ -131,7 +131,7 @@ async function buildDiffPreview(
 }
 
 /** pathParams で宣言されたパス値を cwd 基準の絶対パスへ解決する。値が無ければ cwd を対象とみなす */
-function collectDeclaredPaths(plugin: ToolPlugin, input: unknown, cwd: string): string[] {
+export function collectDeclaredPaths(plugin: ToolPlugin, input: unknown, cwd: string): string[] {
   if (!plugin.pathParams || plugin.pathParams.length === 0) return [];
   const rec = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {};
   const out: string[] = [];
@@ -205,6 +205,8 @@ export async function executeToolWithApproval(
         warnings: [...(plugin.warnings ?? []), ...scopeWarnings],
         ...(scope !== undefined ? { scope } : {}),
         ...(resolvedPaths !== undefined ? { resolvedPaths } : {}),
+        // M12-3: サブエージェント発の要求は承認UIで出所を明示する
+        ...(ctx.subAgentId !== undefined ? { subAgentId: ctx.subAgentId } : {}),
       },
       ctx.signal,
     );

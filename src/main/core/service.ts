@@ -16,13 +16,19 @@ import type {
   ProviderId,
   SessionLoadResult,
   SessionMeta,
+  SubAgentUpdate,
   ToolExecResultPayload,
   ToolInfo,
 } from '../../shared/types';
 import { ApprovalBroker } from '../agent/approval';
 import { compactHistory } from '../agent/compaction';
 import { runAgentLoop } from '../agent/loop';
-import { runSubAgent } from '../agent/subagent';
+import {
+  MAX_PARALLEL_SUBAGENTS,
+  runSubAgent,
+  runWorkSubAgent,
+  WriteLockTable,
+} from '../agent/subagent';
 import { composePlanSection, composeSystemPrompt, readProjectMemory, readProjectPlan } from '../memory';
 import { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from '../providers/anthropic';
 import { DEFAULT_OPENAI_MODEL, OpenAIProvider } from '../providers/openai';
@@ -152,6 +158,8 @@ export class AgentService {
   private readonly pendingPromotionEvents = new Map<number, PromotionRequestEvent>();
   /** M12-1: 継続中の会話の永続化メタ(イベント用 sessionId とは別で、送信を跨いで維持される) */
   private conversation: { id: string; title: string; createdAt: string } | null = null;
+  /** M12-3: 子エージェントの連番(UI表示・承認ダイアログの出所表示用) */
+  private subAgentSeq = 0;
   /** 保存の直列化(fold と save が並行実行で交錯しないように) */
   private persistChain: Promise<void> = Promise.resolve();
 
@@ -390,6 +398,9 @@ export class AgentService {
                     task,
                     signal,
                   ),
+                // M12-3: 最大3並列(read/work)。work は executor 経由で承認・スコープが効く
+                runParallel: (tasks, subMode, signal) =>
+                  this.runParallelSubAgents(provider, sessionId, tasks, subMode, signal),
               },
             });
             // M11-3: 書き込み/実行系ツールの成功直後に自動チェックポイント(メインループのみ)。
@@ -430,6 +441,69 @@ export class AgentService {
     });
 
     return { sessionId };
+  }
+
+  /**
+   * M12-3: 並列サブエージェント。fan-out 直前に自動チェックポイントを作り、
+   * work モードでは write 衝突テーブルを全子で共有する。親 signal で全子キャンセル。
+   * (public なのはテストのため。通常は chatSend 内の ctx.subagent.runParallel 経由)
+   */
+  async runParallelSubAgents(
+    provider: LLMProvider,
+    sessionId: string,
+    tasks: string[],
+    mode: 'read' | 'work',
+    signal: AbortSignal,
+  ): Promise<string[]> {
+    const limited = tasks.slice(0, MAX_PARALLEL_SUBAGENTS);
+    await this.getCheckpoints()
+      ?.snapshot(sessionId, `サブエージェント並列実行前(${mode}×${limited.length})`)
+      .catch(() => null);
+    const locks = new WriteLockTable();
+    const onUpdate = (u: SubAgentUpdate): void => this.deps.bus.publish('agent:sub_update', u);
+    const rawTurns = this.deps.config.get().subAgentMaxTurns;
+    const maxTurns =
+      rawTurns !== undefined ? Math.min(100, Math.max(1, Math.round(rawTurns))) : undefined;
+
+    return Promise.all(
+      limited.map((task) => {
+        const id = ++this.subAgentSeq;
+        if (mode === 'work') {
+          return runWorkSubAgent(
+            {
+              provider,
+              tools: this.deps.registry,
+              cwd: this.getWorkspace(),
+              executeTool: (name, input, ctx) =>
+                executeToolWithApproval(this.executorDeps(), name, input, ctx),
+              onUpdate,
+              locks,
+              ...(maxTurns !== undefined ? { maxTurns } : {}),
+            },
+            id,
+            task,
+            signal,
+          );
+        }
+        // read の並列: 従来の読み取り専用子を進行イベント付きで走らせる
+        const label = task.length > 120 ? `${task.slice(0, 120)}…` : task;
+        onUpdate({ id, task: label, mode: 'read', status: 'running' });
+        return runSubAgent(
+          { provider, tools: this.deps.registry, cwd: this.getWorkspace() },
+          task,
+          signal,
+        ).then((summary) => {
+          onUpdate({
+            id,
+            task: label,
+            mode: 'read',
+            status: signal.aborted ? 'cancelled' : 'done',
+            summaryTail: summary.slice(-200),
+          });
+          return summary;
+        });
+      }),
+    );
   }
 
   chatCancel(sessionId: string): void {
