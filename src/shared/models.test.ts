@@ -7,6 +7,10 @@ describe('models', () => {
     expect(isKnownModel('openai', DEFAULT_MODELS.openai)).toBe(true);
   });
 
+  it('M11-5: Anthropic の既定は claude-fable-5', () => {
+    expect(DEFAULT_MODELS.anthropic).toBe('claude-fable-5');
+  });
+
   it('候補外のIDはカスタム扱い(false)', () => {
     expect(isKnownModel('anthropic', 'gpt-5.1')).toBe(false);
     expect(isKnownModel('anthropic', 'モデル(空欄で既定)')).toBe(false); // 誤入力例

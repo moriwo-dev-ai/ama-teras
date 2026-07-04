@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAnthropicParams, normalizeAnthropicStream } from './anthropic';
+import { buildAnthropicParams, DEFAULT_ANTHROPIC_MODEL, normalizeAnthropicStream } from './anthropic';
 import type { CompletionRequest, ProviderEvent } from './types';
 
 function req(overrides: Partial<CompletionRequest> = {}): CompletionRequest {
@@ -64,6 +64,17 @@ describe('buildAnthropicParams(prompt caching)', () => {
     // 先頭メッセージには付かない
     const first = (params.messages[0]!.content as unknown as Record<string, unknown>[])[0]!;
     expect(first['cache_control']).toBeUndefined();
+  });
+
+  it('M11-5: 既定モデル claude-fable-5 でも cache_control 配置が同一に適用される', () => {
+    expect(DEFAULT_ANTHROPIC_MODEL).toBe('claude-fable-5');
+    const params = buildAnthropicParams(req(), DEFAULT_ANTHROPIC_MODEL);
+    expect(params.model).toBe('claude-fable-5');
+    expect(params.system).toEqual([
+      { type: 'text', text: 'システムプロンプト', cache_control: { type: 'ephemeral' } },
+    ]);
+    const tools = params.tools as { name: string; cache_control?: unknown }[];
+    expect(tools.at(-1)!.cache_control).toEqual({ type: 'ephemeral' });
   });
 
   it('streamとmodelとmax_tokensが設定される', () => {

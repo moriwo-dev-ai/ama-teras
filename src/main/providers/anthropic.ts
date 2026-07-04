@@ -9,7 +9,8 @@ import type {
   StopReason,
 } from './types';
 
-export const DEFAULT_ANTHROPIC_MODEL = 'claude-opus-4-8';
+// M11-5: 既定を Fable 5 へ(shared/models.ts の DEFAULT_MODELS と一致させること)
+export const DEFAULT_ANTHROPIC_MODEL = 'claude-fable-5';
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;

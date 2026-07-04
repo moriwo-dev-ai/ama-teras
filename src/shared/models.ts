@@ -9,17 +9,18 @@ export interface ModelChoice {
 }
 
 export const DEFAULT_MODELS: Record<ProviderId, string> = {
-  anthropic: 'claude-opus-4-8',
+  // M11-5: 自律開発向けの既定を Fable 5 へ(長時間の自走・エージェント動作に最適化されたモデル)
+  anthropic: 'claude-fable-5',
   openai: 'gpt-5.1',
 };
 
 export const KNOWN_MODELS: Record<ProviderId, ModelChoice[]> = {
   anthropic: [
-    { id: 'claude-opus-4-8', label: 'Claude Opus 4.8(既定)' },
+    { id: 'claude-fable-5', label: 'Claude Fable 5(既定)' },
+    { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
     { id: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
     { id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
     { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
-    { id: 'claude-fable-5', label: 'Claude Fable 5' },
   ],
   openai: [
     { id: 'gpt-5.1', label: 'GPT-5.1(既定)' },
