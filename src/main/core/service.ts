@@ -90,6 +90,9 @@ export interface SessionsLike {
   load(id: string): Promise<SessionData | null>;
   list(): Promise<SessionMeta[]>;
   delete(id: string): Promise<void>;
+  /** M15-2(任意): 検索・名前変更。未実装ストアでは機能が無効になるだけ */
+  search?(query: string): Promise<SessionMeta[]>;
+  rename?(id: string, title: string): Promise<boolean>;
 }
 
 /** CheckpointManager を構造的に満たす最小インターフェース(M11-3。テストではモック可能) */
@@ -371,6 +374,20 @@ export class AgentService {
     this.conversation = null;
     this.lastPromptTokens = 0;
     return { ok: true };
+  }
+
+  /** M15-2: タイトル+本文の部分一致検索 */
+  async sessionsSearch(query: string): Promise<SessionMeta[]> {
+    return (await this.deps.sessions?.search?.(query)) ?? [];
+  }
+
+  /** M15-2: セッション名の変更(表示中の会話ならメモリ側のタイトルも同期) */
+  async sessionRename(id: string, title: string): Promise<boolean> {
+    const ok = (await this.deps.sessions?.rename?.(id, title)) ?? false;
+    if (ok && this.conversation?.id === id) {
+      this.conversation = { ...this.conversation, title: title.trim().slice(0, 100) };
+    }
+    return ok;
   }
 
   async sessionDelete(id: string): Promise<void> {

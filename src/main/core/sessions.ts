@@ -332,4 +332,48 @@ export class SessionStore {
     if (!isValidSessionId(id)) return;
     await rm(this.file(id), { force: true });
   }
+
+  /**
+   * M15-2: タイトル+履歴本文の単純部分一致検索(大文字小文字非依存)。
+   * インデックスは持たない(数百ファイル想定の逐次走査で十分)
+   */
+  async search(query: string): Promise<SessionMeta[]> {
+    const q = query.trim().toLowerCase();
+    if (q === '') return this.list();
+    const all = await this.list();
+    const hits: SessionMeta[] = [];
+    for (const meta of all) {
+      if (meta.title.toLowerCase().includes(q)) {
+        hits.push(meta);
+        continue;
+      }
+      try {
+        const raw = await readFile(this.file(meta.id), 'utf8');
+        // 履歴本文(JSON全体)への部分一致。blobRef化された画像本文は含まれない
+        if (raw.toLowerCase().includes(q)) hits.push(meta);
+      } catch {
+        /* 読めないファイルはヒットなし扱い */
+      }
+    }
+    return hits;
+  }
+
+  /** M15-2: セッション名の変更。存在しない・不正IDは false */
+  async rename(id: string, title: string): Promise<boolean> {
+    if (!isValidSessionId(id)) return false;
+    const trimmed = title.trim().slice(0, 100);
+    if (trimmed === '') return false;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await readFile(this.file(id), 'utf8'));
+    } catch {
+      return false;
+    }
+    if (!isSessionData(parsed)) return false;
+    parsed.title = trimmed;
+    parsed.updatedAt = new Date().toISOString();
+    // 画像は既に blobRef 化済みのため save の外出しは素通りする(アトミック書き込みは共通)
+    await this.save(parsed);
+    return true;
+  }
 }

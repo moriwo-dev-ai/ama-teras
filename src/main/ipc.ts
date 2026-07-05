@@ -325,6 +325,15 @@ export async function registerIpcHandlers(
     return service.sessionDelete(id);
   });
   ipcMain.handle(IpcChannels.sessionsNew, () => service.sessionNew());
+  ipcMain.handle(IpcChannels.sessionsSearch, (_e, query: unknown) => {
+    assertString(query, 'query');
+    return service.sessionsSearch(query);
+  });
+  ipcMain.handle(IpcChannels.sessionsRename, (_e, id: unknown, title: unknown) => {
+    assertString(id, 'id');
+    assertString(title, 'title');
+    return service.sessionRename(id, title);
+  });
 
   // ---- 計画ファイル(M12-2) ----
   ipcMain.handle(IpcChannels.planGet, () => readProjectPlan(service.getWorkspace()));

@@ -54,6 +54,9 @@ export const IpcChannels = {
   sessionsLoad: 'sessions:load',
   sessionsDelete: 'sessions:delete',
   sessionsNew: 'sessions:new',
+  /** M15-2: セッション検索・名前変更(追加のみ・既存チャネルは不変) */
+  sessionsSearch: 'sessions:search',
+  sessionsRename: 'sessions:rename',
   /** M12-2: 計画ファイル(MYCODEX_PLAN.md)の内容取得(計画パネル用・読み取り専用) */
   planGet: 'plan:get',
   /** M12-3: 並列サブエージェントの進行状況(エージェントパネル用) */
@@ -113,6 +116,9 @@ export interface MyCodexApi {
   sessionsLoad(id: string): Promise<SessionLoadResult>;
   sessionsDelete(id: string): Promise<void>;
   sessionsNew(): Promise<{ ok: boolean; message?: string }>;
+  /** M15-2: タイトル+本文の部分一致検索 / 名前変更 */
+  sessionsSearch(query: string): Promise<SessionMeta[]>;
+  sessionsRename(id: string, title: string): Promise<boolean>;
 
   /** M12-2: 現在のワークスペースの MYCODEX_PLAN.md の内容(無ければ空文字) */
   planGet(): Promise<string>;

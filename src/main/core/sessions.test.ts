@@ -128,6 +128,39 @@ describe('SessionStore(M12-1)', () => {
   });
 });
 
+describe('M15-2: search / rename', () => {
+  it('タイトル・本文の部分一致で検索できる(大文字小文字非依存)', async () => {
+    const store = new SessionStore(dir);
+    await store.save(makeData({ id: ID1, title: 'React計画' }));
+    await store.save(
+      makeData({
+        id: ID2,
+        title: '別件',
+        history: [{ role: 'user', content: [{ type: 'text', text: 'Express APIを作って' }] }],
+      }),
+    );
+    expect((await store.search('react')).map((m) => m.id)).toEqual([ID1]);
+    expect((await store.search('EXPRESS')).map((m) => m.id)).toEqual([ID2]);
+    expect(await store.search('存在しない語')).toEqual([]);
+    expect((await store.search('  ')).length).toBe(2); // 空クエリは全件
+  });
+
+  it('rename でタイトルと updatedAt が更新される。不正は false', async () => {
+    const store = new SessionStore(dir);
+    await store.save(makeData({ updatedAt: '2026-07-05T00:00:00.000Z' }));
+    expect(await store.rename(ID1, '  新しい名前  ')).toBe(true);
+    const meta = (await store.list())[0]!;
+    expect(meta.title).toBe('新しい名前');
+    expect(meta.updatedAt > '2026-07-05T00:00:00.000Z').toBe(true);
+    // 履歴は無傷
+    expect((await store.load(ID1))!.history).toHaveLength(2);
+
+    expect(await store.rename(ID1, '   ')).toBe(false);
+    expect(await store.rename('../evil', 'x')).toBe(false);
+    expect(await store.rename(ID2, 'x')).toBe(false); // 存在しない
+  });
+});
+
 describe('repairDanglingToolUse(中断復元)', () => {
   it('末尾 assistant の tool_use に tool_result が無ければ合成 user メッセージで閉じる', () => {
     const history: ChatMessage[] = [

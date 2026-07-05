@@ -52,6 +52,8 @@ const api: MyCodexApi = {
   sessionsLoad: (id) => ipcRenderer.invoke(IpcChannels.sessionsLoad, id),
   sessionsDelete: (id) => ipcRenderer.invoke(IpcChannels.sessionsDelete, id),
   sessionsNew: () => ipcRenderer.invoke(IpcChannels.sessionsNew),
+  sessionsSearch: (query) => ipcRenderer.invoke(IpcChannels.sessionsSearch, query),
+  sessionsRename: (id, title) => ipcRenderer.invoke(IpcChannels.sessionsRename, id, title),
 
   planGet: () => ipcRenderer.invoke(IpcChannels.planGet),
 
