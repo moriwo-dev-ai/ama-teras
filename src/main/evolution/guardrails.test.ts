@@ -67,6 +67,28 @@ describe('進化パイプラインの制限(M9で不変)', () => {
     expect(source).not.toContain('evolution');
   });
 
+  it('M13-1: memory はサブエージェントに渡らず、進化ジョブでも書けない(トリップワイヤ+挙動)', async () => {
+    const source = readFileSync(fileURLToPath(new URL('../agent/subagent.ts', import.meta.url)), 'utf8');
+    expect(source).toContain("p.name !== 'memory'");
+    // 進化ジョブ相当のコンテキスト(writeAllowlist)では書き込みが拒否される
+    const memory = (await import('../tools/plugins/memory')).default;
+    const r = await memory.execute(
+      { action: 'append', content: 'x' },
+      {
+        cwd: process.cwd(),
+        signal: new AbortController().signal,
+        log: () => {},
+        writeAllowlist: ['src/main/tools/plugins'],
+      },
+    );
+    expect(r.isError).toBe(true);
+  });
+
+  it('M13-2: MCPツール(mcp__)は読み取り専用サブエージェントに渡らない(トリップワイヤ)', () => {
+    const source = readFileSync(fileURLToPath(new URL('../agent/subagent.ts', import.meta.url)), 'utf8');
+    expect(source).toContain("!p.name.startsWith('mcp__')");
+  });
+
   it('M12-0: スモークモードは requestSingleInstanceLock を取らない(進化ゲート前提の再固定)', () => {
     const source = readFileSync(fileURLToPath(new URL('../index.ts', import.meta.url)), 'utf8');
     expect(source).toContain('smokeMode ? true : app.requestSingleInstanceLock()');

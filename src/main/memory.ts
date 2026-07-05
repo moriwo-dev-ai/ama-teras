@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { appendToLearnedSection } from './tools/plugins/memory';
 
 /**
  * プロジェクト記憶(M8-2)。作業フォルダの MYCODEX.md を読み、system プロンプトへ
@@ -24,6 +25,23 @@ export function writeProjectMemory(workspaceDir: string, content: string): void 
   const p = memoryPath(workspaceDir);
   mkdirSync(dirname(p), { recursive: true });
   writeFileSync(p, content, 'utf8');
+}
+
+/**
+ * M13-1: 「## 学習メモ」節へタイムスタンプ付きで1件追記する。
+ * compaction の記憶退避(要約で消える範囲の重要知見)が使う。失敗は握りつぶさず投げる
+ */
+export function appendLearnedMemory(workspaceDir: string, entry: string): void {
+  const p = memoryPath(workspaceDir);
+  const current = ((): string => {
+    try {
+      return readFileSync(p, 'utf8');
+    } catch {
+      return '';
+    }
+  })();
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, appendToLearnedSection(current, entry), 'utf8');
 }
 
 /** ベースの system プロンプトにプロジェクト記憶を連結する(空なら素通し) */

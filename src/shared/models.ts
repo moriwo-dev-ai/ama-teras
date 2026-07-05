@@ -34,3 +34,24 @@ export const KNOWN_MODELS: Record<ProviderId, ModelChoice[]> = {
 export function isKnownModel(provider: ProviderId, model: string): boolean {
   return KNOWN_MODELS[provider].some((m) => m.id === model);
 }
+
+/**
+ * M13-1: モデルのコンテキスト上限(トークン)。compaction の実測トリガーに使う。
+ * 実上限が不明・変動しうるため保守的な値。未知モデルは DEFAULT_CONTEXT_LIMIT。
+ * 前方一致で引く(バージョンサフィックス付きIDにも効かせる)。
+ */
+export const DEFAULT_CONTEXT_LIMIT = 200_000;
+
+const CONTEXT_LIMITS: [prefix: string, limit: number][] = [
+  ['claude-', 200_000],
+  ['gpt-5', 200_000],
+  ['gpt-4.1', 1_000_000],
+  ['gpt-4o', 128_000],
+];
+
+export function contextLimitFor(model: string): number {
+  for (const [prefix, limit] of CONTEXT_LIMITS) {
+    if (model.startsWith(prefix)) return limit;
+  }
+  return DEFAULT_CONTEXT_LIMIT;
+}

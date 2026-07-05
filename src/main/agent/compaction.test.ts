@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { ChatMessage, CompletionRequest, LLMProvider, ProviderEvent } from '../providers/types';
-import { compactHistory, estimateTokens, findCompactionSplit } from './compaction';
+import {
+  compactHistory,
+  estimateTokens,
+  findCompactionSplit,
+  splitMemoryEscape,
+  SUMMARY_SECTIONS,
+  TRUNCATE_IF_LONGER_THAN,
+  truncateOldToolResults,
+} from './compaction';
 
 /** 要約要求には固定の要約を返すモックプロバイダ */
 function summarizerProvider(summary: string): LLMProvider & { calls: CompletionRequest[] } {
@@ -117,5 +125,134 @@ describe('compactHistory(M8-1)', () => {
     const compacted = await compactHistory(provider, history, { thresholdTokens: 100, keepRecentTurns: 2 });
     expect(compacted).toBe(false);
     expect(history).toHaveLength(len);
+  });
+});
+
+describe('M13-1: 実測トークントリガー', () => {
+  it('measuredTokens が閾値超なら履歴の推定が小さくても発火する', async () => {
+    const history: ChatMessage[] = [];
+    for (let i = 0; i < 8; i++) history.push(userText(`q${i}`), asstText(`a${i}`));
+    const provider = summarizerProvider('要約');
+    const compacted = await compactHistory(provider, history, {
+      thresholdTokens: 1000,
+      keepRecentTurns: 2,
+      measuredTokens: 5000, // 実測が超過(推定は数十トークンしかない)
+    });
+    expect(compacted).toBe(true);
+  });
+
+  it('measuredTokens が閾値未満なら推定が大きくても発火しない(実測を優先)', async () => {
+    const history: ChatMessage[] = [];
+    for (let i = 0; i < 8; i++) {
+      history.push(userText(`q${i} ${'あ'.repeat(3000)}`), asstText(`a${i} ${'い'.repeat(3000)}`));
+    }
+    const provider = summarizerProvider('要約');
+    const compacted = await compactHistory(provider, history, {
+      thresholdTokens: 1000,
+      measuredTokens: 10,
+    });
+    expect(compacted).toBe(false);
+    expect(provider.calls).toHaveLength(0);
+  });
+});
+
+describe('M13-1: 第1段圧縮(tool_result 切り詰め)', () => {
+  function longToolTurn(id: string): ChatMessage[] {
+    return [
+      { role: 'assistant', content: [{ type: 'tool_use', id, name: 'read_file', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', toolUseId: id, content: 'z'.repeat(TRUNCATE_IF_LONGER_THAN + 1000) }] },
+    ];
+  }
+
+  it('古いターンの長い tool_result だけ切り詰め、ブロック数・ID・並びは不変(API 400回帰防止)', () => {
+    const history: ChatMessage[] = [
+      userText('t1'),
+      ...longToolTurn('old1'),
+      asstText('done1'),
+      userText('t2'),
+      ...longToolTurn('recent1'),
+      asstText('done2'),
+    ];
+    const structureBefore = history.map((m) => ({
+      role: m.role,
+      blocks: m.content.map((b) => (b.type === 'tool_result' ? `r:${b.toolUseId}` : b.type === 'tool_use' ? `u:${b.id}` : 't')),
+    }));
+
+    const n = truncateOldToolResults(history, 1); // 直近1ターン(t2以降)は保持
+    expect(n).toBe(1);
+
+    // 古い方は切り詰め済み・新しい方は原文のまま
+    const oldResult = history[2]!.content[0]!;
+    expect(oldResult.type === 'tool_result' && oldResult.content).toContain('切り詰め済み');
+    expect(oldResult.type === 'tool_result' && oldResult.content.length).toBeLessThan(2000);
+    const recentResult = history[6]!.content[0]!;
+    expect(recentResult.type === 'tool_result' && recentResult.content.length).toBeGreaterThan(TRUNCATE_IF_LONGER_THAN);
+
+    // 構造(role・ブロック種別・ID・並び)は完全に不変
+    const structureAfter = history.map((m) => ({
+      role: m.role,
+      blocks: m.content.map((b) => (b.type === 'tool_result' ? `r:${b.toolUseId}` : b.type === 'tool_use' ? `u:${b.id}` : 't')),
+    }));
+    expect(structureAfter).toEqual(structureBefore);
+  });
+
+  it('切り詰めだけで閾値を下回れば要約(LLM呼び出し)まで行かない', async () => {
+    const history: ChatMessage[] = [
+      userText('t1'),
+      ...longToolTurn('old1'),
+      asstText('done1'),
+      userText('t2'),
+      asstText('a2'),
+    ];
+    const provider = summarizerProvider('未使用のはず');
+    const compacted = await compactHistory(provider, history, {
+      thresholdTokens: 1200, // 切り詰め後の推定(数百トークン)なら下回る値
+      keepRecentTurns: 1,
+      measuredTokens: 5000,
+    });
+    expect(compacted).toBe(true);
+    expect(provider.calls).toHaveLength(0); // 第1段だけで完了
+    expect(history.some((m) => m.content.some((b) => b.type === 'text' && b.text.includes('要約')))).toBe(false);
+  });
+});
+
+describe('M13-1: 構造化要約と記憶退避', () => {
+  it('要約プロンプトに固定セクションと記憶退避の指示が含まれる', async () => {
+    const history: ChatMessage[] = [];
+    for (let i = 0; i < 8; i++) {
+      history.push(userText(`q${i} ${'あ'.repeat(300)}`), asstText(`a${i} ${'い'.repeat(300)}`));
+    }
+    const provider = summarizerProvider('## 依頼の目的\nテスト');
+    await compactHistory(provider, history, { thresholdTokens: 100, keepRecentTurns: 2 });
+    const system = provider.calls[0]!.system;
+    for (const section of SUMMARY_SECTIONS) expect(system).toContain(section);
+    expect(system).toContain('記憶へ退避');
+  });
+
+  it('「## 記憶へ退避」は onMemoryEscape に渡り、履歴に残る要約からは除かれる', async () => {
+    const history: ChatMessage[] = [];
+    for (let i = 0; i < 8; i++) {
+      history.push(userText(`q${i} ${'あ'.repeat(300)}`), asstText(`a${i} ${'い'.repeat(300)}`));
+    }
+    const provider = summarizerProvider(
+      '## 依頼の目的\nX\n\n## 完了したこと\nY\n\n## 記憶へ退避\n- ビルドは npm run build:all を使う',
+    );
+    const escaped: string[] = [];
+    const compacted = await compactHistory(provider, history, {
+      thresholdTokens: 100,
+      keepRecentTurns: 2,
+      onMemoryEscape: (t) => escaped.push(t),
+    });
+    expect(compacted).toBe(true);
+    expect(escaped).toEqual(['- ビルドは npm run build:all を使う']);
+    const first = history[0]!.content[0]!;
+    expect(first.type === 'text' && first.text).toContain('依頼の目的');
+    expect(first.type === 'text' && first.text).not.toContain('記憶へ退避');
+  });
+
+  it('splitMemoryEscape: 見出しが無ければ全文が要約・退避は null', () => {
+    expect(splitMemoryEscape('## 依頼の目的\nX')).toEqual(['## 依頼の目的\nX', null]);
+    expect(splitMemoryEscape('本文\n## 記憶へ退避\n- 知見')).toEqual(['本文', '- 知見']);
+    expect(splitMemoryEscape('本文\n## 記憶へ退避\n   ')).toEqual(['本文', null]);
   });
 });

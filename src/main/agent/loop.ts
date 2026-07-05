@@ -15,6 +15,12 @@ export interface AgentLoopDeps {
   maxTokens?: number;
   /** プランモード: ツールを一切実行しない(計画提示のみ)。承認前の実行を機械的に防ぐ(M8-3) */
   planMode?: boolean;
+  /**
+   * M13-1: ループ内 compaction フック。直近APIコールの実測プロンプトトークン
+   * (input + cache_read)を渡して呼ばれる。長い自走の途中でも履歴を圧縮できる。
+   * 失敗しても次のターンへ進む(呼び出し側で握る)
+   */
+  compact?: (measuredPromptTokens: number) => Promise<void>;
 }
 
 const DEFAULT_MAX_TURNS = 30;
@@ -51,8 +57,14 @@ export async function runAgentLoop(
     return status;
   };
 
+  let lastPromptTokens = 0;
+
   for (let turn = 0; turn < maxTurns; turn++) {
     if (signal.aborted) return finish('cancelled');
+    // M13-1: 前ターンの実測トークンでループ内compaction(閾値判定は呼び出し側)
+    if (turn > 0 && deps.compact && lastPromptTokens > 0) {
+      await deps.compact(lastPromptTokens);
+    }
     deps.emit({ kind: 'status', sessionId, status: 'calling_llm' });
 
     let finalMessage: ChatMessage | null = null;
@@ -73,6 +85,8 @@ export async function runAgentLoop(
           case 'message_done':
             finalMessage = ev.message;
             stopReason = ev.stopReason;
+            // M13-1: プロンプト側の実測トークン(圧縮トリガーの判定材料)
+            lastPromptTokens = ev.usage.inputTokens + ev.usage.cacheReadTokens;
             // prompt caching の効き(cacheReadTokens)を実測できる唯一の場所。mainログに残す
             console.log(
               `[usage] session=${sessionId} turn=${turn} in=${ev.usage.inputTokens} out=${ev.usage.outputTokens} cache_read=${ev.usage.cacheReadTokens}`,
