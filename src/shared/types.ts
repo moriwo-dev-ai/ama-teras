@@ -121,6 +121,12 @@ export interface AppConfig {
    */
   fullPcAllowSession?: boolean;
   /**
+   * M16-2: 課金系エラー(残高枯渇等)時の自動フォールバック(既定 無効)。
+   * 発動しても本体の provider/model 設定は書き換えず、その会話の実行だけ切り替える。
+   * 1会話につき1回まで(往復ループ禁止)
+   */
+  fallback?: { enabled: boolean; provider: ProviderId; model: string };
+  /**
    * M10: スマホWebアクセス。既定 disabled。省略可(後方互換)で、ConfigStore が既定値を補う。
    * renderer からの settings:set では上書きされない(専用IPCでのみ変更)。
    */

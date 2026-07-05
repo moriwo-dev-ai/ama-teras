@@ -132,6 +132,8 @@ export interface AgentServiceDeps {
    * 未指定なら screenshot ツールは「未注入」エラーになる。進化ジョブへは渡らない
    */
   captureUrl?: (url: string, width?: number, height?: number) => Promise<{ data: string; mediaType: string }>;
+  /** M16-2 テスト用: フォールバックプロバイダ生成の差し替え(未指定なら secrets から実プロバイダ) */
+  fallbackProviderFactory?: (provider: ProviderId, model: string) => LLMProvider;
 }
 
 const SYSTEM_PROMPT = `あなたは MyCodex — ユーザーのマシン上で動くコーディングエージェント。
@@ -190,6 +192,8 @@ export class AgentService {
   private subAgentSeq = 0;
   /** M13-1: 直近APIコールの実測プロンプトトークン(compaction発火判定用) */
   private lastPromptTokens = 0;
+  /** M16-2: フォールバックを使い切った会話ID(1会話1回まで・往復ループ禁止) */
+  private fallbackUsedFor: string | null = null;
   /** 保存の直列化(fold と save が並行実行で交錯しないように) */
   private persistChain: Promise<void> = Promise.resolve();
 
@@ -510,14 +514,78 @@ export class AgentService {
         createdAt: new Date().toISOString(),
       };
     }
+    // M16-2: フォールバック発動後は以降の圧縮・保存もこのプロバイダで行う
+    let runProvider: LLMProvider = provider;
+
     this.persistSession(provider); // ユーザーメッセージを即座に保存(クラッシュ耐性)
     // M12-1: 各ターン完了(assistantメッセージ確定)ごとに随時保存する
     const emitWithPersist = (event: AgentEvent): void => {
       emit(event);
-      if (event.kind === 'message_done') this.persistSession(provider);
+      if (event.kind === 'message_done') this.persistSession(runProvider);
     };
     // M11-1: 設定された maxTurns をループへ配線(未設定ならループ既定の30)
     const maxTurns = this.deps.config.get().maxTurns;
+
+    /**
+     * M16-2: 課金系エラー時のフォールバック。1会話1回・同一先への切替禁止。
+     * 発動時は警告カード+audit記録+事前compaction(キャッシュ前提が崩れるため)
+     */
+    const acquireFallback = async (reason: string): Promise<LLMProvider | null> => {
+      const fb = this.deps.config.get().fallback;
+      if (!fb || fb.enabled !== true) return null;
+      const convKey = this.conversation?.id ?? sessionId;
+      if (this.fallbackUsedFor === convKey) return null;
+      const current = this.currentLLM();
+      const fbModel = fb.model.trim() !== '' ? fb.model : DEFAULT_MODELS[fb.provider];
+      if (fb.provider === current.provider && fbModel === current.model) return null;
+
+      let next: LLMProvider;
+      if (this.deps.fallbackProviderFactory) {
+        next = this.deps.fallbackProviderFactory(fb.provider, fbModel);
+      } else {
+        const key = this.deps.secrets.get(fb.provider);
+        if (!key) {
+          emit({
+            kind: 'info',
+            sessionId,
+            message: `フォールバック先(${fb.provider})のAPIキーが未設定のため切り替えできない`,
+          });
+          return null;
+        }
+        next =
+          fb.provider === 'openai'
+            ? new OpenAIProvider(key, fbModel)
+            : new AnthropicProvider(key, fbModel);
+      }
+
+      this.fallbackUsedFor = convKey;
+      this.deps.audit.append({
+        tool: 'provider-fallback',
+        scope: 'system',
+        paths: [],
+        event: 'result',
+        detail: `${current.provider}/${current.model} → ${fb.provider}/${fbModel}: ${reason.slice(0, 160)}`,
+      });
+      emit({
+        kind: 'info',
+        sessionId,
+        message: `⚠ 残高/課金エラーを検知したため、フォールバック(${fb.provider}/${fbModel})へ切り替えて続行します: ${reason}`,
+      });
+      // 切替でprompt cacheが無効になるため、長い履歴は先に圧縮する(M16-1と同じ閾値)
+      try {
+        await this.maybeCompact(next, ac.signal, {
+          thresholdTokens: DEFAULT_COMPACTION_THRESHOLD,
+          measuredTokens: Math.max(this.lastPromptTokens, estimateTokens(this.history)),
+        });
+      } catch {
+        /* 圧縮失敗でも続行 */
+      }
+      if (this.conversation) {
+        this.conversation.lastLLM = { provider: fb.provider, model: fbModel };
+      }
+      runProvider = next;
+      return next;
+    };
 
     void (async () => {
       // M16-1: プロバイダ/モデル切替を検知したら、キャッシュ前提が崩れるため先に圧縮する
@@ -584,7 +652,7 @@ export class AgentService {
           compact: async (measured) => {
             this.lastPromptTokens = measured;
             try {
-              await this.maybeCompact(provider, ac.signal);
+              await this.maybeCompact(runProvider, ac.signal);
             } catch {
               /* 圧縮失敗でループは止めない */
             }
@@ -593,6 +661,8 @@ export class AgentService {
           onUsage: (measured) => {
             this.lastPromptTokens = measured;
           },
+          // M16-2: 課金系エラー時のフォールバック(transientリトライはloop内蔵)
+          acquireFallback,
         },
         sessionId,
         this.history,
@@ -603,7 +673,7 @@ export class AgentService {
         ?.snapshot(sessionId, `セッション終了(${status})`)
         .catch(() => null);
       // M12-1: 終了時に最終状態を保存(tool_result 追記分を含めて確定)
-      this.persistSession(provider);
+      this.persistSession(runProvider);
       return status;
     })().finally(() => {
       this.activeRun = null;

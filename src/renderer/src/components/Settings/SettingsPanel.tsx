@@ -255,6 +255,66 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
           </p>
         </div>
 
+        <div className="space-y-1 rounded-md border border-zinc-700 p-3">
+          <label className="flex items-center gap-2 text-xs font-semibold text-zinc-300">
+            <input
+              type="checkbox"
+              checked={config.fallback?.enabled === true}
+              onChange={(e) => {
+                const next: AppConfig = {
+                  ...config,
+                  fallback: {
+                    enabled: e.target.checked,
+                    provider:
+                      config.fallback?.provider ??
+                      (config.provider === 'anthropic' ? 'openai' : 'anthropic'),
+                    model: config.fallback?.model ?? '',
+                  },
+                };
+                void window.api.settingsSet(next).then(setConfig);
+              }}
+            />
+            フォールバック(残高切れ時の自動切替)
+          </label>
+          {config.fallback?.enabled === true && (
+            <div className="flex items-center gap-2 text-xs">
+              <select
+                className="rounded border border-zinc-600 bg-zinc-800 px-2 py-1"
+                value={config.fallback.provider}
+                onChange={(e) => {
+                  const next: AppConfig = {
+                    ...config,
+                    fallback: {
+                      ...config.fallback!,
+                      provider: e.target.value === 'openai' ? 'openai' : 'anthropic',
+                    },
+                  };
+                  void window.api.settingsSet(next).then(setConfig);
+                }}
+              >
+                <option value="anthropic">Anthropic</option>
+                <option value="openai">OpenAI</option>
+              </select>
+              <input
+                className="flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono"
+                placeholder="モデル(空欄=切替先の既定)"
+                defaultValue={config.fallback.model}
+                onBlur={(e) => {
+                  const next: AppConfig = {
+                    ...config,
+                    fallback: { ...config.fallback!, model: e.target.value.trim() },
+                  };
+                  void window.api.settingsSet(next).then(setConfig);
+                }}
+              />
+            </div>
+          )}
+          <p className="text-xs text-zinc-500">
+            課金/残高エラーを検知すると、その会話の実行だけ切替先で自動続行する(本体のプロバイダ設定は
+            変更しない・1会話につき1回まで・発動は audit.jsonl に記録)。切替先のAPIキー登録が必要
+          </p>
+        </div>
+
         <div className="space-y-1">
           <label className="text-xs text-zinc-400">編集後フック(postEditHook)</label>
           <input

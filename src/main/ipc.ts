@@ -63,7 +63,14 @@ function assertConfig(value: unknown): asserts value is AppConfig {
     (rec['postEditHook'] === undefined || typeof rec['postEditHook'] === 'string') &&
     (rec['subAgentMaxTurns'] === undefined ||
       (typeof rec['subAgentMaxTurns'] === 'number' && Number.isFinite(rec['subAgentMaxTurns']))) &&
-    (rec['fullPcAllowSession'] === undefined || typeof rec['fullPcAllowSession'] === 'boolean');
+    (rec['fullPcAllowSession'] === undefined || typeof rec['fullPcAllowSession'] === 'boolean') &&
+    (rec['fallback'] === undefined ||
+      (typeof rec['fallback'] === 'object' &&
+        rec['fallback'] !== null &&
+        typeof (rec['fallback'] as Record<string, unknown>)['enabled'] === 'boolean' &&
+        ((rec['fallback'] as Record<string, unknown>)['provider'] === 'anthropic' ||
+          (rec['fallback'] as Record<string, unknown>)['provider'] === 'openai') &&
+        typeof (rec['fallback'] as Record<string, unknown>)['model'] === 'string'));
   if (!ok) throw new Error('IPC payload config が不正');
 }
 

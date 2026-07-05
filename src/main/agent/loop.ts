@@ -1,6 +1,7 @@
 import type { AgentEvent, AgentStatus } from '../../shared/types';
 import type { ChatMessage, ContentBlock, LLMProvider, ToolDefinition } from '../providers/types';
 import type { ToolContext, ToolPlugin, ToolResult } from '../tools/types';
+import { classifyLLMError, shortLLMError } from './llmErrors';
 
 export interface AgentLoopDeps {
   provider: LLMProvider;
@@ -26,6 +27,14 @@ export interface AgentLoopDeps {
    * 1ターン完結でも呼ばれる — 呼び出し側が「最後の実測値」を保持するために使う
    */
   onUsage?: (measuredPromptTokens: number) => void;
+  /** M16-2: 一時エラーのリトライ設定(テスト用にbaseMsを注入可能。既定 3回・1秒起点) */
+  retry?: { maxRetries?: number; baseMs?: number };
+  /**
+   * M16-2: 課金系エラー(残高枯渇等)時のフォールバック取得。新しいプロバイダを返せば
+   * 同一ターンから続行、null なら従来どおり error 停止。1セッション1回の制限・
+   * 事前compaction・監査記録は呼び出し側(AgentService)が担う
+   */
+  acquireFallback?: (reason: string) => Promise<LLMProvider | null>;
 }
 
 const DEFAULT_MAX_TURNS = 30;
@@ -63,6 +72,23 @@ export async function runAgentLoop(
   };
 
   let lastPromptTokens = 0;
+  // M16-2: フォールバック発動後はこのプロバイダで続行する
+  let provider = deps.provider;
+  const maxRetries = deps.retry?.maxRetries ?? 3;
+  const retryBaseMs = deps.retry?.baseMs ?? 1000;
+
+  const sleepUnlessAborted = (ms: number): Promise<void> =>
+    new Promise((resolvePromise) => {
+      const t = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        resolvePromise();
+      }, ms);
+      const onAbort = (): void => {
+        clearTimeout(t);
+        resolvePromise();
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (signal.aborted) return finish('cancelled');
@@ -75,41 +101,73 @@ export async function runAgentLoop(
     let finalMessage: ChatMessage | null = null;
     let stopReason = 'other';
 
-    try {
-      for await (const ev of deps.provider.complete({
-        system: deps.systemPrompt,
-        messages: history,
-        tools: toToolDefinitions(deps.tools.list()),
-        maxTokens: deps.maxTokens ?? DEFAULT_MAX_TOKENS,
-        signal,
-      })) {
-        switch (ev.type) {
-          case 'text_delta':
-            deps.emit({ kind: 'text_delta', sessionId, text: ev.text });
-            break;
-          case 'message_done':
-            finalMessage = ev.message;
-            stopReason = ev.stopReason;
-            // M13-1: プロンプト側の実測トークン(圧縮トリガーの判定材料)
-            lastPromptTokens = ev.usage.inputTokens + ev.usage.cacheReadTokens;
-            deps.onUsage?.(lastPromptTokens);
-            // prompt caching の効き(cacheReadTokens)を実測できる唯一の場所。mainログに残す
-            console.log(
-              `[usage] session=${sessionId} turn=${turn} in=${ev.usage.inputTokens} out=${ev.usage.outputTokens} cache_read=${ev.usage.cacheReadTokens}`,
-            );
-            break;
-          default:
-            break;
+    // M16-2: 一時エラーは指数バックオフでリトライ、課金系はフォールバック(1回)を試みる
+    let retriesUsed = 0;
+    for (;;) {
+      finalMessage = null;
+      stopReason = 'other';
+      try {
+        for await (const ev of provider.complete({
+          system: deps.systemPrompt,
+          messages: history,
+          tools: toToolDefinitions(deps.tools.list()),
+          maxTokens: deps.maxTokens ?? DEFAULT_MAX_TOKENS,
+          signal,
+        })) {
+          switch (ev.type) {
+            case 'text_delta':
+              deps.emit({ kind: 'text_delta', sessionId, text: ev.text });
+              break;
+            case 'message_done':
+              finalMessage = ev.message;
+              stopReason = ev.stopReason;
+              // M13-1: プロンプト側の実測トークン(圧縮トリガーの判定材料)
+              lastPromptTokens = ev.usage.inputTokens + ev.usage.cacheReadTokens;
+              deps.onUsage?.(lastPromptTokens);
+              // prompt caching の効き(cacheReadTokens)を実測できる唯一の場所。mainログに残す
+              console.log(
+                `[usage] session=${sessionId} turn=${turn} in=${ev.usage.inputTokens} out=${ev.usage.outputTokens} cache_read=${ev.usage.cacheReadTokens}`,
+              );
+              break;
+            default:
+              break;
+          }
         }
+        break; // 成功
+      } catch (err) {
+        if (signal.aborted) return finish('cancelled');
+        const kind = classifyLLMError(err);
+
+        if (kind === 'transient' && retriesUsed < maxRetries) {
+          retriesUsed++;
+          const delay = retryBaseMs * 2 ** (retriesUsed - 1);
+          deps.emit({
+            kind: 'info',
+            sessionId,
+            message: `一時的なAPIエラーのため再試行します(${retriesUsed}/${maxRetries}、${Math.round(delay / 1000)}秒待機): ${shortLLMError(err)}`,
+          });
+          await sleepUnlessAborted(delay);
+          if (signal.aborted) return finish('cancelled');
+          continue;
+        }
+
+        if (kind === 'billing' && deps.acquireFallback) {
+          const fallback = await deps.acquireFallback(shortLLMError(err));
+          if (signal.aborted) return finish('cancelled');
+          if (fallback) {
+            provider = fallback;
+            retriesUsed = 0;
+            continue; // 同一ターンをフォールバック先でやり直す
+          }
+        }
+
+        deps.emit({
+          kind: 'error',
+          sessionId,
+          message: err instanceof Error ? err.message : String(err),
+        });
+        return finish('error');
       }
-    } catch (err) {
-      if (signal.aborted) return finish('cancelled');
-      deps.emit({
-        kind: 'error',
-        sessionId,
-        message: err instanceof Error ? err.message : String(err),
-      });
-      return finish('error');
     }
 
     if (signal.aborted) return finish('cancelled');
