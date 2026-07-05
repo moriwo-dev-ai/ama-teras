@@ -1,5 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ChatImageInput } from '../../../../shared/types';
 import { useChatStore, type UiMessage } from '../../stores/chat';
+
+/** M14-2: File → base64 添付(データURLのプレフィックスを剥がす) */
+async function fileToAttachment(file: File): Promise<ChatImageInput | null> {
+  if (!file.type.startsWith('image/')) return null;
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('読み込み失敗'));
+    reader.readAsDataURL(file);
+  });
+  const comma = dataUrl.indexOf(',');
+  if (comma < 0) return null;
+  return { mediaType: file.type, data: dataUrl.slice(comma + 1), description: file.name || 'pasted-image' };
+}
 
 function ToolCard({ msg }: { msg: Extract<UiMessage, { role: 'tool' }> }): JSX.Element {
   const [open, setOpen] = useState(false);
@@ -43,8 +58,18 @@ export function ChatView(): JSX.Element {
   } = useChatStore();
   const [input, setInput] = useState('');
   const [planMode, setPlanMode] = useState(false);
+  const [attachments, setAttachments] = useState<ChatImageInput[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const busy = activeSessionId !== null;
+
+  const addFiles = async (files: Iterable<File>): Promise<void> => {
+    const added: ChatImageInput[] = [];
+    for (const f of files) {
+      const a = await fileToAttachment(f).catch(() => null);
+      if (a) added.push(a);
+    }
+    if (added.length > 0) setAttachments((prev) => [...prev, ...added].slice(0, 8));
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -60,8 +85,9 @@ export function ChatView(): JSX.Element {
 
   const submit = (): void => {
     if (busy) return;
-    void send(input, planMode ? 'plan' : 'normal');
+    void send(input, planMode ? 'plan' : 'normal', attachments.length > 0 ? attachments : undefined);
     setInput('');
+    setAttachments([]);
   };
 
   return (
@@ -119,7 +145,14 @@ export function ChatView(): JSX.Element {
         )}
         <div ref={bottomRef} />
       </div>
-      <div className="border-t border-zinc-700 p-3">
+      <div
+        className="border-t border-zinc-700 p-3"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          void addFiles(e.dataTransfer.files);
+        }}
+      >
         {busy && (
           <p className="mb-1 text-xs text-zinc-500">
             状態: {status === 'calling_llm' ? 'モデル応答中' : status === 'executing_tool' ? 'ツール実行中' : status}
@@ -130,7 +163,27 @@ export function ChatView(): JSX.Element {
             <input type="checkbox" checked={planMode} onChange={(e) => setPlanMode(e.target.checked)} />
             プランモード(実装前に計画のみ提示・ツール不実行)
           </label>
+          <span className="text-zinc-600">画像はドラッグ&ドロップ / ペーストで添付</span>
         </div>
+        {attachments.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {attachments.map((a, i) => (
+              <div key={i} className="relative">
+                <img
+                  src={`data:${a.mediaType};base64,${a.data}`}
+                  alt={a.description ?? '添付画像'}
+                  className="h-16 w-16 rounded border border-zinc-700 object-cover"
+                />
+                <button
+                  className="absolute -right-1.5 -top-1.5 h-4 w-4 rounded-full bg-zinc-700 text-[10px] leading-4 hover:bg-red-600"
+                  onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex gap-2">
           <textarea
             className="max-h-40 flex-1 resize-none rounded-md border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm outline-none focus:border-blue-500"
@@ -144,6 +197,16 @@ export function ChatView(): JSX.Element {
                 submit();
               }
             }}
+            onPaste={(e) => {
+              const files = [...e.clipboardData.items]
+                .filter((it) => it.kind === 'file')
+                .map((it) => it.getAsFile())
+                .filter((f): f is File => f !== null);
+              if (files.length > 0) {
+                e.preventDefault();
+                void addFiles(files);
+              }
+            }}
           />
           {busy ? (
             <button
@@ -155,7 +218,7 @@ export function ChatView(): JSX.Element {
           ) : (
             <button
               className="rounded-md bg-blue-600 px-4 text-sm hover:bg-blue-500 disabled:opacity-40"
-              disabled={!input.trim()}
+              disabled={!input.trim() && attachments.length === 0}
               onClick={submit}
             >
               送信

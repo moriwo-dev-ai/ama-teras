@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, safeStorage, type WebContents } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, type WebContents } from 'electron';
 import { join } from 'node:path';
 import { IpcChannels } from '../shared/ipc';
 import type {
@@ -62,6 +62,73 @@ function assertConfig(value: unknown): asserts value is AppConfig {
     (rec['subAgentMaxTurns'] === undefined ||
       (typeof rec['subAgentMaxTurns'] === 'number' && Number.isFinite(rec['subAgentMaxTurns'])));
   if (!ok) throw new Error('IPC payload config が不正');
+}
+
+/**
+ * M14-2: URLスクリーンショット。非表示 BrowserWindow でページを開き PNG を返す。
+ * URLのスキーム/承認は executor+screenshot プラグイン側で検証済みの前提だが、
+ * 二重防御でここでも http/https 以外を拒否する。
+ */
+async function captureUrl(
+  url: string,
+  width = 1280,
+  height = 800,
+): Promise<{ data: string; mediaType: string }> {
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`http/https 以外は撮影不可: ${parsed.protocol}`);
+  }
+  const win = new BrowserWindow({
+    show: false,
+    width,
+    height,
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+  });
+  try {
+    await Promise.race([
+      win.loadURL(url),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('ページ読み込みタイムアウト(20s)')), 20_000),
+      ),
+    ]);
+    // 描画完了を少し待つ(SPAの初期レンダリング)
+    await new Promise((r) => setTimeout(r, 700));
+    const image = await win.webContents.capturePage();
+    return { data: image.toPNG().toString('base64'), mediaType: 'image/png' };
+  } finally {
+    win.destroy();
+  }
+}
+
+/** M14-2: 添付画像の検証。1枚10MB(base64換算 ~13.3MB)・8枚まで。不正は例外 */
+const MAX_IMAGE_B64_LENGTH = Math.ceil((10 * 1024 * 1024 * 4) / 3);
+const MAX_IMAGES_PER_MESSAGE = 8;
+
+function validateChatImages(value: unknown): import('../shared/types').ChatImageInput[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) throw new Error('IPC payload images が不正');
+  if (value.length > MAX_IMAGES_PER_MESSAGE) throw new Error(`画像は${MAX_IMAGES_PER_MESSAGE}枚まで`);
+  return value.map((v) => {
+    const rec = typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null;
+    const mediaType = rec?.['mediaType'];
+    const data = rec?.['data'];
+    if (
+      typeof mediaType !== 'string' ||
+      !mediaType.startsWith('image/') ||
+      typeof data !== 'string' ||
+      data === '' ||
+      !/^[A-Za-z0-9+/=]+$/.test(data)
+    ) {
+      throw new Error('IPC payload images が不正');
+    }
+    if (data.length > MAX_IMAGE_B64_LENGTH) throw new Error('画像が大きすぎる(1枚10MBまで)');
+    const description = rec?.['description'];
+    return {
+      mediaType,
+      data,
+      ...(typeof description === 'string' ? { description: description.slice(0, 200) } : {}),
+    };
+  });
 }
 
 function assertMcpConfig(value: unknown): asserts value is import('../shared/types').McpConfig {
@@ -169,6 +236,8 @@ export async function registerIpcHandlers(
       new CheckpointManager(workspace, (line) => console.log(`[checkpoint] ${line}`)),
     // M12-1: セッション永続化(userData/sessions/)
     sessions: new SessionStore(join(app.getPath('userData'), 'sessions')),
+    // M14-2: URLスクリーンショット(offscreen BrowserWindow)。進化ジョブへは渡らない
+    captureUrl,
     createEvolution: (hooks) =>
       new EvolutionManager({
         repoDir,
@@ -190,9 +259,9 @@ export async function registerIpcHandlers(
   bus.subscribe('agent:sub_update', (u) => push(IpcChannels.subAgentUpdate, u));
 
   // ---- chat ----
-  ipcMain.handle(IpcChannels.chatSend, (_e, text: unknown, mode: unknown) => {
+  ipcMain.handle(IpcChannels.chatSend, (_e, text: unknown, mode: unknown, images: unknown) => {
     assertString(text, 'text');
-    return service.chatSend(text, mode === 'plan' ? 'plan' : 'normal');
+    return service.chatSend(text, mode === 'plan' ? 'plan' : 'normal', validateChatImages(images));
   });
 
   ipcMain.handle(IpcChannels.chatCancel, (_e, sessionId: unknown) => {

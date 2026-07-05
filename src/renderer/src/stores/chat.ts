@@ -1,8 +1,8 @@
 import { create } from 'zustand';
-import type { AgentEvent, AgentStatus, ChatMode, SessionMeta } from '../../../shared/types';
+import type { AgentEvent, AgentStatus, ChatImageInput, ChatMode, SessionMeta } from '../../../shared/types';
 
 export type UiMessage =
-  | { id: string; role: 'user' | 'assistant'; text: string; streaming: boolean }
+  | { id: string; role: 'user' | 'assistant'; text: string; streaming: boolean; images?: string[] }
   | {
       id: string;
       role: 'tool';
@@ -19,7 +19,7 @@ interface ChatState {
   activeSessionId: string | null;
   /** M12-1: 保存済みセッションの一覧(切替ドロップダウン用) */
   sessions: SessionMeta[];
-  send: (text: string, mode?: ChatMode) => Promise<void>;
+  send: (text: string, mode?: ChatMode, images?: ChatImageInput[]) => Promise<void>;
   cancel: () => void;
   handleEvent: (event: AgentEvent) => void;
   refreshSessions: () => Promise<void>;
@@ -94,18 +94,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await get().refreshSessions();
   },
 
-  send: async (text, mode = 'normal') => {
+  send: async (text, mode = 'normal', images) => {
     const trimmed = text.trim();
-    if (!trimmed || get().activeSessionId) return;
+    // M14-2: 画像のみの送信も許可(「これ見て」を打たなくても伝わる)
+    if ((!trimmed && (images?.length ?? 0) === 0) || get().activeSessionId) return;
     const shown = mode === 'plan' ? `📝 [プラン] ${trimmed}` : trimmed;
     set((s) => ({
       messages: [
         ...s.messages,
-        { id: crypto.randomUUID(), role: 'user', text: shown, streaming: false },
+        {
+          id: crypto.randomUUID(),
+          role: 'user',
+          text: shown,
+          streaming: false,
+          ...(images && images.length > 0
+            ? { images: images.map((i) => `data:${i.mediaType};base64,${i.data}`) }
+            : {}),
+        },
       ],
     }));
     try {
-      const { sessionId } = await window.api.chatSend(trimmed, mode);
+      const { sessionId } = await window.api.chatSend(trimmed || '(画像を確認して)', mode, images);
       // このセッションの終端イベントが既に届いていたら activeSessionId を復活させない
       if (earlyFinished.delete(sessionId)) return;
       set({ activeSessionId: sessionId });

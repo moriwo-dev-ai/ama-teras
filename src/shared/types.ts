@@ -67,6 +67,18 @@ export interface ApprovalRequestPayload {
   subAgentId?: number;
   /** M13-2: 外部MCPサーバーのツールのとき、そのサーバー名(UIで出所を明示表示) */
   mcpServer?: string;
+  /** M14-2: 「このセッションでは常に許可」の粒度表示(例: ドメイン名)。動的承認ツール用 */
+  allowSessionLabel?: string;
+}
+
+/** M14-2: チャット送信に添付する画像(renderer → main) */
+export interface ChatImageInput {
+  /** 例: image/png */
+  mediaType: string;
+  /** base64(データURLのプレフィックスは含まない) */
+  data: string;
+  /** 表示・compaction置換用の説明(ファイル名等) */
+  description?: string;
 }
 
 export type ApprovalDecision = 'allow' | 'allow-session' | 'deny';

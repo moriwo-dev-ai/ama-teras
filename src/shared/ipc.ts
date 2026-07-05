@@ -4,6 +4,7 @@ import type {
   ApprovalRequestPayload,
   ApprovalResolvedPayload,
   AppConfig,
+  ChatImageInput,
   ChatMode,
   CheckpointInfo,
   CheckpointRestoreResult,
@@ -68,7 +69,8 @@ export const IpcChannels = {
 
 /** preload が window.api として公開するAPIの型。renderer はこれ経由でしか main と話せない */
 export interface MyCodexApi {
-  chatSend(text: string, mode?: ChatMode): Promise<{ sessionId: string }>;
+  /** M14-2: images は任意(後方互換)。D&D/ペーストで添付した画像を渡す */
+  chatSend(text: string, mode?: ChatMode, images?: ChatImageInput[]): Promise<{ sessionId: string }>;
   chatCancel(sessionId: string): Promise<void>;
   /** 戻り値は購読解除関数 */
   onChatEvent(listener: (event: AgentEvent) => void): () => void;

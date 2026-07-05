@@ -6,6 +6,7 @@ import type {
   AppConfig,
   ApprovalDecision,
   ApprovalRequestPayload,
+  ChatImageInput,
   ChatMode,
   CheckpointInfo,
   CheckpointRestoreResult,
@@ -120,6 +121,11 @@ export interface AgentServiceDeps {
   createCheckpoints?: (workspace: string) => CheckpointsLike;
   /** M12-1: セッション永続化ストア。未指定なら機能全体が無効(保存もUIも動かないだけ) */
   sessions?: SessionsLike;
+  /**
+   * M14-2: URLスクリーンショット(offscreen BrowserWindow)。electron 依存のため注入。
+   * 未指定なら screenshot ツールは「未注入」エラーになる。進化ジョブへは渡らない
+   */
+  captureUrl?: (url: string, width?: number, height?: number) => Promise<{ data: string; mediaType: string }>;
 }
 
 const SYSTEM_PROMPT = `あなたは MyCodex — ユーザーのマシン上で動くコーディングエージェント。
@@ -374,7 +380,13 @@ export class AgentService {
     }
   }
 
-  chatSend(text: string, mode: ChatMode): { sessionId: string } {
+  /** M14-2: ctx.screenshot の注入(captureUrl 未設定なら注入しない=ツール側で明示エラー) */
+  private screenshotContext(): { screenshot: { capture: NonNullable<AgentServiceDeps['captureUrl']> } } | Record<string, never> {
+    const capture = this.deps.captureUrl;
+    return capture ? { screenshot: { capture } } : {};
+  }
+
+  chatSend(text: string, mode: ChatMode, images?: ChatImageInput[]): { sessionId: string } {
     const planMode = mode === 'plan';
     const sessionId = randomUUID();
     const emit = (event: AgentEvent): void => this.emitChat(event);
@@ -393,7 +405,14 @@ export class AgentService {
 
     const ac = new AbortController();
     this.activeRun = { sessionId, ac };
-    this.history.push({ role: 'user', content: [{ type: 'text', text }] });
+    // M14-2: 添付画像はテキストの後ろに image ブロックとして積む
+    this.history.push({
+      role: 'user',
+      content: [
+        { type: 'text', text },
+        ...(images ?? []).map((img): ChatMessage['content'][number] => ({ type: 'image', ...img })),
+      ],
+    });
     // M12-1: 会話の永続化メタ(初回送信時に確定。タイトルは先頭行)
     if (!this.conversation) {
       this.conversation = {
@@ -431,6 +450,7 @@ export class AgentService {
               ...ctx,
               evolution: this.evolutionContext(),
               processes: this.processes,
+              ...this.screenshotContext(),
               subagent: {
                 run: (task, signal) =>
                   runSubAgent(
@@ -524,7 +544,10 @@ export class AgentService {
               tools: this.deps.registry,
               cwd: this.getWorkspace(),
               executeTool: (name, input, ctx) =>
-                executeToolWithApproval(this.executorDeps(), name, input, ctx),
+                executeToolWithApproval(this.executorDeps(), name, input, {
+                  ...ctx,
+                  ...this.screenshotContext(),
+                }),
               onUpdate,
               locks,
               ...(maxTurns !== undefined ? { maxTurns } : {}),
@@ -616,6 +639,7 @@ export class AgentService {
         log: () => {},
         evolution: this.evolutionContext(),
         processes: this.processes,
+        ...this.screenshotContext(),
       },
     );
     return { content: result.content, isError: result.isError === true };

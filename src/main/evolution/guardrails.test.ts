@@ -89,6 +89,12 @@ describe('進化パイプラインの制限(M9で不変)', () => {
     expect(source).toContain("!p.name.startsWith('mcp__')");
   });
 
+  it('M14-2: screenshot(captureUrl)は進化ジョブへ注入されない(ソース・トリップワイヤ)', () => {
+    const source = readFileSync(fileURLToPath(new URL('./job.ts', import.meta.url)), 'utf8');
+    expect(source).not.toContain('screenshot');
+    expect(source).not.toContain('captureUrl');
+  });
+
   it('M12-0: スモークモードは requestSingleInstanceLock を取らない(進化ゲート前提の再固定)', () => {
     const source = readFileSync(fileURLToPath(new URL('../index.ts', import.meta.url)), 'utf8');
     expect(source).toContain('smokeMode ? true : app.requestSingleInstanceLock()');

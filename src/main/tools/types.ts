@@ -75,7 +75,33 @@ export interface ToolContext {
     read(id: number, sinceByte?: number): BackgroundProcessSnapshot | undefined;
     kill(id: number): 'killed' | 'already-exited' | 'not-found';
   };
+  /**
+   * M14-2: URLスクリーンショット。screenshot プラグインだけが使う
+   * (offscreen BrowserWindow は electron 依存のため main から注入する)。
+   * 進化ジョブには注入されない
+   */
+  screenshot?: {
+    capture(url: string, width?: number, height?: number): Promise<{ data: string; mediaType: string }>;
+  };
 }
+
+/**
+ * M14-2: 入力内容に応じた動的承認ポリシー(screenshot の外部URL等)。
+ * - { error }: 実行前拒否(非httpスキーム等。承認ダイアログも出さない)
+ * - required: true なら autoApprove / risk を無視して承認を要求する
+ * - sessionKey: 「セッション中許可」の粒度キー(例: 'screenshot@example.com')。
+ *   未指定なら allow-session を出さない(毎回承認)
+ * - auditPaths: audit.jsonl へ記録する対象(自動許可された実行も含め全件記録される)
+ */
+export type DynamicApprovalPolicy =
+  | { error: string }
+  | {
+      required: boolean;
+      sessionKey?: string;
+      sessionLabel?: string;
+      warnings?: string[];
+      auditPaths?: string[];
+    };
 
 export interface ToolResult {
   content: string;
@@ -104,5 +130,7 @@ export interface ToolPlugin {
    * (workspace / system)と保護領域のハード拒否に使う。パスを触るツールは必ず宣言する。
    */
   pathParams?: string[];
+  /** M14-2: 入力内容に応じた動的承認(screenshot の外部URL等)。executor が実行前に評価する */
+  dynamicApproval?(input: unknown): DynamicApprovalPolicy;
   execute(input: unknown, ctx: ToolContext): Promise<ToolResult>;
 }

@@ -162,6 +162,14 @@ export async function executeToolWithApproval(
   const plugin = deps.registry.get(name);
   if (!plugin) return { content: `未知のツール: ${name}`, isError: true };
 
+  // ---- M14-2: 動的承認ポリシー(screenshot の外部URL等) ----
+  const dynRaw = plugin.dynamicApproval?.(input);
+  if (dynRaw && 'error' in dynRaw) {
+    // 非httpスキーム等は承認ダイアログも出さず実行前拒否
+    return { content: dynRaw.error, isError: true };
+  }
+  const dyn = dynRaw && !('error' in dynRaw) ? dynRaw : undefined;
+
   // ---- M9: スコープ判定(ハード拒否 → project拒否 / fullPc強制承認) ----
   const policy = deps.getScopePolicy?.();
   let scope: OperationScope | undefined;
@@ -201,7 +209,12 @@ export async function executeToolWithApproval(
   // system スコープは autoApprove / allow-session に関係なく毎回承認(設計の中核不変条件)
   const forced = scope === 'system';
   const auto = deps.getAutoApprove();
-  const needsApproval = forced || (!auto[plugin.risk] && !deps.broker.isSessionAllowed(name));
+  // M14-2: 動的承認は autoApprove を無視して要求する(セッションキーで許可済みならスキップ)
+  const dynSessionAllowed =
+    dyn?.sessionKey !== undefined && deps.broker.isSessionAllowed(dyn.sessionKey);
+  const dynNeedsApproval = dyn?.required === true && !dynSessionAllowed;
+  const needsApproval =
+    forced || dynNeedsApproval || (!auto[plugin.risk] && !deps.broker.isSessionAllowed(name));
 
   if (needsApproval) {
     const decision = await deps.broker.request(
@@ -210,9 +223,13 @@ export async function executeToolWithApproval(
         risk: plugin.risk,
         inputPreview: JSON.stringify(input, null, 2) ?? String(input),
         diff: await buildDiffPreview(plugin.name, input, ctx),
-        warnings: [...(plugin.warnings ?? []), ...scopeWarnings],
+        warnings: [...(plugin.warnings ?? []), ...scopeWarnings, ...(dyn?.warnings ?? [])],
         ...(scope !== undefined ? { scope } : {}),
         ...(resolvedPaths !== undefined ? { resolvedPaths } : {}),
+        // M14-2: 「セッション中許可」の粒度をUIに明示(例: ドメイン単位)
+        ...(dyn?.sessionKey !== undefined && dyn.sessionLabel !== undefined
+          ? { allowSessionLabel: dyn.sessionLabel }
+          : {}),
         // M12-3: サブエージェント発の要求は承認UIで出所を明示する
         ...(ctx.subAgentId !== undefined ? { subAgentId: ctx.subAgentId } : {}),
         // M13-2: MCPツールはサーバー名を出所として明示する(名前 mcp__<server>__<tool> から導出)
@@ -229,11 +246,27 @@ export async function executeToolWithApproval(
         detail: decision === 'deny' ? 'deny' : 'allow',
       });
     }
+    // M14-2: 動的承認対象(外部URL等)の承認判断も監査へ残す
+    if (dyn?.auditPaths && dyn.auditPaths.length > 0) {
+      deps.audit?.({
+        tool: plugin.name,
+        scope: 'system',
+        paths: dyn.auditPaths,
+        event: 'approval',
+        detail: decision === 'deny' ? 'deny' : 'allow',
+      });
+    }
     if (decision === 'deny') {
       return { content: 'ユーザーがツール実行を拒否した', isError: true };
     }
-    // system スコープでは allow-session を受理しても記憶しない(毎回確認する)
-    if (decision === 'allow-session' && !forced) deps.broker.allowForSession(name);
+    if (decision === 'allow-session' && !forced) {
+      // 動的承認はキー粒度(例: screenshot@example.com)で記憶。それ以外は従来どおりツール名
+      if (dyn?.required === true && dyn.sessionKey !== undefined) {
+        deps.broker.allowForSession(dyn.sessionKey);
+      } else if (dyn?.required !== true) {
+        deps.broker.allowForSession(name);
+      }
+    }
   }
 
   try {
@@ -243,6 +276,16 @@ export async function executeToolWithApproval(
         tool: plugin.name,
         scope: 'system',
         paths: resolvedPaths ?? [],
+        event: 'result',
+        detail: result.isError === true ? `error: ${result.content.slice(0, 200)}` : 'ok',
+      });
+    }
+    // M14-2: 動的承認対象はセッション許可で自動通過した実行も含め全件監査に残す
+    if (dyn?.auditPaths && dyn.auditPaths.length > 0) {
+      deps.audit?.({
+        tool: plugin.name,
+        scope: 'system',
+        paths: dyn.auditPaths,
         event: 'result',
         detail: result.isError === true ? `error: ${result.content.slice(0, 200)}` : 'ok',
       });
