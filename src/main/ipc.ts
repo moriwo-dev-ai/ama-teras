@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, type WebContents } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, type WebContents } from 'electron';
 import { join } from 'node:path';
 import { IpcChannels } from '../shared/ipc';
 import type {
@@ -333,6 +333,18 @@ export async function registerIpcHandlers(
     assertString(id, 'id');
     assertString(title, 'title');
     return service.sessionRename(id, title);
+  });
+
+  // ---- ファイルプレビュー(M15-3) ----
+  ipcMain.handle(IpcChannels.filePreview, (_e, path: unknown) => {
+    assertString(path, 'path');
+    return service.filePreview(path);
+  });
+  ipcMain.handle(IpcChannels.fileReveal, async (_e, path: unknown) => {
+    assertString(path, 'path');
+    // 表示可能なファイルだけをエクスプローラで開ける(スコープ判定を通す)
+    const result = await service.filePreview(path);
+    if (result.ok && result.path) shell.showItemInFolder(result.path);
   });
 
   // ---- 計画ファイル(M12-2) ----

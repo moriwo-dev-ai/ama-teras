@@ -12,6 +12,7 @@ import type {
   CheckpointRestoreResult,
   EvolutionEvent,
   EvolutionJobSummary,
+  FilePreviewResult,
   HistoryMessageView,
   PluginErrorInfo,
   ProviderId,
@@ -50,6 +51,7 @@ import {
 import type { ToolPlugin } from '../tools/types';
 import type { EventBus } from './events';
 import { ProcessManager } from './processes';
+import { previewFile } from './filePreview';
 import { foldHistoryIfOversize, SESSION_SCHEMA_VERSION, type SessionData } from './sessions';
 
 /**
@@ -662,6 +664,16 @@ export class AgentService {
       },
     );
     return { content: result.content, isError: result.isError === true };
+  }
+
+  // ---- ファイルプレビュー(M15-3) ----
+
+  async filePreview(path: string): Promise<FilePreviewResult> {
+    return previewFile(path, {
+      workspaceRoot: this.getWorkspace(),
+      scopeMode: this.deps.config.get().scopeMode,
+      deny: this.deps.denyPaths,
+    });
   }
 
   // ---- チェックポイント(M11-3) ----

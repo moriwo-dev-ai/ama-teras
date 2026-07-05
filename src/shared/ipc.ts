@@ -10,6 +10,7 @@ import type {
   CheckpointRestoreResult,
   EvolutionEvent,
   EvolutionJobSummary,
+  FilePreviewResult,
   McpConfig,
   McpServerStatus,
   PluginErrorInfo,
@@ -57,6 +58,9 @@ export const IpcChannels = {
   /** M15-2: セッション検索・名前変更(追加のみ・既存チャネルは不変) */
   sessionsSearch: 'sessions:search',
   sessionsRename: 'sessions:rename',
+  /** M15-3: ファイルプレビュー(読み取り専用・M9スコープ判定つき) */
+  filePreview: 'file:preview',
+  fileReveal: 'file:reveal',
   /** M12-2: 計画ファイル(MYCODEX_PLAN.md)の内容取得(計画パネル用・読み取り専用) */
   planGet: 'plan:get',
   /** M12-3: 並列サブエージェントの進行状況(エージェントパネル用) */
@@ -119,6 +123,10 @@ export interface MyCodexApi {
   /** M15-2: タイトル+本文の部分一致検索 / 名前変更 */
   sessionsSearch(query: string): Promise<SessionMeta[]>;
   sessionsRename(id: string, title: string): Promise<boolean>;
+
+  /** M15-3: 右ペインのファイルプレビュー(読み取り専用)/ エクスプローラで表示 */
+  filePreview(path: string): Promise<FilePreviewResult>;
+  fileReveal(path: string): Promise<void>;
 
   /** M12-2: 現在のワークスペースの MYCODEX_PLAN.md の内容(無ければ空文字) */
   planGet(): Promise<string>;

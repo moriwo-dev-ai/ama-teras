@@ -12,6 +12,7 @@ import { SettingsPanel } from './components/Settings/SettingsPanel';
 import { useApprovalStore } from './stores/approval';
 import { useChatStore } from './stores/chat';
 import { useEvolutionStore } from './stores/evolution';
+import { usePreviewStore } from './stores/preview';
 import { useSubAgentStore } from './stores/subagents';
 
 export default function App(): JSX.Element {
@@ -29,6 +30,12 @@ export default function App(): JSX.Element {
   const narrow = useIsNarrow();
   const left = usePaneState('mycodex-pane-left', 240);
   const right = usePaneState('mycodex-pane-right', 320);
+  // M15-3: プレビューを開いたら右ペインを自動で開く
+  const previewOpen = usePreviewStore((s) => s.result !== null);
+  const setRightCollapsed = right.setCollapsed;
+  useEffect(() => {
+    if (previewOpen) setRightCollapsed(false);
+  }, [previewOpen, setRightCollapsed]);
 
   useEffect(() => window.api.onChatEvent(handleChatEvent), [handleChatEvent]);
   useEffect(() => window.api.onApprovalRequest(enqueueApproval), [enqueueApproval]);

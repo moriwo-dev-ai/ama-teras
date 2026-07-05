@@ -240,6 +240,21 @@ export interface SubAgentUpdate {
   summaryTail?: string;
 }
 
+// ---- M15-3: ファイルプレビュー ----
+
+export interface FilePreviewResult {
+  ok: boolean;
+  message?: string;
+  /** 解決済み絶対パス */
+  path?: string;
+  kind?: 'markdown' | 'code' | 'image';
+  /** markdown / code の本文(最大1MB。超過分は truncated) */
+  content?: string;
+  /** image の data URL */
+  dataUrl?: string;
+  truncated?: boolean;
+}
+
 // ---- M12-1: セッション永続化 ----
 
 /** userData/sessions/ に保存された会話の一覧表示用メタ情報 */

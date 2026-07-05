@@ -55,6 +55,9 @@ const api: MyCodexApi = {
   sessionsSearch: (query) => ipcRenderer.invoke(IpcChannels.sessionsSearch, query),
   sessionsRename: (id, title) => ipcRenderer.invoke(IpcChannels.sessionsRename, id, title),
 
+  filePreview: (path) => ipcRenderer.invoke(IpcChannels.filePreview, path),
+  fileReveal: (path) => ipcRenderer.invoke(IpcChannels.fileReveal, path),
+
   planGet: () => ipcRenderer.invoke(IpcChannels.planGet),
 
   onSubAgentUpdate: (listener) => subscribe<SubAgentUpdate>(IpcChannels.subAgentUpdate, listener),

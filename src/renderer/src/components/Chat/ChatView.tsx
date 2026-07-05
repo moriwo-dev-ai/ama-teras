@@ -1,6 +1,52 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChatImageInput } from '../../../../shared/types';
 import { useChatStore, type UiMessage } from '../../stores/chat';
+import { usePreviewStore } from '../../stores/preview';
+
+// M15-3: 本文中のパスらしき文字列をクリック可能にする(実在チェックはプレビュー側)
+const PATH_RE =
+  /(?:[A-Za-z]:[\\/])?[\w.-]+(?:[\\/][\w.-]+)+\.(?:tsx?|jsx?|mjs|cjs|json|md|markdown|css|html|py|txt|ya?ml|toml|csv)\b|[\w-]+\.(?:tsx?|jsx?|mjs|cjs|json|md|markdown|css|html|py|txt|ya?ml|toml|csv)\b/g;
+
+function LinkifiedText({ text }: { text: string }): JSX.Element {
+  const openPreview = usePreviewStore((s) => s.open);
+  const parts: (string | { path: string })[] = [];
+  let last = 0;
+  for (const m of text.matchAll(PATH_RE)) {
+    if (m.index === undefined) continue;
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    parts.push({ path: m[0] });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return (
+    <>
+      {parts.map((p, i) =>
+        typeof p === 'string' ? (
+          <span key={i}>{p}</span>
+        ) : (
+          <button
+            key={i}
+            className="cursor-pointer font-mono text-blue-300 underline decoration-dotted hover:text-blue-200"
+            onClick={() => void openPreview(p.path)}
+          >
+            {p.path}
+          </button>
+        ),
+      )}
+    </>
+  );
+}
+
+/** ツール入力JSONから path を取り出す(write_file/read_file/edit_file等のリンク化用) */
+function pathFromInputPreview(inputPreview: string): string | null {
+  const m = /"path"\s*:\s*"((?:[^"\\]|\\.)+)"/.exec(inputPreview);
+  if (!m) return null;
+  try {
+    return JSON.parse(`"${m[1]}"`) as string;
+  } catch {
+    return null;
+  }
+}
 
 /** M14-2: File → base64 添付(データURLのプレフィックスを剥がす) */
 async function fileToAttachment(file: File): Promise<ChatImageInput | null> {
@@ -18,6 +64,8 @@ async function fileToAttachment(file: File): Promise<ChatImageInput | null> {
 
 function ToolCard({ msg }: { msg: Extract<UiMessage, { role: 'tool' }> }): JSX.Element {
   const [open, setOpen] = useState(false);
+  const openPreview = usePreviewStore((s) => s.open);
+  const path = pathFromInputPreview(msg.inputPreview);
   return (
     <div className="flex justify-start">
       <div
@@ -35,6 +83,15 @@ function ToolCard({ msg }: { msg: Extract<UiMessage, { role: 'tool' }> }): JSX.E
           {msg.running && <span className="animate-pulse text-zinc-400">実行中…</span>}
           {!msg.running && <span className="text-zinc-500">{open ? '▲' : '▼'}</span>}
         </button>
+        {path && (
+          <button
+            className="mt-0.5 block truncate font-mono text-[11px] text-blue-300 underline decoration-dotted hover:text-blue-200"
+            title={`${path} をプレビュー`}
+            onClick={() => void openPreview(path)}
+          >
+            📄 {path}
+          </button>
+        )}
         {msg.images && msg.images.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-2">
             {msg.images.map((src, i) => (
@@ -162,7 +219,7 @@ export function ChatView(): JSX.Element {
                     ))}
                   </div>
                 )}
-                {m.text}
+                {m.role === 'assistant' ? <LinkifiedText text={m.text} /> : m.text}
                 {m.streaming && <span className="ml-1 animate-pulse">▍</span>}
               </div>
             </div>
