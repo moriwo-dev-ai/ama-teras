@@ -11,6 +11,8 @@ export type UiMessage =
       resultContent: string;
       isError: boolean;
       running: boolean;
+      /** M14-3: 画像付きツール結果(data URL) */
+      images?: string[];
     };
 
 interface ChatState {
@@ -187,7 +189,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set((s) => ({
           messages: s.messages.map((m) =>
             m.role === 'tool' && m.id === event.toolUseId
-              ? { ...m, resultContent: event.content, isError: event.isError, running: false }
+              ? {
+                  ...m,
+                  resultContent: event.content,
+                  isError: event.isError,
+                  running: false,
+                  ...(event.images ? { images: event.images } : {}),
+                }
               : m,
           ),
         }));

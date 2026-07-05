@@ -31,9 +31,22 @@ function ToolCard({ msg }: { msg: Extract<UiMessage, { role: 'tool' }> }): JSX.E
         >
           <span className="font-mono text-blue-300">{msg.name}</span>
           <span className="max-w-[360px] truncate text-zinc-500">{msg.inputPreview}</span>
+          {msg.images && msg.images.length > 0 && <span>🖼</span>}
           {msg.running && <span className="animate-pulse text-zinc-400">実行中…</span>}
           {!msg.running && <span className="text-zinc-500">{open ? '▲' : '▼'}</span>}
         </button>
+        {msg.images && msg.images.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-2">
+            {msg.images.map((src, i) => (
+              <img
+                key={i}
+                src={src}
+                alt="ツール結果画像"
+                className="max-h-48 max-w-[320px] rounded border border-zinc-700 object-contain"
+              />
+            ))}
+          </div>
+        )}
         {open && msg.resultContent && (
           <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap border-t border-zinc-700 pt-1 text-zinc-400">
             {msg.resultContent}
@@ -137,6 +150,18 @@ export function ChatView(): JSX.Element {
                   (m.role === 'user' ? 'bg-blue-600' : 'bg-zinc-800')
                 }
               >
+                {m.images && m.images.length > 0 && (
+                  <div className="mb-1 flex flex-wrap gap-1">
+                    {m.images.map((src, i) => (
+                      <img
+                        key={i}
+                        src={src}
+                        alt="添付画像"
+                        className="max-h-40 max-w-[240px] rounded border border-blue-400/40 object-contain"
+                      />
+                    ))}
+                  </div>
+                )}
                 {m.text}
                 {m.streaming && <span className="ml-1 animate-pulse">▍</span>}
               </div>

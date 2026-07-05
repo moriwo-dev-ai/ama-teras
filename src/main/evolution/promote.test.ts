@@ -39,7 +39,8 @@ afterEach(async () => {
   await rm(base, { recursive: true, force: true }).catch(() => {});
 });
 
-describe('assertPromotable', () => {
+// Windows では git のプロセス起動が遅く、並列負荷で既定5sを超えることがある
+describe('assertPromotable', { timeout: 30_000 }, () => {
   it('baseRef 上なら通る', async () => {
     await expect(assertPromotable(repo, 'main')).resolves.toBeUndefined();
   });
@@ -50,7 +51,7 @@ describe('assertPromotable', () => {
   });
 });
 
-describe('promoteBranch(指摘#6)', () => {
+describe('promoteBranch(指摘#6)', { timeout: 30_000 }, () => {
   // 回帰: 無関係な未コミット変更(PROGRESS.md)があっても、マージが触れなければ昇格成功する
   it('無関係なdirtyツリーがあっても plugins のみのマージは成功する', async () => {
     await makePluginBranch('evolve/job-1', 'export const x = 1;\n');

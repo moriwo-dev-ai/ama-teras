@@ -23,6 +23,8 @@ export type AgentEvent =
       name: string;
       content: string;
       isError: boolean;
+      /** M14-3: 画像付きツール結果のサムネイル表示用(data URL) */
+      images?: string[];
     }
   | { kind: 'error'; sessionId: string; message: string };
 

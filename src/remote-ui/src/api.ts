@@ -1,6 +1,7 @@
 import type {
   AgentStatusView,
   ApprovalDecision,
+  ChatImageInput,
   ChatMode,
   EvolutionJobSummary,
   HistoryMessageView,
@@ -50,8 +51,8 @@ export class RemoteApi {
     return this.req('GET', '/api/status');
   }
 
-  chatSend(text: string, mode: ChatMode): Promise<{ sessionId: string }> {
-    return this.req('POST', '/api/chat', { text, mode });
+  chatSend(text: string, mode: ChatMode, images?: ChatImageInput[]): Promise<{ sessionId: string }> {
+    return this.req('POST', '/api/chat', { text, mode, ...(images ? { images } : {}) });
   }
 
   chatCancel(sessionId: string): Promise<{ ok: boolean }> {

@@ -5,6 +5,7 @@ import type {
   AgentStatusView,
   ApprovalDecision,
   ApprovalRequestPayload,
+  ChatImageInput,
   ChatMode,
   EvolutionEvent,
   EvolutionJobSummary,
@@ -14,6 +15,7 @@ import type {
   ToolInfo,
 } from '../../shared/types';
 import type { AuditEntry } from '../audit';
+import { validateChatImages } from '../core/chatImages';
 import type { EventBus } from '../core/events';
 import type { RemoteAuth } from './auth';
 
@@ -27,7 +29,8 @@ import type { RemoteAuth } from './auth';
 
 /** AgentService を構造的に満たす、リモートへ公開してよい操作だけの窓口 */
 export interface RemoteFacade {
-  chatSend(text: string, mode: ChatMode): { sessionId: string };
+  /** M14-3: images は任意(後方互換)。スマホからの写真添付 */
+  chatSend(text: string, mode: ChatMode, images?: ChatImageInput[]): { sessionId: string };
   chatCancel(sessionId: string): void;
   approvalRespond(id: string, decision: ApprovalDecision): void;
   toolsList(): { tools: ToolInfo[]; errors: PluginErrorInfo[] };
@@ -220,7 +223,14 @@ export class RemoteServer {
         const text = body['text'];
         if (typeof text !== 'string' || text.trim() === '') throw new HttpError(400, 'text が必要');
         const mode: ChatMode = body['mode'] === 'plan' ? 'plan' : 'normal';
-        return sendJson(res, 200, facade.chatSend(text, mode));
+        // M14-3: スマホからの画像添付(検証はIPCと共通)
+        let images: ChatImageInput[] | undefined;
+        try {
+          images = validateChatImages(body['images']);
+        } catch (err) {
+          throw new HttpError(400, err instanceof Error ? err.message : 'images が不正');
+        }
+        return sendJson(res, 200, facade.chatSend(text, mode, images));
       }
 
       case 'POST /api/chat/cancel': {

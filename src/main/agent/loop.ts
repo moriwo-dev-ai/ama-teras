@@ -189,6 +189,10 @@ export async function runAgentLoop(
         name: tu.name,
         content: result.content.length > 2000 ? `${result.content.slice(0, 2000)}…` : result.content,
         isError: result.isError === true,
+        // M14-3: UIサムネイル用(data URL)
+        ...(result.images && result.images.length > 0
+          ? { images: result.images.map((i) => `data:${i.mediaType};base64,${i.data}`) }
+          : {}),
       });
       results.push({
         type: 'tool_result',

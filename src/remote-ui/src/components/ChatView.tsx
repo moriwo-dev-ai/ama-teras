@@ -1,7 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ChatMode } from '../../../shared/types';
+import type { ChatImageInput, ChatMode } from '../../../shared/types';
 import type { RemoteApi } from '../api';
 import { useRemoteStore } from '../store';
+
+/** M14-3: File → base64 添付(スマホのカメラ/フォトライブラリから) */
+async function fileToAttachment(file: File): Promise<ChatImageInput | null> {
+  if (!file.type.startsWith('image/')) return null;
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('読み込み失敗'));
+    reader.readAsDataURL(file);
+  });
+  const comma = dataUrl.indexOf(',');
+  if (comma < 0) return null;
+  return { mediaType: file.type, data: dataUrl.slice(comma + 1), description: file.name || 'photo' };
+}
 
 const STATUS_LABEL: Record<string, string> = {
   idle: '待機中',
@@ -15,7 +29,9 @@ export function ChatView({ api }: { api: RemoteApi }): JSX.Element {
   const [text, setText] = useState('');
   const [mode, setMode] = useState<ChatMode>('normal');
   const [error, setError] = useState('');
+  const [attachments, setAttachments] = useState<ChatImageInput[]>([]);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   const running = status.activeSessionId !== null;
 
@@ -25,12 +41,15 @@ export function ChatView({ api }: { api: RemoteApi }): JSX.Element {
 
   const send = async (): Promise<void> => {
     const trimmed = text.trim();
-    if (!trimmed || running) return;
+    if ((!trimmed && attachments.length === 0) || running) return;
     setError('');
-    addLocalUserMessage(mode === 'plan' ? `📝 [プラン] ${trimmed}` : trimmed);
+    const label = attachments.length > 0 ? `🖼×${attachments.length} ${trimmed}` : trimmed;
+    addLocalUserMessage(mode === 'plan' ? `📝 [プラン] ${label}` : label);
+    const images = attachments.length > 0 ? attachments : undefined;
     setText('');
+    setAttachments([]);
     try {
-      await api.chatSend(trimmed, mode);
+      await api.chatSend(trimmed || '(画像を確認して)', mode, images);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -80,7 +99,47 @@ export function ChatView({ api }: { api: RemoteApi }): JSX.Element {
           プラン(計画のみ)
         </label>
       </div>
+      {attachments.length > 0 && (
+        <div className="modebar" style={{ gap: 8, flexWrap: 'wrap' }}>
+          {attachments.map((a, i) => (
+            <span key={i} style={{ position: 'relative', display: 'inline-block' }}>
+              <img
+                src={`data:${a.mediaType};base64,${a.data}`}
+                alt="添付"
+                style={{ height: 48, width: 48, objectFit: 'cover', borderRadius: 6 }}
+              />
+              <button
+                style={{ position: 'absolute', top: -6, right: -6, fontSize: 10 }}
+                onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <div className="composer">
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          multiple
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            void (async () => {
+              const added: ChatImageInput[] = [];
+              for (const f of e.target.files ?? []) {
+                const a = await fileToAttachment(f).catch(() => null);
+                if (a) added.push(a);
+              }
+              if (added.length > 0) setAttachments((prev) => [...prev, ...added].slice(0, 8));
+              if (fileRef.current) fileRef.current.value = '';
+            })();
+          }}
+        />
+        <button className="send" style={{ minWidth: 40 }} onClick={() => fileRef.current?.click()}>
+          📷
+        </button>
         <textarea
           value={text}
           placeholder="指示を入力…"
