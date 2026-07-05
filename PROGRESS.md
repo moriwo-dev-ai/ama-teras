@@ -2,7 +2,16 @@
 
 ## 現在の状態
 
-- **M1〜M15まで実装**。テスト411件・typecheck(node/web/remote)全合格。
+- **M1〜M16まで実装**。テスト446件・typecheck(node/web/remote)全合格。
+- **M16完了(2026-07-06・Windows実機CDP検証済み)**: 一晩自走テスト(AICAD)の知見反映 —
+  ①モデル切替時の自動compaction(SessionData.lastLLM記録・切替検知→閾値超過なら圧縮+infoカード)
+  ②一時APIエラーの自動リトライ(指数バックオフ最大3回・AbortSignal尊重)と
+  課金/残高エラーのプロバイダフォールバック(AppConfig.fallback・既定OFF・1会話1回・
+  本体設定不変・警告カード+audit記録・切替前compaction)
+  ③アシスタント本文のmarkdown表示+コードブロックにコピーボタン(desktop=react-markdown、
+  remote-ui=共有フェンススプリッタの軽量実装、パスリンク維持)
+  ④控えめマイクロアニメーション(CSSのみ・transform/opacity限定・prefers-reduced-motion優先・
+  Settingsトグル)。体感確認は `docs/M16-manual-test.md`
 - **M15完了(2026-07-06)**: 3ペインUIリニューアル — 左ペイン(プロジェクト×セッションツリー・
   検索・rename/削除・workspace自動追従)/右ペイン(環境ウィジェット+📄プレビュー・計画・
   エージェント・進化・Debugタブ集約+バッジ)/リサイズ・折りたたみ・狭幅オーバーレイ・
@@ -250,6 +259,17 @@
   - ライブcurl検証は保持トークン失効(再生成済み)+認証失敗バンのため中止し、
     実HTTP+実認証の結合テスト(server.test.ts)を検証根拠とした。スマホ実機の
     再確認手順は docs/M15-manual-test.md「M15.1」節
+- 2026-07-06: M16 — 一晩自走テスト(AICAD・計画27/27完遂・介入0)の知見反映
+  - M16-0: 実測記録を docs/autonomy-comparison.md へ追記(所要時間・トークン・モデル切替2回・
+    弱点3件=切替時compaction無し/残高切れで停止/コピー手段無し → M16-1/2/3の根拠)
+  - M16-1: モデル切替検知compaction — SessionData.lastLLM、service.compactOnSwitch、
+    loop.onUsage フック(単一ターンでも実測トークンを記録する実バグ修正込み)、infoカード
+  - M16-2: llmErrors.classifyLLMError(billing判定を429より優先)、指数バックオフ最大3回、
+    acquireFallback(発動audit `provider-fallback`・警告カード)、Settingsフォールバック節
+  - M16-3: markdownBlocks共有スプリッタ+MarkdownMessage(コピー✓フィードバック・
+    CDPスモークでOSクリップボード実測一致)
+  - M16-4: styles.cssアニメ基盤+animPref(localStorage)+CDPスモーク
+    (reduced-motionエミュレーションで無効化を実測)
 
 ## 次のタスク
 
@@ -301,6 +321,23 @@
 - ~~(M9) audit.jsonl の閲覧UIは未実装~~ → M10 のスマホUI監査タブで提供済み
 
 ## 決定事項ログ
+
+### M16での判断(2026-07-06 自律作業・ユーザー確認なしで決定)
+
+- **フォールバックは本体provider設定を書き換えない**(計画承認済み)。実行中の会話の
+  LLMProvider インスタンスだけ差し替え、次の新規会話は本体設定で開始する
+- **billing判定はHTTPステータスより優先**: OpenAIのinsufficient_quotaは429(通常transient)、
+  Anthropicの残高枯渇は400(通常fatal)で来るため、メッセージ正規表現を先に評価する
+- **フォールバックの往復ループ禁止**: 1会話(conversation.id)につき1回・切替先=現行と同一なら拒否
+- **remote-uiのmarkdownは全レンダリングせずフェンス分割のみ**(コードブロック+コピーだけ提供)。
+  依存追加なし方針とモバイルの表示崩れリスクを優先。スプリッタは src/shared で共有しユニット固定
+- **未クローズフェンス(ストリーミング途中)は「そこまでをコード」として表示**
+  (閉じフェンス到着で自然に確定する。チラつき防止で判定を遅らせるより単純)
+- **アニメ設定はlocalStorage**(承認済み)。AppConfigに入れない=mainプロセス・進化ジョブに不波及。
+  `<html data-anim>` 属性 + CSSセレクタで一括制御し、コンポーネント側はクラス付与のみ
+- **prefers-reduced-motion はSettingsトグルより優先して無効化**(OSのアクセシビリティ設定を尊重)
+- **loop.onUsage フックを追加**(M16-1): lastPromptTokens が compact コールバック(turn>0)でしか
+  更新されず単一ターン会話で常に0だった実バグの修正。テスト側を曲げずに本体を直した
 
 - 2026-07-03: 開発マシンに Node.js が無かったため winget で LTS (v24.18.0) を導入
 - 2026-07-03: APIキー保管は keytar でなく Electron 組み込みの safeStorage を採用
