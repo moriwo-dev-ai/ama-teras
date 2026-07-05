@@ -130,6 +130,14 @@ async function buildDiffPreview(
   return undefined;
 }
 
+/** M13-2: ツール名からMCPサーバー名を導出(mcp__<server>__<tool>)。非MCPツールは null */
+function mcpServerOf(toolName: string): string | null {
+  if (!toolName.startsWith('mcp__')) return null;
+  const rest = toolName.slice('mcp__'.length);
+  const sep = rest.indexOf('__');
+  return sep > 0 ? rest.slice(0, sep) : null;
+}
+
 /** pathParams で宣言されたパス値を cwd 基準の絶対パスへ解決する。値が無ければ cwd を対象とみなす */
 export function collectDeclaredPaths(plugin: ToolPlugin, input: unknown, cwd: string): string[] {
   if (!plugin.pathParams || plugin.pathParams.length === 0) return [];
@@ -207,6 +215,8 @@ export async function executeToolWithApproval(
         ...(resolvedPaths !== undefined ? { resolvedPaths } : {}),
         // M12-3: サブエージェント発の要求は承認UIで出所を明示する
         ...(ctx.subAgentId !== undefined ? { subAgentId: ctx.subAgentId } : {}),
+        // M13-2: MCPツールはサーバー名を出所として明示する(名前 mcp__<server>__<tool> から導出)
+        ...(mcpServerOf(plugin.name) !== null ? { mcpServer: mcpServerOf(plugin.name)! } : {}),
       },
       ctx.signal,
     );

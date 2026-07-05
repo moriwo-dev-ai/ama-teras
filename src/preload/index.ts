@@ -57,6 +57,9 @@ const api: MyCodexApi = {
 
   onSubAgentUpdate: (listener) => subscribe<SubAgentUpdate>(IpcChannels.subAgentUpdate, listener),
 
+  mcpStatus: () => ipcRenderer.invoke(IpcChannels.mcpStatus),
+  mcpSetConfig: (config) => ipcRenderer.invoke(IpcChannels.mcpSetConfig, config),
+
   remoteStatus: () => ipcRenderer.invoke(IpcChannels.remoteStatus),
   remoteSetEnabled: (enabled, port) =>
     ipcRenderer.invoke(IpcChannels.remoteSetEnabled, enabled, port),

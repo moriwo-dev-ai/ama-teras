@@ -9,6 +9,8 @@ import type {
   CheckpointRestoreResult,
   EvolutionEvent,
   EvolutionJobSummary,
+  McpConfig,
+  McpServerStatus,
   PluginErrorInfo,
   ProviderId,
   RemoteStatusPayload,
@@ -55,6 +57,9 @@ export const IpcChannels = {
   planGet: 'plan:get',
   /** M12-3: 並列サブエージェントの進行状況(エージェントパネル用) */
   subAgentUpdate: 'agent:sub_update',
+  /** M13-2: MCPサーバー管理(デスクトップ専用) */
+  mcpStatus: 'mcp:status',
+  mcpSetConfig: 'mcp:set-config',
   /** M10: リモートアクセス管理(デスクトップ専用) */
   remoteStatus: 'remote:status',
   remoteSetEnabled: 'remote:set-enabled',
@@ -112,6 +117,10 @@ export interface MyCodexApi {
 
   /** M12-3: 並列サブエージェントの進行イベント購読 */
   onSubAgentUpdate(listener: (update: SubAgentUpdate) => void): () => void;
+
+  /** M13-2: MCPサーバーの接続状態と設定変更(変更は保存後に自動で再接続) */
+  mcpStatus(): Promise<McpServerStatus[]>;
+  mcpSetConfig(config: McpConfig): Promise<McpServerStatus[]>;
 
   /** M10: リモートアクセス(スマホWeb)管理。トークン平文は生成時に一度だけ返る */
   remoteStatus(): Promise<RemoteStatusPayload>;

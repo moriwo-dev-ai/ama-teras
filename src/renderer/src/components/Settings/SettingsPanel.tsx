@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AppConfig, ProviderId, SecretsStatus } from '../../../../shared/types';
 import { DEFAULT_MODELS, KNOWN_MODELS, isKnownModel } from '../../../../shared/models';
+import { McpSection } from './McpSection';
 import { RemoteAccessSection } from './RemoteAccessSection';
 
 const CUSTOM = '__custom__';
@@ -275,6 +276,8 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
         </div>
 
         <RemoteAccessSection />
+
+        <McpSection />
 
         <div className="space-y-1">
           <label className="text-xs text-zinc-400">

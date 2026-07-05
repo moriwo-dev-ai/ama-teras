@@ -33,6 +33,12 @@ export function ApprovalDialog(): JSX.Element | null {
           </div>
         )}
 
+        {req.mcpServer !== undefined && (
+          <div className="mb-2 rounded-md border border-purple-700 bg-purple-950 p-2 text-xs text-purple-200">
+            🔌 MCP: {req.mcpServer} — 外部MCPサーバーのツール(パスベースのスコープ判定対象外)
+          </div>
+        )}
+
         {isSystemScope && (
           <div className="mb-2 rounded-md border border-amber-500 bg-amber-950 p-2 text-xs text-amber-200">
             <div className="mb-1 font-semibold">⚠ プロジェクト外の操作(PC全体スコープ)</div>

@@ -11,6 +11,7 @@ import type {
 } from '../shared/types';
 import { AuditLog } from './audit';
 import { ConfigStore } from './config';
+import { McpManager } from './mcp/manager';
 import { CheckpointManager } from './core/checkpoints';
 import { EventBus } from './core/events';
 import { AgentService } from './core/service';
@@ -63,6 +64,28 @@ function assertConfig(value: unknown): asserts value is AppConfig {
   if (!ok) throw new Error('IPC payload config が不正');
 }
 
+function assertMcpConfig(value: unknown): asserts value is import('../shared/types').McpConfig {
+  const rec = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
+  const servers = rec?.['servers'];
+  const ok =
+    servers !== null &&
+    typeof servers === 'object' &&
+    Object.values(servers as Record<string, unknown>).every((s) => {
+      const sc = typeof s === 'object' && s !== null ? (s as Record<string, unknown>) : null;
+      return (
+        sc !== null &&
+        typeof sc['command'] === 'string' &&
+        (sc['args'] === undefined || (Array.isArray(sc['args']) && sc['args'].every((a) => typeof a === 'string'))) &&
+        (sc['env'] === undefined ||
+          (typeof sc['env'] === 'object' && sc['env'] !== null &&
+            Object.values(sc['env'] as Record<string, unknown>).every((v) => typeof v === 'string'))) &&
+        (sc['enabled'] === undefined || typeof sc['enabled'] === 'boolean') &&
+        (sc['trusted'] === undefined || typeof sc['trusted'] === 'boolean')
+      );
+    });
+  if (!ok) throw new Error('IPC payload mcp config が不正');
+}
+
 /**
  * プラグインソースの場所。開発時はリポジトリ内、パッケージ版は extraResources に
  * 同梱した plugins/ を読む(asar 内の src は実行時に解決できないため)。
@@ -102,6 +125,8 @@ export interface MainServices {
   secrets: SecretStore;
   service: AgentService;
   bus: EventBus;
+  /** M13-2: MCPクライアント(will-quit で closeAll を呼ぶこと) */
+  mcp: McpManager;
 }
 
 /**
@@ -349,5 +374,20 @@ export async function registerIpcHandlers(
   // 起動時: 設定が有効ならサーバを立てる(失敗しても起動は続行、状態はUIで見える)
   await applyRemoteState();
 
-  return { registry, broker: service.broker, config, secrets, service, bus };
+  // ---- MCPクライアント(M13-2。デスクトップ専用) ----
+  const mcp = new McpManager({
+    registry,
+    configPath: join(app.getPath('userData'), 'mcp.json'),
+    log: (line) => console.log(line),
+  });
+  ipcMain.handle(IpcChannels.mcpStatus, () => mcp.status());
+  ipcMain.handle(IpcChannels.mcpSetConfig, async (_e, cfg: unknown) => {
+    assertMcpConfig(cfg);
+    await mcp.setConfig(cfg);
+    return mcp.status();
+  });
+  // 起動をブロックしない(接続失敗は状態表示のみ)
+  void mcp.syncAll();
+
+  return { registry, broker: service.broker, config, secrets, service, bus, mcp };
 }

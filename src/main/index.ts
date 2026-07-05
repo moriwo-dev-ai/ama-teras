@@ -116,8 +116,12 @@ if (!gotSingleInstanceLock) {
       return;
     }
     const services = await registerIpcHandlers(() => mainWindow?.webContents ?? null);
-    // M11-2: アプリ終了時にバックグラウンドプロセスを残さない
-    app.on('will-quit', () => services.service.shutdown());
+    // M11-2: アプリ終了時にバックグラウンドプロセスを残さない。
+    // M13-2: MCPサーバーの子プロセスも transport ごと全切断する
+    app.on('will-quit', () => {
+      services.service.shutdown();
+      void services.mcp.closeAll();
+    });
     createWindow();
 
     app.on('activate', () => {

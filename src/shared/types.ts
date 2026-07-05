@@ -65,6 +65,8 @@ export interface ApprovalRequestPayload {
   resolvedPaths?: string[];
   /** M12-3: サブエージェント発の要求のとき、その子エージェント番号(UIで明示表示) */
   subAgentId?: number;
+  /** M13-2: 外部MCPサーバーのツールのとき、そのサーバー名(UIで出所を明示表示) */
+  mcpServer?: string;
 }
 
 export type ApprovalDecision = 'allow' | 'allow-session' | 'deny';
@@ -173,6 +175,34 @@ export interface RemoteSnapshot {
   pendingPromotions: Extract<EvolutionEvent, { kind: 'promotion_request' }>[];
   jobs: EvolutionJobSummary[];
   tools: ToolInfo[];
+}
+
+// ---- M13-2: MCPクライアント ----
+
+/** userData/mcp.json の1サーバー分の設定(stdio起動型のみ・v1) */
+export interface McpServerConfig {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  /** 接続対象にするか(既定 true) */
+  enabled?: boolean;
+  /** ユーザーがこのサーバーのツール実行を許可したか(未信頼は接続しない) */
+  trusted?: boolean;
+}
+
+export interface McpConfig {
+  servers: Record<string, McpServerConfig>;
+}
+
+export type McpServerState = 'connected' | 'connecting' | 'error' | 'disabled' | 'untrusted';
+
+/** Settings のMCP節に出す接続状態 */
+export interface McpServerStatus {
+  name: string;
+  state: McpServerState;
+  error?: string;
+  toolCount: number;
+  config: McpServerConfig;
 }
 
 // ---- M12-3: 並列サブエージェント ----

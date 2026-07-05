@@ -36,6 +36,9 @@ function ApprovalCard({ req, api }: { req: ApprovalRequestPayload; api: RemoteAp
       {req.subAgentId !== undefined && (
         <div className="warn-banner">🤖 サブエージェント #{req.subAgentId} からの要求</div>
       )}
+      {req.mcpServer !== undefined && (
+        <div className="warn-banner">🔌 MCP: {req.mcpServer} サーバーのツール</div>
+      )}
       {isSystem && (
         <div className="warn-banner">
           ⚠ プロジェクト外の操作(PC全体スコープ)。毎回承認が必要。
