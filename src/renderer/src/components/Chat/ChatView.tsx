@@ -2,40 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChatImageInput } from '../../../../shared/types';
 import { useChatStore, type UiMessage } from '../../stores/chat';
 import { usePreviewStore } from '../../stores/preview';
-
-// M15-3: 本文中のパスらしき文字列をクリック可能にする(実在チェックはプレビュー側)
-const PATH_RE =
-  /(?:[A-Za-z]:[\\/])?[\w.-]+(?:[\\/][\w.-]+)+\.(?:tsx?|jsx?|mjs|cjs|json|md|markdown|css|html|py|txt|ya?ml|toml|csv)\b|[\w-]+\.(?:tsx?|jsx?|mjs|cjs|json|md|markdown|css|html|py|txt|ya?ml|toml|csv)\b/g;
-
-function LinkifiedText({ text }: { text: string }): JSX.Element {
-  const openPreview = usePreviewStore((s) => s.open);
-  const parts: (string | { path: string })[] = [];
-  let last = 0;
-  for (const m of text.matchAll(PATH_RE)) {
-    if (m.index === undefined) continue;
-    if (m.index > last) parts.push(text.slice(last, m.index));
-    parts.push({ path: m[0] });
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return (
-    <>
-      {parts.map((p, i) =>
-        typeof p === 'string' ? (
-          <span key={i}>{p}</span>
-        ) : (
-          <button
-            key={i}
-            className="cursor-pointer font-mono text-blue-300 underline decoration-dotted hover:text-blue-200"
-            onClick={() => void openPreview(p.path)}
-          >
-            {p.path}
-          </button>
-        ),
-      )}
-    </>
-  );
-}
+import { MarkdownMessage } from './MarkdownMessage';
 
 /** ツール入力JSONから path を取り出す(write_file/read_file/edit_file等のリンク化用) */
 function pathFromInputPreview(inputPreview: string): string | null {
@@ -209,8 +176,8 @@ export function ChatView(): JSX.Element {
             >
               <div
                 className={
-                  'max-w-[80%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ' +
-                  (m.role === 'user' ? 'bg-blue-600' : 'bg-zinc-800')
+                  'max-w-[80%] rounded-lg px-3 py-2 text-sm ' +
+                  (m.role === 'user' ? 'whitespace-pre-wrap bg-blue-600' : 'bg-zinc-800')
                 }
               >
                 {m.images && m.images.length > 0 && (
@@ -225,7 +192,7 @@ export function ChatView(): JSX.Element {
                     ))}
                   </div>
                 )}
-                {m.role === 'assistant' ? <LinkifiedText text={m.text} /> : m.text}
+                {m.role === 'assistant' ? <MarkdownMessage text={m.text} /> : m.text}
                 {m.streaming && <span className="ml-1 animate-pulse">▍</span>}
               </div>
             </div>

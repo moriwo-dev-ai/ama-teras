@@ -73,6 +73,21 @@ body {
 }
 .msg.tool .bubble.error { background: #450a0a; border-color: var(--red); color: #fecaca; }
 .msg .streaming::after { content: '▌'; animation: blink 1s step-end infinite; }
+
+/* M16-3: コードブロック(言語ラベル+コピー) */
+.codeblock { margin: 6px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #09090b; }
+.codeblock-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 2px 8px; background: rgba(255, 255, 255, 0.06);
+  font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace;
+}
+.codeblock-head button {
+  border: none; background: none; color: var(--muted); font-size: 11px; padding: 4px 6px;
+}
+.codeblock pre {
+  margin: 0; padding: 8px; overflow-x: auto; font-size: 12px;
+  font-family: ui-monospace, monospace; white-space: pre;
+}
 @keyframes blink { 50% { opacity: 0; } }
 
 .composer {

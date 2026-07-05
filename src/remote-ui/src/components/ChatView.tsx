@@ -1,7 +1,65 @@
 import { useEffect, useRef, useState } from 'react';
+import { splitMarkdownSegments } from '../../../shared/markdownBlocks';
 import type { ChatImageInput, ChatMode } from '../../../shared/types';
 import type { RemoteApi } from '../api';
 import { useRemoteStore } from '../store';
+
+/** M16-3: HTTP(非secure context)では navigator.clipboard が無いので execCommand へフォールバック */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    /* fallthrough */
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/** M16-3: assistant本文をコードブロック単位に分割して描画(markdown全体レンダリングはしない軽量版) */
+function AssistantBody({ text }: { text: string }): JSX.Element {
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const segments = splitMarkdownSegments(text);
+  if (segments.length === 1 && segments[0]?.type === 'text') return <>{text}</>;
+  return (
+    <>
+      {segments.map((s, i) =>
+        s.type === 'text' ? (
+          <span key={i}>{s.content}</span>
+        ) : (
+          <div key={i} className="codeblock">
+            <div className="codeblock-head">
+              <span>{s.lang ?? 'code'}</span>
+              <button
+                onClick={() => {
+                  void copyText(s.content).then((ok) => {
+                    if (!ok) return;
+                    setCopiedIdx(i);
+                    setTimeout(() => setCopiedIdx((v) => (v === i ? null : v)), 1500);
+                  });
+                }}
+              >
+                {copiedIdx === i ? '✓ コピー済' : '📋 コピー'}
+              </button>
+            </div>
+            <pre>{s.content}</pre>
+          </div>
+        ),
+      )}
+    </>
+  );
+}
 
 /** M15.1: 送信前リサイズの上限(長辺px)。スマホ写真(数MB)をモデル入力に適した量へ圧縮する */
 const MAX_LONG_EDGE = 1568;
@@ -114,7 +172,9 @@ export function ChatView({ api }: { api: RemoteApi }): JSX.Element {
             </div>
           ) : (
             <div key={m.id} className={`msg ${m.role}`}>
-              <div className={`bubble ${m.streaming ? 'streaming' : ''}`}>{m.text}</div>
+              <div className={`bubble ${m.streaming ? 'streaming' : ''}`}>
+                {m.role === 'assistant' ? <AssistantBody text={m.text} /> : m.text}
+              </div>
             </div>
           ),
         )}
