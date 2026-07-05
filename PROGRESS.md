@@ -2,7 +2,12 @@
 
 ## 現在の状態
 
-- **M1〜M14まで実装**。テスト403件・typecheck(node/web/remote)全合格。
+- **M1〜M15まで実装**。テスト411件・typecheck(node/web/remote)全合格。
+- **M15完了(2026-07-06)**: 3ペインUIリニューアル — 左ペイン(プロジェクト×セッションツリー・
+  検索・rename/削除・workspace自動追従)/右ペイン(環境ウィジェット+📄プレビュー・計画・
+  エージェント・進化・Debugタブ集約+バッジ)/リサイズ・折りたたみ・狭幅オーバーレイ・
+  Ctrl+B/J/K。新IPCは追加のみ4本+file:reveal(sessions:search / sessions:rename /
+  file:preview / workspace:gitStatus)。体感確認は `docs/M15-manual-test.md`
 - **M14完了(2026-07-06・Windows実機で実装/検証・ベンチ④合格)**: 画像入力対応 —
   プロバイダ画像写像(Anthropicネイティブ/OpenAI互換レイヤ)/D&D・ペースト・スマホ📷添付/
   screenshotツール(localhost自動・外部URLはドメイン単位セッション許可+全件audit・非httpスキーム拒否)/
@@ -215,6 +220,20 @@
     「質問せず自分で判断」を明示して再実行(手順は autonomy-comparison.md に記録)
   - 判断記録: 画像トークンは実データ長でなく定数概算(1600tok)/ blobs は content-addressed
     共有のため自動GCしない(欠損時はロードで置換テキスト化)/ LAN内IPも「外部」扱い
+
+- 2026-07-06: **M15 — 3ペインUIリニューアル**。テスト403→411件。設計書 `docs/M15-ui-design.md`。
+  依存追加: react-markdown / remark-gfm(許可済みの2つのみ)。既存IPCは不変(追加のみ)。
+  各ステップでCDPスモーク(既存機能到達性込み)を実施し全通過
+  - M15-1: SidePane(リサイズ・折りたたみ・localStorage・狭幅オーバーレイ)
+  - M15-2: 左ペイン=workspace×セッションツリー+検索(sessions:search)+rename
+    (sessions:rename)+削除。セッション切替でworkspace自動追従(M12制約解消)
+  - M15-3: file:preview / file:reveal(M9スコープ判定・md/コード/画像・1MB/8MB上限・
+    バイナリ拒否)。ツールカード・本文中パスのリンク化→右ペイン自動オープン
+  - M15-4: workspace:gitStatus+環境ウィジェット、パネルタブ集約+実行中バッジ、
+    ヘッダボタンのタブ化、Ctrl+B/J/K
+  - 判断記録: 「フォルダで表示」用に file:reveal を追加(設計リスト外だが追加のみの制約内。
+    表示可能判定を通したパスのみ開く)/ ChatViewのセッションドロップダウンは互換のため残置/
+    本文パスのリンク化は正規表現マッチ(実在チェックはクリック時)
 
 ## 次のタスク
 
