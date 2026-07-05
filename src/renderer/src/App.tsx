@@ -4,6 +4,9 @@ import { ChatView } from './components/Chat/ChatView';
 import { ToolDebugPanel } from './components/Debug/ToolDebugPanel';
 import { SubAgentPanel } from './components/Agents/SubAgentPanel';
 import { EvolutionPanel, PromotionDialog } from './components/Evolution/EvolutionPanel';
+import { LeftPane } from './components/Layout/LeftPane';
+import { RightPane } from './components/Layout/RightPane';
+import { SidePane, useIsNarrow, usePaneState } from './components/Layout/SidePane';
 import { PlanPanel } from './components/Plan/PlanPanel';
 import { SettingsPanel } from './components/Settings/SettingsPanel';
 import { useApprovalStore } from './stores/approval';
@@ -22,6 +25,10 @@ export default function App(): JSX.Element {
   const [showSettings, setShowSettings] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
   const [showAgents, setShowAgents] = useState(false);
+  // M15-1: 3ペイン(狭幅ではオーバーレイ。既定は狭幅時に折りたたみ)
+  const narrow = useIsNarrow();
+  const left = usePaneState('mycodex-pane-left', 240);
+  const right = usePaneState('mycodex-pane-right', 320);
 
   useEffect(() => window.api.onChatEvent(handleChatEvent), [handleChatEvent]);
   useEffect(() => window.api.onApprovalRequest(enqueueApproval), [enqueueApproval]);
@@ -35,9 +42,23 @@ export default function App(): JSX.Element {
   return (
     <div className="flex h-screen flex-col">
       <header className="flex items-center gap-2 border-b border-zinc-700 px-4 py-2">
+        <button
+          className="rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800"
+          title="左ペイン(Ctrl+B)"
+          onClick={left.toggle}
+        >
+          ☰
+        </button>
         <h1 className="text-sm font-semibold tracking-wide">MyCodex</h1>
         <span className="text-xs text-zinc-400">自己進化型コーディングエージェント</span>
         <div className="ml-auto flex gap-2">
+          <button
+            className="rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800"
+            title="右ペイン(Ctrl+J)"
+            onClick={right.toggle}
+          >
+            ◨
+          </button>
           <button
             className="rounded border border-zinc-600 px-2 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800"
             onClick={() => setShowSettings(true)}
@@ -70,11 +91,35 @@ export default function App(): JSX.Element {
           </button>
         </div>
       </header>
-      <ChatView />
-      {showPlan && <PlanPanel />}
-      {showAgents && <SubAgentPanel />}
-      {showEvolution && <EvolutionPanel />}
-      {showDebug && <ToolDebugPanel />}
+      <div className="flex min-h-0 flex-1">
+        <SidePane
+          side="left"
+          width={left.state.width}
+          collapsed={left.state.collapsed}
+          narrow={narrow}
+          onResize={left.setWidth}
+          onClose={() => left.setCollapsed(true)}
+        >
+          <LeftPane />
+        </SidePane>
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <ChatView />
+          {showPlan && <PlanPanel />}
+          {showAgents && <SubAgentPanel />}
+          {showEvolution && <EvolutionPanel />}
+          {showDebug && <ToolDebugPanel />}
+        </main>
+        <SidePane
+          side="right"
+          width={right.state.width}
+          collapsed={right.state.collapsed}
+          narrow={narrow}
+          onResize={right.setWidth}
+          onClose={() => right.setCollapsed(true)}
+        >
+          <RightPane />
+        </SidePane>
+      </div>
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
       <ApprovalDialog />
       <PromotionDialog />
