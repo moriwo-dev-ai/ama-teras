@@ -5,6 +5,8 @@ import type {
   ChatMode,
   EvolutionJobSummary,
   HistoryMessageView,
+  SessionLoadResult,
+  SessionMeta,
   ToolInfo,
 } from '../../shared/types';
 
@@ -59,6 +61,15 @@ export class RemoteApi {
     return this.req('POST', '/api/chat/cancel', { sessionId });
   }
 
+  /** M15.1: セッション一覧と切替(切替はworkspace追従込み。実行中はサーバ側で拒否される) */
+  sessionsList(): Promise<{ sessions: SessionMeta[] }> {
+    return this.req('GET', '/api/sessions');
+  }
+
+  sessionsLoad(id: string): Promise<SessionLoadResult> {
+    return this.req('POST', '/api/sessions/load', { id });
+  }
+
   approvalRespond(id: string, decision: ApprovalDecision): Promise<{ ok: boolean }> {
     return this.req('POST', '/api/approval/respond', { id, decision });
   }
@@ -95,15 +106,26 @@ export class RemoteApi {
 
 const TOKEN_KEY = 'mycodex-remote-token';
 
+/**
+ * M15.1: フラグメントからのトークン抽出(純関数・テスト可能)。
+ * iOSのホーム画面起動などでフラグメントに余計な要素が付いても拾えるよう、
+ * 先頭一致でなく `t=<64hex>` の出現で判定する
+ */
+export function extractTokenFromHash(hash: string): string | null {
+  const m = /[#?&]t=([0-9a-f]{64})(?:[&#]|$)/.exec(hash);
+  return m?.[1] ?? null;
+}
+
 /** URLフラグメント #t=<token> → localStorage の順でトークンを拾う */
 export function loadToken(): string | null {
-  const hash = window.location.hash;
-  const m = /^#t=([0-9a-f]{64})$/.exec(hash);
-  if (m && m[1]) {
-    window.localStorage.setItem(TOKEN_KEY, m[1]);
-    // トークンをURLに残さない(スクリーンショット・履歴対策)
-    window.history.replaceState(null, '', window.location.pathname);
-    return m[1];
+  const fromHash = extractTokenFromHash(window.location.hash);
+  if (fromHash) {
+    // PWA(ホーム画面)はSafariと保存領域が別のため、この保存が初回起動の鍵になる
+    window.localStorage.setItem(TOKEN_KEY, fromHash);
+    // M15.1: フラグメントは削除しない(ユーザー決定)。iOSの「ホーム画面に追加」は
+    // 追加時点のURLを保存するため、ここで消すとPWA初回起動でトークンが失われる。
+    // トークンはURLフラグメントのままサーバへは送信されず、端末内(Tailscale内)に留まる
+    return fromHash;
   }
   return window.localStorage.getItem(TOKEN_KEY);
 }

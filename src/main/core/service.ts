@@ -108,7 +108,8 @@ export interface CheckpointsLike {
 export interface AgentServiceDeps {
   bus: EventBus;
   registry: RegistryLike;
-  config: { get(): AppConfig };
+  /** set は M15.1 の sessionOpen(workspace追従)にだけ使う。未指定なら追従しない */
+  config: { get(): AppConfig; set?(next: AppConfig): unknown };
   secrets: { get(provider: ProviderId): string | null };
   audit: { append(e: ScopeAuditEvent): void };
   /** config.workspace 未設定時の既定作業ディレクトリ(electron の app.getAppPath() 相当) */
@@ -361,6 +362,29 @@ export class AgentService {
     if (!store) return { ok: false, message: 'セッション永続化が無効' };
     const data = await store.load(id);
     if (!data) return { ok: false, message: 'セッションが見つからない(または壊れている)' };
+    return this.applyLoadedSession(data);
+  }
+
+  /**
+   * M15.1: リモート(スマホ)用のセッション切替。sessionLoad に加えて、セッションに
+   * 記録された workspace へ自動で追従する(desktopの左ペインと同じ挙動)。
+   * 任意パスへの変更ではなく「既存セッションの記録値」限定のため、リモートへ公開してよい
+   * (settings:set 自体は引き続き非公開)。実行中ガードは sessionLoad 内で強制される
+   */
+  async sessionOpen(id: string): Promise<SessionLoadResult> {
+    if (this.activeRun) return { ok: false, message: 'エージェント実行中はセッションを切り替えられない' };
+    const store = this.deps.sessions;
+    if (!store) return { ok: false, message: 'セッション永続化が無効' };
+    const data = await store.load(id);
+    if (!data) return { ok: false, message: 'セッションが見つからない(または壊れている)' };
+    const cfg = this.deps.config.get();
+    if (data.workspace !== '' && data.workspace !== (cfg.workspace ?? '') && this.deps.config.set) {
+      this.deps.config.set({ ...cfg, workspace: data.workspace });
+    }
+    return this.applyLoadedSession(data);
+  }
+
+  private applyLoadedSession(data: SessionData): SessionLoadResult {
     // 履歴配列は loop と参照共有しているため、置換ではなく中身を差し替える
     this.history.length = 0;
     this.history.push(...data.history);

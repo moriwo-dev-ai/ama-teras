@@ -41,6 +41,9 @@ export interface RemoteFacade {
   getHistoryView(): HistoryMessageView[];
   getPendingApprovals(): ApprovalRequestPayload[];
   getPendingPromotionRequests(): Extract<EvolutionEvent, { kind: 'promotion_request' }>[];
+  /** M15.1: セッション一覧と切替(切替はworkspace追従込み。実行中はservice側ガードで拒否) */
+  sessionsList(): Promise<import('../../shared/types').SessionMeta[]>;
+  sessionOpen(id: string): Promise<import('../../shared/types').SessionLoadResult>;
 }
 
 export interface RemoteServerDeps {
@@ -69,6 +72,11 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 const MAX_BODY_BYTES = 262_144;
+/**
+ * M15.1: /api/chat のみ画像添付(base64)のため大きめに許可する。
+ * remote-ui は送信前に長辺1568pxへ圧縮するが、複数枚+余裕を見て24MB
+ */
+const CHAT_BODY_BYTES = 24 * 1024 * 1024;
 
 class HttpError extends Error {
   constructor(
@@ -88,13 +96,13 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(data);
 }
 
-function readBody(req: IncomingMessage): Promise<Buffer> {
+function readBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
   return new Promise((resolvePromise, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
     req.on('data', (chunk: Buffer) => {
       total += chunk.length;
-      if (total > MAX_BODY_BYTES) {
+      if (total > maxBytes) {
         reject(new HttpError(413, 'payload too large'));
         req.destroy();
         return;
@@ -106,8 +114,11 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
   });
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-  const raw = (await readBody(req)).toString('utf8');
+async function readJsonBody(
+  req: IncomingMessage,
+  maxBytes: number = MAX_BODY_BYTES,
+): Promise<Record<string, unknown>> {
+  const raw = (await readBody(req, maxBytes)).toString('utf8');
   try {
     const parsed: unknown = raw.trim() === '' ? {} : JSON.parse(raw);
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
@@ -219,7 +230,8 @@ export class RemoteServer {
       }
 
       case 'POST /api/chat': {
-        const body = await readJsonBody(req);
+        // M15.1: 画像添付(base64)を受けるためこのルートだけ上限を拡大
+        const body = await readJsonBody(req, CHAT_BODY_BYTES);
         const text = body['text'];
         if (typeof text !== 'string' || text.trim() === '') throw new HttpError(400, 'text が必要');
         const mode: ChatMode = body['mode'] === 'plan' ? 'plan' : 'normal';
@@ -231,6 +243,18 @@ export class RemoteServer {
           throw new HttpError(400, err instanceof Error ? err.message : 'images が不正');
         }
         return sendJson(res, 200, facade.chatSend(text, mode, images));
+      }
+
+      case 'GET /api/sessions': {
+        return sendJson(res, 200, { sessions: await facade.sessionsList() });
+      }
+
+      case 'POST /api/sessions/load': {
+        const body = await readJsonBody(req);
+        const id = body['id'];
+        if (typeof id !== 'string' || id === '') throw new HttpError(400, 'id が必要');
+        // 実行中ガード・workspace追従は service 側(sessionOpen)で強制される
+        return sendJson(res, 200, await facade.sessionOpen(id));
       }
 
       case 'POST /api/chat/cancel': {

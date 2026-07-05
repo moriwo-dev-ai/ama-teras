@@ -32,8 +32,14 @@ body {
   border-bottom: 1px solid var(--border);
   background: var(--panel);
 }
-.topbar h1 { font-size: 15px; margin: 0; flex: 1; }
-.conn { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+.topbar h1 { font-size: 15px; margin: 0; }
+.session-select {
+  flex: 1; min-width: 0; max-width: 55%;
+  font-size: 12px; padding: 4px 6px; border-radius: 6px;
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+}
+.session-select:disabled { opacity: 0.5; }
+.conn { font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: auto; }
 .conn.on { background: #14532d; color: #bbf7d0; }
 .conn.off { background: #7f1d1d; color: #fecaca; }
 

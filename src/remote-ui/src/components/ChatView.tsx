@@ -3,17 +3,53 @@ import type { ChatImageInput, ChatMode } from '../../../shared/types';
 import type { RemoteApi } from '../api';
 import { useRemoteStore } from '../store';
 
-/** M14-3: File → base64 添付(スマホのカメラ/フォトライブラリから) */
-async function fileToAttachment(file: File): Promise<ChatImageInput | null> {
-  if (!file.type.startsWith('image/')) return null;
-  const dataUrl = await new Promise<string>((resolve, reject) => {
+/** M15.1: 送信前リサイズの上限(長辺px)。スマホ写真(数MB)をモデル入力に適した量へ圧縮する */
+const MAX_LONG_EDGE = 1568;
+const RESIZE_THRESHOLD_BYTES = 512 * 1024;
+
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
     reader.onerror = () => reject(new Error('読み込み失敗'));
     reader.readAsDataURL(file);
   });
+}
+
+/**
+ * M14-3/M15.1: File → base64 添付。大きい画像は canvas で長辺1568pxへ縮小し
+ * JPEG(0.85)に再圧縮する(サーバのbody上限とトークン量の両対策)
+ */
+async function fileToAttachment(file: File): Promise<ChatImageInput | null> {
+  if (!file.type.startsWith('image/')) return null;
+  const dataUrl = await readAsDataUrl(file);
   const comma = dataUrl.indexOf(',');
   if (comma < 0) return null;
+
+  const img = await new Promise<HTMLImageElement | null>((resolve) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => resolve(null); // デコード不能(HEIC等)は原本のまま送る
+    el.src = dataUrl;
+  });
+  const longEdge = img ? Math.max(img.naturalWidth, img.naturalHeight) : 0;
+  const needsResize = img !== null && (longEdge > MAX_LONG_EDGE || file.size > RESIZE_THRESHOLD_BYTES);
+
+  if (needsResize && img) {
+    const scale = Math.min(1, MAX_LONG_EDGE / longEdge);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    const ctx2d = canvas.getContext('2d');
+    if (ctx2d) {
+      ctx2d.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const resized = canvas.toDataURL('image/jpeg', 0.85);
+      const c = resized.indexOf(',');
+      if (c > 0) {
+        return { mediaType: 'image/jpeg', data: resized.slice(c + 1), description: file.name || 'photo' };
+      }
+    }
+  }
   return { mediaType: file.type, data: dataUrl.slice(comma + 1), description: file.name || 'photo' };
 }
 

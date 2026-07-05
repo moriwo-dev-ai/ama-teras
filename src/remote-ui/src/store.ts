@@ -101,6 +101,8 @@ interface RemoteState {
   onEvolutionEvent: (event: EvolutionEvent) => void;
   /** ユーザー送信をローカルに反映(サーバ履歴には chatSend 側で載る) */
   addLocalUserMessage: (text: string) => void;
+  /** M15.1: セッション切替後に履歴を丸ごと差し替える */
+  replaceHistory: (history: RemoteSnapshot['history']) => void;
 }
 
 const IDLE: AgentStatusView = { status: 'idle', activeSessionId: null, scopeMode: 'project' };
@@ -125,6 +127,8 @@ export const useRemoteStore = create<RemoteState>((set) => ({
       promotions: snapshot.pendingPromotions,
       jobs: snapshot.jobs,
     }),
+
+  replaceHistory: (history) => set({ messages: historyToMessages(history) }),
 
   onChatEvent: (event) =>
     set((s) => {

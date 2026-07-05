@@ -154,6 +154,57 @@ describe('AgentService × セッション永続化(M12-1)', () => {
     await done;
   });
 
+  it('M15.1: sessionOpen はセッションのworkspaceへ自動追従する(config.set注入時のみ)', async () => {
+    const sessions = memorySessions();
+    const setCalls: AppConfig[] = [];
+    const config = {
+      get: () => structuredClone({ ...BASE_CONFIG, workspace: 'C:\\before' }),
+      set: (next: AppConfig) => {
+        setCalls.push(next);
+      },
+    };
+    const { svc, bus } = makeService({ providerFactory: () => textProvider('OK'), sessions, config });
+    const done = waitForDone(bus);
+    svc.chatSend('リモート切替テスト', 'normal');
+    await done;
+    await new Promise((r) => setTimeout(r, 20));
+    const saved = sessions.saved[0]!;
+    expect(saved.workspace).toBe('C:\\before');
+
+    svc.sessionNew();
+    const result = await svc.sessionOpen(saved.id);
+    expect(result.ok).toBe(true);
+    // 保存されたworkspaceへ追従(現在値が異なるケースを作るためsavedを書き換える)
+    expect(setCalls).toEqual([]); // 同一workspaceなら切替しない
+
+    // 異なるworkspaceのセッションを開くと set が呼ばれる
+    const other = { ...structuredClone(saved), id: '33333333-3333-3333-3333-333333333333', workspace: 'C:\\other' };
+    await sessions.save(other);
+    const r2 = await svc.sessionOpen(other.id);
+    expect(r2.ok).toBe(true);
+    expect(setCalls).toHaveLength(1);
+    expect(setCalls[0]!.workspace).toBe('C:\\other');
+  });
+
+  it('M15.1: sessionOpen も実行中は拒否される(サーバ側ガード)', async () => {
+    const sessions = memorySessions();
+    const provider: LLMProvider = {
+      id: 'anthropic',
+      async *complete(req): AsyncGenerator<ProviderEvent> {
+        await new Promise<void>((res) =>
+          req.signal.addEventListener('abort', () => res(), { once: true }),
+        );
+        throw new Error('aborted');
+      },
+    };
+    const { svc, bus } = makeService({ providerFactory: () => provider, sessions });
+    const { sessionId } = svc.chatSend('実行中', 'normal');
+    expect((await svc.sessionOpen('11111111-1111-1111-1111-111111111111')).ok).toBe(false);
+    const done = waitForDone(bus);
+    svc.chatCancel(sessionId);
+    await done;
+  });
+
   it('sessions 未注入でもチャットは従来どおり動く(機能無効)', async () => {
     const { svc, bus } = makeService({ providerFactory: () => textProvider('OK') });
     const done = waitForDone(bus);

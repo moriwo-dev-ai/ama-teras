@@ -235,6 +235,22 @@
     表示可能判定を通したパスのみ開く)/ ChatViewのセッションドロップダウンは互換のため残置/
     本文パスのリンク化は正規表現マッチ(実在チェックはクリック時)
 
+- 2026-07-06: **M15.1 — remote-uiバグ修正と小機能**。テスト411→424件
+  - 【バグ】スマホ写真添付が無反応: 原因は remote サーバの body 上限 256KB(写真base64が413で
+    破棄)。/api/chat のみ24MBへ拡大+remote-ui側で送信前に長辺1568px・JPEG(0.85)へ自動圧縮。
+    実HTTPの結合テストで2.7MB受理・24MB超拒否・不正payload 400 を固定
+  - 【機能】remote-uiにセッション切替: GET /api/sessions + POST /api/sessions/load を追加公開。
+    service.sessionOpen が実行中ガードとworkspace追従をサーバ側で強制(追従は「既存セッションの
+    記録値」限定のためリモート公開可と判断。settings:set自体は引き続き非公開)
+  - 【バグ】PWA(ホーム画面)でトークン再入力: 原因は (a) manifest start_url が #t= を落とす
+    (b) 初回ロードで replaceState がフラグメントを即削除 → 追加時URLに #t= が無い
+    (c) PWAはSafariと保存領域が別。対処: start_url削除+**フラグメント削除をやめる**
+    (ユーザー決定。トークンはURLフラグメントのままサーバへ送信されず端末内に留まる)+
+    抽出を緩い正規表現に(extractTokenFromHash・テスト付き)+ゲートに説明文
+  - ライブcurl検証は保持トークン失効(再生成済み)+認証失敗バンのため中止し、
+    実HTTP+実認証の結合テスト(server.test.ts)を検証根拠とした。スマホ実機の
+    再確認手順は docs/M15-manual-test.md「M15.1」節
+
 ## 次のタスク
 
 - (ユーザー)iPhone実機+Tailscale(docs/M10-manual-test.md B節)、NSISインストーラ

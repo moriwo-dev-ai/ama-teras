@@ -3,18 +3,19 @@ import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { ApprovalDecision, ChatMode } from '../../shared/types';
+import type { ApprovalDecision, ChatImageInput, ChatMode } from '../../shared/types';
 import { AuditLog } from '../audit';
 import { EventBus } from '../core/events';
 import { generateToken, RemoteAuth } from './auth';
 import { RemoteServer, type RemoteFacade } from './server';
 
 interface FacadeCalls {
-  chatSend: [string, ChatMode][];
+  chatSend: [string, ChatMode, ChatImageInput[] | undefined][];
   chatCancel: string[];
   approvalRespond: [string, ApprovalDecision][];
   promoteRespond: [number, boolean][];
   enqueue: [string, string][];
+  sessionOpen: string[];
 }
 
 function stubFacade(): { facade: RemoteFacade; calls: FacadeCalls } {
@@ -24,10 +25,11 @@ function stubFacade(): { facade: RemoteFacade; calls: FacadeCalls } {
     approvalRespond: [],
     promoteRespond: [],
     enqueue: [],
+    sessionOpen: [],
   };
   const facade: RemoteFacade = {
-    chatSend: (text, mode) => {
-      calls.chatSend.push([text, mode]);
+    chatSend: (text, mode, images) => {
+      calls.chatSend.push([text, mode, images]);
       return { sessionId: 'sess-1' };
     },
     chatCancel: (sessionId) => {
@@ -54,6 +56,20 @@ function stubFacade(): { facade: RemoteFacade; calls: FacadeCalls } {
     getHistoryView: () => [{ role: 'user', text: 'こんにちは' }],
     getPendingApprovals: () => [],
     getPendingPromotionRequests: () => [],
+    sessionsList: async () => [
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        title: '過去の会話',
+        workspace: 'C:\\ws',
+        createdAt: '2026-07-06T00:00:00.000Z',
+        updatedAt: '2026-07-06T00:01:00.000Z',
+        messageCount: 2,
+      },
+    ],
+    sessionOpen: async (id) => {
+      calls.sessionOpen.push(id);
+      return { ok: true, history: [{ role: 'user', text: '復元済み' }] };
+    },
   };
   return { facade, calls };
 }
@@ -172,7 +188,79 @@ describe('RemoteServer: REST API', () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ sessionId: 'sess-1' });
-    expect(calls.chatSend).toEqual([['やって', 'plan']]);
+    expect(calls.chatSend).toEqual([['やって', 'plan', undefined]]);
+  });
+
+  it('M15.1: POST /api/chat は数MBの画像添付を受理して facade へ渡す(256KB上限の回帰防止)', async () => {
+    await startServer();
+    // base64で約2.7MB(=旧上限256KBを大きく超える)
+    const bigImage = 'A'.repeat(2_700_000);
+    const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
+      method: 'POST',
+      headers: { ...authed(), 'content-type': 'application/json' },
+      body: JSON.stringify({
+        text: '写真見て',
+        images: [{ mediaType: 'image/jpeg', data: bigImage, description: 'photo' }],
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(calls.chatSend).toHaveLength(1);
+    const [text, , images] = calls.chatSend[0]!;
+    expect(text).toBe('写真見て');
+    expect(images).toHaveLength(1);
+    expect(images![0]!.data.length).toBe(2_700_000);
+  });
+
+  it('M15.1: 不正な画像payloadは 400、チャット上限(24MB)超は 413', async () => {
+    await startServer();
+    const bad = await fetch(`http://127.0.0.1:${port}/api/chat`, {
+      method: 'POST',
+      headers: { ...authed(), 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'x', images: [{ mediaType: 'text/plain', data: 'aGk=' }] }),
+    });
+    expect(bad.status).toBe(400);
+
+    // 上限超過はサーバが受信を打ち切る(413応答 or 接続切断のどちらでも「拒否」)
+    let rejected = false;
+    try {
+      const huge = await fetch(`http://127.0.0.1:${port}/api/chat`, {
+        method: 'POST',
+        headers: { ...authed(), 'content-type': 'application/json' },
+        body: JSON.stringify({
+          text: 'x',
+          images: [{ mediaType: 'image/png', data: 'A'.repeat(25 * 1024 * 1024) }],
+        }),
+      });
+      rejected = huge.status === 413;
+    } catch {
+      rejected = true; // 受信打ち切りによる接続リセット
+    }
+    expect(rejected).toBe(true);
+    expect(calls.chatSend).toEqual([]);
+  });
+
+  it('M15.1: GET /api/sessions が一覧を返し、POST /api/sessions/load が facade.sessionOpen へ委譲する', async () => {
+    await startServer();
+    const list = await fetch(`http://127.0.0.1:${port}/api/sessions`, { headers: authed() });
+    expect(list.status).toBe(200);
+    const parsed = (await list.json()) as { sessions: { title: string }[] };
+    expect(parsed.sessions[0]!.title).toBe('過去の会話');
+
+    const load = await fetch(`http://127.0.0.1:${port}/api/sessions/load`, {
+      method: 'POST',
+      headers: { ...authed(), 'content-type': 'application/json' },
+      body: JSON.stringify({ id: '11111111-1111-1111-1111-111111111111' }),
+    });
+    expect(load.status).toBe(200);
+    expect(((await load.json()) as { ok: boolean }).ok).toBe(true);
+    expect(calls.sessionOpen).toEqual(['11111111-1111-1111-1111-111111111111']);
+
+    const noId = await fetch(`http://127.0.0.1:${port}/api/sessions/load`, {
+      method: 'POST',
+      headers: { ...authed(), 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(noId.status).toBe(400);
   });
 
   it('POST /api/chat の text 欠落は 400', async () => {

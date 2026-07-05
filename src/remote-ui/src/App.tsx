@@ -5,6 +5,7 @@ import type {
   ApprovalResolvedPayload,
   EvolutionEvent,
   RemoteSnapshot,
+  SessionMeta,
 } from '../../shared/types';
 import { clearToken, loadToken, RemoteApi, saveToken } from './api';
 import { ApprovalsView } from './components/ApprovalsView';
@@ -22,6 +23,11 @@ function TokenGate({ onSubmit }: { onSubmit: (token: string) => void }): JSX.Ele
       <p className="hint">
         デスクトップの MyCodex → 設定 → リモートアクセス に表示されるトークンを入力する。
         接続URLの末尾に #t=&lt;トークン&gt; を付けて開いた場合は自動で読み込まれる。
+      </p>
+      <p className="hint">
+        ホーム画面に追加したアプリから初めて起動した場合、Safariとは保存領域が別のため
+        1回だけ入力が必要なことがある(以後は保存される)。QRで開いた直後(URLに #t= が
+        付いた状態)にホーム画面へ追加すると、初回から入力不要になる。
       </p>
       <input
         placeholder="ペアリングトークン(64文字)"
@@ -59,6 +65,41 @@ export function App(): JSX.Element {
   const api = useMemo(() => (token ? new RemoteApi(token) : null), [token]);
   const store = useRemoteStore();
   const esRef = useRef<EventSource | null>(null);
+  // M15.1: セッション切替
+  const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  const [sessionError, setSessionError] = useState('');
+  const running = store.status.activeSessionId !== null;
+
+  const refreshSessions = useCallback(async () => {
+    if (!api) return;
+    try {
+      setSessions((await api.sessionsList()).sessions);
+    } catch {
+      /* 一覧取得失敗は次回更新で回復 */
+    }
+  }, [api]);
+
+  useEffect(() => {
+    void refreshSessions();
+  }, [refreshSessions]);
+  useEffect(() => {
+    if (!running) void refreshSessions();
+  }, [running, refreshSessions]);
+
+  const openSession = async (id: string): Promise<void> => {
+    if (!api || !id) return;
+    setSessionError('');
+    try {
+      const result = await api.sessionsLoad(id);
+      if (!result.ok || !result.history) {
+        setSessionError(result.message ?? 'セッションを開けない');
+        return;
+      }
+      useRemoteStore.getState().replaceHistory(result.history);
+    } catch (err) {
+      setSessionError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   const handleToken = useCallback((t: string) => {
     saveToken(t);
@@ -117,11 +158,27 @@ export function App(): JSX.Element {
     <div className="app">
       <header className="topbar">
         <h1>MyCodex</h1>
+        <select
+          className="session-select"
+          value=""
+          disabled={running}
+          onFocus={() => void refreshSessions()}
+          onChange={(e) => void openSession(e.target.value)}
+          title={running ? '実行中は切替不可' : 'セッションを開く'}
+        >
+          <option value="">セッション…</option>
+          {sessions.map((s) => (
+            <option key={s.id} value={s.id}>
+              {(s.title || '(無題)').slice(0, 30)}
+            </option>
+          ))}
+        </select>
         <span className={`conn ${store.connected ? 'on' : 'off'}`}>
           {store.connected ? '接続中' : '再接続中…'}
         </span>
       </header>
       {authFailed && <div className="error-banner">認証に失敗した。トークンを確認して再入力を。</div>}
+      {sessionError && <div className="error-banner">{sessionError}</div>}
       <nav className="tabs">
         {(Object.keys(TAB_LABEL) as Tab[]).map((t) => (
           <button key={t} className={store.tab === t ? 'active' : ''} onClick={() => store.setTab(t)}>
