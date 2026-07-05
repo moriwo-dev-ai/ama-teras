@@ -2,7 +2,14 @@
 
 ## 現在の状態
 
-- **M1〜M13まで実装**。テスト375件・typecheck(node/web/remote)全合格。
+- **M1〜M14まで実装**。テスト403件・typecheck(node/web/remote)全合格。
+- **M14完了(2026-07-06・Windows実機で実装/検証・ベンチ④合格)**: 画像入力対応 —
+  プロバイダ画像写像(Anthropicネイティブ/OpenAI互換レイヤ)/D&D・ペースト・スマホ📷添付/
+  screenshotツール(localhost自動・外部URLはドメイン単位セッション許可+全件audit・非httpスキーム拒否)/
+  画像blob外出し(sessions/blobs・50MB上限)/compaction画像テキスト化(ペア構造不変)/
+  fullPcセッション中許可(M14-5・既定OFF・ツール×ディレクトリ粒度)。
+  **ベンチ④(React→devサーバ→スクショ自己確認→見た目修正)を1.3分・介入0で完遂** —
+  「UI確認不可」ギャップ解消(docs/autonomy-comparison.md)。体感確認は `docs/M14-manual-test.md`
 - **M13完了(2026-07-05・Windows実機で実装/検証)**: QRコード接続/長期記憶+compaction強化/
   MCPクライアント(stdio)。実機確認済み(QR表示・memory追記・MCP filesystem 14ツール接続→
   承認バナー→実行)。残る体感確認は `docs/M13-manual-test.md`
@@ -190,6 +197,24 @@
   - 判断記録: MCP子プロセスはSDKのtransportが所有するため ProcessManager 登録ではなく
     will-quit で McpManager.closeAll()(ユーザー承認済み)/ CONTEXT_LIMITS は保守的既定
     (claude-*/gpt-5*: 200k、gpt-4.1: 1M、gpt-4o: 128k、未知: 200k)
+
+- 2026-07-06: **M14 — 画像入力対応(UI検証の完成)**。テスト375→403件。設計書 `docs/M14-design.md`
+  - M14-1: ContentBlock image / tool_result.images(テキストのみ履歴と後方互換)。
+    Anthropicネイティブ写像・OpenAIは tool_result 画像を直後 user へ注入する互換レイヤ。
+    compaction は画像を概算1600トークンで計上し古い画像を「[画像: 説明]」置換(ペア構造不変)。
+    SessionStore は sha256 content-addressed で sessions/blobs/ へ外出し・50MB超過で古い画像から
+    テキスト化・欠損blob耐性
+  - M14-2: chat:send 任意images引数(1枚10MB・8枚)。screenshotツール(ToolContext注入方式・
+    ToolPlugin.dynamicApproval 新設)。localhost=safe自動/外部URL=毎回承認+ドメイン単位
+    セッション許可/自動許可含め全件audit/file://等拒否。進化ジョブ非波及をguardrails固定
+  - M14-3: 添付サムネイル・ツールカード画像プレビュー・remote-ui📷添付(検証共通化)
+  - M14-5: fullPcAllowSession(既定OFF)。ONでツール×ディレクトリ粒度のセッション許可、
+    exec対象外・ハード拒否不変・自動通過も全件audit
+  - M14-4: ベンチ④合格(1.3分・介入0・スクショ2枚・build独立検証・残プロセス0)。
+    初回試行はscaffoldの対話プロンプトでモデルが質問し失格 → プロンプトに
+    「質問せず自分で判断」を明示して再実行(手順は autonomy-comparison.md に記録)
+  - 判断記録: 画像トークンは実データ長でなく定数概算(1600tok)/ blobs は content-addressed
+    共有のため自動GCしない(欠損時はロードで置換テキスト化)/ LAN内IPも「外部」扱い
 
 ## 次のタスク
 
