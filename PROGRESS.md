@@ -2,7 +2,10 @@
 
 ## 現在の状態
 
-- **M1〜M12まで実装**。テスト337件・typecheck(node/web/remote)全合格。
+- **M1〜M13まで実装**。テスト375件・typecheck(node/web/remote)全合格。
+- **M13完了(2026-07-05・Windows実機で実装/検証)**: QRコード接続/長期記憶+compaction強化/
+  MCPクライアント(stdio)。実機確認済み(QR表示・memory追記・MCP filesystem 14ツール接続→
+  承認バナー→実行)。残る体感確認は `docs/M13-manual-test.md`
 - **M12完了(2026-07-05・Windows実機で実装/検証)**: 長丁場対応 —
   多重起動ガード(smoke非ロック)/セッション永続化+再開(強制終了→復元→文脈保持を実機確認)/
   計画ファイル(planツール+system prompt注入+パネル)/並列サブエージェント
@@ -169,6 +172,24 @@
     **全課題を介入ゼロで完遂・独立検証合格**。②初回試行で同期bashの
     キャンセル不能ハングが実害化 → bash修正(c8884a9: タイムアウト/キャンセル時に
     子孫ツリーtaskkill+フォールバック解決)
+
+- 2026-07-05: **M13 — QR・コンテキスト管理強化・MCPクライアント**。テスト337→375件。
+  設計書 `docs/M13-design.md`。依存追加: qrcode / @modelcontextprotocol/sdk(承認済みの2つのみ。
+  @types/qrcode は追加せずローカル d.ts で対応)
+  - M13-0: リモート接続URLのQR表示(buildRemoteUrl切り出し+テスト。トークン込みQRは
+    有効化/再生成直後のみ・それ以外はトークン無しURL+注記)
+  - M13-1: memoryツール(MYCODEX.md固定・学習メモ節へタイムスタンプ付き追記・rewrite整理)。
+    compaction: 実測トークントリガー(usage input+cache_read、CONTEXT_LIMITSの70%、
+    ループ内でも発火)/2段階圧縮(第1段: 古いtool_result切り詰め=ペア構造不変を
+    テスト固定、第2段: 構造化要約5セクション)/「## 記憶へ退避」を学習メモへ自動退避
+  - M13-2: McpManager(stdio・mcp.json・起動非ブロック・mcp__<server>__<tool>で外部登録・
+    名前衝突拒否)。risk写像 readOnly→safe/destructive→exec/その他→write/annotationsなし→exec。
+    サーバー単位信頼確認・承認/remote-uiに出所バナー。テストはInMemoryTransportのモックサーバー
+  - 非波及: memory/MCPはguardrailsで固定(進化ジョブ=自前registryで構造上不可視+トリップワイヤ、
+    読み取り専用サブエージェントから memory/mcp__ 除外)
+  - 判断記録: MCP子プロセスはSDKのtransportが所有するため ProcessManager 登録ではなく
+    will-quit で McpManager.closeAll()(ユーザー承認済み)/ CONTEXT_LIMITS は保守的既定
+    (claude-*/gpt-5*: 200k、gpt-4.1: 1M、gpt-4o: 128k、未知: 200k)
 
 ## 次のタスク
 
