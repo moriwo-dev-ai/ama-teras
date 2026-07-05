@@ -12,6 +12,7 @@ import type {
 import { AuditLog } from './audit';
 import { ConfigStore } from './config';
 import { validateChatImages } from './core/chatImages';
+import { workspaceGitStatus } from './core/gitStatus';
 import { McpManager } from './mcp/manager';
 import { CheckpointManager } from './core/checkpoints';
 import { EventBus } from './core/events';
@@ -346,6 +347,9 @@ export async function registerIpcHandlers(
     const result = await service.filePreview(path);
     if (result.ok && result.path) shell.showItemInFolder(result.path);
   });
+
+  // ---- 環境ウィジェット(M15-4) ----
+  ipcMain.handle(IpcChannels.workspaceGitStatus, () => workspaceGitStatus(service.getWorkspace()));
 
   // ---- 計画ファイル(M12-2) ----
   ipcMain.handle(IpcChannels.planGet, () => readProjectPlan(service.getWorkspace()));

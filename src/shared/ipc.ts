@@ -22,6 +22,7 @@ import type {
   SubAgentUpdate,
   ToolExecResultPayload,
   ToolInfo,
+  WorkspaceGitStatus,
 } from './types';
 
 /** IPCチャネル名の一元定義。文字列リテラルを直接使わない */
@@ -61,6 +62,8 @@ export const IpcChannels = {
   /** M15-3: ファイルプレビュー(読み取り専用・M9スコープ判定つき) */
   filePreview: 'file:preview',
   fileReveal: 'file:reveal',
+  /** M15-4: 環境ウィジェット用の軽量git状態 */
+  workspaceGitStatus: 'workspace:gitStatus',
   /** M12-2: 計画ファイル(MYCODEX_PLAN.md)の内容取得(計画パネル用・読み取り専用) */
   planGet: 'plan:get',
   /** M12-3: 並列サブエージェントの進行状況(エージェントパネル用) */
@@ -127,6 +130,9 @@ export interface MyCodexApi {
   /** M15-3: 右ペインのファイルプレビュー(読み取り専用)/ エクスプローラで表示 */
   filePreview(path: string): Promise<FilePreviewResult>;
   fileReveal(path: string): Promise<void>;
+
+  /** M15-4: 現在workspaceのgit状態(git無しは isGit:false) */
+  workspaceGitStatus(): Promise<WorkspaceGitStatus>;
 
   /** M12-2: 現在のワークスペースの MYCODEX_PLAN.md の内容(無ければ空文字) */
   planGet(): Promise<string>;

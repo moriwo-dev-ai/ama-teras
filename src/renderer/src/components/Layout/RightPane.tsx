@@ -1,25 +1,80 @@
+import { useEffect } from 'react';
+import { SubAgentPanel } from '../Agents/SubAgentPanel';
+import { ToolDebugPanel } from '../Debug/ToolDebugPanel';
+import { EvolutionPanel } from '../Evolution/EvolutionPanel';
+import { PlanPanel } from '../Plan/PlanPanel';
+import { useEvolutionStore } from '../../stores/evolution';
 import { usePreviewStore } from '../../stores/preview';
+import { useRightPaneStore, type RightPaneTab } from '../../stores/rightPane';
+import { useSubAgentStore } from '../../stores/subagents';
+import { EnvWidget } from './EnvWidget';
 import { FilePreview } from './FilePreview';
 
 /**
- * M15-3: 右ペイン。ファイルプレビューを表示(M15-4 で環境ウィジェットとタブ集約が入る)。
+ * M15-4: 右ペイン — 環境ウィジェット+タブ集約(プレビュー/計画/エージェント/進化/Debug)。
+ * 進行中イベント(実行中サブエージェント・進行中進化ジョブ)はタブにバッジ表示。
  */
+
+const TERMINAL_JOB_STATUS = new Set(['promoted', 'failed', 'rejected', 'rolled_back']);
+
 export function RightPane(): JSX.Element {
-  const hasPreview = usePreviewStore((s) => s.result !== null);
+  const { tab, setTab } = useRightPaneStore();
+  const previewResult = usePreviewStore((s) => s.result);
+  const runningAgents = useSubAgentStore((s) => s.agents.filter((a) => a.status === 'running').length);
+  const activeJobs = useEvolutionStore(
+    (s) => s.jobs.filter((j) => !TERMINAL_JOB_STATUS.has(j.status)).length,
+  );
+
+  // プレビューを開いたらプレビュータブへ
+  useEffect(() => {
+    if (previewResult) setTab('preview');
+  }, [previewResult, setTab]);
+
+  const tabs: { id: RightPaneTab; label: string; badge?: number }[] = [
+    { id: 'preview', label: '📄' },
+    { id: 'plan', label: '計画' },
+    { id: 'agents', label: 'エージェント', ...(runningAgents > 0 ? { badge: runningAgents } : {}) },
+    { id: 'evolution', label: '進化', ...(activeJobs > 0 ? { badge: activeJobs } : {}) },
+    { id: 'debug', label: 'Debug' },
+  ];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="border-b border-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-300">
-        コンテキスト
+      <EnvWidget />
+      <div className="flex border-b border-zinc-800 text-xs">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            className={`relative px-2.5 py-1.5 ${
+              tab === t.id ? 'border-b-2 border-blue-500 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+            {t.badge !== undefined && (
+              <span className="absolute -right-0.5 top-0.5 rounded-full bg-blue-600 px-1 text-[9px] leading-3">
+                {t.badge}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
-      {hasPreview ? (
-        <FilePreview />
-      ) : (
-        <div className="flex-1 overflow-y-auto p-3 text-xs text-zinc-500">
-          チャット内のファイルパス(ツールカードの 📄 や本文中のパス)をクリックすると
-          ここにプレビューが表示される。環境ウィジェット/パネルタブは M15-4 で追加
-        </div>
-      )}
+
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {tab === 'preview' &&
+          (previewResult ? (
+            <FilePreview />
+          ) : (
+            <p className="p-3 text-xs text-zinc-500">
+              チャット内のファイルパス(ツールカードの 📄 や本文中のパス)をクリックすると
+              ここにプレビューが表示される
+            </p>
+          ))}
+        {tab === 'plan' && <PlanPanel />}
+        {tab === 'agents' && <SubAgentPanel />}
+        {tab === 'evolution' && <EvolutionPanel />}
+        {tab === 'debug' && <ToolDebugPanel />}
+      </div>
     </div>
   );
 }

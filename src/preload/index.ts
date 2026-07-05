@@ -57,6 +57,7 @@ const api: MyCodexApi = {
 
   filePreview: (path) => ipcRenderer.invoke(IpcChannels.filePreview, path),
   fileReveal: (path) => ipcRenderer.invoke(IpcChannels.fileReveal, path),
+  workspaceGitStatus: () => ipcRenderer.invoke(IpcChannels.workspaceGitStatus),
 
   planGet: () => ipcRenderer.invoke(IpcChannels.planGet),
 

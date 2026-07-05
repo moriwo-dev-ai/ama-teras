@@ -240,6 +240,15 @@ export interface SubAgentUpdate {
   summaryTail?: string;
 }
 
+// ---- M15-4: 環境ウィジェット ----
+
+export interface WorkspaceGitStatus {
+  isGit: boolean;
+  branch?: string;
+  /** 未コミット変更(ステージ済み含む)のファイル数 */
+  dirtyCount?: number;
+}
+
 // ---- M15-3: ファイルプレビュー ----
 
 export interface FilePreviewResult {
