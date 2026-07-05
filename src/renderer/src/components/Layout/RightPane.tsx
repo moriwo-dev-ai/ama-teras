@@ -52,7 +52,7 @@ export function RightPane(): JSX.Element {
           >
             {t.label}
             {t.badge !== undefined && (
-              <span className="absolute -right-0.5 top-0.5 rounded-full bg-blue-600 px-1 text-[9px] leading-3">
+              <span className="anim-pulse absolute -right-0.5 top-0.5 rounded-full bg-blue-600 px-1 text-[9px] leading-3">
                 {t.badge}
               </span>
             )}
@@ -60,7 +60,8 @@ export function RightPane(): JSX.Element {
         ))}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      {/* key=tab でタブ切替時に再マウントさせてフェードインを発火する */}
+      <div key={tab} className="anim-fade flex min-h-0 flex-1 flex-col overflow-y-auto">
         {tab === 'preview' &&
           (previewResult ? (
             <FilePreview />

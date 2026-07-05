@@ -52,7 +52,8 @@ export function PlanPanel(): JSX.Element {
         <ul className="space-y-0.5">
           {progress.items.map((item, i) => (
             <li key={i} className={item.done ? 'text-zinc-500 line-through' : 'text-zinc-300'}>
-              {item.done ? '☑' : '☐'} {item.text}
+              {/* 完了への変化時だけ anim-check が付与されてポップする */}
+              <span className={item.done ? 'anim-check' : ''}>{item.done ? '☑' : '☐'}</span> {item.text}
             </li>
           ))}
         </ul>

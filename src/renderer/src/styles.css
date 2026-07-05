@@ -1,1 +1,47 @@
 @import 'tailwindcss';
+
+/*
+ * M16-4: 控えめマイクロアニメーション。
+ * - 動かすのは transform / opacity のみ(レイアウトを揺らさない)
+ * - Settings のトグル(localStorage)→ <html data-anim="on|off"> で一括制御
+ * - OS の「視差効果を減らす」(prefers-reduced-motion)は設定より優先して無効化
+ */
+@keyframes mx-appear {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes mx-pop {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes mx-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes mx-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@keyframes mx-check {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+:root[data-anim='on'] .anim-appear { animation: mx-appear 0.18s ease-out both; }
+:root[data-anim='on'] .anim-pop { animation: mx-pop 0.15s ease-out both; }
+:root[data-anim='on'] .anim-fade { animation: mx-fade 0.12s ease-out both; }
+:root[data-anim='on'] .anim-pulse { animation: mx-pulse 1.6s ease-in-out infinite; }
+:root[data-anim='on'] .anim-check { display: inline-block; animation: mx-check 0.25s ease-out; }
+:root[data-anim='on'] button { transition: opacity 0.12s ease, transform 0.08s ease; }
+:root[data-anim='on'] button:active:not(:disabled) { transform: scale(0.97); }
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-anim='on'] .anim-appear,
+  :root[data-anim='on'] .anim-pop,
+  :root[data-anim='on'] .anim-fade,
+  :root[data-anim='on'] .anim-pulse,
+  :root[data-anim='on'] .anim-check { animation: none; }
+  :root[data-anim='on'] button { transition: none; }
+  :root[data-anim='on'] button:active:not(:disabled) { transform: none; }
+}

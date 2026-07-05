@@ -34,7 +34,7 @@ function ToolCard({ msg }: { msg: Extract<UiMessage, { role: 'tool' }> }): JSX.E
   const openPreview = usePreviewStore((s) => s.open);
   const path = pathFromInputPreview(msg.inputPreview);
   return (
-    <div className="flex justify-start">
+    <div className="anim-appear flex justify-start">
       <div
         className={`max-w-[85%] rounded-md border px-3 py-1.5 text-xs ${
           msg.isError ? 'border-red-700 bg-red-950' : 'border-zinc-700 bg-zinc-900'
@@ -47,7 +47,7 @@ function ToolCard({ msg }: { msg: Extract<UiMessage, { role: 'tool' }> }): JSX.E
           <span className="font-mono text-blue-300">{msg.name}</span>
           <span className="max-w-[360px] truncate text-zinc-500">{msg.inputPreview}</span>
           {msg.images && msg.images.length > 0 && <span>🖼</span>}
-          {msg.running && <span className="animate-pulse text-zinc-400">実行中…</span>}
+          {msg.running && <span className="anim-pulse text-zinc-400">実行中…</span>}
           {!msg.running && <span className="text-zinc-500">{open ? '▲' : '▼'}</span>}
         </button>
         {path && (
@@ -164,7 +164,7 @@ export function ChatView(): JSX.Element {
           m.role === 'tool' ? (
             <ToolCard key={m.id} msg={m} />
           ) : m.role === 'info' ? (
-            <div key={m.id} className="flex justify-center">
+            <div key={m.id} className="anim-appear flex justify-center">
               <div className="max-w-[85%] rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-center text-[11px] text-zinc-400">
                 ℹ️ {m.text}
               </div>
@@ -172,7 +172,7 @@ export function ChatView(): JSX.Element {
           ) : (
             <div
               key={m.id}
-              className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}
+              className={m.role === 'user' ? 'anim-appear flex justify-end' : 'anim-appear flex justify-start'}
             >
               <div
                 className={
@@ -193,7 +193,7 @@ export function ChatView(): JSX.Element {
                   </div>
                 )}
                 {m.role === 'assistant' ? <MarkdownMessage text={m.text} /> : m.text}
-                {m.streaming && <span className="ml-1 animate-pulse">▍</span>}
+                {m.streaming && <span className="anim-pulse ml-1">▍</span>}
               </div>
             </div>
           ),

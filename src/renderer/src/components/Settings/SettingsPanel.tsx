@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AppConfig, ProviderId, SecretsStatus } from '../../../../shared/types';
 import { DEFAULT_MODELS, KNOWN_MODELS, isKnownModel } from '../../../../shared/models';
+import { animEnabled, setAnimEnabled } from '../../lib/animPref';
 import { McpSection } from './McpSection';
 import { RemoteAccessSection } from './RemoteAccessSection';
 
@@ -14,6 +15,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
   const [memory, setMemory] = useState('');
   // fullPc 有効化は影響が大きいため確認モーダルを挟む(M9-4)
   const [confirmFullPc, setConfirmFullPc] = useState(false);
+  const [animOn, setAnimOn] = useState(animEnabled());
 
   useEffect(() => {
     void window.api.settingsGet().then(setConfig);
@@ -312,6 +314,24 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
           <p className="text-xs text-zinc-500">
             課金/残高エラーを検知すると、その会話の実行だけ切替先で自動続行する(本体のプロバイダ設定は
             変更しない・1会話につき1回まで・発動は audit.jsonl に記録)。切替先のAPIキー登録が必要
+          </p>
+        </div>
+
+        <div className="space-y-1">
+          <label className="flex items-center gap-2 text-xs text-zinc-300">
+            <input
+              type="checkbox"
+              checked={animOn}
+              onChange={(e) => {
+                setAnimEnabled(e.target.checked);
+                setAnimOn(e.target.checked);
+              }}
+            />
+            アニメーション(UIの表示効果)
+          </label>
+          <p className="text-xs text-zinc-500">
+            メッセージ表示・タブ切替などの控えめな動き。OSの「視差効果を減らす」設定が
+            有効な場合はONでも動かない(この設定はこのPCにのみ保存)
           </p>
         </div>
 

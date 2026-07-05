@@ -17,8 +17,8 @@ export function ApprovalDialog(): JSX.Element | null {
   const isSystemScope = req.scope === 'system';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-[640px] max-w-[90vw] rounded-lg border border-zinc-600 bg-zinc-900 p-4 shadow-xl">
+    <div className="anim-fade fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="anim-pop w-[640px] max-w-[90vw] rounded-lg border border-zinc-600 bg-zinc-900 p-4 shadow-xl">
         <div className="mb-2 flex items-center gap-2">
           <span className={`rounded px-2 py-0.5 text-xs text-white ${risk.cls}`}>{risk.text}</span>
           <h2 className="text-sm font-semibold">
