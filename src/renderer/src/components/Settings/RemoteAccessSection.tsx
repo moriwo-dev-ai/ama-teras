@@ -1,7 +1,40 @@
+import { toDataURL } from 'qrcode';
 import { useEffect, useState } from 'react';
 import type { RemoteStatusPayload } from '../../../../shared/types';
+import { buildRemoteUrl } from './remoteUrl';
 
 const HOST_KEY = 'mycodex-remote-host';
+
+/** M13-0: 接続URLのQR表示。スマホカメラで読むだけで接続できるようにする */
+function RemoteQr({ url, withToken }: { url: string; withToken: boolean }): JSX.Element | null {
+  const [dataUrl, setDataUrl] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    toDataURL(url, { width: 192, margin: 1 })
+      .then((d) => {
+        if (alive) setDataUrl(d);
+      })
+      .catch(() => {
+        if (alive) setDataUrl('');
+      });
+    return () => {
+      alive = false;
+    };
+  }, [url]);
+
+  if (!dataUrl) return null;
+  return (
+    <div className="flex items-start gap-3">
+      <img src={dataUrl} alt="接続QRコード" className="h-40 w-40 rounded bg-white p-1" />
+      <p className="max-w-[220px] text-[11px] text-zinc-400">
+        {withToken
+          ? 'トークン込みの接続QR。スマホのカメラで読むだけで接続できる(この画面にいる間だけ表示)'
+          : 'トークン無しのURL(接続にはトークン入力が必要)。トークン込みQRは有効化直後かトークン再生成直後にのみ表示される'}
+      </p>
+    </div>
+  );
+}
 
 /**
  * M10-5: 設定パネルの「リモートアクセス(スマホ)」セクション。
@@ -56,10 +89,7 @@ export function RemoteAccessSection(): JSX.Element {
     }
   };
 
-  const url =
-    host.trim() !== ''
-      ? `http://${host.trim()}:${status.port}/${token ? `#t=${token}` : ''}`
-      : '';
+  const url = buildRemoteUrl(host, status.port, token);
 
   const copy = (text: string, label: string): void => {
     void navigator.clipboard.writeText(text).then(() => setNotice(`${label}をコピーした`));
@@ -139,6 +169,7 @@ export function RemoteAccessSection(): JSX.Element {
               </button>
             </div>
           )}
+          {url && <RemoteQr url={url} withToken={token !== null} />}
         </div>
       )}
 
