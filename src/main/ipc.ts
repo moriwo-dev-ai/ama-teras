@@ -61,7 +61,8 @@ function assertConfig(value: unknown): asserts value is AppConfig {
       (typeof rec['maxTurns'] === 'number' && Number.isFinite(rec['maxTurns']))) &&
     (rec['postEditHook'] === undefined || typeof rec['postEditHook'] === 'string') &&
     (rec['subAgentMaxTurns'] === undefined ||
-      (typeof rec['subAgentMaxTurns'] === 'number' && Number.isFinite(rec['subAgentMaxTurns'])));
+      (typeof rec['subAgentMaxTurns'] === 'number' && Number.isFinite(rec['subAgentMaxTurns']))) &&
+    (rec['fullPcAllowSession'] === undefined || typeof rec['fullPcAllowSession'] === 'boolean');
   if (!ok) throw new Error('IPC payload config が不正');
 }
 

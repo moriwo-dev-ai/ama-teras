@@ -261,6 +261,8 @@ export class AgentService {
           ? { command: cmd, cwd: this.getWorkspace() }
           : null;
       },
+      // M14-5: fullPc の「セッション中許可(このフォルダ)」(既定OFF=M9どおり毎回承認)
+      getFullPcAllowSession: () => this.deps.config.get().fullPcAllowSession === true,
     };
   }
 

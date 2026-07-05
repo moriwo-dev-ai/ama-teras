@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
-import { isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import type { AutoApproveSettings, DiffLine, OperationScope, ScopeMode } from '../../shared/types';
 import type { ApprovalBroker } from '../agent/approval';
 import { lineDiff } from '../util/diff';
@@ -45,6 +45,11 @@ export interface ExecutorDeps {
    * さらに restrictExec コンテキストでは注入されていても実行しない(二重防御)。
    */
   getPostEditHook?: () => { command: string; cwd: string } | null;
+  /**
+   * M14-5: fullPc の system スコープに「セッション中許可(このフォルダ)」を許すか。
+   * 既定 false(未指定も false)= M9 どおり毎回承認。exec系・ハード拒否は設定に関係なく不変
+   */
+  getFullPcAllowSession?: () => boolean;
 }
 
 const HOOK_TIMEOUT_MS = 60_000;
@@ -209,12 +214,38 @@ export async function executeToolWithApproval(
   // system スコープは autoApprove / allow-session に関係なく毎回承認(設計の中核不変条件)
   const forced = scope === 'system';
   const auto = deps.getAutoApprove();
+  // M14-5: fullPcAllowSession が ON のとき、systemスコープでも「ツール×ディレクトリ」粒度の
+  // セッション許可を認める(exec系はパスで範囲を限定できないため対象外・従来どおり毎回)。
+  // ハード拒否はここより前で判定済みのため設定に関係なく不変
+  const fullPcDirKeys =
+    forced &&
+    deps.getFullPcAllowSession?.() === true &&
+    plugin.risk !== 'exec' &&
+    resolvedPaths !== undefined &&
+    resolvedPaths.length > 0
+      ? resolvedPaths.map((p) => `fullpc:${plugin.name}:${dirname(resolve(p)).toLowerCase()}`)
+      : null;
+  const fullPcSessionAllowed =
+    fullPcDirKeys !== null && fullPcDirKeys.every((k) => deps.broker.isSessionAllowed(k));
   // M14-2: 動的承認は autoApprove を無視して要求する(セッションキーで許可済みならスキップ)
   const dynSessionAllowed =
     dyn?.sessionKey !== undefined && deps.broker.isSessionAllowed(dyn.sessionKey);
   const dynNeedsApproval = dyn?.required === true && !dynSessionAllowed;
   const needsApproval =
-    forced || dynNeedsApproval || (!auto[plugin.risk] && !deps.broker.isSessionAllowed(name));
+    (forced && !fullPcSessionAllowed) ||
+    dynNeedsApproval ||
+    (!auto[plugin.risk] && !deps.broker.isSessionAllowed(name));
+
+  // M14-5: セッション許可で自動通過する system 操作も監査に「承認(自動)」として残す
+  if (forced && !needsApproval && fullPcSessionAllowed) {
+    deps.audit?.({
+      tool: plugin.name,
+      scope: 'system',
+      paths: resolvedPaths ?? [],
+      event: 'approval',
+      detail: 'allow(session-auto)',
+    });
+  }
 
   if (needsApproval) {
     const decision = await deps.broker.request(
@@ -230,6 +261,11 @@ export async function executeToolWithApproval(
         ...(dyn?.sessionKey !== undefined && dyn.sessionLabel !== undefined
           ? { allowSessionLabel: dyn.sessionLabel }
           : {}),
+        // M14-5: fullPcAllowSession ON のときは system スコープでも「このフォルダ」粒度で
+        // セッション許可ボタンを出す(UIは allowSessionLabel の有無で表示を切り替える)
+        ...(fullPcDirKeys !== null && resolvedPaths !== undefined && resolvedPaths.length > 0
+          ? { allowSessionLabel: `このフォルダ: ${dirname(resolve(resolvedPaths[0]!))}` }
+          : {}),
         // M12-3: サブエージェント発の要求は承認UIで出所を明示する
         ...(ctx.subAgentId !== undefined ? { subAgentId: ctx.subAgentId } : {}),
         // M13-2: MCPツールはサーバー名を出所として明示する(名前 mcp__<server>__<tool> から導出)
@@ -243,7 +279,8 @@ export async function executeToolWithApproval(
         scope: 'system',
         paths: resolvedPaths ?? [],
         event: 'approval',
-        detail: decision === 'deny' ? 'deny' : 'allow',
+        detail:
+          decision === 'deny' ? 'deny' : decision === 'allow-session' ? 'allow-session' : 'allow',
       });
     }
     // M14-2: 動的承認対象(外部URL等)の承認判断も監査へ残す
@@ -259,9 +296,13 @@ export async function executeToolWithApproval(
     if (decision === 'deny') {
       return { content: 'ユーザーがツール実行を拒否した', isError: true };
     }
-    if (decision === 'allow-session' && !forced) {
-      // 動的承認はキー粒度(例: screenshot@example.com)で記憶。それ以外は従来どおりツール名
-      if (dyn?.required === true && dyn.sessionKey !== undefined) {
+    if (decision === 'allow-session') {
+      if (forced) {
+        // M14-5: system スコープは fullPcAllowSession ON のディレクトリ粒度キーのみ記憶する
+        // (OFF のときはボタン自体が出ないが、受理しても記憶しない=M9の従来仕様)
+        if (fullPcDirKeys !== null) for (const k of fullPcDirKeys) deps.broker.allowForSession(k);
+      } else if (dyn?.required === true && dyn.sessionKey !== undefined) {
+        // 動的承認はキー粒度(例: screenshot@example.com)で記憶
         deps.broker.allowForSession(dyn.sessionKey);
       } else if (dyn?.required !== true) {
         deps.broker.allowForSession(name);

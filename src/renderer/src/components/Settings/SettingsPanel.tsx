@@ -182,6 +182,26 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
               ⚠ fullPc 有効中: プロジェクト外の操作は毎回承認ダイアログが出る(自動承認・セッション許可は無効)
             </p>
           )}
+          <label className="flex items-center gap-2 text-xs text-zinc-300">
+            <input
+              type="checkbox"
+              checked={config.fullPcAllowSession === true}
+              onChange={(e) => {
+                const next: AppConfig = { ...config };
+                if (e.target.checked) next.fullPcAllowSession = true;
+                else delete next.fullPcAllowSession;
+                void window.api.settingsSet(next).then(setConfig);
+              }}
+            />
+            fullPc時の「セッション中許可(このフォルダ)」を有効化(M14-5)
+          </label>
+          {config.fullPcAllowSession === true && (
+            <p className="text-xs text-amber-400">
+              ⚠ 放置作業の利便と引き換えに、許可したフォルダへの書き込みがセッション中
+              ノーチェックになる(ツール×フォルダ単位。bash等の実行系と保護領域は対象外。
+              自動通過も全件 audit.jsonl に記録)
+            </p>
+          )}
         </div>
 
         <div className="space-y-1">

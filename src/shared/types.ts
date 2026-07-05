@@ -113,6 +113,12 @@ export interface AppConfig {
   /** M12-3: work サブエージェント1体あたりの最大ターン数。未設定=既定30(1〜100にクランプ) */
   subAgentMaxTurns?: number;
   /**
+   * M14-5: fullPc の system スコープ承認に「セッション中許可(このフォルダ)」を出す。
+   * 既定 false(=M9どおり毎回承認)。粒度はツール×ディレクトリ、exec系は対象外。
+   * セッション許可で自動通過した操作も全件 audit.jsonl に記録される
+   */
+  fullPcAllowSession?: boolean;
+  /**
    * M10: スマホWebアクセス。既定 disabled。省略可(後方互換)で、ConfigStore が既定値を補う。
    * renderer からの settings:set では上書きされない(専用IPCでのみ変更)。
    */

@@ -81,7 +81,9 @@ export function ApprovalDialog(): JSX.Element | null {
           >
             拒否
           </button>
-          {!isSystemScope && (
+          {/* M14-5: systemスコープは原則ボタン非表示。fullPcAllowSession ON のとき
+              だけ main が allowSessionLabel を付けてくるので、その場合のみ表示する */}
+          {(!isSystemScope || req.allowSessionLabel) && (
             <button
               className="rounded-md border border-zinc-600 px-3 py-1.5 text-sm hover:bg-zinc-800"
               onClick={() => respond(req.id, 'allow-session')}
