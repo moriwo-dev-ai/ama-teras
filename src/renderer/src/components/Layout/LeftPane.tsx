@@ -172,7 +172,8 @@ export function LeftPane(): JSX.Element {
                 </button>
               )}
             </div>
-            <ul>
+            {/* プロジェクトの一段下にツリー表示(縦線+インデント) */}
+            <ul className="ml-3 border-l border-zinc-800 pl-1.5">
               {items.map((s) => (
                 <li key={s.id}>
                   {renaming?.id === s.id ? (
@@ -189,17 +190,20 @@ export function LeftPane(): JSX.Element {
                     />
                   ) : (
                     <button
-                      className="block w-full truncate rounded px-2 py-1 text-left text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                      className="flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
                       disabled={busy}
-                      title={s.title}
+                      title={`${s.title}(${new Date(s.updatedAt).toLocaleString()})`}
                       onClick={() => void open(s)}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         setMenu({ id: s.id, x: e.clientX, y: e.clientY });
                       }}
                     >
-                      {s.title || '(無題)'}
-                      <span className="ml-1 text-[10px] text-zinc-600">{relTime(s.updatedAt)}</span>
+                      {/* タイトルだけを truncate し、更新時刻は右端に固定(ペイン幅を変えても見える) */}
+                      <span className="min-w-0 flex-1 truncate">{s.title || '(無題)'}</span>
+                      <span className="shrink-0 whitespace-nowrap text-[10px] text-zinc-500">
+                        {relTime(s.updatedAt)}
+                      </span>
                     </button>
                   )}
                 </li>
