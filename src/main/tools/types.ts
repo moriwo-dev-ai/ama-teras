@@ -80,6 +80,8 @@ export interface ToolContext {
 export interface ToolResult {
   content: string;
   isError?: boolean;
+  /** M14-1: ツールが返す画像(base64)。tool_result ブロックに載りモデルへ渡る */
+  images?: { mediaType: string; data: string; description?: string }[];
 }
 
 /**

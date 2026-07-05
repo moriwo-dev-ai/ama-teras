@@ -32,19 +32,35 @@ export function buildAnthropicParams(
     ...(i === req.tools.length - 1 ? { cache_control: { type: 'ephemeral' as const } } : {}),
   }));
 
+  const toImageParam = (img: { mediaType: string; data: string }): Anthropic.ImageBlockParam => ({
+    type: 'image',
+    source: {
+      type: 'base64',
+      media_type: img.mediaType as Anthropic.Base64ImageSource['media_type'],
+      data: img.data,
+    },
+  });
+
   const messages: Anthropic.MessageParam[] = req.messages.map((m) => ({
     role: m.role,
     content: m.content.map((b): Anthropic.ContentBlockParam => {
       switch (b.type) {
         case 'text':
           return { type: 'text', text: b.text };
+        case 'image':
+          // M14-1: ユーザー添付画像(D&D/ペースト)
+          return toImageParam(b);
         case 'tool_use':
           return { type: 'tool_use', id: b.id, name: b.name, input: b.input ?? {} };
         case 'tool_result':
+          // M14-1: 画像付きツール結果(screenshot等)はネイティブの image ブロックで返す
           return {
             type: 'tool_result',
             tool_use_id: b.toolUseId,
-            content: b.content,
+            content:
+              b.images && b.images.length > 0
+                ? [{ type: 'text' as const, text: b.content }, ...b.images.map(toImageParam)]
+                : b.content,
             is_error: b.isError === true,
           };
       }

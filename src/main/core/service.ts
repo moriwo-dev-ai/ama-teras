@@ -146,6 +146,7 @@ export function toHistoryView(messages: ChatMessage[]): HistoryMessageView[] {
     const parts: string[] = [];
     for (const block of msg.content) {
       if (block.type === 'text' && block.text.trim() !== '') parts.push(block.text);
+      else if (block.type === 'image') parts.push(`🖼 [画像: ${block.description ?? block.mediaType}]`);
       else if (block.type === 'tool_use') parts.push(`⚙ ${block.name}`);
     }
     if (parts.length > 0) views.push({ role: msg.role, text: parts.join('\n') });

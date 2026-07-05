@@ -195,6 +195,8 @@ export async function runAgentLoop(
         toolUseId: tu.id,
         content: result.content,
         isError: result.isError,
+        // M14-1: 画像付きツール結果(screenshot等)をモデルへ渡す
+        ...(result.images && result.images.length > 0 ? { images: result.images } : {}),
       });
     }
     // キャンセルで未実行のまま抜けた tool_use にも合成結果を対応させ、履歴を整合させてから閉じる

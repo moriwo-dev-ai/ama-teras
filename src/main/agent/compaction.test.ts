@@ -256,3 +256,48 @@ describe('M13-1: 構造化要約と記憶退避', () => {
     expect(splitMemoryEscape('本文\n## 記憶へ退避\n   ')).toEqual(['本文', null]);
   });
 });
+
+describe('M14-1: 画像のcompaction', () => {
+  const PNG = { mediaType: 'image/png', data: 'aGVsbG8=' };
+
+  it('古いターンの画像は「[画像: 説明]」テキストへ置換され、ブロック数・ペア構造は不変', () => {
+    const history: ChatMessage[] = [
+      userText('t1'),
+      {
+        role: 'user',
+        content: [{ type: 'image', ...PNG, description: 'デザインモック' }],
+      },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'tu1', name: 'screenshot', input: {} }] },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', toolUseId: 'tu1', content: '撮影', images: [PNG] }],
+      },
+      asstText('確認した'),
+      userText('t2'),
+      { role: 'user', content: [{ type: 'image', ...PNG, description: '新しい画像' }] },
+    ];
+    const blocksBefore = history.map((m) => m.content.length);
+
+    const n = truncateOldToolResults(history, 1); // 直近1ターン(t2以降)は保持
+    expect(n).toBe(2); // 古い添付1 + tool_result画像1
+
+    expect(history.map((m) => m.content.length)).toEqual(blocksBefore);
+    const oldAttach = history[1]!.content[0]!;
+    expect(oldAttach.type === 'text' && oldAttach.text).toContain('[画像: デザインモック]');
+    const tr = history[3]!.content[0]!;
+    expect(tr.type === 'tool_result' && tr.images).toBeUndefined();
+    expect(tr.type === 'tool_result' && tr.toolUseId).toBe('tu1'); // ペアは不変
+    const recent = history[6]!.content[0]!;
+    expect(recent.type).toBe('image'); // 直近の画像は保持
+  });
+
+  it('推定トークンは画像を実サイズでなく概算(定数)で数える', () => {
+    const huge = 'x'.repeat(1_000_000); // 1MBのbase64相当
+    const withImage: ChatMessage[] = [
+      { role: 'user', content: [{ type: 'image', mediaType: 'image/png', data: huge }] },
+    ];
+    // 実データ長(25万トークン相当)ではなく画像概算(1600トークン)で数えられている
+    expect(estimateTokens(withImage)).toBeLessThan(3000);
+    expect(estimateTokens(withImage)).toBeGreaterThan(1000);
+  });
+});

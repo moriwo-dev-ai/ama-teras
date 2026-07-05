@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SessionMeta } from '../../shared/types';
 import { compactHistory } from '../agent/compaction';
-import type { ChatMessage, ContentBlock, LLMProvider } from '../providers/types';
+import type { ChatMessage, ContentBlock, ImageAttachment, LLMProvider } from '../providers/types';
 
 /**
  * M12-1: セッション永続化。userData/sessions/<id>.json に会話履歴を保存し、
@@ -17,6 +18,8 @@ export const SESSION_SCHEMA_VERSION = 1;
 /** 履歴JSONのサイズ上限。超えたら保存前に古いターンを要約へ畳む */
 export const MAX_SESSION_JSON_BYTES = 8 * 1024 * 1024;
 export const INTERRUPTED_RESULT_TEXT = 'アプリ再起動により中断';
+/** M14-1: セッションあたりの画像合計上限。超過時は古い画像からテキスト化 */
+export const MAX_IMAGE_BYTES_PER_SESSION = 50 * 1024 * 1024;
 
 export interface SessionData {
   version: typeof SESSION_SCHEMA_VERSION;
@@ -119,6 +122,58 @@ function isSessionData(v: unknown): v is SessionData {
   );
 }
 
+/** 履歴中の全画像(添付+tool_result内)を列挙する(古い順) */
+function collectImages(history: ChatMessage[]): ImageAttachment[] {
+  const out: ImageAttachment[] = [];
+  for (const m of history) {
+    for (const b of m.content) {
+      if (b.type === 'image') out.push(b);
+      else if (b.type === 'tool_result' && b.images) out.push(...b.images);
+    }
+  }
+  return out;
+}
+
+function imageBytes(img: ImageAttachment): number {
+  // base64 → 実バイト概算
+  return Math.floor(img.data.length * 0.75);
+}
+
+/**
+ * M14-1: セッションあたり50MB超過時、古い画像から「[画像: 説明]」テキストへ置換する。
+ * 呼び出し側(live履歴)を直接書き換える — メモリとディスクの整合を保つため。
+ * 添付画像ブロックは同位置で text ブロックへ、tool_result 画像は images から除去し本文へ注記。
+ * ブロック数・ペア構造は不変。戻り値はテキスト化した枚数
+ */
+export function evictOldImagesOverLimit(
+  history: ChatMessage[],
+  maxBytes: number = MAX_IMAGE_BYTES_PER_SESSION,
+): number {
+  let total = collectImages(history).reduce((sum, img) => sum + imageBytes(img), 0);
+  if (total <= maxBytes) return 0;
+  let evicted = 0;
+  for (const m of history) {
+    if (total <= maxBytes) break;
+    for (let j = 0; j < m.content.length && total > maxBytes; j++) {
+      const b = m.content[j]!;
+      if (b.type === 'image') {
+        total -= imageBytes(b);
+        m.content[j] = { type: 'text', text: `[画像: ${b.description ?? b.mediaType}](保存上限で破棄)` };
+        evicted++;
+      } else if (b.type === 'tool_result' && b.images && b.images.length > 0) {
+        while (b.images.length > 0 && total > maxBytes) {
+          const img = b.images.shift()!;
+          total -= imageBytes(img);
+          b.content = `${b.content}\n[画像: ${img.description ?? img.mediaType}](保存上限で破棄)`;
+          evicted++;
+        }
+        if (b.images.length === 0) delete b.images;
+      }
+    }
+  }
+  return evicted;
+}
+
 export class SessionStore {
   /** save の直列化(並行 save で tmp/rename が交錯しないように) */
   private queue: Promise<void> = Promise.resolve();
@@ -129,12 +184,86 @@ export class SessionStore {
     return join(this.dir, `${id}.json`);
   }
 
+  private blobPath(hash: string): string {
+    return join(this.dir, 'blobs', `${hash}.bin`);
+  }
+
+  /**
+   * 画像本体を sessions/blobs/ へ外出しした保存用コピーを作る(入力は変更しない)。
+   * ブロックは { data: '', blobRef: <sha256> } になり、JSONの肥大を防ぐ
+   */
+  private async externalizeImages(history: ChatMessage[]): Promise<ChatMessage[]> {
+    const writeBlob = async (img: ImageAttachment): Promise<ImageAttachment> => {
+      if (img.data === '') return img; // 既に外出し済み(ロード後未変更)
+      const bytes = Buffer.from(img.data, 'base64');
+      const hash = createHash('sha256').update(bytes).digest('hex');
+      await mkdir(join(this.dir, 'blobs'), { recursive: true });
+      await writeFile(this.blobPath(hash), bytes).catch((err) => {
+        throw new Error(`画像blobの保存失敗: ${err instanceof Error ? err.message : err}`);
+      });
+      const out: ImageAttachment = { ...img, data: '', blobRef: hash };
+      return out;
+    };
+    return Promise.all(
+      history.map(async (m) => ({
+        ...m,
+        content: await Promise.all(
+          m.content.map(async (b): Promise<ContentBlock> => {
+            if (b.type === 'image') return { ...(await writeBlob(b)), type: 'image' };
+            if (b.type === 'tool_result' && b.images && b.images.length > 0) {
+              return { ...b, images: await Promise.all(b.images.map(writeBlob)) };
+            }
+            return b;
+          }),
+        ),
+      })),
+    );
+  }
+
+  /** blobRef の画像本体を読み戻す(欠損blobは置換テキスト化して壊れないようにする) */
+  private async inlineImages(history: ChatMessage[]): Promise<void> {
+    const load = async (img: ImageAttachment): Promise<ImageAttachment | null> => {
+      if (img.data !== '' || !img.blobRef || !/^[0-9a-f]{64}$/.test(img.blobRef)) {
+        return img.data !== '' ? img : null;
+      }
+      try {
+        const bytes = await readFile(this.blobPath(img.blobRef));
+        return { ...img, data: bytes.toString('base64') };
+      } catch {
+        return null; // blob欠損
+      }
+    };
+    for (const m of history) {
+      for (let j = 0; j < m.content.length; j++) {
+        const b = m.content[j]!;
+        if (b.type === 'image') {
+          const loaded = await load(b);
+          if (loaded) m.content[j] = { ...loaded, type: 'image' };
+          else m.content[j] = { type: 'text', text: `[画像: ${b.description ?? b.mediaType}](本体が見つからない)` };
+        } else if (b.type === 'tool_result' && b.images && b.images.length > 0) {
+          const kept: ImageAttachment[] = [];
+          for (const img of b.images) {
+            const loaded = await load(img);
+            if (loaded) kept.push(loaded);
+            else b.content = `${b.content}\n[画像: ${img.description ?? img.mediaType}](本体が見つからない)`;
+          }
+          if (kept.length > 0) b.images = kept;
+          else delete b.images;
+        }
+      }
+    }
+  }
+
   save(data: SessionData): Promise<void> {
     const run = async (): Promise<void> => {
       if (!isValidSessionId(data.id)) throw new Error(`不正なセッションID: ${data.id}`);
       await mkdir(this.dir, { recursive: true });
+      // M14-1: 50MB超過の古い画像をテキスト化(live履歴側も同期して整合を保つ)
+      evictOldImagesOverLimit(data.history);
+      // 画像本体は blobs/ へ外出しした保存用コピーをJSON化(liveは base64 のまま)
+      const persisted = { ...data, history: await this.externalizeImages(data.history) };
       const tmp = `${this.file(data.id)}.tmp`;
-      await writeFile(tmp, JSON.stringify(data), 'utf8');
+      await writeFile(tmp, JSON.stringify(persisted), 'utf8');
       // rename は同一ボリューム内でアトミック。書きかけの本体ファイルは生じない
       await rename(tmp, this.file(data.id));
     };
@@ -163,6 +292,7 @@ export class SessionStore {
     }
     if (!isSessionData(parsed)) return null;
     repairDanglingToolUse(parsed.history);
+    await this.inlineImages(parsed.history);
     return parsed;
   }
 

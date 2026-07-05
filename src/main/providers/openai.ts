@@ -47,12 +47,35 @@ export function buildOpenAIParams(
         ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
       });
     } else {
+      // M14-1: ツール結果の画像は role:'tool' に載せられない(テキストのみ)ため、
+      // 直後に user メッセージとして注入する互換レイヤで吸収する
+      const pendingToolImages: { mediaType: string; data: string }[] = [];
       for (const b of m.content) {
         if (b.type === 'text') {
           messages.push({ role: 'user', content: b.text });
+        } else if (b.type === 'image') {
+          messages.push({
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: `data:${b.mediaType};base64,${b.data}` } },
+            ],
+          });
         } else if (b.type === 'tool_result') {
           messages.push({ role: 'tool', tool_call_id: b.toolUseId, content: b.content });
+          if (b.images) pendingToolImages.push(...b.images);
         }
+      }
+      if (pendingToolImages.length > 0) {
+        messages.push({
+          role: 'user',
+          content: [
+            { type: 'text', text: '[直前のツール結果に含まれる画像]' },
+            ...pendingToolImages.map((img) => ({
+              type: 'image_url' as const,
+              image_url: { url: `data:${img.mediaType};base64,${img.data}` },
+            })),
+          ],
+        });
       }
     }
   }

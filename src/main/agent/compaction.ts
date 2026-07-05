@@ -31,10 +31,19 @@ export interface CompactionOptions {
   onMemoryEscape?: (text: string) => void;
 }
 
+/** 画像1枚のトークン概算(高解像度スクショ想定の保守値)を文字数換算したもの */
+const IMAGE_ESTIMATE_CHARS = 1600 * CHARS_PER_TOKEN;
+
 function blockChars(b: ContentBlock): number {
   if (b.type === 'text') return b.text.length;
-  if (b.type === 'tool_result') return b.content.length;
+  if (b.type === 'image') return IMAGE_ESTIMATE_CHARS;
+  if (b.type === 'tool_result') return b.content.length + (b.images?.length ?? 0) * IMAGE_ESTIMATE_CHARS;
   return b.name.length + JSON.stringify(b.input).length; // tool_use
+}
+
+/** M14-1: 画像の置換テキスト(compactionでトークンを節約しつつ存在は文脈に残す) */
+function imagePlaceholder(img: { description?: string; mediaType: string }): string {
+  return `[画像: ${img.description ?? img.mediaType}]`;
 }
 
 /** 履歴の送信トークンを粗く推定する */
@@ -66,8 +75,10 @@ export function findCompactionSplit(messages: ChatMessage[], keepRecentTurns: nu
 function renderForSummary(m: ChatMessage): string {
   const parts = m.content.map((b) => {
     if (b.type === 'text') return b.text;
+    if (b.type === 'image') return imagePlaceholder(b);
     if (b.type === 'tool_use') return `[ツール呼び出し ${b.name} ${JSON.stringify(b.input)}]`;
-    return `[ツール結果${b.isError ? '(エラー)' : ''}: ${b.content.slice(0, 500)}]`;
+    const imgs = b.images && b.images.length > 0 ? ` +画像${b.images.length}枚` : '';
+    return `[ツール結果${b.isError ? '(エラー)' : ''}${imgs}: ${b.content.slice(0, 500)}]`;
   });
   return `${m.role === 'user' ? 'ユーザー' : 'アシスタント'}: ${parts.join(' ')}`;
 }
@@ -119,9 +130,10 @@ export function splitMemoryEscape(summary: string): [string, string | null] {
 
 /**
  * M13-1 第1段圧縮: split 境界より古いメッセージの tool_result 本文を切り詰める。
- * content 文字列のみ変更し、ブロック数・toolUseId・並びは一切変えない
- * (tool_use/tool_result のペア構造を壊さない = API 400 の回帰防止)。
- * 戻り値は切り詰めたブロック数。
+ * M14-1: 古い画像も「[画像: 説明]」テキストへ置換する(添付画像ブロックは同位置で
+ * text ブロックに置換、tool_result の画像は images を落として本文に注記)。
+ * ブロック数・toolUseId・並びは一切変えない(tool_use/tool_result のペア構造を
+ * 壊さない = API 400 の回帰防止)。戻り値は切り詰め/置換したブロック数。
  */
 export function truncateOldToolResults(
   messages: ChatMessage[],
@@ -131,8 +143,22 @@ export function truncateOldToolResults(
   if (split <= 0) return 0;
   let truncated = 0;
   for (let i = 0; i < split; i++) {
-    for (const block of messages[i]!.content) {
-      if (block.type === 'tool_result' && block.content.length > TRUNCATE_IF_LONGER_THAN) {
+    const msg = messages[i]!;
+    for (let j = 0; j < msg.content.length; j++) {
+      const block = msg.content[j]!;
+      if (block.type === 'image') {
+        // 同位置で text ブロックへ置換(ブロック数不変)
+        msg.content[j] = { type: 'text', text: imagePlaceholder(block) };
+        truncated++;
+        continue;
+      }
+      if (block.type !== 'tool_result') continue;
+      if (block.images && block.images.length > 0) {
+        block.content = `${block.content}\n${block.images.map(imagePlaceholder).join(' ')}(古いため画像本体は破棄)`;
+        delete block.images;
+        truncated++;
+      }
+      if (block.content.length > TRUNCATE_IF_LONGER_THAN) {
         block.content = `${block.content.slice(0, TRUNCATE_KEEP)}\n…[古いツール結果のため切り詰め済み]`;
         truncated++;
       }
