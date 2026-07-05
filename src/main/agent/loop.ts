@@ -21,6 +21,11 @@ export interface AgentLoopDeps {
    * 失敗しても次のターンへ進む(呼び出し側で握る)
    */
   compact?: (measuredPromptTokens: number) => Promise<void>;
+  /**
+   * M16-1: 実測プロンプトトークンの通知(message_doneごと)。compact と違い
+   * 1ターン完結でも呼ばれる — 呼び出し側が「最後の実測値」を保持するために使う
+   */
+  onUsage?: (measuredPromptTokens: number) => void;
 }
 
 const DEFAULT_MAX_TURNS = 30;
@@ -87,6 +92,7 @@ export async function runAgentLoop(
             stopReason = ev.stopReason;
             // M13-1: プロンプト側の実測トークン(圧縮トリガーの判定材料)
             lastPromptTokens = ev.usage.inputTokens + ev.usage.cacheReadTokens;
+            deps.onUsage?.(lastPromptTokens);
             // prompt caching の効き(cacheReadTokens)を実測できる唯一の場所。mainログに残す
             console.log(
               `[usage] session=${sessionId} turn=${turn} in=${ev.usage.inputTokens} out=${ev.usage.outputTokens} cache_read=${ev.usage.cacheReadTokens}`,

@@ -69,6 +69,9 @@ export function applyChatEvent(messages: UiMessage[], event: AgentEvent): UiMess
       );
     case 'error':
       return [...messages, { id: nextId(), role: 'assistant', text: `[エラー] ${event.message}`, streaming: false }];
+    case 'info':
+      // M16-1: システム通知(モデル切替・フォールバック等)
+      return [...messages, { id: nextId(), role: 'assistant', text: `ℹ️ ${event.message}`, streaming: false }];
     case 'status':
       if (TERMINAL.includes(event.status)) {
         return messages.map((m) => (m.role === 'assistant' && m.streaming ? { ...m, streaming: false } : m));

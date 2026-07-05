@@ -23,7 +23,7 @@ import type {
   ToolInfo,
 } from '../../shared/types';
 import { ApprovalBroker } from '../agent/approval';
-import { compactHistory, estimateTokens } from '../agent/compaction';
+import { compactHistory, DEFAULT_COMPACTION_THRESHOLD, estimateTokens } from '../agent/compaction';
 import { runAgentLoop } from '../agent/loop';
 import { contextLimitFor, DEFAULT_MODELS } from '../../shared/models';
 import {
@@ -179,7 +179,13 @@ export class AgentService {
   private readonly pendingPromotions = new Map<number, (approved: boolean) => void>();
   private readonly pendingPromotionEvents = new Map<number, PromotionRequestEvent>();
   /** M12-1: 継続中の会話の永続化メタ(イベント用 sessionId とは別で、送信を跨いで維持される) */
-  private conversation: { id: string; title: string; createdAt: string } | null = null;
+  private conversation: {
+    id: string;
+    title: string;
+    createdAt: string;
+    /** M16-1: 最後にLLM呼び出しに使った provider+model(切替検知用) */
+    lastLLM?: { provider: ProviderId; model: string };
+  } | null = null;
   /** M12-3: 子エージェントの連番(UI表示・承認ダイアログの出所表示用) */
   private subAgentSeq = 0;
   /** M13-1: 直近APIコールの実測プロンプトトークン(compaction発火判定用) */
@@ -298,18 +304,50 @@ export class AgentService {
     this.deps.bus.publish('chat:event', event);
   }
 
+  /** M16-1: 現在の設定が指す provider+model(切替検知・lastLLM 記録用) */
+  private currentLLM(): { provider: ProviderId; model: string } {
+    const cfg = this.deps.config.get();
+    return { provider: cfg.provider, model: cfg.model || DEFAULT_MODELS[cfg.provider] };
+  }
+
+  /**
+   * M16-1: プロバイダ/モデル切替の検知。切替時は prompt cache が無効になり長い履歴の
+   * 再送が高くつくため、閾値(既定24k)超なら初回LLM呼び出しの前に圧縮しておく。
+   * 戻り値は情報カードに出すメッセージ(切替なしなら null)
+   */
+  private async compactOnSwitch(provider: LLMProvider, signal: AbortSignal): Promise<string | null> {
+    const current = this.currentLLM();
+    const prev = this.conversation?.lastLLM;
+    if (this.conversation) this.conversation.lastLLM = current;
+    if (!prev || (prev.provider === current.provider && prev.model === current.model)) return null;
+    // 実測が古い(切替直後・ロード直後)可能性があるため推定との大きい方で判定する
+    const measured = Math.max(this.lastPromptTokens, estimateTokens(this.history));
+    const compacted = await this.maybeCompact(provider, signal, {
+      thresholdTokens: DEFAULT_COMPACTION_THRESHOLD,
+      measuredTokens: measured,
+    });
+    const label = `${prev.provider}/${prev.model} → ${current.provider}/${current.model}`;
+    return compacted
+      ? `モデル切替を検知(${label})。キャッシュが効かなくなるため履歴を圧縮しました`
+      : `モデル切替を検知(${label})。履歴が小さいため圧縮は不要でした`;
+  }
+
   /**
    * M13-1: 実測トークン(直近APIコールの input+cache_read)がモデル上限の70%を超えたら
    * 履歴を圧縮する。要約で消える範囲の普遍的知見は MYCODEX.md の学習メモへ退避される。
    * 圧縮したら lastPromptTokens をリセット(次のAPIコールで再実測されるまで未知のため)
    */
-  private async maybeCompact(provider: LLMProvider, signal: AbortSignal): Promise<boolean> {
+  private async maybeCompact(
+    provider: LLMProvider,
+    signal: AbortSignal,
+    override?: { thresholdTokens: number; measuredTokens: number },
+  ): Promise<boolean> {
     const cfg = this.deps.config.get();
     const model = cfg.model || DEFAULT_MODELS[cfg.provider];
-    const threshold = Math.floor(contextLimitFor(model) * 0.7);
+    const threshold = override?.thresholdTokens ?? Math.floor(contextLimitFor(model) * 0.7);
     const compacted = await compactHistory(provider, this.history, {
       signal,
-      measuredTokens: this.lastPromptTokens,
+      measuredTokens: override?.measuredTokens ?? this.lastPromptTokens,
       thresholdTokens: threshold,
       onMemoryEscape: (text) => {
         try {
@@ -344,6 +382,7 @@ export class AgentService {
           createdAt: conv.createdAt,
           updatedAt: new Date().toISOString(),
           history: this.history,
+          ...(conv.lastLLM !== undefined ? { lastLLM: conv.lastLLM } : {}),
         };
         await store.save(data);
       } catch (err) {
@@ -388,7 +427,12 @@ export class AgentService {
     // 履歴配列は loop と参照共有しているため、置換ではなく中身を差し替える
     this.history.length = 0;
     this.history.push(...data.history);
-    this.conversation = { id: data.id, title: data.title, createdAt: data.createdAt };
+    this.conversation = {
+      id: data.id,
+      title: data.title,
+      createdAt: data.createdAt,
+      ...(data.lastLLM !== undefined ? { lastLLM: data.lastLLM } : {}),
+    };
     // 実測値は次のAPIコールまで無いので推定で近似(M13-1)
     this.lastPromptTokens = estimateTokens(this.history);
     return { ok: true, history: toHistoryView(this.history) };
@@ -476,6 +520,13 @@ export class AgentService {
     const maxTurns = this.deps.config.get().maxTurns;
 
     void (async () => {
+      // M16-1: プロバイダ/モデル切替を検知したら、キャッシュ前提が崩れるため先に圧縮する
+      try {
+        const switchInfo = await this.compactOnSwitch(provider, ac.signal);
+        if (switchInfo) emit({ kind: 'info', sessionId, message: switchInfo });
+      } catch {
+        /* 切替時圧縮の失敗は無視して通常応答へ進む */
+      }
       // 履歴が閾値超なら圧縮してから応答する(M8-1、M13-1で実測トークントリガー化)。
       // 要約失敗は致命的でないため、失敗しても圧縮せず継続する。
       try {
@@ -537,6 +588,10 @@ export class AgentService {
             } catch {
               /* 圧縮失敗でループは止めない */
             }
+          },
+          // M16-1: 1ターン完結でも実測値を保持する(切替時compactionの判定に使う)
+          onUsage: (measured) => {
+            this.lastPromptTokens = measured;
           },
         },
         sessionId,

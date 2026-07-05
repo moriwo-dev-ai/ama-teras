@@ -29,6 +29,8 @@ export interface SessionData {
   createdAt: string;
   updatedAt: string;
   history: ChatMessage[];
+  /** M16-1: この会話で最後にLLM呼び出しに使った provider+model(切替検知用・任意) */
+  lastLLM?: { provider: 'anthropic' | 'openai'; model: string };
 }
 
 // randomUUID 形式のみ受け付ける(renderer 入力によるパストラバーサル防止)

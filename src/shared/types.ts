@@ -26,7 +26,9 @@ export type AgentEvent =
       /** M14-3: 画像付きツール結果のサムネイル表示用(data URL) */
       images?: string[];
     }
-  | { kind: 'error'; sessionId: string; message: string };
+  | { kind: 'error'; sessionId: string; message: string }
+  /** M16-1: 中立の情報カード(モデル切替検知・フォールバック発動等) */
+  | { kind: 'info'; sessionId: string; message: string };
 
 export type ProviderId = 'anthropic' | 'openai';
 

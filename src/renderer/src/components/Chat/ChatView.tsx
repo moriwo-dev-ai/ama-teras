@@ -196,6 +196,12 @@ export function ChatView(): JSX.Element {
         {messages.map((m) =>
           m.role === 'tool' ? (
             <ToolCard key={m.id} msg={m} />
+          ) : m.role === 'info' ? (
+            <div key={m.id} className="flex justify-center">
+              <div className="max-w-[85%] rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-center text-[11px] text-zinc-400">
+                ℹ️ {m.text}
+              </div>
+            </div>
           ) : (
             <div
               key={m.id}
