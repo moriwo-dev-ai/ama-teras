@@ -25,11 +25,39 @@ export function isRestrictedCommandAllowed(command: string): boolean {
   return RESTRICTED_ALLOW.some((re) => re.test(trimmed));
 }
 
+/**
+ * 常駐(dev server / watch)系コマンドの検知。同期実行するとタイムアウトまで待って
+ * 打ち切られるだけなので、結果に background:true 推奨のヒントを付ける(実行は止めない)。
+ * 判定はヒューリスティック — build 等の一過性コマンドを誤検知しないよう保守的に。
+ */
+const LONG_RUNNING_PATTERNS: RegExp[] = [
+  /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|serve|watch|preview)\b/,
+  /\bvite\s*$/,
+  /\bvite\s+(?:dev|serve|preview)\b/,
+  /\b(?:next|nuxt|astro)\s+dev\b/,
+  /\bwebpack(?:-dev-server)?\s+(?:serve|watch)\b/,
+  /\bnodemon\b/,
+  /--watch\b/,
+  /\bvitest\s*$/, // 引数なし vitest は watch モード(vitest run は対象外)
+  /\bnode\s+\S*(?:server|serve)\S*\.[cm]?js\b/,
+];
+
+export function looksLikeLongRunning(command: string): boolean {
+  const trimmed = command.trim();
+  return LONG_RUNNING_PATTERNS.some((re) => re.test(trimmed));
+}
+
+const LONG_RUNNING_ADVISORY =
+  '[ヒント] このコマンドは常駐(dev/serve/watch)系に見える。同期実行はタイムアウトまで待って' +
+  '打ち切られるだけなので、background:true での起動を推奨(出力は bash_output、停止は bash_kill)。';
+
 export default {
   name: 'bash',
   description:
     'シェルコマンドを実行して stdout/stderr を返す(Windowsではシステムシェル経由)。タイムアウト既定120秒。' +
-    'background:true で待たずにバックグラウンド起動し id を返す(出力は bash_output、停止は bash_kill)。',
+    'background:true で待たずにバックグラウンド起動し id を返す(出力は bash_output、停止は bash_kill)。' +
+    'stdin は接続されない: 対話プロンプトを出すコマンド(npm create / git init 対話等の scaffold 系)は' +
+    '非対話フラグ(-y, --yes, --no-interactive 等)を付けるか、ファイルを write_file で直接生成すること。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -98,12 +126,14 @@ export default {
       let out = '';
       let settled = false;
       const timers: NodeJS.Timeout[] = [];
+      // 常駐系らしきコマンドの同期実行にはヒントを付ける(どの終わり方でも)
+      const advisory = looksLikeLongRunning(command) ? `\n${LONG_RUNNING_ADVISORY}` : '';
       const finish = (result: ToolResult): void => {
         if (settled) return;
         settled = true;
         for (const t of timers) clearTimeout(t);
         ctx.signal.removeEventListener('abort', onAbort);
-        resolvePromise(result);
+        resolvePromise(advisory === '' ? result : { ...result, content: `${result.content}${advisory}` });
       };
       const tailOf = (): string => {
         let content = out.length > MAX_OUTPUT ? `${out.slice(0, MAX_OUTPUT)}\n…(出力切り詰め)` : out;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import bash, { isRestrictedCommandAllowed } from './bash';
+import bash, { isRestrictedCommandAllowed, looksLikeLongRunning } from './bash';
 import type { ToolContext } from '../types';
 
 function ctx(restrictExec: boolean): ToolContext {
@@ -60,6 +60,63 @@ describe('bash.execute の制限モード', () => {
     const r = await bash.execute({ command: 'echo hello' }, ctx(false));
     expect(r.isError).toBeUndefined();
     expect(r.content).toContain('hello');
+  });
+});
+
+describe('bash description の stdin 注記(小改修1)', () => {
+  it('対話プロンプト非対応(stdin非接続)と非対話フラグ推奨が明記されている', () => {
+    expect(bash.description).toContain('stdin は接続されない');
+    expect(bash.description).toContain('非対話フラグ');
+  });
+});
+
+describe('looksLikeLongRunning(小改修2)', () => {
+  it('常駐系コマンドを検知する', () => {
+    for (const c of [
+      'npm run dev',
+      'npm start',
+      'pnpm dev',
+      'yarn serve',
+      'npm run watch',
+      'npm run preview',
+      'npx vite',
+      'vite dev',
+      'next dev',
+      'nodemon server.js',
+      'npx tsc --watch',
+      'vitest', // 引数なし=watchモード
+      'node server.mjs',
+    ]) {
+      expect(looksLikeLongRunning(c), c).toBe(true);
+    }
+  });
+
+  it('一過性コマンドは検知しない(誤検知防止)', () => {
+    for (const c of [
+      'npm run build',
+      'npm install',
+      'npm run typecheck',
+      'npx vitest run',
+      'npx vitest run src/x.test.ts',
+      'vite build',
+      'echo dev',
+      'git status',
+      'node script.mjs',
+    ]) {
+      expect(looksLikeLongRunning(c), c).toBe(false);
+    }
+  });
+
+  it('同期実行の結果に background:true 推奨のヒントが付く(完了しても付く)', async () => {
+    // --watch を含むが即終了するコマンドで、実行を待たずに検証できるようにする
+    const r = await bash.execute({ command: 'echo hello --watch' }, ctx(false));
+    expect(r.content).toContain('hello');
+    expect(r.content).toContain('background:true での起動を推奨');
+  });
+
+  it('通常コマンドにはヒントが付かない', async () => {
+    const r = await bash.execute({ command: 'echo plain' }, ctx(false));
+    expect(r.content).not.toContain('background:true での起動を推奨');
   });
 });
 
