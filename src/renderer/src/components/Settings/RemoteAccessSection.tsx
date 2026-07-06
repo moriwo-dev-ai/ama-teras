@@ -1,13 +1,23 @@
 import { toDataURL } from 'qrcode';
 import { useEffect, useRef, useState } from 'react';
 import type { RemoteStatusPayload } from '../../../../shared/types';
-import { buildRemoteUrl } from './remoteUrl';
+import { buildRemoteUrl, qrGuidance } from './remoteUrl';
 
 /** 旧保存先(〜M17)。localStorageはuserData移行で消えるため、読み取りフォールバックとしてのみ残す */
 const LEGACY_HOST_KEY = 'mycodex-remote-host';
 
-/** M13-0: 接続URLのQR表示。スマホカメラで読むだけで接続できるようにする */
-function RemoteQr({ url, withToken }: { url: string; withToken: boolean }): JSX.Element | null {
+/** M13-0: 接続URLのQR表示。M21-3: 案内文とトークン再生成の導線は qrGuidance(純関数)で決定 */
+function RemoteQr({
+  url,
+  tokenSet,
+  hasPlainToken,
+  onRegenerate,
+}: {
+  url: string;
+  tokenSet: boolean;
+  hasPlainToken: boolean;
+  onRegenerate: () => void;
+}): JSX.Element | null {
   const [dataUrl, setDataUrl] = useState('');
 
   useEffect(() => {
@@ -25,14 +35,21 @@ function RemoteQr({ url, withToken }: { url: string; withToken: boolean }): JSX.
   }, [url]);
 
   if (!dataUrl) return null;
+  const guide = qrGuidance(tokenSet, hasPlainToken);
   return (
     <div className="flex items-start gap-3">
       <img src={dataUrl} alt="接続QRコード" className="h-40 w-40 rounded bg-white p-1" />
-      <p className="max-w-[220px] text-[11px] text-zinc-400">
-        {withToken
-          ? 'トークン込みの接続QR。スマホのカメラで読むだけで接続できる(この画面にいる間だけ表示)'
-          : 'トークン無しのURL(接続にはトークン入力が必要)。トークン込みQRは有効化直後かトークン再生成直後にのみ表示される'}
-      </p>
+      <div className="max-w-[220px] space-y-2">
+        <p className="text-[11px] text-zinc-400">{guide.message}</p>
+        {guide.offerRegenerate && (
+          <button
+            className="rounded border border-blue-600 px-2 py-1 text-[11px] text-blue-300 hover:bg-blue-900/40"
+            onClick={onRegenerate}
+          >
+            📱 トークン込みQRを出す(再生成)
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -182,7 +199,14 @@ export function RemoteAccessSection(): JSX.Element {
               </button>
             </div>
           )}
-          {url && <RemoteQr url={url} withToken={token !== null} />}
+          {url && (
+            <RemoteQr
+              url={url}
+              tokenSet={status.tokenSet}
+              hasPlainToken={token !== null}
+              onRegenerate={() => setConfirmRegen(true)}
+            />
+          )}
         </div>
       )}
 
