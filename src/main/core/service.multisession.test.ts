@@ -123,6 +123,8 @@ describe('AgentService M22(複数会話の同時実行)', () => {
     const a = svc.chatSend('タスクA', 'normal');
     const convA = svc.getCurrentConversationId();
     expect(svc.runsList()).toHaveLength(1);
+    // M23: 実行中ランにモデルラベルが付く
+    expect(svc.runsList()[0]!.model).toBe('anthropic/claude-fable-5');
 
     // 実行中でも新規会話Bを開始できる
     expect(svc.sessionNew().ok).toBe(true);

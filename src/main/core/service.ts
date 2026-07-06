@@ -205,6 +205,8 @@ interface RunState {
   /** M21-1: 追加指示キュー(ラン単位。終了で破棄) */
   pendingInstructions: { text: string; images?: ChatImageInput[] }[];
   lastStatus: AgentStatus;
+  /** M23: このランが使っているモデル(provider/model。フォールバックで更新) */
+  model: string;
 }
 
 /** M22: 会話ごとの独立状態(history・永続化・フォールバック・自律モード・ラン) */
@@ -275,6 +277,7 @@ export class AgentService {
           workspace: conv.run.workspace,
           sessionId: conv.run.sessionId,
           startedAt: conv.run.startedAt,
+          model: conv.run.model,
         });
       }
     }
@@ -728,6 +731,7 @@ export class AgentService {
       processes: new ProcessManager(),
       pendingInstructions: [],
       lastStatus: 'calling_llm',
+      model: `${this.currentLLM().provider}/${this.currentLLM().model}`,
     };
     conv.run = run;
     conv.workspace = run.workspace;
@@ -821,6 +825,8 @@ export class AgentService {
         /* 圧縮失敗でも続行 */
       }
       conv.lastLLM = { provider: fb.provider, model: fbModel };
+      run.model = `${fb.provider}/${fbModel}`;
+      this.publishRuns();
       runProvider = next;
       return next;
     };
@@ -1233,8 +1239,15 @@ export class AgentService {
       ?.snapshot(sessionId, `サブエージェント並列実行前(${mode}×${limited.length})`)
       .catch(() => null);
     const locks = new WriteLockTable();
+    // M23: 子が使うモデルの表示ラベル(worker帯。格上げ済みはescalation帯)
+    const workerLLM = this.bandLLM('worker') ?? this.currentLLM();
+    const escLLM = this.bandLLM('escalation') ?? workerLLM;
     const onUpdate = (u: SubAgentUpdate): void =>
-      this.deps.bus.publish('agent:sub_update', { ...u, conversationId: conv.id });
+      this.deps.bus.publish('agent:sub_update', {
+        ...u,
+        conversationId: conv.id,
+        model: u.escalated === true ? escLLM.model : workerLLM.model,
+      });
     const rawTurns = this.deps.config.get().subAgentMaxTurns;
     const maxTurns =
       rawTurns !== undefined ? Math.min(100, Math.max(1, Math.round(rawTurns))) : undefined;

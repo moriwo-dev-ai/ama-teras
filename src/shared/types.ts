@@ -364,6 +364,8 @@ export interface SubAgentUpdate {
   startedAt?: number;
   /** M22: どの会話(プロジェクト)の子か(複数同時実行時の出所表示) */
   conversationId?: string;
+  /** M23: この子が使っているモデル(worker帯。格上げ後はescalation帯のモデル) */
+  model?: string;
 }
 
 // ---- M22: 複数会話の同時実行 ----
@@ -375,6 +377,8 @@ export interface RunInfo {
   workspace: string;
   sessionId: string;
   startedAt: number;
+  /** M23: メイン会話が使っているモデル(provider/model。フォールバック発動で更新される) */
+  model?: string;
 }
 
 // ---- M15-4: 環境ウィジェット ----

@@ -7,6 +7,8 @@ import { AutonomousModal } from './AutonomousModal';
 import { MarkdownMessage } from './MarkdownMessage';
 import { ReviewCard } from './ReviewCard';
 import { formatElapsed, useNowTick } from './useElapsed';
+import { DEFAULT_MODELS } from '../../../../shared/models';
+import { useRunsStore } from '../../stores/runs';
 
 /** ツール入力JSONから path を取り出す(write_file/read_file/edit_file等のリンク化用) */
 function pathFromInputPreview(inputPreview: string): string | null {
@@ -140,15 +142,18 @@ function LiveStatusLine(): JSX.Element {
   );
 }
 
-/** M21-4: 入力欄上の常時ステータス(スクロール位置に関係なく生存が見える) */
+/** M21-4: 入力欄上の常時ステータス(スクロール位置に関係なく生存が見える)。M23: 実行中モデルも表示 */
 function BottomStatus({ status }: { status: string }): JSX.Element {
   const runStartedAt = useChatStore((s) => s.runStartedAt);
+  const activeSessionId = useChatStore((s) => s.activeSessionId);
+  const runModel = useRunsStore((s) => s.runs.find((r) => r.sessionId === activeSessionId)?.model);
   const now = useNowTick(true);
   return (
     <p className="mb-1 flex items-center gap-1.5 text-xs text-zinc-500">
       <span className="anim-spin text-blue-300">◌</span>
       状態: {status === 'calling_llm' ? 'モデル応答中' : status === 'executing_tool' ? 'ツール実行中' : status}
       {runStartedAt !== null && <span className="font-mono">{formatElapsed(now - runStartedAt)}</span>}
+      {runModel !== undefined && <span className="font-mono text-zinc-600">{runModel}</span>}
     </p>
   );
 }
@@ -171,8 +176,9 @@ export function ChatView(): JSX.Element {
   // M17-2: 自律モード(main側が正。イベントで同期し、ON操作は警告モーダルを必須にする)
   const [autonomous, setAutonomous] = useState(false);
   const [autoModal, setAutoModal] = useState(false);
-  // M18: モデル自動切替が有効ならメイン応答に planner バッジを出す
+  // M18/M23: メイン応答のモデルバッジ(policy有効=planner帯・無効=本体設定のモデル)
   const [policyOn, setPolicyOn] = useState(false);
+  const [mainModel, setMainModel] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const busy = activeSessionId !== null;
 
@@ -189,7 +195,16 @@ export function ChatView(): JSX.Element {
     if (busy) return;
     window.api
       .settingsGet()
-      .then((c) => setPolicyOn(c.modelPolicy?.enabled === true))
+      .then((c) => {
+        const on = c.modelPolicy?.enabled === true;
+        setPolicyOn(on);
+        // M23: 実際に使うモデル名(policy有効時はplanner帯・無効時は本体設定)
+        setMainModel(
+          on && c.modelPolicy
+            ? c.modelPolicy.planner.model || DEFAULT_MODELS[c.modelPolicy.planner.provider]
+            : c.model || DEFAULT_MODELS[c.provider],
+        );
+      })
       .catch(() => {});
   }, [busy]);
 
@@ -307,9 +322,12 @@ export function ChatView(): JSX.Element {
                 {m.role === 'user' && m.queued && (
                   <div className="mb-0.5 text-[10px] text-blue-200/80">↩ 追加指示(次のターンで反映)</div>
                 )}
-                {/* M18: policy有効時、メイン応答は planner 帯であることを小さく明示 */}
-                {m.role === 'assistant' && policyOn && (
-                  <div className="mb-0.5 text-[9px] uppercase tracking-wider text-zinc-500">planner</div>
+                {/* M18/M23: メイン応答が使うモデルを明示(policy有効ならplanner帯) */}
+                {m.role === 'assistant' && mainModel !== '' && (
+                  <div className="mb-0.5 text-[9px] tracking-wider text-zinc-500">
+                    {policyOn ? 'PLANNER・' : ''}
+                    {mainModel}
+                  </div>
                 )}
                 {m.role === 'assistant' ? <MarkdownMessage text={m.text} /> : m.text}
                 {m.streaming && <span className="anim-pulse ml-1">▍</span>}

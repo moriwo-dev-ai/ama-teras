@@ -101,6 +101,8 @@ describe('AgentService.runParallelSubAgents(M12-3)', () => {
     );
     expect(results).toHaveLength(3);
     expect(updates.every((u) => u.mode === 'read')).toBe(true);
+    // M23: 子が使うモデルのラベル(policy無効=メインと同一モデル)が付く
+    expect(updates.every((u) => u.model === 'claude-fable-5')).toBe(true);
   });
 
   it('M21-2: subAgentMaxParallel 設定で同時数が変わる(5設定→5本・範囲外はクランプ)', async () => {
