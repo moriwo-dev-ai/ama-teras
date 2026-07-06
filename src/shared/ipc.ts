@@ -25,6 +25,7 @@ import type {
   SubAgentUpdate,
   ToolExecResultPayload,
   ToolInfo,
+  UsageSummary,
   WorkspaceGitStatus,
 } from './types';
 
@@ -86,6 +87,9 @@ export const IpcChannels = {
   /** M22: 実行中ラン一覧(複数プロジェクト同時実行の状態) */
   runsList: 'runs:list',
   runsChanged: 'runs:changed',
+  /** M23-2: 使用量サマリと残高ダッシュボードを開く */
+  usageGet: 'usage:get',
+  openBillingPage: 'billing:open',
   /** M20: 起動時フラグ(セーフモード/進化再起動完了)とセーフモード解除 */
   runtimeFlags: 'runtime:flags',
   safeModeClear: 'safemode:clear',
@@ -179,6 +183,10 @@ export interface MyCodexApi {
   /** M22: 実行中ラン一覧(初期取得+変更購読)。複数プロジェクト同時実行の左ペイン表示用 */
   runsList(): Promise<RunInfo[]>;
   onRunsChanged(listener: (runs: RunInfo[]) => void): () => void;
+
+  /** M23-2: 使用量(トークン・概算コスト)サマリ / プロバイダの残高ダッシュボードを開く */
+  usageGet(): Promise<UsageSummary>;
+  openBillingPage(provider: ProviderId): Promise<void>;
 
   /** M20: 起動時フラグ(セーフモード/進化再起動完了のバナー用)とセーフモード解除 */
   runtimeFlags(): Promise<{

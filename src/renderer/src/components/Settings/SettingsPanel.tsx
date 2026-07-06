@@ -6,6 +6,7 @@ import { McpSection } from './McpSection';
 import { ModelPolicySection } from './ModelPolicySection';
 import { RemoteAccessSection } from './RemoteAccessSection';
 import { ReviewGateSection } from './ReviewGateSection';
+import { UsageSection } from './UsageSection';
 
 const CUSTOM = '__custom__';
 
@@ -415,6 +416,8 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
             ))}
           </div>
         </div>
+
+        <UsageSection />
 
         <RemoteAccessSection />
 

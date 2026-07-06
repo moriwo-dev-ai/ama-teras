@@ -17,6 +17,7 @@ import { McpManager } from './mcp/manager';
 import { CheckpointManager } from './core/checkpoints';
 import { EventBus } from './core/events';
 import { AgentService } from './core/service';
+import { UsageMeter } from './core/usage';
 import { SessionStore } from './core/sessions';
 import { readProjectMemory, readProjectPlan, writeProjectMemory } from './memory';
 import { AgentJobRunner } from './evolution/job';
@@ -255,6 +256,8 @@ export async function registerIpcHandlers(
     electronSafeStorageCipher(),
   );
   const audit = new AuditLog(join(app.getPath('userData'), 'audit.jsonl'));
+  // M23-2: 使用量メーター(userData/usage.json)
+  const usageMeter = new UsageMeter(join(app.getPath('userData'), 'usage.json'));
   const bus = new EventBus();
   const repoDir = app.getAppPath();
 
@@ -269,6 +272,7 @@ export async function registerIpcHandlers(
       userDataDir: app.getPath('userData'),
       repoGitDir: join(app.getAppPath(), '.git'),
     },
+    usage: usageMeter,
     // M11-3: 自動チェックポイント(git の無い workspace では manager 側で noop)
     createCheckpoints: (workspace) =>
       new CheckpointManager(workspace, (line) => console.log(`[checkpoint] ${line}`)),
@@ -468,6 +472,17 @@ export async function registerIpcHandlers(
   ipcMain.handle(IpcChannels.sessionsList, () => service.sessionsList());
   // M22: 実行中ラン一覧(左ペインの実行中インジケータ初期化用)
   ipcMain.handle(IpcChannels.runsList, () => service.runsList());
+  // M23-2: 使用量サマリと、プロバイダの残高ダッシュボードを開く(URLは固定allowlist)
+  ipcMain.handle(IpcChannels.usageGet, () => usageMeter.summary());
+  ipcMain.handle(IpcChannels.openBillingPage, (_e, provider: unknown) => {
+    const urls: Record<string, string> = {
+      anthropic: 'https://console.anthropic.com/settings/billing',
+      openai: 'https://platform.openai.com/settings/organization/billing/overview',
+    };
+    const url = typeof provider === 'string' ? urls[provider] : undefined;
+    if (!url) throw new Error('不明なプロバイダ');
+    void shell.openExternal(url);
+  });
   ipcMain.handle(IpcChannels.sessionsLoad, (_e, id: unknown) => {
     assertString(id, 'id');
     return service.sessionLoad(id);

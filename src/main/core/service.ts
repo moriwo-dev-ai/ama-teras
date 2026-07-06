@@ -25,6 +25,7 @@ import type {
   SubAgentUpdate,
   ToolExecResultPayload,
   ToolInfo,
+  UsageDelta,
 } from '../../shared/types';
 import { ApprovalBroker } from '../agent/approval';
 import { compactHistory, DEFAULT_COMPACTION_THRESHOLD, estimateTokens } from '../agent/compaction';
@@ -150,6 +151,8 @@ export interface AgentServiceDeps {
    * 前に行われる(キー未登録の警告経路もテスト可能にするため)
    */
   bandProviderFactory?: (band: ModelBandName, provider: ProviderId, model: string) => LLMProvider;
+  /** M23-2: 使用量メーター(全LLM呼び出しの実測トークンを記録)。未指定なら計測しない */
+  usage?: { record(provider: string, model: string, delta: UsageDelta): void };
 }
 
 /** M18: モデル帯の名前 */
@@ -325,17 +328,46 @@ export class AgentService {
 
   // ---- provider ----
 
+  /**
+   * M23-2: プロバイダを使用量計測つきでラップする。message_done の実測usageを
+   * UsageMeter へ記録するだけで、ストリームは素通し(挙動不変)。未注入なら素のまま
+   */
+  private track(provider: LLMProvider, providerId: string, model: string): LLMProvider {
+    const usage = this.deps.usage;
+    if (!usage) return provider;
+    return {
+      id: provider.id,
+      complete: (req) => {
+        const inner = provider.complete(req);
+        return (async function* () {
+          for await (const ev of inner) {
+            if (ev.type === 'message_done') {
+              usage.record(providerId, model, {
+                inputTokens: ev.usage.inputTokens,
+                outputTokens: ev.usage.outputTokens,
+                cacheReadTokens: ev.usage.cacheReadTokens,
+              });
+            }
+            yield ev;
+          }
+        })();
+      },
+    };
+  }
+
   createProvider(): LLMProvider | string {
     if (this.deps.providerFactory) return this.deps.providerFactory();
     const cfg = this.deps.config.get();
     if (cfg.provider === 'openai') {
       const key = this.deps.secrets.get('openai');
       if (!key) return 'OpenAI APIキーが未設定(設定画面から登録)';
-      return new OpenAIProvider(key, cfg.model || DEFAULT_OPENAI_MODEL);
+      const model = cfg.model || DEFAULT_OPENAI_MODEL;
+      return this.track(new OpenAIProvider(key, model), 'openai', model);
     }
     const key = this.deps.secrets.get('anthropic');
     if (!key) return 'Anthropic APIキーが未設定(設定画面から登録)';
-    return new AnthropicProvider(key, cfg.model || DEFAULT_ANTHROPIC_MODEL);
+    const model = cfg.model || DEFAULT_ANTHROPIC_MODEL;
+    return this.track(new AnthropicProvider(key, model), 'anthropic', model);
   }
 
   // ---- M18: モデル自動切替(役割ベース割当) ----
@@ -364,9 +396,11 @@ export class AgentService {
     const key = this.deps.secrets.get(llm.provider);
     if (!key) return `モデル自動切替: ${band}帯(${llm.provider}/${llm.model})のAPIキーが未設定`;
     if (this.deps.bandProviderFactory) return this.deps.bandProviderFactory(band, llm.provider, llm.model);
-    return llm.provider === 'openai'
-      ? new OpenAIProvider(key, llm.model)
-      : new AnthropicProvider(key, llm.model);
+    return this.track(
+      llm.provider === 'openai' ? new OpenAIProvider(key, llm.model) : new AnthropicProvider(key, llm.model),
+      llm.provider,
+      llm.model,
+    );
   }
 
   /** 進化ジョブ(AgentJobRunner)用。キー未設定は例外にする */
@@ -796,10 +830,11 @@ export class AgentService {
           });
           return null;
         }
-        next =
-          fb.provider === 'openai'
-            ? new OpenAIProvider(key, fbModel)
-            : new AnthropicProvider(key, fbModel);
+        next = this.track(
+          fb.provider === 'openai' ? new OpenAIProvider(key, fbModel) : new AnthropicProvider(key, fbModel),
+          fb.provider,
+          fbModel,
+        );
       }
 
       conv.fallbackUsed = true;
@@ -1018,8 +1053,11 @@ export class AgentService {
       } else {
         const key = this.deps.secrets.get(fb.provider);
         if (!key) return null;
-        next =
-          fb.provider === 'openai' ? new OpenAIProvider(key, fbModel) : new AnthropicProvider(key, fbModel);
+        next = this.track(
+          fb.provider === 'openai' ? new OpenAIProvider(key, fbModel) : new AnthropicProvider(key, fbModel),
+          fb.provider,
+          fbModel,
+        );
       }
       conv.fallbackUsed = true;
       this.deps.audit.append({

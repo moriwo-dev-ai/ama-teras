@@ -368,6 +368,38 @@ export interface SubAgentUpdate {
   model?: string;
 }
 
+// ---- M23-2: 使用量メーター(残高に準ずるもの) ----
+
+export interface UsageDelta {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+}
+
+export interface UsageCellView {
+  input: number;
+  output: number;
+  cacheRead: number;
+  calls: number;
+  /** 既知単価からの概算($)。未知モデルは null(トークンのみ表示) */
+  costUsd: number | null;
+}
+
+export interface UsageModelRow {
+  /** "provider/model" */
+  model: string;
+  today: UsageCellView;
+  total: UsageCellView;
+}
+
+export interface UsageSummary {
+  /** 集計上の「今日」(YYYY-MM-DD・ローカル) */
+  day: string;
+  models: UsageModelRow[];
+  todayCostUsd: number | null;
+  totalCostUsd: number | null;
+}
+
 // ---- M22: 複数会話の同時実行 ----
 
 /** 実行中ラン一覧(runs:changed / runs:list)。左ペインの実行中表示・状態復元に使う */

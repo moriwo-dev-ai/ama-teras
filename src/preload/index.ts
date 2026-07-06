@@ -82,6 +82,9 @@ const api: MyCodexApi = {
   runsList: () => ipcRenderer.invoke(IpcChannels.runsList),
   onRunsChanged: (listener) => subscribe<RunInfo[]>(IpcChannels.runsChanged, listener),
 
+  usageGet: () => ipcRenderer.invoke(IpcChannels.usageGet),
+  openBillingPage: (provider) => ipcRenderer.invoke(IpcChannels.openBillingPage, provider),
+
   runtimeFlags: () => ipcRenderer.invoke(IpcChannels.runtimeFlags),
   safeModeClear: () => ipcRenderer.invoke(IpcChannels.safeModeClear),
 
