@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { previewFile, type FilePreviewPolicy } from './filePreview';
+import { previewFile, resolveRevealTarget, type FilePreviewPolicy } from './filePreview';
 
 /** M15-3: ファイルプレビューの種別判定とスコープ制御を固定する */
 
@@ -67,5 +67,29 @@ describe('previewFile(M15-3)', () => {
     expect((await previewFile('bin.dat', policy('project'))).ok).toBe(false);
     expect((await previewFile('nai.md', policy('project'))).ok).toBe(false);
     expect((await previewFile('.', policy('project'))).ok).toBe(false);
+  });
+});
+
+describe('resolveRevealTarget(整理1: フォルダで開く)', () => {
+  it('workspace内のファイルもディレクトリも解決できる(相対パスはworkspace基準)', async () => {
+    const file = await resolveRevealTarget('README.md', policy('project'));
+    expect(file).toEqual({ ok: true, path: join(ws, 'README.md') });
+
+    const dir = await resolveRevealTarget(ws, policy('project'));
+    expect(dir).toEqual({ ok: true, path: ws });
+  });
+
+  it('workspace外でも解決できる(左ペインの他プロジェクト用。内容は読まないため)', async () => {
+    const r = await resolveRevealTarget(outside, policy('project'));
+    expect(r).toEqual({ ok: true, path: outside });
+  });
+
+  it('保護領域(userData)は拒否・不在パスと空文字も拒否', async () => {
+    const denied = await resolveRevealTarget(join(userData, 'secrets.json'), policy('fullPc'));
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.message).toContain('保護領域');
+
+    expect((await resolveRevealTarget(join(base, 'nai'), policy('project'))).ok).toBe(false);
+    expect((await resolveRevealTarget('  ', policy('project'))).ok).toBe(false);
   });
 });

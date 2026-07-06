@@ -56,7 +56,7 @@ import {
 import type { ToolPlugin } from '../tools/types';
 import type { EventBus } from './events';
 import { ProcessManager } from './processes';
-import { previewFile } from './filePreview';
+import { previewFile, resolveRevealTarget, type RevealResolveResult } from './filePreview';
 import { foldHistoryIfOversize, SESSION_SCHEMA_VERSION, type SessionData } from './sessions';
 
 /**
@@ -1205,6 +1205,16 @@ export class AgentService {
 
   async filePreview(path: string): Promise<FilePreviewResult> {
     return previewFile(path, {
+      workspaceRoot: this.getWorkspace(),
+      scopeMode: this.deps.config.get().scopeMode,
+      deny: this.deps.denyPaths,
+    });
+  }
+
+  // ---- フォルダで開く(整理1): ディレクトリも可・denyのみ適用 ----
+
+  async fileRevealTarget(path: string): Promise<RevealResolveResult> {
+    return resolveRevealTarget(path, {
       workspaceRoot: this.getWorkspace(),
       scopeMode: this.deps.config.get().scopeMode,
       deny: this.deps.denyPaths,

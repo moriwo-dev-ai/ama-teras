@@ -1,4 +1,5 @@
 import { usePreviewStore } from '../../stores/preview';
+import { revealContextMenuHandler } from '../../stores/revealMenu';
 
 // M15-3: 本文中のパスらしき文字列をクリック可能にする(実在チェックはプレビュー側)
 export const PATH_RE =
@@ -25,6 +26,7 @@ export function LinkifiedText({ text }: { text: string }): JSX.Element {
             key={i}
             className="cursor-pointer font-mono text-blue-300 underline decoration-dotted hover:text-blue-200"
             onClick={() => void openPreview(p.path)}
+            onContextMenu={revealContextMenuHandler(p.path)}
           >
             {p.path}
           </button>

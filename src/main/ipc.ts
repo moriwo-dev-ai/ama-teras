@@ -491,9 +491,9 @@ export async function registerIpcHandlers(
   });
   ipcMain.handle(IpcChannels.fileReveal, async (_e, path: unknown) => {
     assertString(path, 'path');
-    // 表示可能なファイルだけをエクスプローラで開ける(スコープ判定を通す)
-    const result = await service.filePreview(path);
-    if (result.ok && result.path) shell.showItemInFolder(result.path);
+    // 整理1: フォルダも開けるよう内容は読まずに解決(deny判定のみ通す)
+    const result = await service.fileRevealTarget(path);
+    if (result.ok) shell.showItemInFolder(result.path);
   });
 
   // ---- 環境ウィジェット(M15-4) ----

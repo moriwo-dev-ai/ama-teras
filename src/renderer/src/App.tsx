@@ -3,6 +3,7 @@ import { ApprovalDialog } from './components/Approval/ApprovalDialog';
 import { ChatView } from './components/Chat/ChatView';
 import { PromotionDialog } from './components/Evolution/EvolutionPanel';
 import { LeftPane } from './components/Layout/LeftPane';
+import { RevealMenu } from './components/Layout/RevealMenu';
 import { RightPane } from './components/Layout/RightPane';
 import { SidePane, useIsNarrow, usePaneState } from './components/Layout/SidePane';
 import { SettingsPanel } from './components/Settings/SettingsPanel';
@@ -176,6 +177,7 @@ export default function App(): JSX.Element {
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
       <ApprovalDialog />
       <PromotionDialog />
+      <RevealMenu />
     </div>
   );
 }

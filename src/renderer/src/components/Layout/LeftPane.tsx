@@ -31,7 +31,9 @@ export function LeftPane(): JSX.Element {
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SessionMeta[] | null>(null);
   const [currentWs, setCurrentWs] = useState('');
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<
+    { kind: 'session'; id: string; x: number; y: number } | { kind: 'project'; ws: string; x: number; y: number } | null
+  >(null);
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
   const [notice, setNotice] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
@@ -144,7 +146,13 @@ export function LeftPane(): JSX.Element {
         )}
         {groups.map(([ws, items]) => (
           <div key={ws} className="mb-2">
-            <div className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-zinc-400">
+            <div
+              className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-zinc-400"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ kind: 'project', ws, x: e.clientX, y: e.clientY });
+              }}
+            >
               {/* M17-3: 選択中プロジェクトはハイライトのみ(並びは動かさない) */}
               <span className={`truncate ${ws === currentWs ? 'text-blue-300' : ''}`} title={ws}>
                 📁 {projectName(ws)}
@@ -187,7 +195,7 @@ export function LeftPane(): JSX.Element {
                       onClick={() => void open(s)}
                       onContextMenu={(e) => {
                         e.preventDefault();
-                        setMenu({ id: s.id, x: e.clientX, y: e.clientY });
+                        setMenu({ kind: 'session', id: s.id, x: e.clientX, y: e.clientY });
                       }}
                     >
                       {/* タイトルだけを truncate し、更新時刻は右端に固定(ペイン幅を変えても見える) */}
@@ -212,22 +220,37 @@ export function LeftPane(): JSX.Element {
           style={{ left: menu.x, top: menu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          <button
-            className="block w-full px-3 py-1 text-left hover:bg-zinc-800"
-            onClick={() => {
-              const target = shown.find((s) => s.id === menu.id);
-              setRenaming({ id: menu.id, title: target?.title ?? '' });
-              setMenu(null);
-            }}
-          >
-            名前変更
-          </button>
-          <button
-            className="block w-full px-3 py-1 text-left text-red-400 hover:bg-zinc-800"
-            onClick={() => void doDelete(menu.id)}
-          >
-            削除
-          </button>
+          {menu.kind === 'session' ? (
+            <>
+              <button
+                className="block w-full px-3 py-1 text-left hover:bg-zinc-800"
+                onClick={() => {
+                  const target = shown.find((s) => s.id === menu.id);
+                  setRenaming({ id: menu.id, title: target?.title ?? '' });
+                  setMenu(null);
+                }}
+              >
+                名前変更
+              </button>
+              <button
+                className="block w-full px-3 py-1 text-left text-red-400 hover:bg-zinc-800"
+                onClick={() => void doDelete(menu.id)}
+              >
+                削除
+              </button>
+            </>
+          ) : (
+            <button
+              className="block w-full px-3 py-1 text-left hover:bg-zinc-800"
+              title={menu.ws}
+              onClick={() => {
+                void window.api.fileReveal(menu.ws);
+                setMenu(null);
+              }}
+            >
+              📂 フォルダで開く
+            </button>
+          )}
         </div>
       )}
     </div>

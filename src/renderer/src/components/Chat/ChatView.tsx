@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChatImageInput } from '../../../../shared/types';
 import { useChatStore, type UiMessage } from '../../stores/chat';
 import { usePreviewStore } from '../../stores/preview';
+import { revealContextMenuHandler } from '../../stores/revealMenu';
 import { AutonomousModal } from './AutonomousModal';
 import { MarkdownMessage } from './MarkdownMessage';
 import { ReviewCard } from './ReviewCard';
@@ -55,8 +56,9 @@ function ToolCard({ msg }: { msg: Extract<UiMessage, { role: 'tool' }> }): JSX.E
         {path && (
           <button
             className="mt-0.5 block truncate font-mono text-[11px] text-blue-300 underline decoration-dotted hover:text-blue-200"
-            title={`${path} をプレビュー`}
+            title={`${path} をプレビュー(右クリック: フォルダで開く)`}
             onClick={() => void openPreview(path)}
+            onContextMenu={revealContextMenuHandler(path)}
           >
             📄 {path}
           </button>

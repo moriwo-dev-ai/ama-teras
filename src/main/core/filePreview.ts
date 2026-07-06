@@ -29,6 +29,32 @@ export interface FilePreviewPolicy {
   deny: DenyPaths;
 }
 
+export type RevealResolveResult = { ok: true; path: string } | { ok: false; message: string };
+
+/**
+ * 整理1: 「フォルダで開く」(shell.showItemInFolder)の対象解決。ファイルもフォルダも可。
+ * エクスプローラーに場所を見せるだけで内容は読まずrendererにも返さないため、
+ * workspace外の制限は課さない(左ペインには現在以外のプロジェクトも並ぶ)。
+ * 保護領域のdenyだけは多層防御として維持する。
+ */
+export async function resolveRevealTarget(
+  rawPath: string,
+  policy: FilePreviewPolicy,
+): Promise<RevealResolveResult> {
+  const trimmed = rawPath.trim();
+  if (trimmed === '') return { ok: false, message: 'パスが空' };
+  const abs = isAbsolute(trimmed) ? resolve(trimmed) : resolve(policy.workspaceRoot, trimmed);
+
+  const denied = isDenied(abs, 'read', policy.deny);
+  if (denied) return { ok: false, message: `保護領域のため表示不可: ${denied}` };
+  try {
+    await stat(abs);
+  } catch {
+    return { ok: false, message: `見つからない: ${abs}` };
+  }
+  return { ok: true, path: abs };
+}
+
 export async function previewFile(rawPath: string, policy: FilePreviewPolicy): Promise<FilePreviewResult> {
   const trimmed = rawPath.trim();
   if (trimmed === '') return { ok: false, message: 'パスが空' };
