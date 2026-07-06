@@ -4,7 +4,8 @@ import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname as pathDirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getPluginCacheDir, getPluginsDir, registerIpcHandlers } from './ipc';
+import { beginBootWithSentinel, markBootHealthy } from './evolution/sentinel';
+import { getPluginCacheDir, getPluginsDir, registerIpcHandlers, type RuntimeFlags } from './ipc';
 import { ToolRegistry } from './tools/registry';
 import { migrateUserData } from './userDataMigration';
 
@@ -187,7 +188,22 @@ if (!gotSingleInstanceLock) {
       else await runSmokeMode();
       return;
     }
-    const services = await registerIpcHandlers(() => mainWindow?.webContents ?? null);
+    // M20: 再起動センチネル(進化の再起動後クラッシュ検知)。IPC配線より前に判定する。
+    // 2回連続で完走前に死んでいたらセーフモード=進化機能を無効化して起動する
+    const bootState = beginBootWithSentinel(app.getPath('userData'));
+    const runtimeFlags: RuntimeFlags = {
+      safeMode: bootState.safeMode,
+      ...(bootState.safeMode && bootState.sentinel
+        ? { safeModeInfo: { tag: bootState.sentinel.tag, prevCommit: bootState.sentinel.prevCommit } }
+        : {}),
+    };
+    if (bootState.safeMode) {
+      console.error(
+        `[sentinel] セーフモード起動: ${bootState.sentinel?.tag} の再起動が2回連続で完走せず。` +
+          `復旧: git reset --hard ${bootState.sentinel?.prevCommit} && npm run build`,
+      );
+    }
+    const services = await registerIpcHandlers(() => mainWindow?.webContents ?? null, runtimeFlags);
     // M11-2: アプリ終了時にバックグラウンドプロセスを残さない。
     // M13-2: MCPサーバーの子プロセスも transport ごと全切断する
     app.on('will-quit', () => {
@@ -195,6 +211,16 @@ if (!gotSingleInstanceLock) {
       void services.mcp.closeAll();
     });
     createWindow();
+    // M20: 起動完走(ウィンドウ表示)でセンチネルを消す=健全。ここに到達しない起動がクラッシュ扱い
+    if (!bootState.safeMode) {
+      mainWindow?.once('ready-to-show', () => {
+        const done = markBootHealthy(app.getPath('userData'));
+        if (done) {
+          console.log(`[sentinel] 進化 ${done.tag} の再起動が完了`);
+          runtimeFlags.restartedFrom = done.tag;
+        }
+      });
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { EvolutionEvent, EvolutionJobSummary, EvolutionScope } from '../../shared/types';
 import {
+  defaultRunCommand,
   detectDangerWarnings,
   runGates as defaultRunGates,
   type CommandRunner,
@@ -31,8 +32,18 @@ export interface EvolutionManagerDeps {
   ) => Promise<boolean>;
   /** 昇格後のホットリロード(A の registry.reload) */
   reloadPlugins: () => Promise<void>;
-  /** 昇格後の健全性チェック。false で自動ロールバック */
+  /** 昇格後の健全性チェック(scope='tool')。false で自動ロールバック */
   healthCheck: (toolName: string, smokeInput: unknown) => Promise<boolean>;
+  /**
+   * M20: renderer/core 昇格後の再ビルド+フルアプリ健全性チェック(supervisor.rebuildAndHealthBoot)。
+   * 未注入なら renderer/core の昇格は失敗する(配線漏れの安全側)
+   */
+  rebuildAndHealthBoot?: (repoDir: string) => Promise<{ ok: boolean; output: string }>;
+  /**
+   * M20: 健全性確定後の再起動要求(センチネル書き込み+app.relaunch は electron 側=ipc.ts が担う)。
+   * tag=昇格タグ、prevCommit=昇格前HEAD(センチネル・復旧案内用)
+   */
+  requestRestart?: (tag: string, prevCommit: string) => void;
   onEvent: (e: EvolutionEvent) => void;
   /** テスト用注入 */
   runGatesFn?: (opts: GateOptions) => Promise<GatesOutcome>;
@@ -206,13 +217,9 @@ export class EvolutionManager {
         return;
       }
 
-      // M20-2時点の封鎖: renderer/core の昇格後フロー(再ビルド+健全性+再起動)は
-      // M20-4 のスーパーバイザーで配線する。それまで非toolの昇格は到達しても失敗させる(二重防御)
-      if (scope !== 'tool') {
-        throw new Error('renderer/core の昇格フローは未配線(M20-4で有効化)');
-      }
-
       this.update(job, { status: 'promoting' });
+      // M20: 昇格前HEADを記録(センチネル・セーフモード時の手動復旧案内に使う)
+      const prevCommit = await runGit(['rev-parse', 'HEAD'], this.deps.repoDir);
       const { mergeCommit, tag } = await promoteBranch(
         this.deps.repoDir,
         worktree.branch,
@@ -220,18 +227,50 @@ export class EvolutionManager {
         this.baseRef,
       );
       this.log(job, `昇格完了: ${tag} (${mergeCommit.slice(0, 8)})`);
-      await this.deps.reloadPlugins();
 
-      // scope='tool' のみ到達(上の封鎖ガードで保証)。toolName は tool スコープでは必ず存在する
-      const healthy = await this.deps.healthCheck(artifacts.toolName!, artifacts.smokeInput);
-      if (!healthy) {
-        this.log(job, '健全性チェック失敗。自動ロールバックする');
-        await rollbackMerge(this.deps.repoDir, mergeCommit);
+      if (scope === 'tool') {
+        // 従来どおり: ホットリロード+ツールスモーク健全性(再起動なし)
         await this.deps.reloadPlugins();
-        this.update(job, { status: 'rolled_back', error: '昇格後の健全性チェック失敗によりrevert済み' });
+        const healthy = await this.deps.healthCheck(artifacts.toolName!, artifacts.smokeInput);
+        if (!healthy) {
+          this.log(job, '健全性チェック失敗。自動ロールバックする');
+          await rollbackMerge(this.deps.repoDir, mergeCommit);
+          await this.deps.reloadPlugins();
+          this.update(job, { status: 'rolled_back', error: '昇格後の健全性チェック失敗によりrevert済み' });
+          return;
+        }
+        this.update(job, { status: 'done' });
         return;
       }
 
+      // M20: renderer/core — 健全性が確定するまで再起動しない。
+      // 稼働中アプリは旧バンドルのまま、Aで再ビルド+--smoke-boot健全性チェックを行う
+      this.log(job, 'Aを再ビルドして健全性チェック(この間アプリは旧バンドルで稼働継続)');
+      if (this.deps.rebuildAndHealthBoot === undefined) {
+        // 配線漏れの安全側: 昇格を取り消して失敗させる
+        await rollbackMerge(this.deps.repoDir, mergeCommit);
+        this.update(job, { status: 'failed', error: 'rebuildAndHealthBoot 未注入のためrevert済み(配線漏れ)' });
+        return;
+      }
+      const health = await this.deps.rebuildAndHealthBoot(this.deps.repoDir);
+      if (!health.ok) {
+        this.log(job, `健全性チェック失敗。自動revert+旧バンドル再ビルドする: ${health.output.slice(0, 300)}`);
+        await rollbackMerge(this.deps.repoDir, mergeCommit);
+        const restore = await (this.deps.runCommand ?? defaultRunCommand)(
+          'npm run build',
+          this.deps.repoDir,
+        );
+        this.update(job, {
+          status: 'rolled_back',
+          error:
+            '昇格後の健全性チェック失敗によりrevert+再ビルド済み(アプリは無停止)' +
+            (restore.code === 0 ? '' : '。⚠ 旧バンドルの再ビルドにも失敗: 手動で npm run build を実行してください'),
+        });
+        return;
+      }
+
+      this.log(job, `健全性OK。再起動を要求する(復旧点: ${prevCommit.slice(0, 8)})`);
+      this.deps.requestRestart?.(tag, prevCommit);
       this.update(job, { status: 'done' });
     } catch (err) {
       this.update(job, {

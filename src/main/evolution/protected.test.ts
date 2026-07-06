@@ -165,7 +165,8 @@ afterAll(async () => {
   await rm(repo, { recursive: true, force: true }).catch(() => {});
 });
 
-describe('checkProtectedTripwire(実gitリポジトリ)', () => {
+// Windows では git プロセス起動が遅く、並列負荷で既定5sを超える(既存manager.testと同様)
+describe('checkProtectedTripwire(実gitリポジトリ)', { timeout: 60_000 }, () => {
   it('聖域の各エントリへの変更が必ず reject される', async () => {
     const targets: [string, string][] = [
       ['t-evo', 'src/main/evolution/manager.ts'],

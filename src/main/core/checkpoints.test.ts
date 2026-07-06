@@ -31,7 +31,8 @@ afterEach(async () => {
 });
 
 // Windows では git のプロセス起動が遅く、並列実行時の負荷次第で既定5sを超える
-describe('CheckpointManager(M11-3・実git)', { timeout: 20_000 }, () => {
+// M20で実gitテストが増え並列負荷が上がったため引き上げ(単体では数秒で通る)
+describe('CheckpointManager(M11-3・実git)', { timeout: 45_000 }, () => {
   it('スナップショット→破壊→復元で作業ツリーが戻る。HEAD・index・他refsは不変', async () => {
     const cm = new CheckpointManager(dir);
     const headBefore = await git(['rev-parse', 'HEAD'], dir);

@@ -21,7 +21,8 @@ import { SessionStore } from './core/sessions';
 import { readProjectMemory, readProjectPlan, writeProjectMemory } from './memory';
 import { AgentJobRunner } from './evolution/job';
 import { EvolutionManager } from './evolution/manager';
-import { healthCheckAfterPromotion } from './evolution/supervisor';
+import { clearSentinel, writeSentinel } from './evolution/sentinel';
+import { healthCheckAfterPromotion, rebuildAndHealthBoot } from './evolution/supervisor';
 import { generateToken, RemoteAuth } from './remote/auth';
 import { RemoteServer } from './remote/server';
 import { SecretStore, type SecretCipher } from './secrets';
@@ -221,6 +222,15 @@ export interface MainServices {
   mcp: McpManager;
 }
 
+/** M20: 起動時フラグ(センチネル由来)。renderer のバナー表示用 */
+export interface RuntimeFlags {
+  /** 進化再起動の2回連続クラッシュを検知し、進化機能を止めて起動した */
+  safeMode: boolean;
+  safeModeInfo?: { tag: string; prevCommit: string };
+  /** この起動が進化(evolve/N)の再起動として完走した */
+  restartedFrom?: string;
+}
+
 /**
  * M10-1 以降、ロジックの実体は core/service.ts(AgentService)にあり、
  * ここは「IPCチャネル ⇔ サービス呼び出し」の薄い写像だけを持つ。
@@ -228,6 +238,7 @@ export interface MainServices {
  */
 export async function registerIpcHandlers(
   getWebContents: () => WebContents | null,
+  runtimeFlags: RuntimeFlags = { safeMode: false },
 ): Promise<MainServices> {
   const push = <T>(channel: string, payload: T): void => {
     const wc = getWebContents();
@@ -263,8 +274,20 @@ export async function registerIpcHandlers(
     sessions: new SessionStore(join(app.getPath('userData'), 'sessions')),
     // M14-2: URLスクリーンショット(offscreen BrowserWindow)。進化ジョブへは渡らない
     captureUrl,
-    createEvolution: (hooks) =>
-      new EvolutionManager({
+    createEvolution: (hooks) => {
+      // M20: セーフモード中は進化機能を無効化して起動する(承認機構と復旧経路は生きたまま)
+      if (runtimeFlags.safeMode) {
+        return {
+          list: () => [],
+          enqueue: async () => {
+            throw new Error(
+              'セーフモード中のため進化は実行できない(進化再起動の連続失敗を検知)。' +
+                'Settings から解除するか、手動復旧後に再起動してください',
+            );
+          },
+        };
+      }
+      return new EvolutionManager({
         repoDir,
         worktreeBase: join(repoDir, '..', 'mycodex-evolve'),
         runner: new AgentJobRunner(() => service.createProviderOrThrow()),
@@ -272,8 +295,26 @@ export async function registerIpcHandlers(
         reloadPlugins: () => registry.reload(),
         healthCheck: (toolName, smokeInput) =>
           healthCheckAfterPromotion(repoDir, toolName, smokeInput),
+        // M20: renderer/core 昇格後の再ビルド+フルアプリ健全性(失敗時はmanagerが自動revert)
+        rebuildAndHealthBoot: (dir) => rebuildAndHealthBoot(dir),
+        // M20: 健全性確定後の再起動(センチネル書き込み→5秒後にrelaunch)
+        requestRestart: (tag, prevCommit) => {
+          writeSentinel(app.getPath('userData'), tag, prevCommit);
+          audit.append({
+            tool: 'evolution-restart',
+            scope: 'system',
+            paths: [],
+            event: 'result',
+            detail: `tag=${tag} prev=${prevCommit.slice(0, 8)} — 5秒後に再起動`,
+          });
+          setTimeout(() => {
+            app.relaunch();
+            app.exit(0);
+          }, 5000);
+        },
         onEvent: hooks.onEvent,
-      }),
+      });
+    },
   });
 
   // bus → renderer(webContents.send)。チャネル名はバスとIPCで同一
@@ -293,6 +334,20 @@ export async function registerIpcHandlers(
   ipcMain.handle(IpcChannels.chatCancel, (_e, sessionId: unknown) => {
     assertString(sessionId, 'sessionId');
     service.chatCancel(sessionId);
+  });
+
+  // ---- M20: 起動時フラグ(セーフモード/進化再起動完了のバナー用)+セーフモード解除 ----
+  ipcMain.handle(IpcChannels.runtimeFlags, () => ({ ...runtimeFlags }));
+  ipcMain.handle(IpcChannels.safeModeClear, () => {
+    const cleared = clearSentinel(app.getPath('userData'));
+    audit.append({
+      tool: 'evolution-safemode',
+      scope: 'system',
+      paths: [],
+      event: 'result',
+      detail: cleared ? 'ユーザーがセーフモードを解除(要再起動)' : '解除対象なし',
+    });
+    return { cleared };
   });
 
   // ---- 自律モード(M17-2。状態はセッション単位・再起動でOFF) ----

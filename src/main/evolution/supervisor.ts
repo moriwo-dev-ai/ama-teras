@@ -26,3 +26,22 @@ export async function healthCheckAfterPromotion(
   );
   return code === 0;
 }
+
+/**
+ * M20: renderer/core 昇格後の再ビルド+フルアプリ健全性チェック(Aで実行)。
+ * この間、稼働中アプリは旧バンドルのまま動作継続する(=健全性が確定するまで再起動しない)。
+ * --smoke-boot は単一インスタンスロック非取得+userData隔離のため、稼働中Aと安全に並走できる。
+ * 失敗時は EvolutionManager が自動revert+再ビルドし、アプリ無停止のまま rolled_back で完結する
+ */
+export async function rebuildAndHealthBoot(
+  repoDir: string,
+  runCommand: CommandRunner = defaultRunCommand,
+): Promise<{ ok: boolean; output: string }> {
+  const build = await runCommand('npm run build', repoDir);
+  if (build.code !== 0) return { ok: false, output: `再ビルド失敗: ${build.output.slice(-2000)}` };
+  const boot = await runCommand('npx electron . --smoke-boot', repoDir, { MYCODEX_SMOKE: '1' });
+  if (boot.code !== 0) {
+    return { ok: false, output: `フルアプリ健全性チェック失敗: ${boot.output.slice(-2000)}` };
+  }
+  return { ok: true, output: '再ビルド+健全性チェック合格' };
+}

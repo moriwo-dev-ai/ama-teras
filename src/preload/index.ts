@@ -76,6 +76,9 @@ const api: MyCodexApi = {
   autonomousSet: (on) => ipcRenderer.invoke(IpcChannels.autonomousSet, on),
   onAutonomousChanged: (listener) =>
     subscribe<AutonomousStatePayload>(IpcChannels.autonomousChanged, listener),
+
+  runtimeFlags: () => ipcRenderer.invoke(IpcChannels.runtimeFlags),
+  safeModeClear: () => ipcRenderer.invoke(IpcChannels.safeModeClear),
 };
 
 contextBridge.exposeInMainWorld('api', api);

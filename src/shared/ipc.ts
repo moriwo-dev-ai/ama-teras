@@ -80,6 +80,9 @@ export const IpcChannels = {
   autonomousGet: 'autonomous:get',
   autonomousSet: 'autonomous:set',
   autonomousChanged: 'autonomous:changed',
+  /** M20: 起動時フラグ(セーフモード/進化再起動完了)とセーフモード解除 */
+  runtimeFlags: 'runtime:flags',
+  safeModeClear: 'safemode:clear',
 } as const;
 
 /** preload が window.api として公開するAPIの型。renderer はこれ経由でしか main と話せない */
@@ -158,4 +161,12 @@ export interface MyCodexApi {
   autonomousGet(): Promise<{ on: boolean }>;
   autonomousSet(on: boolean): Promise<{ on: boolean }>;
   onAutonomousChanged(listener: (payload: AutonomousStatePayload) => void): () => void;
+
+  /** M20: 起動時フラグ(セーフモード/進化再起動完了のバナー用)とセーフモード解除 */
+  runtimeFlags(): Promise<{
+    safeMode: boolean;
+    safeModeInfo?: { tag: string; prevCommit: string };
+    restartedFrom?: string;
+  }>;
+  safeModeClear(): Promise<{ cleared: boolean }>;
 }
