@@ -2,7 +2,19 @@
 
 ## 現在の状態
 
-- **M1〜M18まで実装**。テスト532件・typecheck(node/web/remote)全合格。
+- **M1〜M19まで実装**。テスト566件・typecheck(node/web/remote)全合格。
+- **M19完了(2026-07-06・実機実測済み)**: 品質レビュー・ゲート —
+  AppConfig.reviewGate(**既定undefined=無効・従来挙動完全維持**)。有効時:
+  マイルストーン(AMATERAS_PLAN.mdの項目 - [ ]→- [x])ごとにplanner帯の辛口レビュアーが
+  4軸採点(code/ux/requirements/tests、UI無しはux自動スキップ・localhost限定screenshot可)。
+  閾値未満→file/location/problem/fixの具体指摘つきでworker帯へ差し戻し(1〜2回worker、
+  3回目以降escalation帯=M18連動)→再レビュー。上限到達: 自律ON=警告のみ/OFF=承認ダイアログ。
+  計画未使用タスクは完了時1回に縮退(write/exec成功なしは対象外)。レビュー要約をplanの
+  tool_resultへ追記(メインモデルも合否認識)。🧪レビューカード(緑/琥珀/赤)+audit記録+
+  Settings節(プリセット3種)。進化ジョブ非波及guardrail。
+  **実測: バグ入りコードを「修正禁止」指示下で 2.33不合格→worker修正→4.33合格(3.9分・
+  独立検証9/9)。ベンチ②ONは3.5分・12/12・追加コスト$0.15(+78%)**(docs/autonomy-comparison.md)。
+  体感確認は `docs/M19-manual-test.md`
 - **M18完了(2026-07-06・実機ベンチ実測済み)**: モデル自動切替(役割ベース割当) —
   AppConfig.modelPolicy(**既定undefined=無効・従来挙動完全維持**)。有効時:
   メイン会話=planner帯 / dispatch_agentサブ=worker帯 / 詰まったらescalation帯へ自動格上げ
@@ -320,6 +332,16 @@
   - M18-4: ModelPolicySection(Settings)+plannerバッジ+⤴格上げバッジ
   - M18-5: ベンチ②実測(2.3分・vitest10/10・worker委譲でコスト約半減)→autonomy-comparison.md、
     docs/M18-manual-test.md、USER-GUIDE「モデル自動切替」節
+- 2026-07-06: **M19 — 品質レビュー・ゲート(planner採点→差し戻し)**。テスト532→566件
+  - M19-1: AppConfig.reviewGate + parseReviewGate(クランプ・axes補完)+ AgentEvent 'review'
+  - M19-2: review/gate.ts(レビュアーエージェント=読み取り専用+localhost限定screenshot、
+    JSONパース=抽象指摘の機械排除、runReviewCycle、buildFixTask)+ planDiff.ts
+  - M19-3: service配線(planツールdiffでマイルストーン検知→同期レビュー→tool_result追記、
+    完了時縮退、fix=runParallelSubAgents(work)でM18/M16配線をそのまま利用、
+    上限到達の承認/警告分岐)+ 進化非波及guardrail(発動箇所2箇所固定)
+  - M19-4: ReviewCard(4軸表+指摘リスト)+ chat/remote-uiストア + Settings「品質レビュー」節
+  - M19-5: 実測(バグ入りコード検出→改善 2.33→4.33、ベンチ②ON +$0.15/+78%)→
+    autonomy-comparison.md、docs/M19-manual-test.md、USER-GUIDE「品質レビュー」節
 
 ## 次のタスク
 
@@ -371,6 +393,25 @@
 - ~~(M9) audit.jsonl の閲覧UIは未実装~~ → M10 のスマホUI監査タブで提供済み
 
 ## 決定事項ログ
+
+### M19での判断(2026-07-06 自律作業。planはユーザー承認済み)
+
+- **マイルストーンレビューはツール実行内で同期実行し、要約をplanのtool_resultへ追記**:
+  メインモデル自身が合否を認識して次の行動(残課題対応など)に反映できる
+- **レビュアーは会話履歴を見ない**(userRequest+計画+実ファイルのみ): 「自分が書いた前提を
+  持たない第三者」を構造的に強制。メインが「修正するな」と縛られていても検出できる(実測済み)
+- **レビュー自体の失敗(JSON不出力・キャンセル)は素通し+警告**: レビュアーの不調で
+  本体タスクを壊さない。再レビュー失敗時は「未解決」扱い(素通しにしない)
+- **抽象指摘はパーサで機械排除**: findingsはfile/location/problem/fixの4フィールド必須。
+  欠けた指摘は捨てる(プロンプト指示だけに頼らない)
+- **レビュアーのscreenshotはlocalhost限定**: executor承認フローを経由しないため、
+  外部URLは機械拒否(プラグインのdynamicApprovalと同等の制約を直接実装)
+- **完了時縮退レビューはwrite/exec成功があった会話のみ**: 質問・調査だけの会話に
+  レビューコストをかけない
+- **上限到達の承認deny=そのまま終了+指示待ち案内**(追加ラウンドは回さない): 無限ループ防止を
+  優先し、続きはユーザーの明示指示で
+- **fix実行はrunParallelSubAgents(work)を単タスクで再利用**: 承認・スコープ・監査・
+  M18エスカレーション・M16子フォールバック・サブエージェントUIが自動で効く
 
 ### M18での判断(2026-07-06 自律作業。planはユーザー承認済み)
 
