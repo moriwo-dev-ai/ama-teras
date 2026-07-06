@@ -22,7 +22,7 @@ import { SessionStore } from './core/sessions';
 import { readProjectMemory, readProjectPlan, writeProjectMemory } from './memory';
 import { AgentJobRunner } from './evolution/job';
 import { EvolutionManager } from './evolution/manager';
-import { listEvolveTags, rollbackLastEvolve } from './evolution/promote';
+import { listEvolvedCapabilities, listEvolveTags, rollbackLastEvolve } from './evolution/promote';
 import { clearSentinel, writeSentinel } from './evolution/sentinel';
 import { healthCheckAfterPromotion, rebuildAndHealthBoot } from './evolution/supervisor';
 import { defaultRunCommand } from './evolution/gates';
@@ -440,6 +440,8 @@ export async function registerIpcHandlers(
 
   // ---- M20: ロールバック履歴と「1つ前へ戻す」 ----
   ipcMain.handle(IpcChannels.evolutionHistory, () => listEvolveTags(repoDir));
+  // M23-6: 進化で獲得した能力(スキル/自己書き換え)一覧
+  ipcMain.handle(IpcChannels.evolutionCapabilities, () => listEvolvedCapabilities(app.getAppPath()));
   ipcMain.handle(IpcChannels.evolutionRollbackLast, async () => {
     const result = await rollbackLastEvolve(repoDir);
     audit.append({
@@ -628,8 +630,10 @@ export async function registerIpcHandlers(
       token = pair.token;
       tokenHash = pair.tokenHash;
     }
+    // M23fix: 再構成で host(QR用ホスト名)を落とさない
     const next: RemoteConfig = { enabled, port };
     if (tokenHash !== undefined) next.tokenHash = tokenHash;
+    if (rc.host !== undefined) next.host = rc.host;
     setRemoteConfig(next);
     await applyRemoteState();
     const result: { status: RemoteStatusPayload; token?: string } = { status: remoteStatus() };

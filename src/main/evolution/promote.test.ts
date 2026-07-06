@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runGit } from './git';
-import { assertPromotable, promoteBranch } from './promote';
+import { assertPromotable, listEvolvedCapabilities, promoteBranch } from './promote';
 
 let base: string;
 let repo: string;
@@ -88,5 +88,34 @@ describe('promoteBranch(指摘#6)', { timeout: 30_000 }, () => {
     await makePluginBranch('evolve/job-3', 'export const y = 2;\n');
     await runGit(['checkout', '-b', 'feature'], repo);
     await expect(promoteBranch(repo, 'evolve/job-3', 3, 'main')).rejects.toThrow(/main ではない/);
+  });
+});
+
+describe('listEvolvedCapabilities(M23-6)', { timeout: 30_000 }, () => {
+  it('昇格ごとにkind(tool/renderer/core)・ツール名・変更ファイルが導出される', async () => {
+    // 1つ目: pluginsのみ = tool
+    await makePluginBranch('evolve/job-1', 'export const x = 1;\n');
+    await promoteBranch(repo, 'evolve/job-1', 1, 'main');
+
+    // 2つ目: rendererのみ = renderer
+    await runGit(['checkout', '-b', 'evolve/job-2'], repo);
+    await mkdir(join(repo, 'src/renderer/src'), { recursive: true });
+    await writeFile(join(repo, 'src/renderer/src/App.tsx'), 'export {};\n');
+    await commitAll('UI change');
+    await runGit(['checkout', 'main'], repo);
+    await promoteBranch(repo, 'evolve/job-2', 2, 'main');
+
+    const caps = await listEvolvedCapabilities(repo);
+    expect(caps).toHaveLength(2);
+    // 新しい順
+    const [ui, tool] = caps;
+    expect(ui!.tag).toBe('evolve/2');
+    expect(ui!.kind).toBe('renderer');
+    expect(ui!.files).toContain('src/renderer/src/App.tsx');
+    expect(ui!.toolNames).toEqual([]);
+    expect(tool!.tag).toBe('evolve/1');
+    expect(tool!.kind).toBe('tool');
+    expect(tool!.toolNames).toEqual(['foo']);
+    expect(tool!.files).toContain('src/main/tools/plugins/foo.ts');
   });
 });

@@ -76,6 +76,50 @@ export async function listEvolveTags(repoDir: string): Promise<EvolveTagInfo[]> 
   });
 }
 
+/** M23-6: 進化で獲得した能力(スキル/自己書き換え)の一覧項目 */
+export interface EvolvedCapability extends EvolveTagInfo {
+  /** tool=プラグイン追加 / renderer=UI自己書き換え / core=本体ロジック自己書き換え */
+  kind: 'tool' | 'renderer' | 'core';
+  /** 追加/変更されたツールプラグイン名(plugins配下のファイル名由来) */
+  toolNames: string[];
+  /** この昇格で変更されたファイル(テスト含む) */
+  files: string[];
+}
+
+/**
+ * M23-6: 進化の昇格ごとに「何が獲得されたか」を導出する。
+ * 変更ファイルはマージコミットの第1親(=昇格前のmain)との差分から取る
+ */
+export async function listEvolvedCapabilities(repoDir: string): Promise<EvolvedCapability[]> {
+  const tags = await listEvolveTags(repoDir);
+  const result: EvolvedCapability[] = [];
+  for (const t of tags) {
+    const out = await runGit(
+      ['diff', '--name-only', '--no-renames', `${t.tag}^1`, t.tag],
+      repoDir,
+    ).catch(() => '');
+    const files = out === '' ? [] : out.split('\n').filter((f) => f.trim() !== '');
+    const norm = files.map((f) => f.replace(/\\/g, '/'));
+    const toolNames = [
+      ...new Set(
+        norm
+          .filter((f) => f.startsWith('src/main/tools/plugins/') && f.endsWith('.ts') && !f.endsWith('.test.ts'))
+          .map((f) => f.split('/').pop()!.replace(/\.ts$/, '')),
+      ),
+    ];
+    // 判定はコア寄りを優先(plugins/renderer以外のsrcに触れていればcore=本体の自己書き換え)
+    const touchesCore = norm.some(
+      (f) =>
+        (f.startsWith('src/main/') || f.startsWith('src/shared/') || f.startsWith('src/preload/')) &&
+        !f.startsWith('src/main/tools/plugins/'),
+    );
+    const touchesRenderer = norm.some((f) => f.startsWith('src/renderer/') || f.startsWith('src/remote-ui/'));
+    const kind: EvolvedCapability['kind'] = touchesCore ? 'core' : touchesRenderer ? 'renderer' : 'tool';
+    result.push({ ...t, kind, toolNames, files: norm });
+  }
+  return result;
+}
+
 /**
  * M20: 「1つ前へ戻す」— HEAD が最新 evolve タグのマージコミットと一致する場合のみ
  * revert する(履歴は残す)。一致しない(昇格後に別コミットが積まれた)場合は

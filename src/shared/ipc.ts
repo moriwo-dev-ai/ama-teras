@@ -96,6 +96,8 @@ export const IpcChannels = {
   /** M20: ロールバック履歴(evolveタグ)と「1つ前へ戻す」 */
   evolutionHistory: 'evolution:history',
   evolutionRollbackLast: 'evolution:rollback-last',
+  /** M23-6: 進化で獲得した能力(スキル/自己書き換え)一覧 */
+  evolutionCapabilities: 'evolution:capabilities',
 } as const;
 
 /** preload が window.api として公開するAPIの型。renderer はこれ経由でしか main と話せない */
@@ -199,4 +201,16 @@ export interface MyCodexApi {
   /** M20: 進化のロールバック履歴と「1つ前へ戻す」(HEADが最新evolveマージのときのみ) */
   evolutionHistory(): Promise<{ tag: string; commit: string; date: string; subject: string }[]>;
   evolutionRollbackLast(): Promise<{ ok: boolean; message: string }>;
+  /** M23-6: 昇格ごとの獲得内容(kind/ツール名/変更ファイル) */
+  evolutionCapabilities(): Promise<
+    {
+      tag: string;
+      commit: string;
+      date: string;
+      subject: string;
+      kind: 'tool' | 'renderer' | 'core';
+      toolNames: string[];
+      files: string[];
+    }[]
+  >;
 }

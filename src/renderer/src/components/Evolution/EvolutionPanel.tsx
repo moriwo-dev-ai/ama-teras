@@ -33,13 +33,23 @@ export function EvolutionPanel(): JSX.Element {
   const [io, setIo] = useState('');
   const [scope, setScope] = useState<EvolutionScope>('tool');
   const [openLog, setOpenLog] = useState<number | null>(null);
-  // M20: ロールバック履歴
-  const [history, setHistory] = useState<{ tag: string; commit: string; date: string; subject: string }[]>([]);
+  // M20→M23-6: 昇格履歴を「獲得した能力」(kind/ツール名/変更ファイル)付きで表示
+  const [history, setHistory] = useState<
+    {
+      tag: string;
+      commit: string;
+      date: string;
+      subject: string;
+      kind: 'tool' | 'renderer' | 'core';
+      toolNames: string[];
+      files: string[];
+    }[]
+  >([]);
   const [rollbackMsg, setRollbackMsg] = useState('');
 
   const loadHistory = async (): Promise<void> => {
     try {
-      setHistory(await window.api.evolutionHistory());
+      setHistory(await window.api.evolutionCapabilities());
     } catch {
       /* 履歴は表示のみの情報 */
     }
@@ -129,7 +139,7 @@ export function EvolutionPanel(): JSX.Element {
       {/* M20: ロールバック履歴(evolveタグ)と「1つ前へ戻す」 */}
       <div className="border-t border-zinc-800 pt-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-zinc-400">昇格履歴(evolveタグ)</span>
+          <span className="text-xs font-semibold text-zinc-400">獲得した能力(昇格履歴)</span>
           <button
             className="rounded border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-400 hover:bg-zinc-800"
             onClick={() => void loadHistory()}
@@ -152,15 +162,42 @@ export function EvolutionPanel(): JSX.Element {
         </div>
         {rollbackMsg && <p className="mt-1 text-[11px] text-amber-300">{rollbackMsg}</p>}
         {history.length === 0 ? (
-          <p className="mt-1 text-[11px] text-zinc-500">昇格履歴なし</p>
+          <p className="mt-1 text-[11px] text-zinc-500">昇格履歴なし(進化で獲得した能力がここに並ぶ)</p>
         ) : (
-          <ul className="mt-1 max-h-24 space-y-0.5 overflow-y-auto text-[11px] text-zinc-400">
+          <ul className="mt-1 max-h-48 space-y-1 overflow-y-auto text-[11px] text-zinc-400">
             {history.map((h) => (
-              <li key={h.tag} className="flex gap-2">
-                <span className="font-mono text-purple-300">{h.tag}</span>
-                <span className="font-mono">{h.commit}</span>
-                <span>{h.date.slice(0, 16)}</span>
-                <span className="truncate">{h.subject}</span>
+              <li key={h.tag} className="rounded border border-zinc-800 px-2 py-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-purple-300">{h.tag}</span>
+                  {/* M23-6: 獲得の種類(ツール追加 or 自己書き換え) */}
+                  <span
+                    className={`rounded px-1 text-[10px] ${
+                      h.kind === 'tool'
+                        ? 'bg-zinc-800 text-zinc-300'
+                        : h.kind === 'renderer'
+                          ? 'bg-blue-900/70 text-blue-300'
+                          : 'bg-red-900/70 text-red-300'
+                    }`}
+                  >
+                    {h.kind === 'tool' ? '🔧 ツール追加' : h.kind === 'renderer' ? '🎨 UI自己書き換え' : '⚙ コア自己書き換え'}
+                  </span>
+                  {h.toolNames.map((n) => (
+                    <span key={n} className="rounded bg-emerald-900/50 px-1 font-mono text-[10px] text-emerald-300">
+                      {n}
+                    </span>
+                  ))}
+                  <span className="ml-auto shrink-0 text-zinc-500">{h.date.slice(0, 16)}</span>
+                </div>
+                <details className="mt-0.5">
+                  <summary className="cursor-pointer text-zinc-500">
+                    変更ファイル {h.files.length}件 — {h.subject}
+                  </summary>
+                  <ul className="mt-0.5 space-y-0.5 pl-3 font-mono text-[10px] text-zinc-500">
+                    {h.files.map((f) => (
+                      <li key={f}>{f}</li>
+                    ))}
+                  </ul>
+                </details>
               </li>
             ))}
           </ul>

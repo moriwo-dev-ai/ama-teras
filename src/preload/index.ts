@@ -90,6 +90,7 @@ const api: MyCodexApi = {
 
   evolutionHistory: () => ipcRenderer.invoke(IpcChannels.evolutionHistory),
   evolutionRollbackLast: () => ipcRenderer.invoke(IpcChannels.evolutionRollbackLast),
+  evolutionCapabilities: () => ipcRenderer.invoke(IpcChannels.evolutionCapabilities),
 };
 
 contextBridge.exposeInMainWorld('api', api);
