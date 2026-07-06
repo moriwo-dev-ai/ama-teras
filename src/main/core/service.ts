@@ -17,6 +17,7 @@ import type {
   ModelPolicy,
   PluginErrorInfo,
   ProviderId,
+  ReviewCardPayload,
   SessionLoadResult,
   SessionMeta,
   SubAgentUpdate,
@@ -43,6 +44,8 @@ import {
 import { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from '../providers/anthropic';
 import { DEFAULT_OPENAI_MODEL, OpenAIProvider } from '../providers/openai';
 import type { ChatMessage, LLMProvider } from '../providers/types';
+import { buildFixTask, runReviewCycle, runReviewer, type ReviewTarget } from '../review/gate';
+import { newlyCompleted } from '../review/planDiff';
 import {
   executeToolWithApproval,
   type ExecutorDeps,
@@ -584,6 +587,8 @@ export class AgentService {
     // M18: worker/escalation 帯のキー未登録は実行前に警告(横断構成の取りこぼし防止)。
     // worker はメイン(planner)のプロバイダで代行して続行する
     let workerProvider: LLMProvider = provider;
+    // M19: レビュー差し戻し3ラウンド目以降のfixに使う(escalation帯。無ければworkerで代行)
+    let escalationProvider: LLMProvider = provider;
     if (policy) {
       const w = this.createBandProvider('worker');
       if (typeof w === 'string') {
@@ -594,8 +599,13 @@ export class AgentService {
       const e = this.createBandProvider('escalation');
       if (typeof e === 'string') {
         emit({ kind: 'info', sessionId, message: `⚠ ${e} — 格上げは無効になります` });
+      } else {
+        escalationProvider = e;
       }
     }
+    // M19: レビュー・ゲートの実行状況(マイルストーン発動が無かったrunは完了時に1回縮退)
+    let reviewRanThisRun = false;
+    let producedOutput = false;
 
     const ac = new AbortController();
     this.activeRun = { sessionId, ac };
@@ -711,6 +721,11 @@ export class AgentService {
           // 併せて loop 側 planMode でも実行を機械的に禁止する(二重防御)。
           tools: planMode ? { list: () => [] } : this.deps.registry,
           executeTool: async (name, input, ctx) => {
+            // M19: plan 書き込み前の計画内容(マイルストーン完了検出用)
+            const planBefore =
+              name === 'plan' && this.deps.config.get().reviewGate?.enabled === true
+                ? readProjectPlan(this.getWorkspace())
+                : null;
             const result = await executeToolWithApproval(this.executorDeps(), name, input, {
               ...ctx,
               evolution: this.evolutionContext(),
@@ -738,9 +753,30 @@ export class AgentService {
             // 失敗してもツール結果・ループは止めない(manager 側でログ済み)
             const risk = this.deps.registry.get(name)?.risk;
             if (result.isError !== true && (risk === 'write' || risk === 'exec')) {
+              producedOutput = true;
               await this.getCheckpoints()
                 ?.snapshot(sessionId, `${name} 実行後`)
                 .catch(() => null);
+            }
+            // M19: マイルストーン完了(- [ ]→- [x])を検知したらレビュー・ゲートを同期実行。
+            // 要約を tool_result に追記するので、メインのモデル自身も合否を認識できる
+            if (planBefore !== null && result.isError !== true) {
+              const done = newlyCompleted(planBefore, readProjectPlan(this.getWorkspace()));
+              if (done.length > 0) {
+                reviewRanThisRun = true;
+                const summary = await this.runReviewGate({
+                  sessionId,
+                  milestone: done.join(' / '),
+                  userRequest: text,
+                  signal: ac.signal,
+                  reviewProvider: runProvider,
+                  workerProvider,
+                  escalationProvider,
+                });
+                if (summary !== null) {
+                  return { ...result, content: `${result.content}\n\n[品質レビュー] ${summary}` };
+                }
+              }
             }
             return result;
           },
@@ -777,6 +813,24 @@ export class AgentService {
         this.history,
         ac.signal,
       );
+      // M19: 計画を使わなかった短いタスクは完了時に1回だけレビュー(縮退モード)。
+      // 成果物(write/exec成功)が無い会話は対象外
+      if (
+        status === 'done' &&
+        !reviewRanThisRun &&
+        producedOutput &&
+        this.deps.config.get().reviewGate?.enabled === true
+      ) {
+        await this.runReviewGate({
+          sessionId,
+          milestone: '完成時レビュー',
+          userRequest: text,
+          signal: ac.signal,
+          reviewProvider: runProvider,
+          workerProvider,
+          escalationProvider,
+        });
+      }
       // M11-3: ループ完了時にも1回スナップショット(直近ツール以降の変更を確定)
       await this.getCheckpoints()
         ?.snapshot(sessionId, `セッション終了(${status})`)
@@ -874,6 +928,124 @@ export class AgentService {
         });
       },
     };
+  }
+
+  /**
+   * M19: 品質レビュー・ゲート1サイクル(レビュー → 不合格なら差し戻し → 再レビュー)。
+   * 戻り値は plan の tool_result 等に追記する日本語の要約(無効・キャンセル時は null)。
+   * fix は runParallelSubAgents(work) 経由なので、承認・スコープ・M18エスカレーション・
+   * M16子フォールバックがそのまま効く。3ラウンド目以降の fix は escalation 帯を直接使う
+   */
+  private async runReviewGate(args: {
+    sessionId: string;
+    milestone: string;
+    userRequest: string;
+    signal: AbortSignal;
+    reviewProvider: LLMProvider;
+    workerProvider: LLMProvider;
+    escalationProvider: LLMProvider;
+  }): Promise<string | null> {
+    const cfg = this.deps.config.get().reviewGate;
+    if (cfg === undefined || !cfg.enabled || args.signal.aborted) return null;
+    const ws = this.getWorkspace();
+    const target: ReviewTarget = {
+      milestone: args.milestone,
+      userRequest: args.userRequest,
+      planContent: readProjectPlan(ws),
+    };
+    const emitCard = (card: ReviewCardPayload): void => {
+      this.emitChat({ kind: 'review', sessionId: args.sessionId, ...card });
+      this.deps.audit.append({
+        tool: 'review-gate',
+        scope: 'system',
+        paths: [],
+        event: 'result',
+        detail: `milestone="${args.milestone.slice(0, 80)}" round=${card.round} avg=${card.average} pass=${card.pass} findings=${card.findings.length}`,
+      });
+    };
+
+    const result = await runReviewCycle({
+      config: cfg,
+      review: (round) =>
+        runReviewer(
+          {
+            provider: args.reviewProvider,
+            tools: this.deps.registry,
+            cwd: ws,
+            axes: cfg.axes,
+            threshold: cfg.threshold,
+            ...(this.deps.captureUrl !== undefined ? { captureUrl: this.deps.captureUrl } : {}),
+          },
+          target,
+          round,
+          args.signal,
+        ),
+      fix: async (card, round) => {
+        // worker修正が2回失敗した後(3ラウンド目〜)は escalation 帯へ格上げして直す(M18連動)
+        const provider = round >= 3 ? args.escalationProvider : args.workerProvider;
+        await this.runParallelSubAgents(
+          provider,
+          args.sessionId,
+          [buildFixTask(target, card)],
+          'work',
+          args.signal,
+        );
+      },
+      onCard: emitCard,
+      signal: args.signal,
+    });
+
+    if (args.signal.aborted) return null;
+
+    if (result.reviewFailed && result.final === null) {
+      this.emitChat({
+        kind: 'info',
+        sessionId: args.sessionId,
+        message: '品質レビューを実行できなかった(採点出力が得られず)。今回は素通しで続行します',
+      });
+      return 'レビュー実行失敗(素通し)';
+    }
+
+    const final = result.final!;
+    if (result.resolved) {
+      return result.fixRounds > 0
+        ? `合格 平均${final.average}/5(差し戻し${result.fixRounds}回で改善)`
+        : `合格 平均${final.average}/5`;
+    }
+
+    // 上限到達でも閾値未満: 残課題を提示。自律モードOFFなら承認を仰ぐ
+    emitCard({ ...final, unresolved: true });
+    const remaining = final.findings
+      .map((f, i) => `${i + 1}. ${f.file}(${f.location}): ${f.problem} → ${f.fix}`)
+      .join('\n');
+    if (this.autonomousMode) {
+      this.emitChat({
+        kind: 'info',
+        sessionId: args.sessionId,
+        message: `⚠ 品質レビュー: 差し戻し上限(${cfg.maxRoundsPerMilestone}回)でも閾値未満(平均${final.average}/5)。残課題${final.findings.length}件を許容して続行します(自律モード)`,
+      });
+    } else {
+      const decision = await this.broker.request(
+        {
+          toolName: 'review-gate',
+          risk: 'safe',
+          inputPreview: remaining.slice(0, 1500) || final.summary.slice(0, 1500),
+          warnings: [
+            `品質レビュー: 差し戻し上限(${cfg.maxRoundsPerMilestone}回)に達しても閾値未満(平均${final.average}/5)。残課題を許容して先へ進みますか?(拒否した場合は追加の修正指示をチャットで送ってください)`,
+          ],
+        },
+        args.signal,
+      );
+      this.emitChat({
+        kind: 'info',
+        sessionId: args.sessionId,
+        message:
+          decision === 'deny'
+            ? '品質レビューの残課題が許容されなかった。追加の修正指示をチャットで送ってください'
+            : '品質レビューの残課題を許容して続行します',
+      });
+    }
+    return `上限到達・残課題${final.findings.length}件(平均${final.average}/5)`;
   }
 
   /**
