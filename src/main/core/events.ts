@@ -3,6 +3,7 @@ import type {
   AgentEvent,
   ApprovalRequestPayload,
   ApprovalResolvedPayload,
+  AutonomousStatePayload,
   EvolutionEvent,
   SubAgentUpdate,
 } from '../../shared/types';
@@ -19,6 +20,8 @@ export interface BusEventMap {
   'evolution:event': EvolutionEvent;
   /** M12-3: 並列サブエージェントの進行状況 */
   'agent:sub_update': SubAgentUpdate;
+  /** M17-2: 自律モードの ON/OFF 変更(全画面の警告バー・トグル同期用) */
+  'autonomous:changed': AutonomousStatePayload;
 }
 
 export type BusChannel = keyof BusEventMap;
@@ -29,6 +32,7 @@ export const BUS_CHANNELS: readonly BusChannel[] = [
   'approval:resolved',
   'evolution:event',
   'agent:sub_update',
+  'autonomous:changed',
 ] as const;
 
 export class EventBus {

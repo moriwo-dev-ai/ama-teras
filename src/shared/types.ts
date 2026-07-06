@@ -193,6 +193,13 @@ export interface AgentStatusView {
   status: AgentStatus;
   activeSessionId: string | null;
   scopeMode: ScopeMode;
+  /** M17-2: 自律モード(承認なし自動実行)が有効か。セッション単位・再起動でOFF */
+  autonomous: boolean;
+}
+
+/** M17-2: 自律モードの状態変更通知(main → renderer/remote) */
+export interface AutonomousStatePayload {
+  on: boolean;
 }
 
 /** SSE 接続直後に送る現在状態(スマホUIの再接続時の状態回復用) */

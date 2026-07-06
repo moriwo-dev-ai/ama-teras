@@ -1,4 +1,4 @@
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
 import type { OperationScope } from '../../shared/types';
 
@@ -21,6 +21,13 @@ export interface DenyPaths {
 export interface ScopeOptions {
   /** パス比較の大文字小文字非依存。既定: Windows でのみ true */
   caseInsensitive?: boolean;
+  /**
+   * M17-2: 自律モード。Windowsシステム領域への書き込みのうち「既存ファイルの
+   * 上書き=破壊」だけを拒否し、新規作成は許可する(読み取りは元々許可)。
+   * userData / secrets.json / リポジトリ .git のハード拒否はこのフラグに関係なく不変
+   * (plugin-cache への新規ファイル作成はコード注入経路になるため緩めない)。
+   */
+  autonomous?: boolean;
 }
 
 /** Windows形式の絶対パス(ドライブレター or UNC)か。実行OSと異なる形式のテスト入力を判別する */
@@ -103,7 +110,11 @@ export function isDenied(
   if (kind === 'write') {
     const lower = normalize(absPath, true);
     for (const root of WINDOWS_DENY_WRITE_ROOTS) {
-      if (isUnder(lower, root)) return `Windowsシステム領域への書き込みは禁止(${root})`;
+      if (isUnder(lower, root)) {
+        // M17-2: 自律モードは新規作成のみ許可(既存ファイルへの上書き=破壊は拒否)
+        if (opts?.autonomous === true && !existsSync(toRealPath(absPath))) continue;
+        return `Windowsシステム領域への書き込みは禁止(${root})`;
+      }
     }
     if (deny.repoGitDir) {
       const gitDir = normalize(deny.repoGitDir, ci);

@@ -108,7 +108,7 @@ describe('AgentService: chat', () => {
     expect(killAll).toHaveBeenCalled();
     // activeRun のクリアは終端イベントの1マイクロタスク後(finally)なので1tick待つ
     await new Promise((r) => setTimeout(r, 0));
-    expect(svc.getStatus()).toEqual({ status: 'idle', activeSessionId: null, scopeMode: 'project' });
+    expect(svc.getStatus()).toEqual({ status: 'idle', activeSessionId: null, scopeMode: 'project', autonomous: false });
   });
 
   it('正常応答が履歴ビューに反映され、status が idle に戻る', async () => {

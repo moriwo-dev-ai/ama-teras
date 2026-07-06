@@ -4,6 +4,7 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import type { AutoApproveSettings, DiffLine, OperationScope, ScopeMode } from '../../shared/types';
 import type { ApprovalBroker } from '../agent/approval';
 import { lineDiff } from '../util/diff';
+import { catastrophicCommandReason, collectStringValues } from './autonomy';
 import { classifyPath, isDenied, type DenyPaths } from './scope';
 import type { ToolContext, ToolPlugin, ToolResult } from './types';
 
@@ -26,6 +27,8 @@ export interface ScopeAuditEvent {
   paths: string[];
   event: 'hard-deny' | 'approval' | 'result';
   detail: string;
+  /** M17-2: 自律モード(承認なし自動実行)で行われた操作 */
+  autonomous?: boolean;
 }
 
 export interface ExecutorDeps {
@@ -50,6 +53,14 @@ export interface ExecutorDeps {
    * 既定 false(未指定も false)= M9 どおり毎回承認。exec系・ハード拒否は設定に関係なく不変
    */
   getFullPcAllowSession?: () => boolean;
+  /**
+   * M17-2: 自律モード(フルアクセス・スイッチ)。true の間は safe/write/exec/system スコープ/
+   * 動的承認をすべて自動承認し、全操作を autonomous:true で監査記録する。
+   * ハード拒否(secrets/userData/システム領域の破壊)と project モードの system 拒否は不変。
+   * exec 系はカタストロフィックなコマンドパターン(format 等)をトリップワイヤで即拒否する。
+   * 進化ジョブの executor 依存には注入しないこと(guardrails テストで固定)。
+   */
+  getAutonomous?: () => boolean;
 }
 
 const HOOK_TIMEOUT_MS = 60_000;
@@ -176,6 +187,8 @@ export async function executeToolWithApproval(
   const dyn = dynRaw && !('error' in dynRaw) ? dynRaw : undefined;
 
   // ---- M9: スコープ判定(ハード拒否 → project拒否 / fullPc強制承認) ----
+  // M17-2: 自律モード。承認をすべて自動化する(ハード拒否・project拒否は不変)
+  const autonomous = deps.getAutonomous?.() === true;
   const policy = deps.getScopePolicy?.();
   let scope: OperationScope | undefined;
   let resolvedPaths: string[] | undefined;
@@ -185,10 +198,17 @@ export async function executeToolWithApproval(
     const kind = plugin.risk === 'write' ? 'write' : 'read';
     const paths = collectDeclaredPaths(plugin, input, ctx.cwd);
     for (const abs of paths) {
-      const reason = isDenied(abs, kind, policy.deny);
+      const reason = isDenied(abs, kind, policy.deny, autonomous ? { autonomous: true } : undefined);
       if (reason) {
         // 保護領域は承認ダイアログすら出さず即エラー(設計 M9「ハード拒否」)
-        deps.audit?.({ tool: plugin.name, scope: 'system', paths: [abs], event: 'hard-deny', detail: reason });
+        deps.audit?.({
+          tool: plugin.name,
+          scope: 'system',
+          paths: [abs],
+          event: 'hard-deny',
+          detail: reason,
+          ...(autonomous ? { autonomous: true } : {}),
+        });
         return { content: `保護領域のため拒否: ${reason}(${abs})`, isError: true };
       }
     }
@@ -208,6 +228,28 @@ export async function executeToolWithApproval(
         };
       }
       resolvedPaths = paths;
+    }
+  }
+
+  // M17-2: 自律モードの exec 系はカタストロフィックなコマンドをトリップワイヤで即拒否
+  // (通常モードは人間の目視承認が防波堤のため、この機械判定は挟まない)
+  if (autonomous && plugin.risk === 'exec') {
+    for (const value of collectStringValues(input)) {
+      const reason = catastrophicCommandReason(value);
+      if (reason) {
+        deps.audit?.({
+          tool: plugin.name,
+          scope: scope ?? 'system',
+          paths: [],
+          event: 'hard-deny',
+          detail: `自律モードの破壊的コマンド拒否: ${reason}`,
+          autonomous: true,
+        });
+        return {
+          content: `自律モードでも破壊的コマンドは拒否される: ${reason}。必要なら自律モードを切って通常の承認で実行すること`,
+          isError: true,
+        };
+      }
     }
   }
 
@@ -231,13 +273,15 @@ export async function executeToolWithApproval(
   const dynSessionAllowed =
     dyn?.sessionKey !== undefined && deps.broker.isSessionAllowed(dyn.sessionKey);
   const dynNeedsApproval = dyn?.required === true && !dynSessionAllowed;
+  // M17-2: 自律モードは承認を一切要求しない(ここより前のハード拒否・denylist が唯一の防壁)
   const needsApproval =
-    (forced && !fullPcSessionAllowed) ||
-    dynNeedsApproval ||
-    (!auto[plugin.risk] && !deps.broker.isSessionAllowed(name));
+    !autonomous &&
+    ((forced && !fullPcSessionAllowed) ||
+      dynNeedsApproval ||
+      (!auto[plugin.risk] && !deps.broker.isSessionAllowed(name)));
 
   // M14-5: セッション許可で自動通過する system 操作も監査に「承認(自動)」として残す
-  if (forced && !needsApproval && fullPcSessionAllowed) {
+  if (!autonomous && forced && !needsApproval && fullPcSessionAllowed) {
     deps.audit?.({
       tool: plugin.name,
       scope: 'system',
@@ -312,13 +356,15 @@ export async function executeToolWithApproval(
 
   try {
     const result = await plugin.execute(input, ctx);
-    if (forced) {
+    // M17-2: 自律モード中は workspace 内も含む全操作を autonomous:true で監査に残す
+    if (forced || autonomous) {
       deps.audit?.({
         tool: plugin.name,
-        scope: 'system',
+        scope: scope ?? (forced ? 'system' : 'workspace'),
         paths: resolvedPaths ?? [],
         event: 'result',
         detail: result.isError === true ? `error: ${result.content.slice(0, 200)}` : 'ok',
+        ...(autonomous ? { autonomous: true } : {}),
       });
     }
     // M14-2: 動的承認対象はセッション許可で自動通過した実行も含め全件監査に残す

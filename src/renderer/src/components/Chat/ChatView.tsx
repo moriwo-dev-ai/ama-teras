@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChatImageInput } from '../../../../shared/types';
 import { useChatStore, type UiMessage } from '../../stores/chat';
 import { usePreviewStore } from '../../stores/preview';
+import { AutonomousModal } from './AutonomousModal';
 import { MarkdownMessage } from './MarkdownMessage';
 
 /** ツール入力JSONから path を取り出す(write_file/read_file/edit_file等のリンク化用) */
@@ -96,8 +97,19 @@ export function ChatView(): JSX.Element {
   const [input, setInput] = useState('');
   const [planMode, setPlanMode] = useState(false);
   const [attachments, setAttachments] = useState<ChatImageInput[]>([]);
+  // M17-2: 自律モード(main側が正。イベントで同期し、ON操作は警告モーダルを必須にする)
+  const [autonomous, setAutonomous] = useState(false);
+  const [autoModal, setAutoModal] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const busy = activeSessionId !== null;
+
+  useEffect(() => {
+    window.api
+      .autonomousGet()
+      .then((r) => setAutonomous(r.on))
+      .catch(() => {});
+    return window.api.onAutonomousChanged((p) => setAutonomous(p.on));
+  }, []);
 
   const addFiles = async (files: Iterable<File>): Promise<void> => {
     const added: ChatImageInput[] = [];
@@ -129,6 +141,17 @@ export function ChatView(): JSX.Element {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {autonomous && (
+        <div className="flex items-center justify-center gap-3 border-b border-amber-700 bg-amber-900/60 px-4 py-1.5 text-xs text-amber-200">
+          <span>🔓 自律モード有効 — ツールを承認なしで自動実行中(自己責任)</span>
+          <button
+            className="rounded border border-amber-500 px-2 py-0.5 text-amber-100 hover:bg-amber-800"
+            onClick={() => void window.api.autonomousSet(false)}
+          >
+            OFFにする
+          </button>
+        </div>
+      )}
       <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-1.5 text-xs">
         <select
           className="max-w-[320px] flex-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-zinc-300 disabled:opacity-40"
@@ -240,6 +263,22 @@ export function ChatView(): JSX.Element {
           </div>
         )}
         <div className="flex gap-2">
+          {/* M17-2: 自律モードトグル(ONは警告モーダル必須・OFFはワンクリック) */}
+          <button
+            className={
+              'shrink-0 self-end rounded-md border px-2 py-2 text-xs ' +
+              (autonomous
+                ? 'border-amber-500 bg-amber-900/50 text-amber-200 hover:bg-amber-800'
+                : 'border-zinc-600 text-zinc-400 hover:bg-zinc-800')
+            }
+            title={autonomous ? '自律モードをOFFにする' : '自律モード(承認なし自動実行)をONにする'}
+            onClick={() => {
+              if (autonomous) void window.api.autonomousSet(false);
+              else setAutoModal(true);
+            }}
+          >
+            {autonomous ? '🔓 自律モード' : '🔒 通常'}
+          </button>
           <textarea
             className="max-h-40 flex-1 resize-none rounded-md border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm outline-none focus:border-blue-500"
             rows={2}
@@ -281,6 +320,15 @@ export function ChatView(): JSX.Element {
           )}
         </div>
       </div>
+      {autoModal && (
+        <AutonomousModal
+          onConfirm={() => {
+            setAutoModal(false);
+            void window.api.autonomousSet(true);
+          }}
+          onCancel={() => setAutoModal(false)}
+        />
+      )}
     </div>
   );
 }

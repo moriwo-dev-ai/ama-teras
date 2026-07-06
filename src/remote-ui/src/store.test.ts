@@ -3,7 +3,7 @@ import type { RemoteSnapshot } from '../../shared/types';
 import { applyChatEvent, historyToMessages, useRemoteStore, type UiMessage } from './store';
 
 const SNAPSHOT: RemoteSnapshot = {
-  status: { status: 'idle', activeSessionId: null, scopeMode: 'project' },
+  status: { status: 'idle', activeSessionId: null, scopeMode: 'project', autonomous: false },
   history: [
     { role: 'user', text: 'こんにちは' },
     { role: 'assistant', text: 'やあ' },

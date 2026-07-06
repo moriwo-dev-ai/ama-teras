@@ -16,6 +16,7 @@ interface FacadeCalls {
   promoteRespond: [number, boolean][];
   enqueue: [string, string][];
   sessionOpen: string[];
+  setAutonomous: boolean[];
 }
 
 function stubFacade(): { facade: RemoteFacade; calls: FacadeCalls } {
@@ -26,6 +27,7 @@ function stubFacade(): { facade: RemoteFacade; calls: FacadeCalls } {
     promoteRespond: [],
     enqueue: [],
     sessionOpen: [],
+    setAutonomous: [],
   };
   const facade: RemoteFacade = {
     chatSend: (text, mode, images) => {
@@ -52,7 +54,7 @@ function stubFacade(): { facade: RemoteFacade; calls: FacadeCalls } {
     evolutionPromoteRespond: (jobId, approved) => {
       calls.promoteRespond.push([jobId, approved]);
     },
-    getStatus: () => ({ status: 'idle', activeSessionId: null, scopeMode: 'project' }),
+    getStatus: () => ({ status: 'idle', activeSessionId: null, scopeMode: 'project', autonomous: false }),
     getHistoryView: () => [{ role: 'user', text: 'こんにちは' }],
     getPendingApprovals: () => [],
     getPendingPromotionRequests: () => [],
@@ -69,6 +71,10 @@ function stubFacade(): { facade: RemoteFacade; calls: FacadeCalls } {
     sessionOpen: async (id) => {
       calls.sessionOpen.push(id);
       return { ok: true, history: [{ role: 'user', text: '復元済み' }] };
+    },
+    setAutonomous: (on) => {
+      calls.setAutonomous.push(on);
+      return { on };
     },
   };
   return { facade, calls };
@@ -154,7 +160,7 @@ describe('RemoteServer: 認証', () => {
     expect((await rawGet(port, '/api/status', { authorization: 'Bearer wrong' })).status).toBe(401);
     const ok = await rawGet(port, '/api/status', authed());
     expect(ok.status).toBe(200);
-    expect(JSON.parse(ok.body)).toEqual({ status: 'idle', activeSessionId: null, scopeMode: 'project' });
+    expect(JSON.parse(ok.body)).toEqual({ status: 'idle', activeSessionId: null, scopeMode: 'project', autonomous: false });
   });
 
   it('クエリトークンでも認証できる(SSE用)', async () => {
@@ -284,6 +290,36 @@ describe('RemoteServer: REST API', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, applied: 'allow' });
     expect(calls.approvalRespond).toEqual([['ap-1', 'allow']]);
+  });
+
+  it('M17-2: POST /api/autonomous は ON に confirmed:true を必須にする', async () => {
+    await startServer();
+    // 確認なしのONは 400 で拒否され、facade へ到達しない
+    const noConfirm = await fetch(`http://127.0.0.1:${port}/api/autonomous`, {
+      method: 'POST',
+      headers: authed(),
+      body: JSON.stringify({ on: true }),
+    });
+    expect(noConfirm.status).toBe(400);
+    expect(calls.setAutonomous).toEqual([]);
+
+    // 確認ありのONは通る
+    const on = await fetch(`http://127.0.0.1:${port}/api/autonomous`, {
+      method: 'POST',
+      headers: authed(),
+      body: JSON.stringify({ on: true, confirmed: true }),
+    });
+    expect(on.status).toBe(200);
+    expect(await on.json()).toEqual({ on: true });
+
+    // OFF は確認不要
+    const off = await fetch(`http://127.0.0.1:${port}/api/autonomous`, {
+      method: 'POST',
+      headers: authed(),
+      body: JSON.stringify({ on: false }),
+    });
+    expect(off.status).toBe(200);
+    expect(calls.setAutonomous).toEqual([true, false]);
   });
 
   it('進化API: 一覧 / enqueue / promote-respond', async () => {

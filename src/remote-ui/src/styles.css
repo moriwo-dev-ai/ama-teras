@@ -169,3 +169,37 @@ pre.preview {
 .gate button { border: none; border-radius: 10px; background: var(--blue); color: #fff; padding: 12px; font-size: 15px; }
 .gate .hint { color: var(--muted); font-size: 12px; line-height: 1.6; }
 .muted { color: var(--muted); font-size: 12px; }
+
+/* M17-2: 自律モード(トグル・警告バナー・確認モーダル) */
+.auto-toggle {
+  padding: 4px 8px; border-radius: 6px; font-size: 14px;
+  background: var(--bg); color: var(--muted); border: 1px solid var(--border);
+}
+.auto-toggle.on { background: rgba(217, 119, 6, 0.25); border-color: var(--amber); color: #fcd34d; }
+.auto-banner {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 6px 10px; font-size: 12px;
+  background: rgba(217, 119, 6, 0.2); color: #fcd34d; border-bottom: 1px solid var(--amber);
+}
+.auto-banner button {
+  padding: 2px 8px; font-size: 11px; border-radius: 6px;
+  background: transparent; color: #fde68a; border: 1px solid var(--amber);
+}
+.auto-modal-overlay {
+  position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.6); padding: 16px;
+}
+.auto-modal {
+  max-width: 420px; width: 100%; border-radius: 10px; padding: 14px;
+  background: var(--panel); border: 1px solid var(--amber);
+}
+.auto-modal h3 { margin: 0 0 8px; font-size: 14px; color: #fcd34d; }
+.auto-modal p { margin: 0 0 10px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+.auto-modal label { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 12px; }
+.auto-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.auto-modal-actions button {
+  padding: 6px 12px; font-size: 13px; border-radius: 8px;
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+}
+.auto-modal-actions button.danger { background: var(--amber); border-color: var(--amber); color: #fff; }
+.auto-modal-actions button:disabled { opacity: 0.4; }

@@ -4,6 +4,7 @@ import type {
   AgentEvent,
   ApprovalRequestPayload,
   ApprovalResolvedPayload,
+  AutonomousStatePayload,
   EvolutionEvent,
   SubAgentUpdate,
 } from '../shared/types';
@@ -70,6 +71,11 @@ const api: MyCodexApi = {
   remoteSetEnabled: (enabled, port) =>
     ipcRenderer.invoke(IpcChannels.remoteSetEnabled, enabled, port),
   remoteRegenerateToken: () => ipcRenderer.invoke(IpcChannels.remoteRegenerateToken),
+
+  autonomousGet: () => ipcRenderer.invoke(IpcChannels.autonomousGet),
+  autonomousSet: (on) => ipcRenderer.invoke(IpcChannels.autonomousSet, on),
+  onAutonomousChanged: (listener) =>
+    subscribe<AutonomousStatePayload>(IpcChannels.autonomousChanged, listener),
 };
 
 contextBridge.exposeInMainWorld('api', api);

@@ -194,6 +194,11 @@ export class AgentService {
   private lastPromptTokens = 0;
   /** M16-2: フォールバックを使い切った会話ID(1会話1回まで・往復ループ禁止) */
   private fallbackUsedFor: string | null = null;
+  /**
+   * M17-2: 自律モード(承認なし自動実行)。メモリ内のみ=アプリ再起動で必ずOFF。
+   * セッション切替・新規でもOFFに戻す(事故防止)。config には保存しない
+   */
+  private autonomousMode = false;
   /** 保存の直列化(fold と save が並行実行で交錯しないように) */
   private persistChain: Promise<void> = Promise.resolve();
 
@@ -279,7 +284,31 @@ export class AgentService {
       },
       // M14-5: fullPc の「セッション中許可(このフォルダ)」(既定OFF=M9どおり毎回承認)
       getFullPcAllowSession: () => this.deps.config.get().fullPcAllowSession === true,
+      // M17-2: 自律モード。進化ジョブは executorDeps() を経由しないため波及しない
+      getAutonomous: () => this.autonomousMode,
     };
+  }
+
+  // ---- 自律モード(M17-2) ----
+
+  getAutonomous(): boolean {
+    return this.autonomousMode;
+  }
+
+  /** ON/OFF の切替。全切替を監査に記録し、全画面(renderer/remote)へ通知する */
+  setAutonomous(on: boolean): { on: boolean } {
+    if (this.autonomousMode === on) return { on };
+    this.autonomousMode = on;
+    this.deps.audit.append({
+      tool: 'autonomous-mode',
+      scope: 'system',
+      paths: [],
+      event: 'result',
+      detail: on ? 'on' : 'off',
+      autonomous: true,
+    });
+    this.deps.bus.publish('autonomous:changed', { on });
+    return { on };
   }
 
   /** workspace 変更に追従してチェックポイント管理を作り直す(未設定なら null = 無効) */
@@ -428,6 +457,8 @@ export class AgentService {
   }
 
   private applyLoadedSession(data: SessionData): SessionLoadResult {
+    // M17-2: セッション切替で自律モードは必ずOFF(事故防止・セッション単位の状態)
+    this.setAutonomous(false);
     // 履歴配列は loop と参照共有しているため、置換ではなく中身を差し替える
     this.history.length = 0;
     this.history.push(...data.history);
@@ -447,6 +478,8 @@ export class AgentService {
     this.history.length = 0;
     this.conversation = null;
     this.lastPromptTokens = 0;
+    // M17-2: 新規セッションでも自律モードはOFFへ戻す(セッション単位の状態)
+    this.setAutonomous(false);
     return { ok: true };
   }
 
@@ -872,6 +905,7 @@ export class AgentService {
       status: this.activeRun ? this.lastStatus : 'idle',
       activeSessionId: this.activeRun?.sessionId ?? null,
       scopeMode: this.deps.config.get().scopeMode,
+      autonomous: this.autonomousMode,
     };
   }
 

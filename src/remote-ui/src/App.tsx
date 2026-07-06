@@ -3,6 +3,7 @@ import type {
   AgentEvent,
   ApprovalRequestPayload,
   ApprovalResolvedPayload,
+  AutonomousStatePayload,
   EvolutionEvent,
   RemoteSnapshot,
   SessionMeta,
@@ -68,6 +69,9 @@ export function App(): JSX.Element {
   // M15.1: セッション切替
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [sessionError, setSessionError] = useState('');
+  // M17-2: 自律モードONの確認モーダル(チェック必須)
+  const [autoConfirm, setAutoConfirm] = useState(false);
+  const [autoUnderstood, setAutoUnderstood] = useState(false);
   const running = store.status.activeSessionId !== null;
 
   const refreshSessions = useCallback(async () => {
@@ -142,6 +146,9 @@ export function App(): JSX.Element {
     es.addEventListener('approval:request', (e) => onApprovalRequest(parse<ApprovalRequestPayload>(e)));
     es.addEventListener('approval:resolved', (e) => onApprovalResolved(parse<ApprovalResolvedPayload>(e)));
     es.addEventListener('evolution:event', (e) => onEvolutionEvent(parse<EvolutionEvent>(e)));
+    es.addEventListener('autonomous:changed', (e) =>
+      useRemoteStore.getState().setAutonomousFlag(parse<AutonomousStatePayload>(e).on),
+    );
     es.onerror = () => setConnected(false);
     return () => {
       cancelled = true;
@@ -153,11 +160,23 @@ export function App(): JSX.Element {
   if (!token || !api) return <TokenGate onSubmit={handleToken} />;
 
   const pendingCount = store.pendingApprovals.length + store.promotions.length;
+  const autonomous = store.status.autonomous;
 
   return (
     <div className="app">
       <header className="topbar">
         <h1>AMA-teras</h1>
+        {/* M17-2: 自律モードトグル(ONは確認モーダル必須) */}
+        <button
+          className={`auto-toggle ${autonomous ? 'on' : ''}`}
+          title={autonomous ? '自律モードOFF' : '自律モードON(確認あり)'}
+          onClick={() => {
+            if (autonomous) void api.setAutonomous(false).catch(() => {});
+            else setAutoConfirm(true);
+          }}
+        >
+          {autonomous ? '🔓' : '🔒'}
+        </button>
         <select
           className="session-select"
           value=""
@@ -179,6 +198,48 @@ export function App(): JSX.Element {
       </header>
       {authFailed && <div className="error-banner">認証に失敗した。トークンを確認して再入力を。</div>}
       {sessionError && <div className="error-banner">{sessionError}</div>}
+      {autonomous && (
+        <div className="auto-banner">
+          🔓 自律モード有効 — 承認なしで自動実行中(自己責任)
+          <button onClick={() => void api.setAutonomous(false).catch(() => {})}>OFF</button>
+        </div>
+      )}
+      {autoConfirm && (
+        <div className="auto-modal-overlay" onClick={() => setAutoConfirm(false)}>
+          <div className="auto-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>🔓 自律モードを有効化しますか?</h3>
+            <p>
+              ファイル変更・コマンド実行・システム領域の操作を<b>確認なしで実行</b>します。
+              AIが誤った操作をしても止まりません。secrets・アプリ設定領域・OS破壊コマンドだけは
+              自動拒否され、全操作が監査ログに記録されます。
+            </p>
+            <label>
+              <input
+                type="checkbox"
+                checked={autoUnderstood}
+                onChange={(e) => setAutoUnderstood(e.target.checked)}
+              />
+              リスクを理解しました
+            </label>
+            <div className="auto-modal-actions">
+              <button onClick={() => setAutoConfirm(false)}>キャンセル</button>
+              <button
+                className="danger"
+                disabled={!autoUnderstood}
+                onClick={() => {
+                  setAutoConfirm(false);
+                  setAutoUnderstood(false);
+                  void api.setAutonomous(true, true).catch((err: unknown) => {
+                    setSessionError(err instanceof Error ? err.message : String(err));
+                  });
+                }}
+              >
+                有効化(自己責任)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <nav className="tabs">
         {(Object.keys(TAB_LABEL) as Tab[]).map((t) => (
           <button key={t} className={store.tab === t ? 'active' : ''} onClick={() => store.setTab(t)}>

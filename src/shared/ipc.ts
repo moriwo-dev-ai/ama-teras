@@ -4,6 +4,7 @@ import type {
   ApprovalRequestPayload,
   ApprovalResolvedPayload,
   AppConfig,
+  AutonomousStatePayload,
   ChatImageInput,
   ChatMode,
   CheckpointInfo,
@@ -75,6 +76,10 @@ export const IpcChannels = {
   remoteStatus: 'remote:status',
   remoteSetEnabled: 'remote:set-enabled',
   remoteRegenerateToken: 'remote:regenerate-token',
+  /** M17-2: 自律モード(承認なし自動実行)の取得・切替・変更通知 */
+  autonomousGet: 'autonomous:get',
+  autonomousSet: 'autonomous:set',
+  autonomousChanged: 'autonomous:changed',
 } as const;
 
 /** preload が window.api として公開するAPIの型。renderer はこれ経由でしか main と話せない */
@@ -148,4 +153,9 @@ export interface MyCodexApi {
   remoteStatus(): Promise<RemoteStatusPayload>;
   remoteSetEnabled(enabled: boolean, port: number): Promise<{ status: RemoteStatusPayload; token?: string }>;
   remoteRegenerateToken(): Promise<{ status: RemoteStatusPayload; token: string }>;
+
+  /** M17-2: 自律モード(承認なし自動実行)。状態はセッション単位・再起動でOFF */
+  autonomousGet(): Promise<{ on: boolean }>;
+  autonomousSet(on: boolean): Promise<{ on: boolean }>;
+  onAutonomousChanged(listener: (payload: AutonomousStatePayload) => void): () => void;
 }

@@ -106,9 +106,11 @@ interface RemoteState {
   addLocalUserMessage: (text: string) => void;
   /** M15.1: セッション切替後に履歴を丸ごと差し替える */
   replaceHistory: (history: RemoteSnapshot['history']) => void;
+  /** M17-2: 自律モードの状態反映(SSE autonomous:changed) */
+  setAutonomousFlag: (on: boolean) => void;
 }
 
-const IDLE: AgentStatusView = { status: 'idle', activeSessionId: null, scopeMode: 'project' };
+const IDLE: AgentStatusView = { status: 'idle', activeSessionId: null, scopeMode: 'project', autonomous: false };
 
 export const useRemoteStore = create<RemoteState>((set) => ({
   connected: false,
@@ -132,6 +134,8 @@ export const useRemoteStore = create<RemoteState>((set) => ({
     }),
 
   replaceHistory: (history) => set({ messages: historyToMessages(history) }),
+
+  setAutonomousFlag: (on) => set((s) => ({ status: { ...s.status, autonomous: on } })),
 
   onChatEvent: (event) =>
     set((s) => {

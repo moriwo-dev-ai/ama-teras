@@ -98,6 +98,11 @@ export class RemoteApi {
     return this.req('GET', `/api/audit?limit=${limit}`);
   }
 
+  /** M17-2: 自律モード切替。ON はリスク確認済みフラグをサーバが必須にする */
+  setAutonomous(on: boolean, confirmed?: boolean): Promise<{ on: boolean }> {
+    return this.req('POST', '/api/autonomous', { on, ...(confirmed ? { confirmed: true } : {}) });
+  }
+
   /** SSE。切断時は EventSource が自動再接続し、再接続ごとに snapshot が届く */
   openEvents(): EventSource {
     return new EventSource(`/api/events?token=${encodeURIComponent(this.token)}`);

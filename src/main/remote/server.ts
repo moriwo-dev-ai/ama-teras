@@ -44,6 +44,8 @@ export interface RemoteFacade {
   /** M15.1: セッション一覧と切替(切替はworkspace追従込み。実行中はservice側ガードで拒否) */
   sessionsList(): Promise<import('../../shared/types').SessionMeta[]>;
   sessionOpen(id: string): Promise<import('../../shared/types').SessionLoadResult>;
+  /** M17-2: 自律モードの切替(ONはHTTP層で confirmed:true を強制) */
+  setAutonomous(on: boolean): { on: boolean };
 }
 
 export interface RemoteServerDeps {
@@ -289,6 +291,17 @@ export class RemoteServer {
         }
         if (typeof expectedIO !== 'string') throw new HttpError(400, 'expectedIO が必要');
         return sendJson(res, 200, await facade.evolutionEnqueue(description, expectedIO));
+      }
+
+      case 'POST /api/autonomous': {
+        // M17-2: スマホからの切替。ON はデスクトップの危険モーダル同等の明示確認を必須にする
+        const body = await readJsonBody(req);
+        const on = body['on'];
+        if (typeof on !== 'boolean') throw new HttpError(400, 'on(boolean) が必要');
+        if (on && body['confirmed'] !== true) {
+          throw new HttpError(400, 'ONにはリスク確認(confirmed:true)が必要');
+        }
+        return sendJson(res, 200, facade.setAutonomous(on));
       }
 
       case 'POST /api/evolution/promote-respond': {

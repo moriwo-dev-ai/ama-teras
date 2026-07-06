@@ -236,6 +236,7 @@ export async function registerIpcHandlers(
   bus.subscribe('approval:resolved', (r) => push(IpcChannels.approvalResolved, r));
   bus.subscribe('evolution:event', (e) => push(IpcChannels.evolutionEvent, e));
   bus.subscribe('agent:sub_update', (u) => push(IpcChannels.subAgentUpdate, u));
+  bus.subscribe('autonomous:changed', (p) => push(IpcChannels.autonomousChanged, p));
 
   // ---- chat ----
   ipcMain.handle(IpcChannels.chatSend, (_e, text: unknown, mode: unknown, images: unknown) => {
@@ -246,6 +247,13 @@ export async function registerIpcHandlers(
   ipcMain.handle(IpcChannels.chatCancel, (_e, sessionId: unknown) => {
     assertString(sessionId, 'sessionId');
     service.chatCancel(sessionId);
+  });
+
+  // ---- 自律モード(M17-2。状態はセッション単位・再起動でOFF) ----
+  ipcMain.handle(IpcChannels.autonomousGet, () => ({ on: service.getAutonomous() }));
+  ipcMain.handle(IpcChannels.autonomousSet, (_e, on: unknown) => {
+    if (typeof on !== 'boolean') throw new Error('IPC payload autonomous:set が不正');
+    return service.setAutonomous(on);
   });
 
   // ---- 承認 ----
