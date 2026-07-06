@@ -1,5 +1,7 @@
 import { app, BrowserWindow } from 'electron';
+import { mkdtempSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname as pathDirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getPluginCacheDir, getPluginsDir, registerIpcHandlers } from './ipc';
@@ -65,6 +67,54 @@ async function runSmokeMode(): Promise<void> {
   }
 }
 
+/**
+ * M20: フルアプリ・スモーク起動(`MYCODEX_SMOKE=1 electron . --smoke-boot`)。
+ * renderer/core 進化のゲート7(B worktree内)と昇格後の健全性チェック(A内)が使う。
+ * 不変条件(ユーザー確定・2026-07-06):
+ * - 単一インスタンスロックを取得しない(MYCODEX_SMOKE 配下の既存スキップに乗る。
+ *   取得すると稼働中Aと衝突し、2つ目のインスタンスが即quitして偽の合否になる)
+ * - userData は mkdtemp で隔離(下の smokeBoot 分岐で setPath 済み)。
+ *   稼働中Aの config/secrets/リモートポートと一切衝突しない(新規configはremote無効が既定)
+ * 検証内容: main配線(registerIpcHandlers)完走 → renderer読込 → Reactマウント確認 → exit 0
+ */
+async function runSmokeBoot(): Promise<void> {
+  const finish = (ok: boolean, detail: Record<string, string>): void => {
+    console.log(JSON.stringify({ smokeBoot: true, ok, ...detail }));
+    app.exit(ok ? 0 : 1);
+  };
+  const watchdog = setTimeout(() => finish(false, { reason: 'タイムアウト(60s)' }), 60_000);
+  try {
+    const win = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        preload: join(dirname, '../preload/index.cjs'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    const services = await registerIpcHandlers(() => win.webContents);
+    await win.loadFile(join(dirname, '../renderer/index.html'));
+    // Reactマウント(#rootに子要素)を最大15秒ポーリング
+    let mounted = false;
+    for (let i = 0; i < 30; i++) {
+      mounted = (await win.webContents.executeJavaScript(
+        `document.getElementById('root') !== null && document.getElementById('root').children.length > 0`,
+      )) as boolean;
+      if (mounted) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    services.service.shutdown();
+    await services.mcp.closeAll().catch(() => {});
+    clearTimeout(watchdog);
+    if (!mounted) return finish(false, { reason: 'rendererがマウントされない' });
+    finish(true, { detail: 'main配線+rendererマウント成功' });
+  } catch (err) {
+    clearTimeout(watchdog);
+    finish(false, { reason: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): void {
@@ -97,6 +147,14 @@ function createWindow(): void {
 // 稼働中のAと並行してheadless起動するため、ロックすると進化パイプラインが壊れる
 // (この不変条件は index.guard.test.ts で固定。変更時はそちらも見ること)。
 const smokeMode = process.env['MYCODEX_SMOKE'] === '1';
+// M20: フルアプリ・スモーク起動。MYCODEX_SMOKE 配下なので単一インスタンスロックは取得しない
+const smokeBoot = smokeMode && process.argv.includes('--smoke-boot');
+
+// M20: --smoke-boot は userData を一時ディレクトリへ隔離する(config/secrets/lock/ポート非干渉)。
+// あらゆる読み書きより前(whenReady前)に setPath する必要がある
+if (smokeBoot) {
+  app.setPath('userData', mkdtempSync(join(tmpdir(), 'amateras-smokeboot-')));
+}
 
 // M17-1: リネーム(mycodex → amateras)の userData 移行。config/secrets/sessions を読む
 // あらゆる処理より前に、同期で1回だけ実行する(スモークは userData を使わないため対象外)
@@ -125,7 +183,8 @@ if (!gotSingleInstanceLock) {
 
   void app.whenReady().then(async () => {
     if (smokeMode) {
-      await runSmokeMode();
+      if (smokeBoot) await runSmokeBoot();
+      else await runSmokeMode();
       return;
     }
     const services = await registerIpcHandlers(() => mainWindow?.webContents ?? null);

@@ -394,6 +394,13 @@ export interface CheckpointRestoreResult {
 
 // ---- 自己進化サブシステム ----
 
+/**
+ * M20: 進化スコープの段階。tool=プラグインのみ(従来) / renderer=UI / core=本体main。
+ * renderer/core は常に人間承認+再ビルド・再起動を要する。聖域(PROTECTED_PATHS)は
+ * どのスコープでも変更不可
+ */
+export type EvolutionScope = 'tool' | 'renderer' | 'core';
+
 export type EvolutionJobStatus =
   | 'queued'
   | 'preparing_worktree'
@@ -420,6 +427,12 @@ export interface EvolutionJobSummary {
   log: string[];
   gates: EvolutionGateResult[];
   error?: string;
+  /** M20: 進化スコープ(未設定は tool=従来) */
+  scope?: EvolutionScope;
+  /** M20: 昇格に再ビルド+再起動を要する(renderer/core) */
+  requiresRestart?: boolean;
+  /** M20: 聖域トリップワイヤによる拒否(通常の failed と区別してUI表示) */
+  protectedReject?: boolean;
 }
 
 /** main → renderer: 進化ジョブの状態遷移・昇格承認依頼 */
@@ -432,4 +445,8 @@ export type EvolutionEvent =
       diff: string;
       /** child_process / ネットワークアクセス検出時の明示警告 */
       warnings: string[];
+      /** M20: スコープ(renderer/core は昇格UIで二段確認+本体変更の強調) */
+      scope?: EvolutionScope;
+      /** M20: 承認後に再ビルド+再起動が走る */
+      requiresRestart?: boolean;
     };

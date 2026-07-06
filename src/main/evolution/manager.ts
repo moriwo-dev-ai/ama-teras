@@ -1,13 +1,22 @@
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { EvolutionEvent, EvolutionJobSummary } from '../../shared/types';
-import { runGates as defaultRunGates, type CommandRunner, type GateOptions, type GatesOutcome } from './gates';
+import type { EvolutionEvent, EvolutionJobSummary, EvolutionScope } from '../../shared/types';
+import {
+  detectDangerWarnings,
+  runGates as defaultRunGates,
+  type CommandRunner,
+  type GateOptions,
+  type GatesOutcome,
+} from './gates';
 import { runGit } from './git';
 import type { EvolutionJobRunner, EvolutionRequest } from './job';
-import { EVOLUTION_WRITE_ALLOWLIST } from './job';
 import { assertPromotable, nextJobId, promoteBranch, rollbackMerge } from './promote';
+import { SCOPE_ALLOWLISTS, scopeRequiresRestart } from './scopes';
 import { WorktreeManager } from './worktree';
+
+// 互換re-export(manager.test 等が従来のimport元として参照)
+export { detectDangerWarnings } from './gates';
 
 export interface EvolutionManagerDeps {
   repoDir: string;
@@ -28,18 +37,6 @@ export interface EvolutionManagerDeps {
   /** テスト用注入 */
   runGatesFn?: (opts: GateOptions) => Promise<GatesOutcome>;
   runCommand?: CommandRunner;
-}
-
-/** 生成diffからの危険操作の自己申告に加えて機械的にも検出し、承認ダイアログで明示警告する */
-export function detectDangerWarnings(diffText: string): string[] {
-  const warnings: string[] = [];
-  if (/child_process|execFile|spawn\s*\(/.test(diffText)) {
-    warnings.push('child_process(コマンド実行)を使用するコードを含む');
-  }
-  if (/fetch\s*\(|node:https?|node:net|node:dgram|XMLHttpRequest|WebSocket/.test(diffText)) {
-    warnings.push('ネットワークアクセスを行う可能性のあるコードを含む');
-  }
-  return warnings;
 }
 
 /** 進化ジョブのライフサイクル管理。ジョブは直列実行(worktree衝突と検証混線の回避) */
@@ -105,11 +102,17 @@ export class EvolutionManager {
 
   private async process(id: number, req: EvolutionRequest): Promise<void> {
     const job = this.jobs.get(id)!;
+    // M20: スコープ段階化。未指定は tool(従来挙動)
+    const scope: EvolutionScope = req.scope ?? 'tool';
     let worktree: Awaited<ReturnType<WorktreeManager['create']>> | null = null;
     try {
-      this.update(job, { status: 'preparing_worktree' });
+      this.update(job, {
+        status: 'preparing_worktree',
+        scope,
+        requiresRestart: scopeRequiresRestart(scope),
+      });
       worktree = await this.worktrees.create(id, this.baseRef);
-      this.log(job, `B環境を作成: ${worktree.dir}`);
+      this.log(job, `B環境を作成: ${worktree.dir}(scope: ${scope})`);
 
       // 生成→ゲートを最大2回試行。1回目のゲート不合格は失敗内容をフィードバックして再生成する
       let artifacts: Awaited<ReturnType<EvolutionJobRunner['generate']>> | null = null;
@@ -132,33 +135,49 @@ export class EvolutionManager {
           this.log(job, `生成失敗(リトライする): ${err instanceof Error ? err.message : String(err)}`);
           artifacts = await generate();
         }
-        this.update(job, { toolName: artifacts.toolName });
+        if (artifacts.toolName !== undefined) this.update(job, { toolName: artifacts.toolName });
 
         // B内の生成物をコミット(差分検査・マージの前提)
         await runGit(['add', '-A'], worktree.dir);
         await runGit(
           ['-c', 'user.name=AMA-teras Evolution', '-c', 'user.email=evolution@amateras.local',
            'commit', '--allow-empty', '-m',
-           `evolve: ${artifacts.toolName} を生成 (job-${id}, 試行${attempt})`],
+           `evolve: ${artifacts.toolName ?? scope} を生成 (job-${id}, 試行${attempt})`],
           worktree.dir,
         );
 
         this.update(job, { status: 'verifying' });
-        const smokeDir = await mkdtemp(join(tmpdir(), 'mycodex-smoke-'));
-        const smokeInputPath = join(smokeDir, 'input.json');
-        await writeFile(smokeInputPath, JSON.stringify(artifacts.smokeInput ?? {}), 'utf8');
+        let smokeInputPath: string | undefined;
+        if (scope === 'tool') {
+          const smokeDir = await mkdtemp(join(tmpdir(), 'mycodex-smoke-'));
+          smokeInputPath = join(smokeDir, 'input.json');
+          await writeFile(smokeInputPath, JSON.stringify(artifacts.smokeInput ?? {}), 'utf8');
+        }
 
         const gates = await (this.deps.runGatesFn ?? defaultRunGates)({
           repoDir: this.deps.repoDir,
           worktreeDir: worktree.dir,
           branch: worktree.branch,
           baseRef: this.baseRef,
-          allowedPaths: EVOLUTION_WRITE_ALLOWLIST,
-          toolName: artifacts.toolName,
-          smokeInputPath,
+          scope,
+          allowedPaths: SCOPE_ALLOWLISTS[scope],
+          ...(artifacts.toolName !== undefined ? { toolName: artifacts.toolName } : {}),
+          ...(smokeInputPath !== undefined ? { smokeInputPath } : {}),
           ...(this.deps.runCommand ? { runCommand: this.deps.runCommand } : {}),
         });
         this.update(job, { gates: gates.results });
+
+        // M20: 聖域トリップワイヤ不合格は再生成せず即reject(承認ダイアログにも出さない)
+        const protectedHit = gates.results.find((r) => r.name === 'protected' && !r.ok);
+        if (protectedHit) {
+          this.update(job, {
+            status: 'rejected',
+            protectedReject: true,
+            error: `保護領域のため拒否: ${protectedHit.detail}`,
+          });
+          return;
+        }
+
         gatesOk = gates.ok;
         if (!gatesOk) {
           feedback = gates.results
@@ -187,6 +206,12 @@ export class EvolutionManager {
         return;
       }
 
+      // M20-2時点の封鎖: renderer/core の昇格後フロー(再ビルド+健全性+再起動)は
+      // M20-4 のスーパーバイザーで配線する。それまで非toolの昇格は到達しても失敗させる(二重防御)
+      if (scope !== 'tool') {
+        throw new Error('renderer/core の昇格フローは未配線(M20-4で有効化)');
+      }
+
       this.update(job, { status: 'promoting' });
       const { mergeCommit, tag } = await promoteBranch(
         this.deps.repoDir,
@@ -197,7 +222,8 @@ export class EvolutionManager {
       this.log(job, `昇格完了: ${tag} (${mergeCommit.slice(0, 8)})`);
       await this.deps.reloadPlugins();
 
-      const healthy = await this.deps.healthCheck(artifacts.toolName, artifacts.smokeInput);
+      // scope='tool' のみ到達(上の封鎖ガードで保証)。toolName は tool スコープでは必ず存在する
+      const healthy = await this.deps.healthCheck(artifacts.toolName!, artifacts.smokeInput);
       if (!healthy) {
         this.log(job, '健全性チェック失敗。自動ロールバックする');
         await rollbackMerge(this.deps.repoDir, mergeCommit);

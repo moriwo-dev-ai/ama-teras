@@ -10,13 +10,17 @@ import { tmpdir } from 'node:os';
 export interface EvolutionRequest {
   description: string;
   expectedIO: string;
+  /** M20: 進化スコープ。未指定は 'tool'(従来)。renderer/core は常に人間承認+再起動 */
+  scope?: import('../../shared/types').EvolutionScope;
 }
 
 export interface JobArtifacts {
-  /** 生成された新ツール名(スモークテスト対象) */
-  toolName: string;
-  /** スモークテスト用サンプル入力 */
-  smokeInput: unknown;
+  /** 生成された新ツール名(scope='tool' のスモークテスト対象。renderer/core では無し) */
+  toolName?: string;
+  /** スモークテスト用サンプル入力(scope='tool') */
+  smokeInput?: unknown;
+  /** M20: renderer/core の変更概要(昇格ダイアログの補足) */
+  summary?: string;
 }
 
 /** 進化ジョブの生成器。テスト・M4検証では固定生成物を書くモックに差し替える */

@@ -134,7 +134,8 @@ describe('EvolutionManager(実git統合)', { timeout: 30_000 }, () => {
     expect(await runGit(['branch', '--list', 'evolve/job-1'], repoDir)).toBe('');
   });
 
-  it('保護領域への変更は差分検査ゲートで無条件fail', async () => {
+  it('M20: 保護領域(聖域)への変更は protected ゲートで即reject(再生成なし・承認ダイアログなし)', async () => {
+    let approvalRequested = false;
     const { manager, events } = makeManager({
       runner: scriptedRunner(
         {
@@ -144,14 +145,26 @@ describe('EvolutionManager(実git統合)', { timeout: 30_000 }, () => {
         { toolName: 'json_format', smokeInput: {} },
       ),
     });
+    // makeManager の approve は Promise を返す前に protected で落ちるため呼ばれないはず。
+    // 明示的に監視して「承認ダイアログにすら出ない」を固定する
+    const deps = (manager as unknown as { deps: EvolutionManagerDeps }).deps;
+    const originalApproval = deps.requestPromotionApproval;
+    deps.requestPromotionApproval = async (job, diff, warnings) => {
+      approvalRequested = true;
+      return originalApproval(job, diff, warnings);
+    };
+
     await manager.enqueue({ description: 'x', expectedIO: 'x' });
     const status = await waitForTerminal(events);
-    expect(status).toBe('failed');
+    expect(status).toBe('rejected');
+    expect(approvalRequested).toBe(false);
 
     const updates = events.filter((e) => e.kind === 'job_update');
-    const gates = (updates.at(-1) as { job: { gates: { name: string; ok: boolean; detail: string }[] } }).job.gates;
-    expect(gates[0]).toMatchObject({ name: 'diff_allowlist', ok: false });
-    expect(gates[0]!.detail).toContain('src/main/evolution/core.ts');
+    const lastJob = (updates.at(-1) as { job: { gates: { name: string; ok: boolean; detail: string }[]; protectedReject?: boolean; error?: string } }).job;
+    expect(lastJob.protectedReject).toBe(true);
+    expect(lastJob.gates[0]).toMatchObject({ name: 'protected', ok: false });
+    expect(lastJob.gates[0]!.detail).toContain('src/main/evolution/core.ts');
+    // 再生成(2回目のgenerate)が走っていない: verifying→rejected が1回で終わる
     // mainは汚染されていない
     expect(await runGit(['tag', '-l', 'evolve/*'], repoDir)).toBe('');
     const core = await runGit(['show', 'main:src/main/evolution/core.ts'], repoDir);
