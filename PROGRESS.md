@@ -2,8 +2,21 @@
 
 ## 現在の状態
 
-- **M1〜M22まで実装**。テスト624件・typecheck(node/web/remote)全合格。**v0.3.0-M22タグ済み**。
-- **M22完了(2026-07-06 夜間自走)**: 複数プロジェクト同時実行 —
+- **M1〜M23まで実装**。テスト627件・typecheck(node/web/remote)全合格。
+- **M23完了(2026-07-06 夜間自走・第2ラウンド)**:
+  ①**使用中モデルの表示** — メイン応答バッジ(policy有効時はPLANNER・model)・実行中ステータスに
+  RunInfo.model(フォールバックで更新)・サブエージェントにworker/escalation帯のモデル名
+  ②**使用量メーター(残高に準ずるもの)** — 残高取得APIは両プロバイダとも存在しないため、
+  track()デコレータで全LLM呼び出しの実測トークンを日別×モデル別集計(userData/usage.json)。
+  Settings/スマホ設定タブに今日・累計トークン+概算$、残高ダッシュボードを開くボタン
+  ③**スマホ強化** — +新規チャット(POST /api/sessions/new)・設定タブ
+  (ホワイトリスト限定のGET/POST /api/settings: provider/model/maxTurns/subAgent*/
+  autoApprove/modelPolicy/fallbackのみ。workspace/scopeMode/postEditHook/キーは不可)・
+  使用量表示。実行中の割り込み入力はM21-1で実装済み
+  ④**実LLM複数同時ランテスト合格**(Anthropic課金補充後・設定初期化済み) —
+  会話A(bash sleep 25)実行中に会話Bが並行完了・↩追加指示がAの最終応答に反映・
+  2ラン同時表示(スピナー/モデルラベル)・切替復帰・混線なし・使用量メーター実測動作
+- **M22完了(2026-07-06 夜間自走・v0.3.0-M22タグ)**: 複数プロジェクト同時実行 —
   AgentServiceを会話(ConvState)単位の独立状態へ再構成(history/永続化排他/フォールバック
   1回制限/自律モード=会話単位化/RunState: 開始時固定workspace・会話別ProcessManager)。
   実行中のセッション切替・新規のブロック撤廃(実行中会話を開くと生きたhistoryへ接続し
