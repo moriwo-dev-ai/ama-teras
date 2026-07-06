@@ -147,7 +147,8 @@ export function ChatView(): JSX.Element {
   }, [busy, refreshSessions]);
 
   const submit = (): void => {
-    if (busy) return;
+    // M21-1: 実行中も送信可(追加指示としてキューに積まれ、次ターン境界で反映される)
+    if (!input.trim() && attachments.length === 0) return;
     void send(input, planMode ? 'plan' : 'normal', attachments.length > 0 ? attachments : undefined);
     setInput('');
     setAttachments([]);
@@ -231,6 +232,10 @@ export function ChatView(): JSX.Element {
                     ))}
                   </div>
                 )}
+                {/* M21-1: 実行中に積まれた追加指示のバッジ */}
+                {m.role === 'user' && m.queued && (
+                  <div className="mb-0.5 text-[10px] text-blue-200/80">↩ 追加指示(次のターンで反映)</div>
+                )}
                 {/* M18: policy有効時、メイン応答は planner 帯であることを小さく明示 */}
                 {m.role === 'assistant' && policyOn && (
                   <div className="mb-0.5 text-[9px] uppercase tracking-wider text-zinc-500">planner</div>
@@ -302,7 +307,11 @@ export function ChatView(): JSX.Element {
           <textarea
             className="max-h-40 flex-1 resize-none rounded-md border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm outline-none focus:border-blue-500"
             rows={2}
-            placeholder="指示を入力(Enterで送信 / Shift+Enterで改行)"
+            placeholder={
+              busy
+                ? '追加の指示を入力(実行中でも送れる・次のターンで反映)'
+                : '指示を入力(Enterで送信 / Shift+Enterで改行)'
+            }
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -323,12 +332,22 @@ export function ChatView(): JSX.Element {
             }}
           />
           {busy ? (
-            <button
-              className="rounded-md bg-red-600 px-4 text-sm hover:bg-red-500"
-              onClick={cancel}
-            >
-              停止
-            </button>
+            <>
+              <button
+                className="rounded-md border border-blue-500 px-3 text-sm text-blue-300 hover:bg-blue-900/40 disabled:opacity-40"
+                disabled={!input.trim() && attachments.length === 0}
+                title="実行を止めずに追加の指示を送る(次のターン境界で反映)"
+                onClick={submit}
+              >
+                ↩ 追加指示
+              </button>
+              <button
+                className="rounded-md bg-red-600 px-4 text-sm hover:bg-red-500"
+                onClick={cancel}
+              >
+                停止
+              </button>
+            </>
           ) : (
             <button
               className="rounded-md bg-blue-600 px-4 text-sm hover:bg-blue-500 disabled:opacity-40"

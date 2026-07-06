@@ -30,7 +30,9 @@ export type AgentEvent =
   /** M16-1: 中立の情報カード(モデル切替検知・フォールバック発動等) */
   | { kind: 'info'; sessionId: string; message: string }
   /** M19: 品質レビューの採点カード */
-  | ({ kind: 'review'; sessionId: string } & ReviewCardPayload);
+  | ({ kind: 'review'; sessionId: string } & ReviewCardPayload)
+  /** M21-1: 実行中に送られた追加指示がキューへ積まれた(次ターン境界で履歴へ注入される) */
+  | { kind: 'instruction_queued'; sessionId: string; text: string };
 
 export type ProviderId = 'anthropic' | 'openai';
 

@@ -9,7 +9,15 @@ import type {
 } from '../../../shared/types';
 
 export type UiMessage =
-  | { id: string; role: 'user' | 'assistant'; text: string; streaming: boolean; images?: string[] }
+  | {
+      id: string;
+      role: 'user' | 'assistant';
+      text: string;
+      streaming: boolean;
+      images?: string[];
+      /** M21-1: 実行中に送られた追加指示(↩バッジ表示) */
+      queued?: boolean;
+    }
   /** M16-1: 中立の情報カード(モデル切替・フォールバック等のシステム通知) */
   | { id: string; role: 'info'; text: string }
   /** M19: 品質レビューの採点カード */
@@ -110,7 +118,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   send: async (text, mode = 'normal', images) => {
     const trimmed = text.trim();
     // M14-2: 画像のみの送信も許可(「これ見て」を打たなくても伝わる)
-    if ((!trimmed && (images?.length ?? 0) === 0) || get().activeSessionId) return;
+    if (!trimmed && (images?.length ?? 0) === 0) return;
+    // M21-1: 実行中の送信は追加指示としてmainがキューに積む。
+    // 吹き出しは instruction_queued イベント経由で出す(remote側と同じ経路・二重表示防止)
+    if (get().activeSessionId) {
+      await window.api
+        .chatSend(trimmed || '(画像を確認して)', 'normal', images)
+        .catch(() => {});
+      return;
+    }
     const shown = mode === 'plan' ? `📝 [プラン] ${trimmed}` : trimmed;
     set((s) => ({
       messages: [
@@ -236,6 +252,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }));
         break;
       }
+      case 'instruction_queued':
+        set((s) => ({
+          messages: [
+            ...s.messages,
+            { id: crypto.randomUUID(), role: 'user', text: event.text, streaming: false, queued: true },
+          ],
+        }));
+        break;
     }
   },
 }));

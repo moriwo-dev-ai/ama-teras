@@ -35,6 +35,13 @@ export interface AgentLoopDeps {
    * 事前compaction・監査記録は呼び出し側(AgentService)が担う
    */
   acquireFallback?: (reason: string) => Promise<LLMProvider | null>;
+  /**
+   * M21-1: 実行中に積まれた追加指示のdrain。各ターンのLLM呼び出し前に呼ばれ、
+   * 返った指示は直前の user メッセージ(tool_result群)の末尾へ text/image ブロックとして
+   * 追記される(tool_use/tool_result の対を壊さない)。モデルが応答を完了した時点で
+   * 残っていた指示は、新しい user メッセージとして積まれループが継続する
+   */
+  drainInstructions?: () => { text: string; images?: { mediaType: string; data: string; description?: string }[] }[];
 }
 
 const DEFAULT_MAX_TURNS = 30;
@@ -77,6 +84,25 @@ export async function runAgentLoop(
   const maxRetries = deps.retry?.maxRetries ?? 3;
   const retryBaseMs = deps.retry?.baseMs ?? 1000;
 
+  /**
+   * M21-1: 追加指示の注入。直前が user メッセージ(tool_result群 or 初回指示)なら
+   * その末尾へ追記(tool_result が先・text が後の並びはAPI仕様上有効)、
+   * そうでなければ新しい user メッセージとして積む。戻り値=注入したか
+   */
+  const injectQueuedInstructions = (): boolean => {
+    const items = deps.drainInstructions?.() ?? [];
+    if (items.length === 0) return false;
+    const blocks: ContentBlock[] = [];
+    for (const item of items) {
+      blocks.push({ type: 'text', text: item.text });
+      for (const img of item.images ?? []) blocks.push({ type: 'image', ...img });
+    }
+    const last = history[history.length - 1];
+    if (last && last.role === 'user') last.content.push(...blocks);
+    else history.push({ role: 'user', content: blocks });
+    return true;
+  };
+
   const sleepUnlessAborted = (ms: number): Promise<void> =>
     new Promise((resolvePromise) => {
       const t = setTimeout(() => {
@@ -96,6 +122,8 @@ export async function runAgentLoop(
     if (turn > 0 && deps.compact && lastPromptTokens > 0) {
       await deps.compact(lastPromptTokens);
     }
+    // M21-1: ターン境界(LLM呼び出しの前)で追加指示を履歴へ注入する
+    injectQueuedInstructions();
     deps.emit({ kind: 'status', sessionId, status: 'calling_llm' });
 
     let finalMessage: ChatMessage | null = null;
@@ -200,7 +228,11 @@ export async function runAgentLoop(
       }
       if (stopReason === 'max_tokens') {
         deps.emit({ kind: 'error', sessionId, message: '出力トークン上限に達した(応答は途中で切れている)' });
+        return finish('done');
       }
+      // M21-1: 応答完了の時点で追加指示が残っていたら、新しい user メッセージとして
+      // 積んでループを継続する(指示の取りこぼし禁止)
+      if (injectQueuedInstructions()) continue;
       return finish('done');
     }
 

@@ -58,11 +58,18 @@ describe('useChatStore', () => {
     expect(useChatStore.getState().activeSessionId).toBe('s2');
   });
 
-  it('activeSessionId が立っている間は二重送信しない', async () => {
+  it('M21-1: 実行中の送信は追加指示としてAPIへ渡り、吹き出しはイベント側で出す', async () => {
     chatSend.mockResolvedValue({ sessionId: 's1' });
     await useChatStore.getState().send('hi');
     expect(chatSend).toHaveBeenCalledTimes(1);
-    await useChatStore.getState().send('hi2'); // activeSessionId があるので無視
-    expect(chatSend).toHaveBeenCalledTimes(1);
+    const before = useChatStore.getState().messages.length;
+    await useChatStore.getState().send('hi2'); // 実行中=追加指示としてmainへ
+    expect(chatSend).toHaveBeenCalledTimes(2);
+    // ローカルでは吹き出しを積まない(instruction_queuedイベントで積む=remote側と表示が揃う)
+    expect(useChatStore.getState().messages.length).toBe(before);
+    // 実行は続いている
+    expect(useChatStore.getState().activeSessionId).toBe('s1');
+    useChatStore.getState().handleEvent({ kind: 'instruction_queued', sessionId: 's1', text: 'hi2' });
+    expect(useChatStore.getState().messages.at(-1)).toMatchObject({ role: 'user', text: 'hi2', queued: true });
   });
 });

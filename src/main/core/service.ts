@@ -225,6 +225,8 @@ export class AgentService {
   private autonomousMode = false;
   /** 保存の直列化(fold と save が並行実行で交錯しないように) */
   private persistChain: Promise<void> = Promise.resolve();
+  /** M21-1: 実行中に送られた追加指示のキュー(次ターン境界で履歴へ注入。実行終了で破棄) */
+  private pendingInstructions: { text: string; images?: ChatImageInput[] }[] = [];
 
   constructor(private readonly deps: AgentServiceDeps) {
     this.broker = new ApprovalBroker(
@@ -586,10 +588,16 @@ export class AgentService {
     const sessionId = randomUUID();
     const emit = (event: AgentEvent): void => this.emitChat(event);
 
+    // M21-1: 実行中の送信はエラーにせず追加指示としてキューへ積む(次ターン境界で注入)
     if (this.activeRun) {
-      emit({ kind: 'error', sessionId, message: '別の実行が進行中' });
-      emit({ kind: 'status', sessionId, status: 'error' });
-      return { sessionId };
+      const run = this.activeRun;
+      if (text.trim() === '' && (images?.length ?? 0) === 0) return { sessionId: run.sessionId };
+      this.pendingInstructions.push({
+        text,
+        ...(images && images.length > 0 ? { images } : {}),
+      });
+      this.emitChat({ kind: 'instruction_queued', sessionId: run.sessionId, text });
+      return { sessionId: run.sessionId };
     }
     // M18: policy有効時のメイン会話は planner 帯。無効時は従来の単一モデル
     const policy = this.modelPolicy();
@@ -823,6 +831,8 @@ export class AgentService {
           },
           // M16-2: 課金系エラー時のフォールバック(transientリトライはloop内蔵)
           acquireFallback,
+          // M21-1: 実行中に積まれた追加指示をターン境界で注入する
+          drainInstructions: () => this.pendingInstructions.splice(0),
         },
         sessionId,
         this.history,
@@ -855,6 +865,8 @@ export class AgentService {
       return status;
     })().finally(() => {
       this.activeRun = null;
+      // M21-1: 未注入の追加指示は実行終了(完了/キャンセル/エラー)で破棄する
+      this.pendingInstructions.length = 0;
     });
 
     return { sessionId };

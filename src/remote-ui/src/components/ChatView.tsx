@@ -135,8 +135,19 @@ export function ChatView({ api }: { api: RemoteApi }): JSX.Element {
 
   const send = async (): Promise<void> => {
     const trimmed = text.trim();
-    if ((!trimmed && attachments.length === 0) || running) return;
+    if (!trimmed && attachments.length === 0) return;
     setError('');
+    // M21-1: 実行中の送信は追加指示。吹き出しは instruction_queued イベント側で出す
+    if (running) {
+      setText('');
+      setAttachments([]);
+      try {
+        await api.chatSend(trimmed || '(画像を確認して)', 'normal', attachments.length > 0 ? attachments : undefined);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+      return;
+    }
     const label = attachments.length > 0 ? `🖼×${attachments.length} ${trimmed}` : trimmed;
     addLocalUserMessage(mode === 'plan' ? `📝 [プラン] ${label}` : label);
     const images = attachments.length > 0 ? attachments : undefined;
@@ -243,9 +254,14 @@ export function ChatView({ api }: { api: RemoteApi }): JSX.Element {
           onChange={(e) => setText(e.target.value)}
         />
         {running ? (
-          <button className="cancel" onClick={() => void cancel()}>
-            停止
-          </button>
+          <>
+            <button className="send" disabled={!text.trim() && attachments.length === 0} onClick={() => void send()}>
+              ↩追加
+            </button>
+            <button className="cancel" onClick={() => void cancel()}>
+              停止
+            </button>
+          </>
         ) : (
           <button className="send" disabled={!text.trim()} onClick={() => void send()}>
             送信

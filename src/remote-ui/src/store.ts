@@ -82,6 +82,12 @@ export function applyChatEvent(messages: UiMessage[], event: AgentEvent): UiMess
       for (const f of event.findings) lines.push(`・${f.file}(${f.location}): ${f.problem} → 修正: ${f.fix}`);
       return [...messages, { id: nextId(), role: 'assistant', text: lines.join('\n'), streaming: false }];
     }
+    case 'instruction_queued':
+      // M21-1: 実行中の追加指示(desktop/remoteどちらから送ってもこのイベントで表示が揃う)
+      return [
+        ...messages,
+        { id: nextId(), role: 'user', text: `↩ [追加指示] ${event.text}`, streaming: false },
+      ];
     case 'status':
       if (TERMINAL.includes(event.status)) {
         return messages.map((m) => (m.role === 'assistant' && m.streaming ? { ...m, streaming: false } : m));

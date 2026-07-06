@@ -76,7 +76,7 @@ describe('AgentService: chat', () => {
     expect(svc.getStatus().status).toBe('idle');
   });
 
-  it('実行中の chatSend は「別の実行が進行中」になり、cancel で終了する', async () => {
+  it('M21-1: 実行中の chatSend は追加指示としてキューされ(エラーにならない)、cancel で終了する', async () => {
     const provider: LLMProvider = {
       id: 'anthropic',
       async *complete(req) {
@@ -93,11 +93,12 @@ describe('AgentService: chat', () => {
     const { sessionId } = svc.chatSend('long task', 'normal');
     expect(svc.getStatus().activeSessionId).toBe(sessionId);
 
+    // 実行中の送信はエラーにならず、同じ実行の sessionId が返り instruction_queued が流れる
     const second = svc.chatSend('another', 'normal');
+    expect(second.sessionId).toBe(sessionId);
+    expect(seen.some((e) => e.kind === 'error')).toBe(false);
     expect(
-      seen.some(
-        (e) => e.kind === 'error' && e.sessionId === second.sessionId && e.message === '別の実行が進行中',
-      ),
+      seen.some((e) => e.kind === 'instruction_queued' && e.sessionId === sessionId && e.text === 'another'),
     ).toBe(true);
 
     // M11-2: セッションキャンセルでバックグラウンドプロセスが全て kill される
