@@ -279,6 +279,8 @@ export interface SubAgentUpdate {
   currentTool?: string;
   /** 子の最終テキスト(完了時)またはエラー概要の末尾 */
   summaryTail?: string;
+  /** M18: 上位モデル(escalation帯)へ格上げされた(UIバッジ表示用) */
+  escalated?: boolean;
 }
 
 // ---- M15-4: 環境ウィジェット ----

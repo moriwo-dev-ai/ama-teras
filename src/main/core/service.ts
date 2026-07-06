@@ -14,6 +14,7 @@ import type {
   EvolutionJobSummary,
   FilePreviewResult,
   HistoryMessageView,
+  ModelPolicy,
   PluginErrorInfo,
   ProviderId,
   SessionLoadResult,
@@ -134,7 +135,15 @@ export interface AgentServiceDeps {
   captureUrl?: (url: string, width?: number, height?: number) => Promise<{ data: string; mediaType: string }>;
   /** M16-2 テスト用: フォールバックプロバイダ生成の差し替え(未指定なら secrets から実プロバイダ) */
   fallbackProviderFactory?: (provider: ProviderId, model: string) => LLMProvider;
+  /**
+   * M18 テスト用: 帯プロバイダ生成の差し替え。キー有無の判定(secrets)は差し替えの
+   * 前に行われる(キー未登録の警告経路もテスト可能にするため)
+   */
+  bandProviderFactory?: (band: ModelBandName, provider: ProviderId, model: string) => LLMProvider;
 }
+
+/** M18: モデル帯の名前 */
+export type ModelBandName = 'planner' | 'worker' | 'escalation';
 
 const SYSTEM_PROMPT = `あなたは AMA-teras — ユーザーのマシン上で動くコーディングエージェント。
 与えられたツールを使ってファイルの調査・編集・コマンド実行を行い、ユーザーの指示を完遂する。
@@ -152,6 +161,12 @@ const SYSTEM_PROMPT = `あなたは AMA-teras — ユーザーのマシン上で
 const PLAN_SUFFIX = `\n\n# プランモード\n今回は「計画のみ」を求められている。実装に入らず、
 何をどの順で行うか(触るファイル・使うツール・確認事項)を簡潔な計画として提示せよ。
 ツールは実行しない。ユーザーが計画を承認したら、次のメッセージで通常モードとして実行する。`;
+
+/** M18: modelPolicy 有効時のみ system prompt に付ける分業ヒント(強制はしない) */
+const POLICY_HINT = `\n\n# 分業ヒント(モデル自動切替 有効)
+あなた(メイン会話)は高性能な planner 帯で動いている。実装の手数が多い工程
+(複数ファイルの編集・テストの反復実行など)は dispatch_agent(mode:"work")へ委譲し、
+あなたは計画・レビュー・統合・最終報告に集中すること。小さな作業は直接行ってよい。`;
 
 /** 会話履歴を表示用に整形する(tool_result のみのメッセージは省く) */
 export function toHistoryView(messages: ChatMessage[]): HistoryMessageView[] {
@@ -246,6 +261,37 @@ export class AgentService {
     return new AnthropicProvider(key, cfg.model || DEFAULT_ANTHROPIC_MODEL);
   }
 
+  // ---- M18: モデル自動切替(役割ベース割当) ----
+
+  /** 有効な modelPolicy(enabled=true)。無効・未設定なら null(=従来の単一モデル挙動) */
+  private modelPolicy(): ModelPolicy | null {
+    const p = this.deps.config.get().modelPolicy;
+    return p !== undefined && p.enabled ? p : null;
+  }
+
+  /** 帯の実効 provider+model。escalation 未指定は planner を使う。policy 無効なら null */
+  private bandLLM(band: ModelBandName): { provider: ProviderId; model: string } | null {
+    const p = this.modelPolicy();
+    if (!p) return null;
+    const b = band === 'escalation' ? (p.escalation ?? p.planner) : p[band];
+    return { provider: b.provider, model: b.model.trim() !== '' ? b.model : DEFAULT_MODELS[b.provider] };
+  }
+
+  /**
+   * 帯プロバイダの生成。キー未登録は帯名入りのメッセージ(呼び出し側が警告カードに使う)。
+   * キー判定を factory 差し替えより先に行う(未登録警告の経路もテスト可能にするため)
+   */
+  private createBandProvider(band: ModelBandName): LLMProvider | string {
+    const llm = this.bandLLM(band);
+    if (!llm) return this.createProvider();
+    const key = this.deps.secrets.get(llm.provider);
+    if (!key) return `モデル自動切替: ${band}帯(${llm.provider}/${llm.model})のAPIキーが未設定`;
+    if (this.deps.bandProviderFactory) return this.deps.bandProviderFactory(band, llm.provider, llm.model);
+    return llm.provider === 'openai'
+      ? new OpenAIProvider(key, llm.model)
+      : new AnthropicProvider(key, llm.model);
+  }
+
   /** 進化ジョブ(AgentJobRunner)用。キー未設定は例外にする */
   createProviderOrThrow(): LLMProvider {
     const provider = this.createProvider();
@@ -337,8 +383,13 @@ export class AgentService {
     this.deps.bus.publish('chat:event', event);
   }
 
-  /** M16-1: 現在の設定が指す provider+model(切替検知・lastLLM 記録用) */
+  /**
+   * M16-1: 現在のメイン会話が使う provider+model(切替検知・lastLLM 記録用)。
+   * M18: modelPolicy 有効時は planner 帯(=メイン会話の実体)を指す
+   */
   private currentLLM(): { provider: ProviderId; model: string } {
+    const planner = this.bandLLM('planner');
+    if (planner) return planner;
     const cfg = this.deps.config.get();
     return { provider: cfg.provider, model: cfg.model || DEFAULT_MODELS[cfg.provider] };
   }
@@ -375,9 +426,9 @@ export class AgentService {
     signal: AbortSignal,
     override?: { thresholdTokens: number; measuredTokens: number },
   ): Promise<boolean> {
-    const cfg = this.deps.config.get();
-    const model = cfg.model || DEFAULT_MODELS[cfg.provider];
-    const threshold = override?.thresholdTokens ?? Math.floor(contextLimitFor(model) * 0.7);
+    // M18: policy有効時のメイン会話は planner 帯のモデル上限で判定する(currentLLMが吸収)
+    const threshold =
+      override?.thresholdTokens ?? Math.floor(contextLimitFor(this.currentLLM().model) * 0.7);
     const compacted = await compactHistory(provider, this.history, {
       signal,
       measuredTokens: override?.measuredTokens ?? this.lastPromptTokens,
@@ -522,11 +573,28 @@ export class AgentService {
       emit({ kind: 'status', sessionId, status: 'error' });
       return { sessionId };
     }
-    const provider = this.createProvider();
+    // M18: policy有効時のメイン会話は planner 帯。無効時は従来の単一モデル
+    const policy = this.modelPolicy();
+    const provider = policy ? this.createBandProvider('planner') : this.createProvider();
     if (typeof provider === 'string') {
       emit({ kind: 'error', sessionId, message: provider });
       emit({ kind: 'status', sessionId, status: 'error' });
       return { sessionId };
+    }
+    // M18: worker/escalation 帯のキー未登録は実行前に警告(横断構成の取りこぼし防止)。
+    // worker はメイン(planner)のプロバイダで代行して続行する
+    let workerProvider: LLMProvider = provider;
+    if (policy) {
+      const w = this.createBandProvider('worker');
+      if (typeof w === 'string') {
+        emit({ kind: 'info', sessionId, message: `⚠ ${w} — サブエージェントは planner 帯で代行します` });
+      } else {
+        workerProvider = w;
+      }
+      const e = this.createBandProvider('escalation');
+      if (typeof e === 'string') {
+        emit({ kind: 'info', sessionId, message: `⚠ ${e} — 格上げは無効になります` });
+      }
     }
 
     const ac = new AbortController();
@@ -649,15 +717,21 @@ export class AgentService {
               processes: this.processes,
               ...this.screenshotContext(),
               subagent: {
+                // M18: サブエージェントは worker 帯(policy無効時はメインと同一)
                 run: (task, signal) =>
                   runSubAgent(
-                    { provider, tools: this.deps.registry, cwd: this.getWorkspace() },
+                    {
+                      provider: workerProvider,
+                      tools: this.deps.registry,
+                      cwd: this.getWorkspace(),
+                      acquireFallback: this.acquireChildFallback(sessionId),
+                    },
                     task,
                     signal,
                   ),
                 // M12-3: 最大3並列(read/work)。work は executor 経由で承認・スコープが効く
                 runParallel: (tasks, subMode, signal) =>
-                  this.runParallelSubAgents(provider, sessionId, tasks, subMode, signal),
+                  this.runParallelSubAgents(workerProvider, sessionId, tasks, subMode, signal),
               },
             });
             // M11-3: 書き込み/実行系ツールの成功直後に自動チェックポイント(メインループのみ)。
@@ -677,7 +751,9 @@ export class AgentService {
             composePlanSection(
               composeSystemPrompt(SYSTEM_PROMPT, readProjectMemory(this.getWorkspace())),
               readProjectPlan(this.getWorkspace()),
-            ) + (planMode ? PLAN_SUFFIX : ''),
+            ) +
+            (policy ? POLICY_HINT : '') +
+            (planMode ? PLAN_SUFFIX : ''),
           cwd: this.getWorkspace(),
           planMode,
           ...(maxTurns !== undefined ? { maxTurns } : {}),
@@ -716,6 +792,91 @@ export class AgentService {
   }
 
   /**
+   * M16-2×M18: サブエージェント(worker/escalation帯)用の課金エラーフォールバック。
+   * メインの acquireFallback と同じ制限を共有(1会話1回・fallbackUsedFor)するが、
+   * メインの実行プロバイダや lastLLM には触れない(子ループ内だけ切り替える)。
+   * 子履歴は小さいため切替前compactionは省く
+   */
+  private acquireChildFallback(sessionId: string): (reason: string) => Promise<LLMProvider | null> {
+    return async (reason) => {
+      const fb = this.deps.config.get().fallback;
+      if (!fb || fb.enabled !== true) return null;
+      const convKey = this.conversation?.id ?? sessionId;
+      if (this.fallbackUsedFor === convKey) return null;
+      const fbModel = fb.model.trim() !== '' ? fb.model : DEFAULT_MODELS[fb.provider];
+      let next: LLMProvider;
+      if (this.deps.fallbackProviderFactory) {
+        next = this.deps.fallbackProviderFactory(fb.provider, fbModel);
+      } else {
+        const key = this.deps.secrets.get(fb.provider);
+        if (!key) return null;
+        next =
+          fb.provider === 'openai' ? new OpenAIProvider(key, fbModel) : new AnthropicProvider(key, fbModel);
+      }
+      this.fallbackUsedFor = convKey;
+      this.deps.audit.append({
+        tool: 'provider-fallback',
+        scope: 'system',
+        paths: [],
+        event: 'result',
+        detail: `subagent → ${fb.provider}/${fbModel}: ${reason.slice(0, 160)}`,
+      });
+      this.emitChat({
+        kind: 'info',
+        sessionId,
+        message: `⚠ サブエージェントで残高/課金エラーを検知したため、フォールバック(${fb.provider}/${fbModel})へ切り替えて続行します: ${reason}`,
+      });
+      return next;
+    };
+  }
+
+  /**
+   * M18: work サブエージェントの格上げ依存。policy 無効・escalation帯キー未設定なら undefined
+   * (=格上げ無効)。格上げ前に子履歴を compaction 経由(キャッシュ前提が変わるため)
+   */
+  private buildEscalateDeps(sessionId: string):
+    | {
+        provider: LLMProvider;
+        maxPerTask: number;
+        compact: (history: ChatMessage[], signal: AbortSignal) => Promise<void>;
+        onEscalate: (id: number, attempt: number, reason: string) => void;
+      }
+    | undefined {
+    const policy = this.modelPolicy();
+    if (!policy) return undefined;
+    const max = policy.maxEscalationsPerTask ?? 1;
+    if (max <= 0) return undefined;
+    const esc = this.createBandProvider('escalation');
+    if (typeof esc === 'string') return undefined; // キー未設定の警告は chatSend 冒頭で済み
+    return {
+      provider: esc,
+      maxPerTask: max,
+      compact: async (history, signal) => {
+        await compactHistory(esc, history, {
+          signal,
+          measuredTokens: estimateTokens(history),
+          thresholdTokens: DEFAULT_COMPACTION_THRESHOLD,
+        });
+      },
+      onEscalate: (id, attempt, reason) => {
+        const llm = this.bandLLM('escalation');
+        this.deps.audit.append({
+          tool: 'model-escalation',
+          scope: 'system',
+          paths: [],
+          event: 'result',
+          detail: `subagent#${id} attempt=${attempt} → ${llm?.provider}/${llm?.model}: ${reason.slice(0, 160)}`,
+        });
+        this.emitChat({
+          kind: 'info',
+          sessionId,
+          message: `⤴ サブエージェント#${id} の実行が難航(${reason})。上位モデル(${llm?.provider}/${llm?.model})へ格上げして再試行します(${attempt}回目)`,
+        });
+      },
+    };
+  }
+
+  /**
    * M12-3: 並列サブエージェント。fan-out 直前に自動チェックポイントを作り、
    * work モードでは write 衝突テーブルを全子で共有する。親 signal で全子キャンセル。
    * (public なのはテストのため。通常は chatSend 内の ctx.subagent.runParallel 経由)
@@ -736,6 +897,9 @@ export class AgentService {
     const rawTurns = this.deps.config.get().subAgentMaxTurns;
     const maxTurns =
       rawTurns !== undefined ? Math.min(100, Math.max(1, Math.round(rawTurns))) : undefined;
+    // M18: 格上げ(policy有効時のみ)とサブ用フォールバック
+    const escalate = this.buildEscalateDeps(sessionId);
+    const acquireFallback = this.acquireChildFallback(sessionId);
 
     return Promise.all(
       limited.map((task) => {
@@ -753,6 +917,8 @@ export class AgentService {
                 }),
               onUpdate,
               locks,
+              acquireFallback,
+              ...(escalate !== undefined ? { escalate } : {}),
               ...(maxTurns !== undefined ? { maxTurns } : {}),
             },
             id,
@@ -764,7 +930,7 @@ export class AgentService {
         const label = task.length > 120 ? `${task.slice(0, 120)}…` : task;
         onUpdate({ id, task: label, mode: 'read', status: 'running' });
         return runSubAgent(
-          { provider, tools: this.deps.registry, cwd: this.getWorkspace() },
+          { provider, tools: this.deps.registry, cwd: this.getWorkspace(), acquireFallback },
           task,
           signal,
         ).then((summary) => {
