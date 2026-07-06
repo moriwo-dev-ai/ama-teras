@@ -93,6 +93,24 @@ export interface AutoApproveSettings {
   exec: boolean;
 }
 
+/** M18: モデル帯(役割ごとのプロバイダ+モデル指定) */
+export interface ModelBand {
+  provider: ProviderId;
+  /** 空文字ならプロバイダ既定モデル */
+  model: string;
+}
+
+/** M18: 役割ベースのモデル自動切替設定 */
+export interface ModelPolicy {
+  enabled: boolean;
+  planner: ModelBand;
+  worker: ModelBand;
+  /** 未指定なら planner 帯を格上げ先に使う */
+  escalation?: ModelBand;
+  /** workerタスク1件あたりの最大格上げ回数。既定1(0で格上げ無効) */
+  maxEscalationsPerTask?: number;
+}
+
 export interface AppConfig {
   autoApprove: AutoApproveSettings;
   provider: ProviderId;
@@ -126,6 +144,14 @@ export interface AppConfig {
    * 1会話につき1回まで(往復ループ禁止)
    */
   fallback?: { enabled: boolean; provider: ProviderId; model: string };
+  /**
+   * M18: モデル自動切替(役割ベース割当)。既定 undefined=無効(従来の単一モデル挙動)。
+   * planner=メイン会話(計画・レビュー・最終応答)/ worker=dispatch_agentのサブ(実行の手数)/
+   * escalation=workerが詰まったときの格上げ先(未指定なら planner を使う)。
+   * 各帯は独立にプロバイダ+モデルを指定可(プロバイダ横断可)。
+   * 進化ジョブは影響を受けない(従来の provider/model 設定を使う)
+   */
+  modelPolicy?: ModelPolicy;
   /**
    * M10: スマホWebアクセス。既定 disabled。省略可(後方互換)で、ConfigStore が既定値を補う。
    * renderer からの settings:set では上書きされない(専用IPCでのみ変更)。

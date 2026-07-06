@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ConfigStore } from './config';
+import { ConfigStore, parseModelPolicy } from './config';
 
 let dir: string;
 let file: string;
@@ -140,5 +140,54 @@ describe('ConfigStore', () => {
     );
     const c = new ConfigStore(file).get();
     expect(c.remote).toEqual({ enabled: true, port: 8787 });
+  });
+
+  // ---- M18: modelPolicy ----
+
+  it('modelPolicy の既定は未設定(=無効・従来挙動)', async () => {
+    expect(new ConfigStore(file).get().modelPolicy).toBeUndefined();
+    await writeFile(file, JSON.stringify({ provider: 'openai', model: '' }));
+    expect(new ConfigStore(file).get().modelPolicy).toBeUndefined();
+  });
+
+  it('modelPolicy が永続化され、maxEscalationsPerTask はクランプされる', () => {
+    const store = new ConfigStore(file);
+    store.set({
+      ...store.get(),
+      modelPolicy: {
+        enabled: true,
+        planner: { provider: 'anthropic', model: 'claude-fable-5' },
+        worker: { provider: 'openai', model: 'gpt-5.1' },
+        escalation: { provider: 'anthropic', model: 'claude-fable-5' },
+        maxEscalationsPerTask: 99,
+      },
+    });
+    const c = new ConfigStore(file).get();
+    expect(c.modelPolicy?.enabled).toBe(true);
+    expect(c.modelPolicy?.worker).toEqual({ provider: 'openai', model: 'gpt-5.1' });
+    expect(c.modelPolicy?.maxEscalationsPerTask).toBe(3); // クランプ(0〜3)
+  });
+
+  it('壊れた modelPolicy(帯欠落・不正provider)は未設定=無効へフォールバック', async () => {
+    await writeFile(
+      file,
+      JSON.stringify({ modelPolicy: { enabled: true, planner: { provider: 'gemini', model: 'x' } } }),
+    );
+    expect(new ConfigStore(file).get().modelPolicy).toBeUndefined();
+    await writeFile(file, JSON.stringify({ modelPolicy: { enabled: true } }));
+    expect(new ConfigStore(file).get().modelPolicy).toBeUndefined();
+  });
+
+  it('parseModelPolicy: escalation 未指定は省略のまま(planner 使用は呼び出し側の解釈)', () => {
+    const p = parseModelPolicy({
+      enabled: false,
+      planner: { provider: 'anthropic', model: '' },
+      worker: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+    });
+    expect(p).toEqual({
+      enabled: false,
+      planner: { provider: 'anthropic', model: '' },
+      worker: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+    });
   });
 });

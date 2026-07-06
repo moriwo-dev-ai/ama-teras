@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { AppConfig } from '../shared/types';
+import type { AppConfig, ModelBand, ModelPolicy } from '../shared/types';
 
 /** M11-1: maxTurns のクランプ範囲。未設定はループ側の既定(30)に委ねる */
 export const MAX_TURNS_MIN = 1;
@@ -8,6 +8,34 @@ export const MAX_TURNS_MAX = 200;
 
 export function clampMaxTurns(value: number): number {
   return Math.min(MAX_TURNS_MAX, Math.max(MAX_TURNS_MIN, Math.round(value)));
+}
+
+/** M18: 格上げ回数のクランプ(0=格上げ無効〜3) */
+export const MAX_ESCALATIONS_MAX = 3;
+
+function parseBand(raw: unknown): ModelBand | null {
+  const rec = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : null;
+  if (!rec) return null;
+  if (rec['provider'] !== 'anthropic' && rec['provider'] !== 'openai') return null;
+  if (typeof rec['model'] !== 'string') return null;
+  return { provider: rec['provider'], model: rec['model'] };
+}
+
+/** M18: modelPolicy の読み込みバリデーション。形が崩れていたら未設定(=無効)として扱う */
+export function parseModelPolicy(raw: unknown): ModelPolicy | null {
+  const rec = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : null;
+  if (!rec || typeof rec['enabled'] !== 'boolean') return null;
+  const planner = parseBand(rec['planner']);
+  const worker = parseBand(rec['worker']);
+  if (!planner || !worker) return null;
+  const policy: ModelPolicy = { enabled: rec['enabled'], planner, worker };
+  const escalation = parseBand(rec['escalation']);
+  if (escalation) policy.escalation = escalation;
+  const max = rec['maxEscalationsPerTask'];
+  if (typeof max === 'number' && Number.isFinite(max)) {
+    policy.maxEscalationsPerTask = Math.min(MAX_ESCALATIONS_MAX, Math.max(0, Math.round(max)));
+  }
+  return policy;
 }
 
 const DEFAULTS: AppConfig = {
@@ -55,6 +83,9 @@ export class ConfigStore {
       if (typeof rec['postEditHook'] === 'string' && rec['postEditHook'].trim() !== '') {
         merged.postEditHook = rec['postEditHook'];
       }
+      // M18: モデル自動切替(壊れた形は未設定=無効へフォールバック)
+      const policy = parseModelPolicy(rec['modelPolicy']);
+      if (policy) merged.modelPolicy = policy;
       const remote = rec['remote'];
       if (typeof remote === 'object' && remote !== null && merged.remote) {
         const r = remote as Record<string, unknown>;
@@ -87,6 +118,12 @@ export class ConfigStore {
     // M11-4: 空文字は「無効化」= 未設定に正規化する
     if (clone.postEditHook !== undefined && clone.postEditHook.trim() === '') {
       delete clone.postEditHook;
+    }
+    // M18: 保存時にも正規化(不正形は未設定へ、格上げ回数はクランプ)
+    if (clone.modelPolicy !== undefined) {
+      const policy = parseModelPolicy(clone.modelPolicy);
+      if (policy) clone.modelPolicy = policy;
+      else delete clone.modelPolicy;
     }
     this.config = clone;
     mkdirSync(dirname(this.filePath), { recursive: true });

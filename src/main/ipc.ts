@@ -44,6 +44,30 @@ function assertProvider(value: unknown): asserts value is ProviderId {
   if (value !== 'anthropic' && value !== 'openai') throw new Error('IPC payload provider が不正');
 }
 
+function isBandLike(v: unknown): boolean {
+  const b = typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null;
+  return (
+    b !== null &&
+    (b['provider'] === 'anthropic' || b['provider'] === 'openai') &&
+    typeof b['model'] === 'string'
+  );
+}
+
+/** M18: modelPolicy の形チェック(undefined は許可=無効) */
+function isModelPolicyLike(v: unknown): boolean {
+  if (v === undefined) return true;
+  const p = typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null;
+  return (
+    p !== null &&
+    typeof p['enabled'] === 'boolean' &&
+    isBandLike(p['planner']) &&
+    isBandLike(p['worker']) &&
+    (p['escalation'] === undefined || isBandLike(p['escalation'])) &&
+    (p['maxEscalationsPerTask'] === undefined ||
+      (typeof p['maxEscalationsPerTask'] === 'number' && Number.isFinite(p['maxEscalationsPerTask'])))
+  );
+}
+
 function assertConfig(value: unknown): asserts value is AppConfig {
   const rec = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
   const auto = rec?.['autoApprove'];
@@ -70,7 +94,8 @@ function assertConfig(value: unknown): asserts value is AppConfig {
         typeof (rec['fallback'] as Record<string, unknown>)['enabled'] === 'boolean' &&
         ((rec['fallback'] as Record<string, unknown>)['provider'] === 'anthropic' ||
           (rec['fallback'] as Record<string, unknown>)['provider'] === 'openai') &&
-        typeof (rec['fallback'] as Record<string, unknown>)['model'] === 'string'));
+        typeof (rec['fallback'] as Record<string, unknown>)['model'] === 'string')) &&
+    isModelPolicyLike(rec['modelPolicy']);
   if (!ok) throw new Error('IPC payload config が不正');
 }
 
