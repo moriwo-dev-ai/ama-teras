@@ -22,6 +22,15 @@ const DATA_ENTRIES = [
   'plugin-cache',
 ] as const;
 
+/**
+ * コピー対象 = 実データ + 「Local State」。
+ * Local State は Chromium が safeStorage(DPAPI)の暗号鍵(os_crypt.encrypted_key)を
+ * 保持するファイルで、これを移行しないと secrets.json が新プロファイルの別鍵で
+ * 復号不能になる(=APIキーが消えたように見える)。実データ判定には使わない
+ * (electron が起動時に自動生成するため)
+ */
+const COPY_ENTRIES = [...DATA_ENTRIES, 'Local State'] as const;
+
 const MIGRATED_MARKER = 'migrated-from-mycodex.json';
 
 export function hasRealData(dir: string): boolean {
@@ -45,7 +54,7 @@ export function migrateUserData(oldDir: string, newDir: string): MigrationResult
 
     mkdirSync(newDir, { recursive: true });
     const copied: string[] = [];
-    for (const name of DATA_ENTRIES) {
+    for (const name of COPY_ENTRIES) {
       const src = join(oldDir, name);
       if (!existsSync(src)) continue;
       cpSync(src, join(newDir, name), { recursive: true });

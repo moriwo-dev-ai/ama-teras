@@ -27,6 +27,8 @@ describe('userDataMigration (M17-1)', () => {
     await writeFile(join(oldDir, 'sessions', 'abc.json'), '{"id":"abc"}', 'utf8');
     await writeFile(join(oldDir, 'sessions', 'blobs', 'x.bin'), 'img', 'utf8');
     await writeFile(join(oldDir, 'audit.jsonl'), '{"ts":"t"}\n', 'utf8');
+    // safeStorage の鍵素材(これが無いと secrets が復号不能になる)
+    await writeFile(join(oldDir, 'Local State'), '{"os_crypt":{"encrypted_key":"OLDKEY"}}', 'utf8');
   }
 
   it('旧に実データあり・新なし → キー・履歴が新へ移行される(旧は残る)', async () => {
@@ -42,6 +44,18 @@ describe('userDataMigration (M17-1)', () => {
     expect(existsSync(join(newDir, 'sessions', 'blobs', 'x.bin'))).toBe(true);
     // 旧はロールバック用に無傷
     expect(existsSync(join(oldDir, 'secrets.json'))).toBe(true);
+  });
+
+  it('safeStorage の鍵素材(Local State)も移行され、新側の自動生成鍵を上書きする', async () => {
+    await seedOld();
+    // electron が migration より先に新プロファイル用の鍵を生成しているケース
+    await mkdir(newDir, { recursive: true });
+    await writeFile(join(newDir, 'Local State'), '{"os_crypt":{"encrypted_key":"NEWKEY"}}', 'utf8');
+
+    const r = migrateUserData(oldDir, newDir);
+    expect(r.migrated).toBe(true);
+    // 旧鍵で上書きされていないと secrets.json が復号できない
+    expect(await readFile(join(newDir, 'Local State'), 'utf8')).toContain('OLDKEY');
   });
 
   it('新のみ実データあり → 何もしない', async () => {
