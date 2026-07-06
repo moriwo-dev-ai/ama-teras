@@ -19,6 +19,7 @@ import type {
   PluginErrorInfo,
   ProviderId,
   ReviewCardPayload,
+  RunInfo,
   SessionLoadResult,
   SessionMeta,
   SubAgentUpdate,
@@ -192,43 +193,100 @@ export function toHistoryView(messages: ChatMessage[]): HistoryMessageView[] {
   return views;
 }
 
+/** M22: 実行中ランの状態(会話ごとに高々1つ) */
+interface RunState {
+  sessionId: string;
+  ac: AbortController;
+  startedAt: number;
+  /** ラン開始時に固定したworkspace(視聴切替でconfigが変わっても不変) */
+  workspace: string;
+  /** バックグラウンドプロセスも会話単位(他会話のcancelで殺さない) */
+  processes: ProcessManager;
+  /** M21-1: 追加指示キュー(ラン単位。終了で破棄) */
+  pendingInstructions: { text: string; images?: ChatImageInput[] }[];
+  lastStatus: AgentStatus;
+}
+
+/** M22: 会話ごとの独立状態(history・永続化・フォールバック・自律モード・ラン) */
+interface ConvState {
+  id: string;
+  title: string;
+  createdAt: string;
+  /** M16-1: 最後にLLM呼び出しに使った provider+model(切替検知用) */
+  lastLLM?: { provider: ProviderId; model: string };
+  /** 履歴はランと参照共有(置換せず中身を差し替える) */
+  history: ChatMessage[];
+  /** M13-1: 直近APIコールの実測プロンプトトークン(compaction発火判定用) */
+  lastPromptTokens: number;
+  /** 保存の直列化は会話単位(同一ファイルへの並行書き込みを防ぐ=永続化の排他) */
+  persistChain: Promise<void>;
+  /** M16-2: フォールバックは1会話1回まで */
+  fallbackUsed: boolean;
+  /**
+   * M17-2→M22: 自律モードを会話単位に。メモリ内のみ=アプリ再起動で必ずOFF。
+   * 別会話への切替でこの会話のフラグは変わらない(実行中の自律ランは維持される)
+   */
+  autonomous: boolean;
+  /** 会話に束縛された作業ディレクトリ(送信/ロード時に更新) */
+  workspace: string;
+  run: RunState | null;
+}
+
 export class AgentService {
   readonly broker: ApprovalBroker;
-  /** M11-2: バックグラウンドプロセス管理(メインセッション専用。進化ジョブには注入しない) */
+  /** M11-2: バックグラウンドプロセス管理(手動ツール実行用。ラン中は run.processes を使う) */
   readonly processes = new ProcessManager();
   private readonly evolution: EvolutionLike;
-  private readonly history: ChatMessage[] = [];
-  private activeRun: { sessionId: string; ac: AbortController } | null = null;
-  private lastStatus: AgentStatus = 'idle';
   private readonly pendingApprovals = new Map<string, ApprovalRequestPayload>();
   private checkpointsCache: CheckpointsLike | null = null;
   private readonly pendingPromotions = new Map<number, (approved: boolean) => void>();
   private readonly pendingPromotionEvents = new Map<number, PromotionRequestEvent>();
-  /** M12-1: 継続中の会話の永続化メタ(イベント用 sessionId とは別で、送信を跨いで維持される) */
-  private conversation: {
-    id: string;
-    title: string;
-    createdAt: string;
-    /** M16-1: 最後にLLM呼び出しに使った provider+model(切替検知用) */
-    lastLLM?: { provider: ProviderId; model: string };
-  } | null = null;
-  /** M12-3: 子エージェントの連番(UI表示・承認ダイアログの出所表示用) */
+  /** M22: ロード済み/実行中の会話。key=conversationId */
+  private readonly conversations = new Map<string, ConvState>();
+  /** いま表示している会話(chatSend/getStatus/getHistoryViewの対象) */
+  private current: ConvState;
+  /** M12-3: 子エージェントの連番(UI表示・承認ダイアログの出所表示用。全会話で一意) */
   private subAgentSeq = 0;
-  /** M13-1: 直近APIコールの実測プロンプトトークン(compaction発火判定用) */
-  private lastPromptTokens = 0;
-  /** M16-2: フォールバックを使い切った会話ID(1会話1回まで・往復ループ禁止) */
-  private fallbackUsedFor: string | null = null;
-  /**
-   * M17-2: 自律モード(承認なし自動実行)。メモリ内のみ=アプリ再起動で必ずOFF。
-   * セッション切替・新規でもOFFに戻す(事故防止)。config には保存しない
-   */
-  private autonomousMode = false;
-  /** 保存の直列化(fold と save が並行実行で交錯しないように) */
-  private persistChain: Promise<void> = Promise.resolve();
-  /** M21-1: 実行中に送られた追加指示のキュー(次ターン境界で履歴へ注入。実行終了で破棄) */
-  private pendingInstructions: { text: string; images?: ChatImageInput[] }[] = [];
+
+  /** 空の会話状態を作る(まだ conversations には登録しない=未使用の空会話を残さない) */
+  private blankConv(): ConvState {
+    return {
+      id: randomUUID(),
+      title: '',
+      createdAt: new Date().toISOString(),
+      history: [],
+      lastPromptTokens: 0,
+      persistChain: Promise.resolve(),
+      fallbackUsed: false,
+      autonomous: false,
+      workspace: '',
+      run: null,
+    };
+  }
+
+  /** M22: 実行中ラン一覧(左ペインの実行中表示・軟性しきい値・状態復元用) */
+  runsList(): RunInfo[] {
+    const runs: RunInfo[] = [];
+    for (const conv of this.conversations.values()) {
+      if (conv.run) {
+        runs.push({
+          conversationId: conv.id,
+          title: conv.title || '(無題)',
+          workspace: conv.run.workspace,
+          sessionId: conv.run.sessionId,
+          startedAt: conv.run.startedAt,
+        });
+      }
+    }
+    return runs;
+  }
+
+  private publishRuns(): void {
+    this.deps.bus.publish('runs:changed', this.runsList());
+  }
 
   constructor(private readonly deps: AgentServiceDeps) {
+    this.current = this.blankConv();
     this.broker = new ApprovalBroker(
       (req) => {
         this.pendingApprovals.set(req.id, req);
@@ -322,45 +380,55 @@ export class AgentService {
     return ws && ws.trim() !== '' ? ws : this.deps.defaultWorkspace();
   }
 
-  private getScopePolicy(): ScopePolicy {
+  private getScopePolicy(workspace?: string): ScopePolicy {
     return {
       mode: this.deps.config.get().scopeMode,
-      workspaceRoot: this.getWorkspace(),
+      workspaceRoot: workspace ?? this.getWorkspace(),
       deny: this.deps.denyPaths,
     };
   }
 
-  private executorDeps(): ExecutorDeps {
+  /**
+   * M22: ラン束縛つき executor 依存。binding 指定時は workspace(スコープ・フックcwd)・
+   * 自律モード(会話単位)・承認origin(出所表示)がその会話/ランに固定される。
+   * 未指定(手動実行)は現在の会話+現在のworkspace
+   */
+  private executorDeps(binding?: { workspace: string; conv: ConvState }): ExecutorDeps {
+    const ws = (): string => binding?.workspace ?? this.getWorkspace();
+    const conv = (): ConvState => binding?.conv ?? this.current;
     return {
       registry: this.deps.registry,
       broker: this.broker,
       getAutoApprove: () => this.deps.config.get().autoApprove,
-      getScopePolicy: () => this.getScopePolicy(),
+      getScopePolicy: () => this.getScopePolicy(ws()),
       audit: (e) => this.deps.audit.append(e),
       // M11-4: 編集後フック。fullPc でも cwd は workspace に固定する
       getPostEditHook: () => {
         const cmd = this.deps.config.get().postEditHook;
-        return cmd !== undefined && cmd.trim() !== ''
-          ? { command: cmd, cwd: this.getWorkspace() }
-          : null;
+        return cmd !== undefined && cmd.trim() !== '' ? { command: cmd, cwd: ws() } : null;
       },
       // M14-5: fullPc の「セッション中許可(このフォルダ)」(既定OFF=M9どおり毎回承認)
       getFullPcAllowSession: () => this.deps.config.get().fullPcAllowSession === true,
-      // M17-2: 自律モード。進化ジョブは executorDeps() を経由しないため波及しない
-      getAutonomous: () => this.autonomousMode,
+      // M17-2→M22: 自律モードは会話単位。進化ジョブは executorDeps() を経由しないため波及しない
+      getAutonomous: () => conv().autonomous,
+      // M22: 承認要求の出所(どの会話/プロジェクトからか)
+      getOrigin: () =>
+        binding !== undefined
+          ? { conversationId: binding.conv.id, title: binding.conv.title || '(無題)', workspace: binding.workspace }
+          : null,
     };
   }
 
-  // ---- 自律モード(M17-2) ----
+  // ---- 自律モード(M17-2、M22で会話単位に) ----
 
   getAutonomous(): boolean {
-    return this.autonomousMode;
+    return this.current.autonomous;
   }
 
-  /** ON/OFF の切替。全切替を監査に記録し、全画面(renderer/remote)へ通知する */
+  /** ON/OFF の切替(現在の会話に対して)。全切替を監査に記録し、全画面へ通知する */
   setAutonomous(on: boolean): { on: boolean } {
-    if (this.autonomousMode === on) return { on };
-    this.autonomousMode = on;
+    if (this.current.autonomous === on) return { on };
+    this.current.autonomous = on;
     this.deps.audit.append({
       tool: 'autonomous-mode',
       scope: 'system',
@@ -374,10 +442,10 @@ export class AgentService {
   }
 
   /** workspace 変更に追従してチェックポイント管理を作り直す(未設定なら null = 無効) */
-  private getCheckpoints(): CheckpointsLike | null {
+  private getCheckpoints(workspace?: string): CheckpointsLike | null {
     const factory = this.deps.createCheckpoints;
     if (!factory) return null;
-    const ws = this.getWorkspace();
+    const ws = workspace ?? this.getWorkspace();
     if (!this.checkpointsCache || this.checkpointsCache.workspace !== ws) {
       this.checkpointsCache = factory(ws);
     }
@@ -398,11 +466,6 @@ export class AgentService {
 
   // ---- chat ----
 
-  private emitChat(event: AgentEvent): void {
-    if (event.kind === 'status') this.lastStatus = event.status;
-    this.deps.bus.publish('chat:event', event);
-  }
-
   /**
    * M16-1: 現在のメイン会話が使う provider+model(切替検知・lastLLM 記録用)。
    * M18: modelPolicy 有効時は planner 帯(=メイン会話の実体)を指す
@@ -419,14 +482,14 @@ export class AgentService {
    * 再送が高くつくため、閾値(既定24k)超なら初回LLM呼び出しの前に圧縮しておく。
    * 戻り値は情報カードに出すメッセージ(切替なしなら null)
    */
-  private async compactOnSwitch(provider: LLMProvider, signal: AbortSignal): Promise<string | null> {
+  private async compactOnSwitch(conv: ConvState, provider: LLMProvider, signal: AbortSignal): Promise<string | null> {
     const current = this.currentLLM();
-    const prev = this.conversation?.lastLLM;
-    if (this.conversation) this.conversation.lastLLM = current;
+    const prev = conv.lastLLM;
+    conv.lastLLM = current;
     if (!prev || (prev.provider === current.provider && prev.model === current.model)) return null;
     // 実測が古い(切替直後・ロード直後)可能性があるため推定との大きい方で判定する
-    const measured = Math.max(this.lastPromptTokens, estimateTokens(this.history));
-    const compacted = await this.maybeCompact(provider, signal, {
+    const measured = Math.max(conv.lastPromptTokens, estimateTokens(conv.history));
+    const compacted = await this.maybeCompact(conv, provider, signal, {
       thresholdTokens: DEFAULT_COMPACTION_THRESHOLD,
       measuredTokens: measured,
     });
@@ -442,6 +505,7 @@ export class AgentService {
    * 圧縮したら lastPromptTokens をリセット(次のAPIコールで再実測されるまで未知のため)
    */
   private async maybeCompact(
+    conv: ConvState,
     provider: LLMProvider,
     signal: AbortSignal,
     override?: { thresholdTokens: number; measuredTokens: number },
@@ -449,19 +513,20 @@ export class AgentService {
     // M18: policy有効時のメイン会話は planner 帯のモデル上限で判定する(currentLLMが吸収)
     const threshold =
       override?.thresholdTokens ?? Math.floor(contextLimitFor(this.currentLLM().model) * 0.7);
-    const compacted = await compactHistory(provider, this.history, {
+    const ws = conv.run?.workspace ?? this.getWorkspace();
+    const compacted = await compactHistory(provider, conv.history, {
       signal,
-      measuredTokens: override?.measuredTokens ?? this.lastPromptTokens,
+      measuredTokens: override?.measuredTokens ?? conv.lastPromptTokens,
       thresholdTokens: threshold,
       onMemoryEscape: (text) => {
         try {
-          appendLearnedMemory(this.getWorkspace(), text);
+          appendLearnedMemory(ws, text);
         } catch (err) {
           console.error('[memory] 退避失敗:', err instanceof Error ? err.message : err);
         }
       },
     });
-    if (compacted) this.lastPromptTokens = 0;
+    if (compacted) conv.lastPromptTokens = 0;
     return compacted;
   }
 
@@ -471,21 +536,21 @@ export class AgentService {
    * 現在の会話を userData/sessions へ保存する(fire-and-forget・直列化)。
    * 履歴JSONが上限超過なら provider で畳んでから保存。保存失敗でチャットは止めない。
    */
-  private persistSession(provider?: LLMProvider): void {
+  private persistSession(conv: ConvState, provider?: LLMProvider): void {
     const store = this.deps.sessions;
-    const conv = this.conversation;
-    if (!store || !conv) return;
-    this.persistChain = this.persistChain.then(async () => {
+    if (!store || conv.title === '') return; // 未使用の空会話は保存しない
+    // M22: 保存の直列化は会話単位(同一ファイルの排他)。別会話の保存はブロックしない
+    conv.persistChain = conv.persistChain.then(async () => {
       try {
-        if (provider) await foldHistoryIfOversize(provider, this.history);
+        if (provider) await foldHistoryIfOversize(provider, conv.history);
         const data: SessionData = {
           version: SESSION_SCHEMA_VERSION,
           id: conv.id,
           title: conv.title,
-          workspace: this.getWorkspace(),
+          workspace: conv.workspace || this.getWorkspace(),
           createdAt: conv.createdAt,
           updatedAt: new Date().toISOString(),
-          history: this.history,
+          history: conv.history,
           ...(conv.lastLLM !== undefined ? { lastLLM: conv.lastLLM } : {}),
         };
         await store.save(data);
@@ -500,7 +565,9 @@ export class AgentService {
   }
 
   async sessionLoad(id: string): Promise<SessionLoadResult> {
-    if (this.activeRun) return { ok: false, message: 'エージェント実行中はセッションを切り替えられない' };
+    // M22: 実行中でも切替可(ランには触らない)。実行中の会話を開くと生きたhistoryに接続する
+    const live = this.conversations.get(id);
+    if (live) return this.attachConversation(live);
     const store = this.deps.sessions;
     if (!store) return { ok: false, message: 'セッション永続化が無効' };
     const data = await store.load(id);
@@ -512,45 +579,54 @@ export class AgentService {
    * M15.1: リモート(スマホ)用のセッション切替。sessionLoad に加えて、セッションに
    * 記録された workspace へ自動で追従する(desktopの左ペインと同じ挙動)。
    * 任意パスへの変更ではなく「既存セッションの記録値」限定のため、リモートへ公開してよい
-   * (settings:set 自体は引き続き非公開)。実行中ガードは sessionLoad 内で強制される
    */
   async sessionOpen(id: string): Promise<SessionLoadResult> {
-    if (this.activeRun) return { ok: false, message: 'エージェント実行中はセッションを切り替えられない' };
-    const store = this.deps.sessions;
-    if (!store) return { ok: false, message: 'セッション永続化が無効' };
-    const data = await store.load(id);
-    if (!data) return { ok: false, message: 'セッションが見つからない(または壊れている)' };
+    const live = this.conversations.get(id);
+    const ws = live?.workspace ?? (await this.deps.sessions?.load(id))?.workspace;
     const cfg = this.deps.config.get();
-    if (data.workspace !== '' && data.workspace !== (cfg.workspace ?? '') && this.deps.config.set) {
-      this.deps.config.set({ ...cfg, workspace: data.workspace });
+    if (ws !== undefined && ws !== '' && ws !== (cfg.workspace ?? '') && this.deps.config.set) {
+      this.deps.config.set({ ...cfg, workspace: ws });
     }
-    return this.applyLoadedSession(data);
+    return this.sessionLoad(id);
+  }
+
+  /** M22: ロード済み(または実行中)の会話へ表示を切り替える */
+  private attachConversation(conv: ConvState): SessionLoadResult {
+    this.current = conv;
+    return {
+      ok: true,
+      history: toHistoryView(conv.history),
+      conversationId: conv.id,
+      autonomous: conv.autonomous,
+      ...(conv.run !== null
+        ? { running: { sessionId: conv.run.sessionId, startedAt: conv.run.startedAt } }
+        : {}),
+    };
   }
 
   private applyLoadedSession(data: SessionData): SessionLoadResult {
-    // M17-2: セッション切替で自律モードは必ずOFF(事故防止・セッション単位の状態)
-    this.setAutonomous(false);
-    // 履歴配列は loop と参照共有しているため、置換ではなく中身を差し替える
-    this.history.length = 0;
-    this.history.push(...data.history);
-    this.conversation = {
+    const conv: ConvState = {
       id: data.id,
       title: data.title,
       createdAt: data.createdAt,
       ...(data.lastLLM !== undefined ? { lastLLM: data.lastLLM } : {}),
+      history: [...data.history],
+      // 実測値は次のAPIコールまで無いので推定で近似(M13-1)
+      lastPromptTokens: estimateTokens(data.history),
+      persistChain: Promise.resolve(),
+      fallbackUsed: false,
+      // M17-2: ディスクから開いた会話の自律モードは必ずOFF(会話単位・再起動/開き直しでOFF)
+      autonomous: false,
+      workspace: data.workspace,
+      run: null,
     };
-    // 実測値は次のAPIコールまで無いので推定で近似(M13-1)
-    this.lastPromptTokens = estimateTokens(this.history);
-    return { ok: true, history: toHistoryView(this.history) };
+    this.conversations.set(conv.id, conv);
+    return this.attachConversation(conv);
   }
 
   sessionNew(): { ok: boolean; message?: string } {
-    if (this.activeRun) return { ok: false, message: 'エージェント実行中は新規セッションを開始できない' };
-    this.history.length = 0;
-    this.conversation = null;
-    this.lastPromptTokens = 0;
-    // M17-2: 新規セッションでも自律モードはOFFへ戻す(セッション単位の状態)
-    this.setAutonomous(false);
+    // M22: 実行中でも新規会話を開始できる(既存ランには触らない)
+    this.current = this.blankConv();
     return { ok: true };
   }
 
@@ -559,22 +635,22 @@ export class AgentService {
     return (await this.deps.sessions?.search?.(query)) ?? [];
   }
 
-  /** M15-2: セッション名の変更(表示中の会話ならメモリ側のタイトルも同期) */
+  /** M15-2: セッション名の変更(ロード済みの会話ならメモリ側のタイトルも同期) */
   async sessionRename(id: string, title: string): Promise<boolean> {
     const ok = (await this.deps.sessions?.rename?.(id, title)) ?? false;
-    if (ok && this.conversation?.id === id) {
-      this.conversation = { ...this.conversation, title: title.trim().slice(0, 100) };
-    }
+    const conv = this.conversations.get(id);
+    if (ok && conv) conv.title = title.trim().slice(0, 100);
     return ok;
   }
 
   async sessionDelete(id: string): Promise<void> {
-    await this.deps.sessions?.delete(id);
-    // 表示中の会話を消した場合はメモリ側もリセット(実行中は触らない)
-    if (this.conversation?.id === id && !this.activeRun) {
-      this.history.length = 0;
-      this.conversation = null;
+    // M22: 実行中の会話は削除不可(先に停止する)
+    if (this.conversations.get(id)?.run) {
+      throw new Error('実行中のセッションは削除できない(先に停止してください)');
     }
+    await this.deps.sessions?.delete(id);
+    this.conversations.delete(id);
+    if (this.current.id === id) this.current = this.blankConv();
   }
 
   /** M14-2: ctx.screenshot の注入(captureUrl 未設定なら注入しない=ツール側で明示エラー) */
@@ -586,17 +662,24 @@ export class AgentService {
   chatSend(text: string, mode: ChatMode, images?: ChatImageInput[]): { sessionId: string } {
     const planMode = mode === 'plan';
     const sessionId = randomUUID();
-    const emit = (event: AgentEvent): void => this.emitChat(event);
+    const conv = this.current;
+    // M22: 全イベントに会話IDを付ける(renderer/remoteは表示中の会話だけ反映する)
+    const emit = (event: AgentEvent): void => {
+      if (event.kind === 'status' && conv.run?.sessionId === sessionId) {
+        conv.run.lastStatus = event.status;
+      }
+      this.deps.bus.publish('chat:event', { ...event, conversationId: conv.id });
+    };
 
     // M21-1: 実行中の送信はエラーにせず追加指示としてキューへ積む(次ターン境界で注入)
-    if (this.activeRun) {
-      const run = this.activeRun;
+    if (conv.run) {
+      const run = conv.run;
       if (text.trim() === '' && (images?.length ?? 0) === 0) return { sessionId: run.sessionId };
-      this.pendingInstructions.push({
+      run.pendingInstructions.push({
         text,
         ...(images && images.length > 0 ? { images } : {}),
       });
-      this.emitChat({ kind: 'instruction_queued', sessionId: run.sessionId, text });
+      emit({ kind: 'instruction_queued', sessionId: run.sessionId, text });
       return { sessionId: run.sessionId };
     }
     // M18: policy有効時のメイン会話は planner 帯。無効時は従来の単一モデル
@@ -631,9 +714,20 @@ export class AgentService {
     let producedOutput = false;
 
     const ac = new AbortController();
-    this.activeRun = { sessionId, ac };
+    // M22: ラン状態(workspace束縛・会話単位のプロセス管理・追加指示キュー)
+    const run: RunState = {
+      sessionId,
+      ac,
+      startedAt: Date.now(),
+      workspace: this.getWorkspace(),
+      processes: new ProcessManager(),
+      pendingInstructions: [],
+      lastStatus: 'calling_llm',
+    };
+    conv.run = run;
+    conv.workspace = run.workspace;
     // M14-2: 添付画像はテキストの後ろに image ブロックとして積む
-    this.history.push({
+    conv.history.push({
       role: 'user',
       content: [
         { type: 'text', text },
@@ -641,21 +735,29 @@ export class AgentService {
       ],
     });
     // M12-1: 会話の永続化メタ(初回送信時に確定。タイトルは先頭行)
-    if (!this.conversation) {
-      this.conversation = {
-        id: randomUUID(),
-        title: (text.split('\n')[0] ?? text).slice(0, 60),
-        createdAt: new Date().toISOString(),
-      };
+    if (conv.title === '') {
+      conv.title = ((text.split('\n')[0] ?? text).slice(0, 60) || '(無題)').trim() || '(無題)';
+      conv.createdAt = new Date().toISOString();
+    }
+    this.conversations.set(conv.id, conv);
+    this.publishRuns();
+    // M22: 軟性しきい値 — 同時実行がしきい値を超えたら注意(止めない)
+    const runningCount = this.runsList().length;
+    if (runningCount > 5) {
+      emit({
+        kind: 'info',
+        sessionId,
+        message: `⚠ 同時実行が${runningCount}件になっています。APIレート制限や料金に注意(429は自動リトライで吸収されますが速度は落ちます)`,
+      });
     }
     // M16-2: フォールバック発動後は以降の圧縮・保存もこのプロバイダで行う
     let runProvider: LLMProvider = provider;
 
-    this.persistSession(provider); // ユーザーメッセージを即座に保存(クラッシュ耐性)
+    this.persistSession(conv, provider); // ユーザーメッセージを即座に保存(クラッシュ耐性)
     // M12-1: 各ターン完了(assistantメッセージ確定)ごとに随時保存する
     const emitWithPersist = (event: AgentEvent): void => {
       emit(event);
-      if (event.kind === 'message_done') this.persistSession(runProvider);
+      if (event.kind === 'message_done') this.persistSession(conv, runProvider);
     };
     // M11-1: 設定された maxTurns をループへ配線(未設定ならループ既定の30)
     const maxTurns = this.deps.config.get().maxTurns;
@@ -667,8 +769,7 @@ export class AgentService {
     const acquireFallback = async (reason: string): Promise<LLMProvider | null> => {
       const fb = this.deps.config.get().fallback;
       if (!fb || fb.enabled !== true) return null;
-      const convKey = this.conversation?.id ?? sessionId;
-      if (this.fallbackUsedFor === convKey) return null;
+      if (conv.fallbackUsed) return null;
       const current = this.currentLLM();
       const fbModel = fb.model.trim() !== '' ? fb.model : DEFAULT_MODELS[fb.provider];
       if (fb.provider === current.provider && fbModel === current.model) return null;
@@ -692,7 +793,7 @@ export class AgentService {
             : new AnthropicProvider(key, fbModel);
       }
 
-      this.fallbackUsedFor = convKey;
+      conv.fallbackUsed = true;
       this.deps.audit.append({
         tool: 'provider-fallback',
         scope: 'system',
@@ -707,16 +808,14 @@ export class AgentService {
       });
       // 切替でprompt cacheが無効になるため、長い履歴は先に圧縮する(M16-1と同じ閾値)
       try {
-        await this.maybeCompact(next, ac.signal, {
+        await this.maybeCompact(conv, next, ac.signal, {
           thresholdTokens: DEFAULT_COMPACTION_THRESHOLD,
-          measuredTokens: Math.max(this.lastPromptTokens, estimateTokens(this.history)),
+          measuredTokens: Math.max(conv.lastPromptTokens, estimateTokens(conv.history)),
         });
       } catch {
         /* 圧縮失敗でも続行 */
       }
-      if (this.conversation) {
-        this.conversation.lastLLM = { provider: fb.provider, model: fbModel };
-      }
+      conv.lastLLM = { provider: fb.provider, model: fbModel };
       runProvider = next;
       return next;
     };
@@ -724,7 +823,7 @@ export class AgentService {
     void (async () => {
       // M16-1: プロバイダ/モデル切替を検知したら、キャッシュ前提が崩れるため先に圧縮する
       try {
-        const switchInfo = await this.compactOnSwitch(provider, ac.signal);
+        const switchInfo = await this.compactOnSwitch(conv, provider, ac.signal);
         if (switchInfo) emit({ kind: 'info', sessionId, message: switchInfo });
       } catch {
         /* 切替時圧縮の失敗は無視して通常応答へ進む */
@@ -732,7 +831,7 @@ export class AgentService {
       // 履歴が閾値超なら圧縮してから応答する(M8-1、M13-1で実測トークントリガー化)。
       // 要約失敗は致命的でないため、失敗しても圧縮せず継続する。
       try {
-        const compacted = await this.maybeCompact(provider, ac.signal);
+        const compacted = await this.maybeCompact(conv, provider, ac.signal);
         if (compacted) emit({ kind: 'status', sessionId, status: 'calling_llm' });
       } catch {
         /* 圧縮失敗は無視して通常応答へ進む */
@@ -747,12 +846,16 @@ export class AgentService {
             // M19: plan 書き込み前の計画内容(マイルストーン完了検出用)
             const planBefore =
               name === 'plan' && this.deps.config.get().reviewGate?.enabled === true
-                ? readProjectPlan(this.getWorkspace())
+                ? readProjectPlan(run.workspace)
                 : null;
-            const result = await executeToolWithApproval(this.executorDeps(), name, input, {
+            const result = await executeToolWithApproval(
+              this.executorDeps({ workspace: run.workspace, conv }),
+              name,
+              input,
+              {
               ...ctx,
               evolution: this.evolutionContext(),
-              processes: this.processes,
+              processes: run.processes,
               ...this.screenshotContext(),
               subagent: {
                 // M18: サブエージェントは worker 帯(policy無効時はメインと同一)
@@ -761,8 +864,8 @@ export class AgentService {
                     {
                       provider: workerProvider,
                       tools: this.deps.registry,
-                      cwd: this.getWorkspace(),
-                      acquireFallback: this.acquireChildFallback(sessionId),
+                      cwd: run.workspace,
+                      acquireFallback: this.acquireChildFallback(conv, emit, sessionId),
                     },
                     task,
                     signal,
@@ -779,17 +882,20 @@ export class AgentService {
             const risk = this.deps.registry.get(name)?.risk;
             if (result.isError !== true && (risk === 'write' || risk === 'exec')) {
               producedOutput = true;
-              await this.getCheckpoints()
+              await this.getCheckpoints(run.workspace)
                 ?.snapshot(sessionId, `${name} 実行後`)
                 .catch(() => null);
             }
             // M19: マイルストーン完了(- [ ]→- [x])を検知したらレビュー・ゲートを同期実行。
             // 要約を tool_result に追記するので、メインのモデル自身も合否を認識できる
             if (planBefore !== null && result.isError !== true) {
-              const done = newlyCompleted(planBefore, readProjectPlan(this.getWorkspace()));
+              const done = newlyCompleted(planBefore, readProjectPlan(run.workspace));
               if (done.length > 0) {
                 reviewRanThisRun = true;
                 const summary = await this.runReviewGate({
+                  conv,
+                  run,
+                  emit,
                   sessionId,
                   milestone: done.join(' / '),
                   userRequest: text,
@@ -807,37 +913,37 @@ export class AgentService {
           },
           emit: emitWithPersist,
           // プロジェクト記憶(AMATERAS.md)と現在の計画(AMATERAS_PLAN.md)を
-          // system プロンプトへ注入する(M8-2 / M12-2)
+          // system プロンプトへ注入する(M8-2 / M12-2)。M22: ランのworkspaceに束縛
           systemPrompt:
             composePlanSection(
-              composeSystemPrompt(SYSTEM_PROMPT, readProjectMemory(this.getWorkspace())),
-              readProjectPlan(this.getWorkspace()),
+              composeSystemPrompt(SYSTEM_PROMPT, readProjectMemory(run.workspace)),
+              readProjectPlan(run.workspace),
             ) +
             (policy ? POLICY_HINT : '') +
             (planMode ? PLAN_SUFFIX : ''),
-          cwd: this.getWorkspace(),
+          cwd: run.workspace,
           planMode,
           ...(maxTurns !== undefined ? { maxTurns } : {}),
           // M13-1: ループ内compaction(長い自走の途中でも実測トークンで圧縮)
           compact: async (measured) => {
-            this.lastPromptTokens = measured;
+            conv.lastPromptTokens = measured;
             try {
-              await this.maybeCompact(runProvider, ac.signal);
+              await this.maybeCompact(conv, runProvider, ac.signal);
             } catch {
               /* 圧縮失敗でループは止めない */
             }
           },
           // M16-1: 1ターン完結でも実測値を保持する(切替時compactionの判定に使う)
           onUsage: (measured) => {
-            this.lastPromptTokens = measured;
+            conv.lastPromptTokens = measured;
           },
           // M16-2: 課金系エラー時のフォールバック(transientリトライはloop内蔵)
           acquireFallback,
           // M21-1: 実行中に積まれた追加指示をターン境界で注入する
-          drainInstructions: () => this.pendingInstructions.splice(0),
+          drainInstructions: () => run.pendingInstructions.splice(0),
         },
         sessionId,
-        this.history,
+        conv.history,
         ac.signal,
       );
       // M19: 計画を使わなかった短いタスクは完了時に1回だけレビュー(縮退モード)。
@@ -849,6 +955,9 @@ export class AgentService {
         this.deps.config.get().reviewGate?.enabled === true
       ) {
         await this.runReviewGate({
+          conv,
+          run,
+          emit,
           sessionId,
           milestone: '完成時レビュー',
           userRequest: text,
@@ -859,16 +968,18 @@ export class AgentService {
         });
       }
       // M11-3: ループ完了時にも1回スナップショット(直近ツール以降の変更を確定)
-      await this.getCheckpoints()
+      await this.getCheckpoints(run.workspace)
         ?.snapshot(sessionId, `セッション終了(${status})`)
         .catch(() => null);
       // M12-1: 終了時に最終状態を保存(tool_result 追記分を含めて確定)
-      this.persistSession(runProvider);
+      this.persistSession(conv, runProvider);
       return status;
     })().finally(() => {
-      this.activeRun = null;
       // M21-1: 未注入の追加指示は実行終了(完了/キャンセル/エラー)で破棄する
-      this.pendingInstructions.length = 0;
+      // (キューは run に属するため、ランごと破棄される)
+      run.processes.killAll();
+      conv.run = null;
+      this.publishRuns();
     });
 
     return { sessionId };
@@ -880,12 +991,15 @@ export class AgentService {
    * メインの実行プロバイダや lastLLM には触れない(子ループ内だけ切り替える)。
    * 子履歴は小さいため切替前compactionは省く
    */
-  private acquireChildFallback(sessionId: string): (reason: string) => Promise<LLMProvider | null> {
+  private acquireChildFallback(
+    conv: ConvState,
+    emit: (e: AgentEvent) => void,
+    sessionId: string,
+  ): (reason: string) => Promise<LLMProvider | null> {
     return async (reason) => {
       const fb = this.deps.config.get().fallback;
       if (!fb || fb.enabled !== true) return null;
-      const convKey = this.conversation?.id ?? sessionId;
-      if (this.fallbackUsedFor === convKey) return null;
+      if (conv.fallbackUsed) return null;
       const fbModel = fb.model.trim() !== '' ? fb.model : DEFAULT_MODELS[fb.provider];
       let next: LLMProvider;
       if (this.deps.fallbackProviderFactory) {
@@ -896,7 +1010,7 @@ export class AgentService {
         next =
           fb.provider === 'openai' ? new OpenAIProvider(key, fbModel) : new AnthropicProvider(key, fbModel);
       }
-      this.fallbackUsedFor = convKey;
+      conv.fallbackUsed = true;
       this.deps.audit.append({
         tool: 'provider-fallback',
         scope: 'system',
@@ -904,7 +1018,7 @@ export class AgentService {
         event: 'result',
         detail: `subagent → ${fb.provider}/${fbModel}: ${reason.slice(0, 160)}`,
       });
-      this.emitChat({
+      emit({
         kind: 'info',
         sessionId,
         message: `⚠ サブエージェントで残高/課金エラーを検知したため、フォールバック(${fb.provider}/${fbModel})へ切り替えて続行します: ${reason}`,
@@ -917,7 +1031,10 @@ export class AgentService {
    * M18: work サブエージェントの格上げ依存。policy 無効・escalation帯キー未設定なら undefined
    * (=格上げ無効)。格上げ前に子履歴を compaction 経由(キャッシュ前提が変わるため)
    */
-  private buildEscalateDeps(sessionId: string):
+  private buildEscalateDeps(
+    sessionId: string,
+    emit: (e: AgentEvent) => void,
+  ):
     | {
         provider: LLMProvider;
         maxPerTask: number;
@@ -950,7 +1067,7 @@ export class AgentService {
           event: 'result',
           detail: `subagent#${id} attempt=${attempt} → ${llm?.provider}/${llm?.model}: ${reason.slice(0, 160)}`,
         });
-        this.emitChat({
+        emit({
           kind: 'info',
           sessionId,
           message: `⤴ サブエージェント#${id} の実行が難航(${reason})。上位モデル(${llm?.provider}/${llm?.model})へ格上げして再試行します(${attempt}回目)`,
@@ -966,6 +1083,9 @@ export class AgentService {
    * M16子フォールバックがそのまま効く。3ラウンド目以降の fix は escalation 帯を直接使う
    */
   private async runReviewGate(args: {
+    conv: ConvState;
+    run: RunState;
+    emit: (e: AgentEvent) => void;
     sessionId: string;
     milestone: string;
     userRequest: string;
@@ -976,14 +1096,14 @@ export class AgentService {
   }): Promise<string | null> {
     const cfg = this.deps.config.get().reviewGate;
     if (cfg === undefined || !cfg.enabled || args.signal.aborted) return null;
-    const ws = this.getWorkspace();
+    const ws = args.run.workspace;
     const target: ReviewTarget = {
       milestone: args.milestone,
       userRequest: args.userRequest,
       planContent: readProjectPlan(ws),
     };
     const emitCard = (card: ReviewCardPayload): void => {
-      this.emitChat({ kind: 'review', sessionId: args.sessionId, ...card });
+      args.emit({ kind: 'review', sessionId: args.sessionId, ...card });
       this.deps.audit.append({
         tool: 'review-gate',
         scope: 'system',
@@ -1018,6 +1138,7 @@ export class AgentService {
           [buildFixTask(target, card)],
           'work',
           args.signal,
+          { conv: args.conv, run: args.run, emit: args.emit },
         );
       },
       onCard: emitCard,
@@ -1027,7 +1148,7 @@ export class AgentService {
     if (args.signal.aborted) return null;
 
     if (result.reviewFailed && result.final === null) {
-      this.emitChat({
+      args.emit({
         kind: 'info',
         sessionId: args.sessionId,
         message: '品質レビューを実行できなかった(採点出力が得られず)。今回は素通しで続行します',
@@ -1047,8 +1168,8 @@ export class AgentService {
     const remaining = final.findings
       .map((f, i) => `${i + 1}. ${f.file}(${f.location}): ${f.problem} → ${f.fix}`)
       .join('\n');
-    if (this.autonomousMode) {
-      this.emitChat({
+    if (args.conv.autonomous) {
+      args.emit({
         kind: 'info',
         sessionId: args.sessionId,
         message: `⚠ 品質レビュー: 差し戻し上限(${cfg.maxRoundsPerMilestone}回)でも閾値未満(平均${final.average}/5)。残課題${final.findings.length}件を許容して続行します(自律モード)`,
@@ -1065,7 +1186,7 @@ export class AgentService {
         },
         args.signal,
       );
-      this.emitChat({
+      args.emit({
         kind: 'info',
         sessionId: args.sessionId,
         message:
@@ -1094,19 +1215,30 @@ export class AgentService {
     tasks: string[],
     mode: 'read' | 'work',
     signal: AbortSignal,
+    /** M22: ラン束縛(workspace固定・会話単位の自律/フォールバック・イベント帰属)。省略時は現在の会話 */
+    binding?: { conv: ConvState; run: RunState; emit: (e: AgentEvent) => void },
   ): Promise<string[]> {
+    const conv = binding?.conv ?? this.current;
+    const ws = binding?.run.workspace ?? this.getWorkspace();
+    const emit =
+      binding?.emit ??
+      ((e: AgentEvent): void => this.deps.bus.publish('chat:event', { ...e, conversationId: conv.id }));
     const limited = tasks.slice(0, this.subAgentMaxParallel());
-    await this.getCheckpoints()
+    await this.getCheckpoints(ws)
       ?.snapshot(sessionId, `サブエージェント並列実行前(${mode}×${limited.length})`)
       .catch(() => null);
     const locks = new WriteLockTable();
-    const onUpdate = (u: SubAgentUpdate): void => this.deps.bus.publish('agent:sub_update', u);
+    const onUpdate = (u: SubAgentUpdate): void =>
+      this.deps.bus.publish('agent:sub_update', { ...u, conversationId: conv.id });
     const rawTurns = this.deps.config.get().subAgentMaxTurns;
     const maxTurns =
       rawTurns !== undefined ? Math.min(100, Math.max(1, Math.round(rawTurns))) : undefined;
     // M18: 格上げ(policy有効時のみ)とサブ用フォールバック
-    const escalate = this.buildEscalateDeps(sessionId);
-    const acquireFallback = this.acquireChildFallback(sessionId);
+    const escalate = this.buildEscalateDeps(sessionId, emit);
+    const acquireFallback = this.acquireChildFallback(conv, emit, sessionId);
+    const execDeps = this.executorDeps(
+      binding !== undefined ? { workspace: ws, conv } : undefined,
+    );
 
     return Promise.all(
       limited.map((task) => {
@@ -1116,9 +1248,9 @@ export class AgentService {
             {
               provider,
               tools: this.deps.registry,
-              cwd: this.getWorkspace(),
+              cwd: ws,
               executeTool: (name, input, ctx) =>
-                executeToolWithApproval(this.executorDeps(), name, input, {
+                executeToolWithApproval(execDeps, name, input, {
                   ...ctx,
                   ...this.screenshotContext(),
                 }),
@@ -1138,7 +1270,7 @@ export class AgentService {
         const startedAt = Date.now();
         onUpdate({ id, task: label, mode: 'read', status: 'running', startedAt });
         return runSubAgent(
-          { provider, tools: this.deps.registry, cwd: this.getWorkspace(), acquireFallback },
+          { provider, tools: this.deps.registry, cwd: ws, acquireFallback },
           task,
           signal,
         ).then((summary) => {
@@ -1157,16 +1289,24 @@ export class AgentService {
   }
 
   chatCancel(sessionId: string): void {
-    if (this.activeRun?.sessionId === sessionId) {
-      this.activeRun.ac.abort();
-      // M11-2: セッションキャンセルでバックグラウンドプロセスも全て止める(設計どおり)
-      this.processes.killAll();
+    // M22: sessionId からランを特定して止める(他の会話のランには触らない)
+    for (const conv of this.conversations.values()) {
+      if (conv.run?.sessionId === sessionId) {
+        conv.run.ac.abort();
+        // M11-2: セッションキャンセルでそのランのバックグラウンドプロセスも全て止める
+        conv.run.processes.killAll();
+        return;
+      }
     }
   }
 
   /** アプリ終了時の後始末(index.ts の will-quit から呼ばれる) */
   shutdown(): void {
     this.processes.killAll();
+    for (const conv of this.conversations.values()) {
+      conv.run?.ac.abort();
+      conv.run?.processes.killAll();
+    }
   }
 
   // ---- 承認 ----
@@ -1250,8 +1390,11 @@ export class AgentService {
   }
 
   async checkpointRestore(sha: string): Promise<CheckpointRestoreResult> {
-    if (this.activeRun) {
-      return { ok: false, message: 'エージェント実行中は復元できない(完了かキャンセル後に実行)' };
+    // M22: 現在のworkspaceで実行中のランがある間は復元不可(実行中の書き込みと衝突するため)
+    const ws = this.getWorkspace();
+    const busy = [...this.conversations.values()].some((c) => c.run !== null && c.run.workspace === ws);
+    if (busy) {
+      return { ok: false, message: 'このworkspaceでエージェント実行中は復元できない(完了かキャンセル後に実行)' };
     }
     const ckpt = this.getCheckpoints();
     if (!ckpt) {
@@ -1292,15 +1435,21 @@ export class AgentService {
   // ---- 状態(リモートUIの snapshot / /api/status 用) ----
 
   getStatus(): AgentStatusView {
+    const run = this.current.run;
     return {
-      status: this.activeRun ? this.lastStatus : 'idle',
-      activeSessionId: this.activeRun?.sessionId ?? null,
+      status: run ? run.lastStatus : 'idle',
+      activeSessionId: run?.sessionId ?? null,
       scopeMode: this.deps.config.get().scopeMode,
-      autonomous: this.autonomousMode,
+      autonomous: this.current.autonomous,
     };
   }
 
   getHistoryView(): HistoryMessageView[] {
-    return toHistoryView(this.history);
+    return toHistoryView(this.current.history);
+  }
+
+  /** M22: 現在表示中の会話ID(remote snapshot・イベントフィルタ用) */
+  getCurrentConversationId(): string {
+    return this.current.id;
   }
 }

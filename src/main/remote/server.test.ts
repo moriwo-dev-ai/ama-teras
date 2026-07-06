@@ -30,6 +30,8 @@ function stubFacade(): { facade: RemoteFacade; calls: FacadeCalls } {
     setAutonomous: [],
   };
   const facade: RemoteFacade = {
+    getCurrentConversationId: () => 'conv-1',
+    runsList: () => [],
     chatSend: (text, mode, images) => {
       calls.chatSend.push([text, mode, images]);
       return { sessionId: 'sess-1' };

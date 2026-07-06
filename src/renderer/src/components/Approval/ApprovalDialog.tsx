@@ -27,6 +27,17 @@ export function ApprovalDialog(): JSX.Element | null {
           {queue.length > 1 && <span className="text-xs text-zinc-500">(+{queue.length - 1} 件待ち)</span>}
         </div>
 
+        {/* M22: どの会話(プロジェクト)からの要求か(複数同時実行時の取り違え防止) */}
+        {req.origin !== undefined && (
+          <div className="mb-2 flex items-baseline gap-2 rounded-md border border-zinc-700 bg-zinc-950 p-2 text-xs">
+            <span className="shrink-0 text-zinc-500">出所:</span>
+            <span className="truncate font-semibold text-zinc-200" title={req.origin.workspace}>
+              📁 {req.origin.workspace.split(/[\\/]/).filter(Boolean).pop() ?? req.origin.workspace}
+            </span>
+            <span className="truncate text-zinc-400">{req.origin.title}</span>
+          </div>
+        )}
+
         {req.subAgentId !== undefined && (
           <div className="mb-2 rounded-md border border-sky-700 bg-sky-950 p-2 text-xs text-sky-200">
             🤖 サブエージェント #{req.subAgentId} からの要求(dispatch_agent 経由の並列作業)

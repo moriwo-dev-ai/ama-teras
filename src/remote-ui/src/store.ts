@@ -113,6 +113,8 @@ interface RemoteState {
   connected: boolean;
   status: AgentStatusView;
   messages: UiMessage[];
+  /** M22: 表示中の会話ID(chat:eventのフィルタ用。null=未確定) */
+  conversationId: string | null;
   pendingApprovals: ApprovalRequestPayload[];
   promotions: PromotionRequest[];
   jobs: EvolutionJobSummary[];
@@ -127,8 +129,8 @@ interface RemoteState {
   onEvolutionEvent: (event: EvolutionEvent) => void;
   /** ユーザー送信をローカルに反映(サーバ履歴には chatSend 側で載る) */
   addLocalUserMessage: (text: string) => void;
-  /** M15.1: セッション切替後に履歴を丸ごと差し替える */
-  replaceHistory: (history: RemoteSnapshot['history']) => void;
+  /** M15.1: セッション切替後に履歴を丸ごと差し替える(M22: 会話IDも更新) */
+  replaceHistory: (history: RemoteSnapshot['history'], conversationId?: string | null) => void;
   /** M17-2: 自律モードの状態反映(SSE autonomous:changed) */
   setAutonomousFlag: (on: boolean) => void;
 }
@@ -139,6 +141,7 @@ export const useRemoteStore = create<RemoteState>((set) => ({
   connected: false,
   status: IDLE,
   messages: [],
+  conversationId: null,
   pendingApprovals: [],
   promotions: [],
   jobs: [],
@@ -154,18 +157,32 @@ export const useRemoteStore = create<RemoteState>((set) => ({
       pendingApprovals: snapshot.pendingApprovals,
       promotions: snapshot.pendingPromotions,
       jobs: snapshot.jobs,
+      conversationId: snapshot.conversationId ?? null,
     }),
 
-  replaceHistory: (history) => set({ messages: historyToMessages(history) }),
+  replaceHistory: (history, conversationId) =>
+    set((s) => ({
+      messages: historyToMessages(history),
+      conversationId: conversationId !== undefined ? conversationId : s.conversationId,
+    })),
 
   setAutonomousFlag: (on) => set((s) => ({ status: { ...s.status, autonomous: on } })),
 
   onChatEvent: (event) =>
     set((s) => {
+      // M22: 表示中の会話のイベントだけ反映する(未確定なら採用)
+      if (event.conversationId !== undefined && s.conversationId !== null && event.conversationId !== s.conversationId) {
+        return s;
+      }
+      const adopt =
+        event.conversationId !== undefined && s.conversationId === null
+          ? { conversationId: event.conversationId }
+          : {};
       const messages = applyChatEvent(s.messages, event);
       if (event.kind === 'status') {
         const terminal = TERMINAL.includes(event.status);
         return {
+          ...adopt,
           messages,
           status: {
             ...s.status,
@@ -174,7 +191,7 @@ export const useRemoteStore = create<RemoteState>((set) => ({
           },
         };
       }
-      return { messages };
+      return { ...adopt, messages };
     }),
 
   onApprovalRequest: (req) =>

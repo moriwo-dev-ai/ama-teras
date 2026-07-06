@@ -10,8 +10,14 @@ export type AgentStatus =
   | 'error'
   | 'max_turns_reached';
 
-/** main → renderer へ push されるエージェント進行イベント */
-export type AgentEvent =
+/**
+ * main → renderer へ push されるエージェント進行イベント。
+ * M22: 複数会話の同時実行のため、全イベントに conversationId が付く(単一会話でも同じ)。
+ * renderer/remote は「表示中の会話」のイベントだけをチャットへ反映する
+ */
+export type AgentEvent = AgentEventBody & { conversationId?: string };
+
+export type AgentEventBody =
   | { kind: 'status'; sessionId: string; status: AgentStatus }
   | { kind: 'text_delta'; sessionId: string; text: string }
   | { kind: 'message_done'; sessionId: string }
@@ -79,6 +85,8 @@ export interface ApprovalRequestPayload {
   mcpServer?: string;
   /** M14-2: 「このセッションでは常に許可」の粒度表示(例: ドメイン名)。動的承認ツール用 */
   allowSessionLabel?: string;
+  /** M22: どの会話(プロジェクト)からの承認要求か。複数同時実行時の取り違え防止表示 */
+  origin?: { conversationId: string; title: string; workspace: string };
 }
 
 /** M14-2: チャット送信に添付する画像(renderer → main) */
@@ -302,6 +310,9 @@ export interface RemoteSnapshot {
   pendingPromotions: Extract<EvolutionEvent, { kind: 'promotion_request' }>[];
   jobs: EvolutionJobSummary[];
   tools: ToolInfo[];
+  /** M22: 表示中の会話ID(chat:eventのフィルタ用)と実行中ラン一覧 */
+  conversationId?: string;
+  runs?: RunInfo[];
 }
 
 // ---- M13-2: MCPクライアント ----
@@ -351,6 +362,19 @@ export interface SubAgentUpdate {
   narration?: string;
   /** M21-4: 開始時刻(epoch ms)。UI側で経過時間を表示する */
   startedAt?: number;
+  /** M22: どの会話(プロジェクト)の子か(複数同時実行時の出所表示) */
+  conversationId?: string;
+}
+
+// ---- M22: 複数会話の同時実行 ----
+
+/** 実行中ラン一覧(runs:changed / runs:list)。左ペインの実行中表示・状態復元に使う */
+export interface RunInfo {
+  conversationId: string;
+  title: string;
+  workspace: string;
+  sessionId: string;
+  startedAt: number;
 }
 
 // ---- M15-4: 環境ウィジェット ----
@@ -394,6 +418,12 @@ export interface SessionLoadResult {
   message?: string;
   /** ok 時のみ: 復元された履歴の表示用ビュー */
   history?: HistoryMessageView[];
+  /** M22: 開いた会話が実行中なら、そのラン情報(UIが実行状態へ復帰する) */
+  running?: { sessionId: string; startedAt: number };
+  /** M22: 開いた会話のID(イベントのフィルタに使う) */
+  conversationId?: string;
+  /** M22: 開いた会話の自律モード(会話単位の状態) */
+  autonomous?: boolean;
 }
 
 // ---- M11-3: 自動チェックポイント ----

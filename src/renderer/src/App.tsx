@@ -12,6 +12,7 @@ import { useChatStore } from './stores/chat';
 import { useEvolutionStore } from './stores/evolution';
 import { usePreviewStore } from './stores/preview';
 import { useRightPaneStore, type RightPaneTab } from './stores/rightPane';
+import { useRunsStore } from './stores/runs';
 import { useSubAgentStore } from './stores/subagents';
 
 export default function App(): JSX.Element {
@@ -59,6 +60,13 @@ export default function App(): JSX.Element {
   );
   useEffect(() => window.api.onEvolutionEvent(handleEvolutionEvent), [handleEvolutionEvent]);
   useEffect(() => window.api.onSubAgentUpdate(handleSubAgentUpdate), [handleSubAgentUpdate]);
+  // M22: 実行中ラン一覧(左ペインの実行中インジケータ)
+  const setRuns = useRunsStore((s) => s.setRuns);
+  const refreshRuns = useRunsStore((s) => s.refresh);
+  useEffect(() => {
+    void refreshRuns();
+  }, [refreshRuns]);
+  useEffect(() => window.api.onRunsChanged(setRuns), [setRuns]);
 
   // M15-5: キーボードショートカット(Ctrl+B/J/K)
   useEffect(() => {

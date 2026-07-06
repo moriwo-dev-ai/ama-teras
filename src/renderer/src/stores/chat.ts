@@ -7,6 +7,7 @@ import type {
   ReviewCardPayload,
   SessionMeta,
 } from '../../../shared/types';
+import { belongsToOtherRun } from './runs';
 
 export type UiMessage =
   | {
@@ -43,6 +44,8 @@ interface ChatState {
   messages: UiMessage[];
   status: AgentStatus;
   activeSessionId: string | null;
+  /** M22: 表示中の会話ID(イベントのフィルタ。nullは新規会話=初回イベントで採用) */
+  conversationId: string | null;
   /** M21-4: 実行開始時刻(経過時間表示)と最新思考テキストの末尾(現在の状況ライン) */
   runStartedAt: number | null;
   narration: string;
@@ -78,6 +81,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   status: 'idle',
   activeSessionId: null,
+  conversationId: null,
   runStartedAt: null,
   narration: '',
   sessions: [],
@@ -91,7 +95,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   loadSession: async (id) => {
-    if (get().activeSessionId) return; // 実行中は切替不可(main側でも拒否される)
+    // M22: 実行中でも切替可(他の会話のランは止まらない・自分の会話なら実行状態へ復帰)
     const result = await window.api.sessionsLoad(id);
     if (!result.ok || !result.history) {
       set((s) => ({
@@ -114,16 +118,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
         text: h.text,
         streaming: false,
       })),
-      status: 'idle',
-      runStartedAt: null,
+      conversationId: result.conversationId ?? null,
+      // M22: 実行中の会話を開いたら実行状態へ復帰(停止・追加指示がそのまま使える)
+      status: result.running ? 'calling_llm' : 'idle',
+      activeSessionId: result.running?.sessionId ?? null,
+      runStartedAt: result.running?.startedAt ?? null,
       narration: '',
     });
   },
 
   newSession: async () => {
-    if (get().activeSessionId) return;
     const result = await window.api.sessionsNew();
-    if (result.ok) set({ messages: [], status: 'idle', runStartedAt: null, narration: '' });
+    if (result.ok) {
+      set({
+        messages: [],
+        status: 'idle',
+        activeSessionId: null,
+        conversationId: null,
+        runStartedAt: null,
+        narration: '',
+      });
+    }
     await get().refreshSessions();
   },
 
@@ -181,6 +196,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   handleEvent: (event) => {
+    // M22: 表示中の会話のイベントだけをチャットへ反映する。
+    // conversationId 未確定(新規会話)のときは「他会話のランに属さない」イベントを初回採用する
+    if (event.conversationId !== undefined) {
+      const mine = get().conversationId;
+      if (mine !== null && event.conversationId !== mine) return;
+      if (mine === null) {
+        if (belongsToOtherRun(event.sessionId, null)) return;
+        set({ conversationId: event.conversationId });
+      }
+    }
     switch (event.kind) {
       case 'status':
         if (TERMINAL.includes(event.status)) {

@@ -28,7 +28,8 @@ describe('guardrail: 自律モードの進化ジョブ非波及(M17-2)', () => {
 
   it('getAutonomous の配線は service.executorDeps(メインループ系)に限られる', () => {
     const serviceSrc = readFileSync(join(evolutionDir, '..', 'core', 'service.ts'), 'utf8');
-    expect(serviceSrc).toContain('getAutonomous: () => this.autonomousMode');
+    // M22: 自律モードは会話単位(conv().autonomous)。executorDeps 内の配線であることは不変
+    expect(serviceSrc).toContain('getAutonomous: () => conv().autonomous');
     // 進化ジョブが使う AgentJobRunner の経路に自律モードの分岐が無いこと
     const jobSrc = readFileSync(join(evolutionDir, 'job.ts'), 'utf8');
     expect(jobSrc).not.toContain('autonomous');

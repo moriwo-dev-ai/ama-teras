@@ -49,10 +49,11 @@ describe('EventBus', () => {
     });
     bus.publish('agent:sub_update', { id: 1, task: 't', mode: 'work', status: 'running' });
     bus.publish('autonomous:changed', { on: true });
-    expect(seen).toHaveLength(6);
+    bus.publish('runs:changed', []);
+    expect(seen).toHaveLength(7);
     expect(new Set(seen)).toEqual(new Set(BUS_CHANNELS));
     unsub();
     bus.publish('chat:event', chatEvent);
-    expect(seen.length).toBe(6);
+    expect(seen.length).toBe(7);
   });
 });

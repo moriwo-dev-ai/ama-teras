@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { groupSessionsByProject } from '../../../../shared/sessionGroups';
 import type { SessionMeta } from '../../../../shared/types';
 import { useChatStore } from '../../stores/chat';
+import { useRunsStore } from '../../stores/runs';
 
 /**
  * M15-2: 左ペイン — プロジェクト(=workspace)ごとのセッションツリー。
@@ -27,7 +28,10 @@ function relTime(iso: string): string {
 
 export function LeftPane(): JSX.Element {
   const { sessions, refreshSessions, loadSession, newSession, activeSessionId } = useChatStore();
+  // M22: 実行中でも切替・新規はブロックしない。busy は表示にのみ使う
   const busy = activeSessionId !== null;
+  const runs = useRunsStore((s) => s.runs);
+  const runningIds = useMemo(() => new Set(runs.map((r) => r.conversationId)), [runs]);
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SessionMeta[] | null>(null);
   const [currentWs, setCurrentWs] = useState('');
@@ -79,7 +83,7 @@ export function LeftPane(): JSX.Element {
   const groups = useMemo(() => groupSessionsByProject(shown), [shown]);
 
   const open = async (meta: SessionMeta): Promise<void> => {
-    if (busy) return;
+    // M22: 実行中でも別セッションを開ける(実行は止まらない)
     setNotice('');
     try {
       // M15-2: workspace が異なるセッションは workspace も自動で切替(M12の制約解消)
@@ -95,7 +99,6 @@ export function LeftPane(): JSX.Element {
   };
 
   const addProject = async (): Promise<void> => {
-    if (busy) return;
     const picked = await window.api.pickWorkspace();
     if (!picked) return;
     const cfg = await window.api.settingsGet();
@@ -115,7 +118,12 @@ export function LeftPane(): JSX.Element {
 
   const doDelete = async (id: string): Promise<void> => {
     setMenu(null);
-    await window.api.sessionsDelete(id);
+    try {
+      await window.api.sessionsDelete(id);
+    } catch (err) {
+      // M22: 実行中セッションの削除は拒否される
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
     await refreshSessions();
     if (searchResults) setSearchResults(await window.api.sessionsSearch(query));
   };
@@ -124,8 +132,8 @@ export function LeftPane(): JSX.Element {
     <div className="flex min-h-0 flex-1 flex-col" onClick={() => setMenu(null)}>
       <div className="space-y-2 border-b border-zinc-800 p-2">
         <button
-          className="w-full rounded bg-blue-600 px-2 py-1.5 text-xs hover:bg-blue-500 disabled:opacity-40"
-          disabled={busy}
+          className="w-full rounded bg-blue-600 px-2 py-1.5 text-xs hover:bg-blue-500"
+          title={busy ? '実行は止まらずに新しい会話を開始する' : undefined}
           onClick={() => void newSession()}
         >
           + 新規チャット
@@ -189,15 +197,20 @@ export function LeftPane(): JSX.Element {
                     />
                   ) : (
                     <button
-                      className="flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-                      disabled={busy}
-                      title={`${s.title}(${new Date(s.updatedAt).toLocaleString()})`}
+                      className="flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-zinc-300 hover:bg-zinc-800"
+                      title={`${s.title}(${new Date(s.updatedAt).toLocaleString()})${runningIds.has(s.id) ? ' — 実行中' : ''}`}
                       onClick={() => void open(s)}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         setMenu({ kind: 'session', id: s.id, x: e.clientX, y: e.clientY });
                       }}
                     >
+                      {/* M22: 実行中インジケータ(このセッションでエージェントが動いている) */}
+                      {runningIds.has(s.id) && (
+                        <span className="anim-spin shrink-0 text-blue-400" title="実行中">
+                          ◌
+                        </span>
+                      )}
                       {/* タイトルだけを truncate し、更新時刻は右端に固定(ペイン幅を変えても見える) */}
                       <span className="min-w-0 flex-1 truncate">{s.title || '(無題)'}</span>
                       <span className="shrink-0 whitespace-nowrap text-[10px] text-zinc-500">

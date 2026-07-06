@@ -18,6 +18,7 @@ import type {
   PluginErrorInfo,
   ProviderId,
   RemoteStatusPayload,
+  RunInfo,
   SecretsStatus,
   SessionLoadResult,
   SessionMeta,
@@ -82,6 +83,9 @@ export const IpcChannels = {
   autonomousGet: 'autonomous:get',
   autonomousSet: 'autonomous:set',
   autonomousChanged: 'autonomous:changed',
+  /** M22: 実行中ラン一覧(複数プロジェクト同時実行の状態) */
+  runsList: 'runs:list',
+  runsChanged: 'runs:changed',
   /** M20: 起動時フラグ(セーフモード/進化再起動完了)とセーフモード解除 */
   runtimeFlags: 'runtime:flags',
   safeModeClear: 'safemode:clear',
@@ -167,6 +171,10 @@ export interface MyCodexApi {
   autonomousGet(): Promise<{ on: boolean }>;
   autonomousSet(on: boolean): Promise<{ on: boolean }>;
   onAutonomousChanged(listener: (payload: AutonomousStatePayload) => void): () => void;
+
+  /** M22: 実行中ラン一覧(初期取得+変更購読)。複数プロジェクト同時実行の左ペイン表示用 */
+  runsList(): Promise<RunInfo[]>;
+  onRunsChanged(listener: (runs: RunInfo[]) => void): () => void;
 
   /** M20: 起動時フラグ(セーフモード/進化再起動完了のバナー用)とセーフモード解除 */
   runtimeFlags(): Promise<{

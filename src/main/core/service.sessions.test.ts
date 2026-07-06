@@ -132,7 +132,7 @@ describe('AgentService × セッション永続化(M12-1)', () => {
     expect(svc.getHistoryView()).toHaveLength(2);
   });
 
-  it('実行中は sessionLoad / sessionNew が拒否される', async () => {
+  it('M22: 実行中でも sessionNew は成功し、実行中のランは生き続ける(切替ブロック撤廃)', async () => {
     const sessions = memorySessions();
     const provider: LLMProvider = {
       id: 'anthropic',
@@ -146,12 +146,20 @@ describe('AgentService × セッション永続化(M12-1)', () => {
     const { svc, bus } = makeService({ providerFactory: () => provider, sessions });
     const { sessionId } = svc.chatSend('長い処理', 'normal');
 
+    // 実行中でも新規会話へ切替できる(ブロックされない)
+    expect(svc.sessionNew().ok).toBe(true);
+    // 表示は新規会話(idle)だが、元のランは runsList に生きている
+    expect(svc.getStatus().activeSessionId).toBeNull();
+    expect(svc.runsList().map((r) => r.sessionId)).toContain(sessionId);
+    // 存在しないIDのロードは従来どおり失敗する
     expect((await svc.sessionLoad('11111111-1111-1111-1111-111111111111')).ok).toBe(false);
-    expect(svc.sessionNew().ok).toBe(false);
 
     const done = waitForDone(bus);
     svc.chatCancel(sessionId);
     await done;
+    // ランのクリアは終端イベントの1マイクロタスク後(finally)なので1tick待つ
+    await new Promise((r) => setTimeout(r, 0));
+    expect(svc.runsList()).toHaveLength(0);
   });
 
   it('M15.1: sessionOpen はセッションのworkspaceへ自動追従する(config.set注入時のみ)', async () => {

@@ -43,6 +43,9 @@ export interface RemoteFacade {
   evolutionPromoteRespond(jobId: number, approved: boolean): void;
   getStatus(): AgentStatusView;
   getHistoryView(): HistoryMessageView[];
+  /** M22: 表示中の会話IDと実行中ラン一覧(snapshot用) */
+  getCurrentConversationId(): string;
+  runsList(): import('../../shared/types').RunInfo[];
   getPendingApprovals(): ApprovalRequestPayload[];
   getPendingPromotionRequests(): Extract<EvolutionEvent, { kind: 'promotion_request' }>[];
   /** M15.1: セッション一覧と切替(切替はworkspace追従込み。実行中はservice側ガードで拒否) */
@@ -339,6 +342,8 @@ export class RemoteServer {
       pendingPromotions: facade.getPendingPromotionRequests(),
       jobs: facade.evolutionList(),
       tools: facade.toolsList().tools,
+      conversationId: facade.getCurrentConversationId(),
+      runs: facade.runsList(),
     };
   }
 

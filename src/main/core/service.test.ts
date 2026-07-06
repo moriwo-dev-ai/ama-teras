@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AgentEvent, AppConfig, EvolutionJobSummary } from '../../shared/types';
 import type { ChatMessage, LLMProvider, ProviderEvent } from '../providers/types';
 import { EventBus } from './events';
+import { ProcessManager } from './processes';
 import {
   AgentService,
   toHistoryView,
@@ -69,9 +70,15 @@ describe('AgentService: chat', () => {
     bus.subscribe('chat:event', (e) => seen.push(e));
     const { sessionId } = svc.chatSend('こんにちは', 'normal');
     expect(sessionId).toBeTruthy();
+    // M22: 全イベントに conversationId が付く
     expect(seen).toEqual([
-      { kind: 'error', sessionId, message: 'Anthropic APIキーが未設定(設定画面から登録)' },
-      { kind: 'status', sessionId, status: 'error' },
+      {
+        kind: 'error',
+        sessionId,
+        message: 'Anthropic APIキーが未設定(設定画面から登録)',
+        conversationId: expect.any(String),
+      },
+      { kind: 'status', sessionId, status: 'error', conversationId: expect.any(String) },
     ]);
     expect(svc.getStatus().status).toBe('idle');
   });
@@ -101,8 +108,8 @@ describe('AgentService: chat', () => {
       seen.some((e) => e.kind === 'instruction_queued' && e.sessionId === sessionId && e.text === 'another'),
     ).toBe(true);
 
-    // M11-2: セッションキャンセルでバックグラウンドプロセスが全て kill される
-    const killAll = vi.spyOn(svc.processes, 'killAll');
+    // M11-2→M22: セッションキャンセルで「そのランの」バックグラウンドプロセスが全て kill される
+    const killAll = vi.spyOn(ProcessManager.prototype, 'killAll');
     const done = waitForStatus(bus, ['cancelled']);
     svc.chatCancel(sessionId);
     await done;

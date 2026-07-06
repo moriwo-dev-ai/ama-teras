@@ -61,6 +61,11 @@ export interface ExecutorDeps {
    * 進化ジョブの executor 依存には注入しないこと(guardrails テストで固定)。
    */
   getAutonomous?: () => boolean;
+  /**
+   * M22: 承認要求の出所(どの会話/プロジェクトからか)。複数会話の同時実行時に
+   * ダイアログ・スマホの承認カードで取り違えを防ぐ表示に使う。未指定なら付けない
+   */
+  getOrigin?: () => { conversationId: string; title: string; workspace: string } | null;
 }
 
 const HOOK_TIMEOUT_MS = 60_000;
@@ -314,6 +319,8 @@ export async function executeToolWithApproval(
         ...(ctx.subAgentId !== undefined ? { subAgentId: ctx.subAgentId } : {}),
         // M13-2: MCPツールはサーバー名を出所として明示する(名前 mcp__<server>__<tool> から導出)
         ...(mcpServerOf(plugin.name) !== null ? { mcpServer: mcpServerOf(plugin.name)! } : {}),
+        // M22: どの会話(プロジェクト)からの要求か(複数同時実行時の取り違え防止)
+        ...(deps.getOrigin?.() != null ? { origin: deps.getOrigin()! } : {}),
       },
       ctx.signal,
     );

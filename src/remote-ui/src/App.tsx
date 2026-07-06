@@ -99,7 +99,7 @@ export function App(): JSX.Element {
         setSessionError(result.message ?? 'セッションを開けない');
         return;
       }
-      useRemoteStore.getState().replaceHistory(result.history);
+      useRemoteStore.getState().replaceHistory(result.history, result.conversationId ?? null);
     } catch (err) {
       setSessionError(err instanceof Error ? err.message : String(err));
     }

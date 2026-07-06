@@ -237,9 +237,8 @@ export function ChatView(): JSX.Element {
       )}
       <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-1.5 text-xs">
         <select
-          className="max-w-[320px] flex-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-zinc-300 disabled:opacity-40"
+          className="max-w-[320px] flex-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-zinc-300"
           value=""
-          disabled={busy}
           onFocus={() => void refreshSessions()}
           onChange={(e) => {
             if (e.target.value) void loadSession(e.target.value);
@@ -253,8 +252,8 @@ export function ChatView(): JSX.Element {
           ))}
         </select>
         <button
-          className="rounded border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
-          disabled={busy}
+          className="rounded border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800"
+          title={busy ? '実行は止まらずに新しい会話を開始する' : undefined}
           onClick={() => void newSession()}
         >
           新規セッション

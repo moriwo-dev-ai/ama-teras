@@ -33,6 +33,13 @@ function ApprovalCard({ req, api }: { req: ApprovalRequestPayload; api: RemoteAp
         <span className={`risk ${req.risk}`}>{RISK_LABEL[req.risk]}</span>
         {req.toolName}
       </h3>
+      {/* M22: どの会話(プロジェクト)からの要求か(複数同時実行時の取り違え防止) */}
+      {req.origin !== undefined && (
+        <div className="muted" style={{ fontSize: 12 }}>
+          出所: 📁 {req.origin.workspace.split(/[\\/]/).filter(Boolean).pop() ?? req.origin.workspace} —{' '}
+          {req.origin.title}
+        </div>
+      )}
       {req.subAgentId !== undefined && (
         <div className="warn-banner">🤖 サブエージェント #{req.subAgentId} からの要求</div>
       )}

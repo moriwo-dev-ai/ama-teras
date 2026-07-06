@@ -326,6 +326,7 @@ export async function registerIpcHandlers(
   bus.subscribe('evolution:event', (e) => push(IpcChannels.evolutionEvent, e));
   bus.subscribe('agent:sub_update', (u) => push(IpcChannels.subAgentUpdate, u));
   bus.subscribe('autonomous:changed', (p) => push(IpcChannels.autonomousChanged, p));
+  bus.subscribe('runs:changed', (runs) => push(IpcChannels.runsChanged, runs));
 
   // ---- chat ----
   ipcMain.handle(IpcChannels.chatSend, (_e, text: unknown, mode: unknown, images: unknown) => {
@@ -465,6 +466,8 @@ export async function registerIpcHandlers(
 
   // ---- セッション永続化(M12-1) ----
   ipcMain.handle(IpcChannels.sessionsList, () => service.sessionsList());
+  // M22: 実行中ラン一覧(左ペインの実行中インジケータ初期化用)
+  ipcMain.handle(IpcChannels.runsList, () => service.runsList());
   ipcMain.handle(IpcChannels.sessionsLoad, (_e, id: unknown) => {
     assertString(id, 'id');
     return service.sessionLoad(id);
