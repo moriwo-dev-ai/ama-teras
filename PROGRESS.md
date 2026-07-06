@@ -2,7 +2,12 @@
 
 ## 現在の状態
 
-- **M1〜M23まで実装**。テスト627件・typecheck(node/web/remote)全合格。
+- **M1〜M23まで実装**。テスト628件・typecheck(node/web/remote)全合格。
+- **M23-6追加(2026-07-06 夜間・スマホからの追加指示)**: 進化パネルの昇格履歴を
+  **「獲得した能力」リスト**へ拡張 — evolveタグごとにマージ第1親との差分から
+  kind(🔧ツール追加/🎨UI自己書き換え/⚙コア自己書き換え)・追加ツール名・変更ファイル
+  一覧を導出して表示(実データ: evolve/1=csv_to_markdown・evolve/2=text_stats・
+  evolve/4=UI自己書き換え)。あわせて remote:set-enabled が remote.host を落とすバグを修正
 - **M23完了(2026-07-06 夜間自走・第2ラウンド)**:
   ①**使用中モデルの表示** — メイン応答バッジ(policy有効時はPLANNER・model)・実行中ステータスに
   RunInfo.model(フォールバックで更新)・サブエージェントにworker/escalation帯のモデル名

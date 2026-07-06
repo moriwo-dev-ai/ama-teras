@@ -171,7 +171,7 @@ export function EvolutionPanel(): JSX.Element {
                   <span className="font-mono text-purple-300">{h.tag}</span>
                   {/* M23-6: 獲得の種類(ツール追加 or 自己書き換え) */}
                   <span
-                    className={`rounded px-1 text-[10px] ${
+                    className={`shrink-0 whitespace-nowrap rounded px-1 text-[10px] ${
                       h.kind === 'tool'
                         ? 'bg-zinc-800 text-zinc-300'
                         : h.kind === 'renderer'
