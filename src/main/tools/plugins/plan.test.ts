@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -26,11 +27,11 @@ describe('plan ツール(M12-2)', () => {
     expect(r.content).toContain('計画はまだ無い');
   });
 
-  it('write → read で往復し、書き込み先は workspace 直下の MYCODEX_PLAN.md に固定', async () => {
+  it('write → read で往復し、書き込み先は workspace 直下の AMATERAS_PLAN.md に固定', async () => {
     const content = '# 計画\n- [ ] 手順1\n- [x] 手順0\n';
     const w = await plan.execute({ action: 'write', content }, ctx());
     expect(w.isError).not.toBe(true);
-    expect(await readFile(join(dir, 'MYCODEX_PLAN.md'), 'utf8')).toBe(content);
+    expect(await readFile(join(dir, 'AMATERAS_PLAN.md'), 'utf8')).toBe(content);
     const r = await plan.execute({ action: 'read' }, ctx());
     expect(r.content).toBe(content);
   });
@@ -41,7 +42,7 @@ describe('plan ツール(M12-2)', () => {
       { action: 'write', content: 'x', path: join(dir, '..', 'evil.md') },
       ctx(),
     );
-    expect(await readFile(join(dir, 'MYCODEX_PLAN.md'), 'utf8')).toBe('x');
+    expect(await readFile(join(dir, 'AMATERAS_PLAN.md'), 'utf8')).toBe('x');
     const asPlugin: ToolPlugin = plan;
     expect(asPlugin.inputSchema.properties['path']).toBeUndefined();
     expect(asPlugin.pathParams).toBeUndefined();
@@ -72,5 +73,15 @@ describe('plan ツール(M12-2)', () => {
   it('不正な action はエラー', async () => {
     const r = await plan.execute({ action: 'delete' }, ctx());
     expect(r.isError).toBe(true);
+  });
+
+  it('M17-1 後方互換: 旧名 MYCODEX_PLAN.md を読め、write で新名へ移行される', async () => {
+    await writeFile(join(dir, 'MYCODEX_PLAN.md'), '- [ ] 旧計画', 'utf8');
+    const r = await plan.execute({ action: 'read' }, ctx());
+    expect(r.content).toBe('- [ ] 旧計画');
+
+    await plan.execute({ action: 'write', content: '- [x] 新計画' }, ctx());
+    expect(await readFile(join(dir, 'AMATERAS_PLAN.md'), 'utf8')).toBe('- [x] 新計画');
+    expect(existsSync(join(dir, 'MYCODEX_PLAN.md'))).toBe(false); // renameで移行
   });
 });

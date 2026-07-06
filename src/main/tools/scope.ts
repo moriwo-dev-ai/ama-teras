@@ -14,7 +14,7 @@ const WINDOWS_DENY_WRITE_ROOTS = ['c:/windows', 'c:/program files', 'c:/program 
 export interface DenyPaths {
   /** アプリ自身の userData(config.json / secrets.json / plugin-cache を含む) */
   userDataDir?: string;
-  /** MyCodexリポジトリ自身の .git(進化パイプライン以外からの書き込み禁止) */
+  /** AMA-terasリポジトリ自身の .git(進化パイプライン以外からの書き込み禁止) */
   repoGitDir?: string;
 }
 
@@ -81,7 +81,7 @@ export function classifyPath(absPath: string, workspaceRoot: string, opts?: Scop
  * ハード拒否判定。該当すれば拒否理由(承認ダイアログすら出さず即エラーにする)、なければ null。
  * - userData への書き込み(secrets.json は読み取りも禁止: 暗号化済みでも鍵素材を晒さない)
  * - Windowsシステム領域への書き込み
- * - MyCodexリポジトリの .git への書き込み
+ * - AMA-terasリポジトリの .git への書き込み
  */
 export function isDenied(
   absPath: string,
@@ -107,7 +107,7 @@ export function isDenied(
     }
     if (deny.repoGitDir) {
       const gitDir = normalize(deny.repoGitDir, ci);
-      if (isUnder(p, gitDir)) return 'MyCodexリポジトリの .git への直接書き込みは禁止';
+      if (isUnder(p, gitDir)) return 'AMA-terasリポジトリの .git への直接書き込みは禁止';
     }
   }
 

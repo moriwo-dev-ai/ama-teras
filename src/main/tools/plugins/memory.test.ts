@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -29,7 +30,7 @@ describe('memory ツール(M13-1)', () => {
   it('append は「## 学習メモ」節をタイムスタンプ付きで作り、read で読める', async () => {
     const w = await memory.execute({ action: 'append', content: 'ビルドは npm run build を使う' }, ctx());
     expect(w.isError).not.toBe(true);
-    const file = await readFile(join(dir, 'MYCODEX.md'), 'utf8');
+    const file = await readFile(join(dir, 'AMATERAS.md'), 'utf8');
     expect(file).toContain('## 学習メモ');
     expect(file).toMatch(/- \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] ビルドは npm run build を使う/);
     const r = await memory.execute({ action: 'read' }, ctx());
@@ -38,12 +39,12 @@ describe('memory ツール(M13-1)', () => {
 
   it('既存の学習メモ節の末尾(次の見出しの前)に追記される', async () => {
     await writeFile(
-      join(dir, 'MYCODEX.md'),
+      join(dir, 'AMATERAS.md'),
       '# 規約\n- 返答は日本語\n\n## 学習メモ\n- [2026-07-01 00:00] 既存メモ\n\n## その他\n何か\n',
       'utf8',
     );
     await memory.execute({ action: 'append', content: '新しい知見' }, ctx());
-    const file = await readFile(join(dir, 'MYCODEX.md'), 'utf8');
+    const file = await readFile(join(dir, 'AMATERAS.md'), 'utf8');
     const learnedIdx = file.indexOf('## 学習メモ');
     const otherIdx = file.indexOf('## その他');
     const newIdx = file.indexOf('新しい知見');
@@ -86,5 +87,17 @@ describe('memory ツール(M13-1)', () => {
     const asPlugin: ToolPlugin = memory;
     expect(asPlugin.inputSchema.properties['path']).toBeUndefined();
     expect(asPlugin.pathParams).toBeUndefined();
+  });
+
+  it('M17-1 後方互換: 旧名 MYCODEX.md を読め、append で内容ごと新名へ移行される', async () => {
+    await writeFile(join(dir, 'MYCODEX.md'), '# 規約\n- 返答は日本語\n', 'utf8');
+    const r = await memory.execute({ action: 'read' }, ctx());
+    expect(r.content).toContain('返答は日本語');
+
+    await memory.execute({ action: 'append', content: '新しい知見' }, ctx());
+    const file = await readFile(join(dir, 'AMATERAS.md'), 'utf8');
+    expect(file).toContain('返答は日本語'); // 旧内容を引き継ぐ
+    expect(file).toContain('新しい知見');
+    expect(existsSync(join(dir, 'MYCODEX.md'))).toBe(false); // renameで移行
   });
 });

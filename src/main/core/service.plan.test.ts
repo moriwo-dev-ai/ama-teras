@@ -8,7 +8,7 @@ import type { CompletionRequest, LLMProvider, ProviderEvent } from '../providers
 import { EventBus } from './events';
 import { AgentService } from './service';
 
-/** M12-2: MYCODEX_PLAN.md が system prompt に注入されることを固定する */
+/** M12-2: AMATERAS_PLAN.md が system prompt に注入されることを固定する */
 
 const BASE_CONFIG: AppConfig = {
   autoApprove: { safe: true, write: false, exec: false },
@@ -70,8 +70,8 @@ function waitForDone(bus: EventBus): Promise<void> {
 }
 
 describe('AgentService × 計画注入(M12-2)', () => {
-  it('MYCODEX_PLAN.md があれば system prompt に「## 現在の計画」として入る', async () => {
-    writeFileSync(join(ws, 'MYCODEX_PLAN.md'), '- [ ] REST APIの雛形\n- [x] 設計', 'utf8');
+  it('AMATERAS_PLAN.md があれば system prompt に「## 現在の計画」として入る', async () => {
+    writeFileSync(join(ws, 'AMATERAS_PLAN.md'), '- [ ] REST APIの雛形\n- [x] 設計', 'utf8');
     const provider = capturingProvider();
     const { svc, bus } = makeService(provider);
     const done = waitForDone(bus);

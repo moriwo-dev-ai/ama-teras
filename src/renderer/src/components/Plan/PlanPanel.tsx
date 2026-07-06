@@ -3,7 +3,7 @@ import { useChatStore } from '../../stores/chat';
 import { parsePlanProgress } from './planParse';
 
 /**
- * M12-2: 計画パネル(読み取り専用)。MYCODEX_PLAN.md のチェックリストを進捗表示する。
+ * M12-2: 計画パネル(読み取り専用)。AMATERAS_PLAN.md のチェックリストを進捗表示する。
  * 編集はエージェント(plan ツール)の仕事。ターン完了ごとに自動更新する。
  */
 export function PlanPanel(): JSX.Element {
@@ -31,7 +31,7 @@ export function PlanPanel(): JSX.Element {
   return (
     <div className="max-h-64 overflow-y-auto border-t border-zinc-700 bg-zinc-900 px-4 py-2 text-xs">
       <div className="mb-1 flex items-center gap-2">
-        <h3 className="font-semibold text-zinc-300">計画(MYCODEX_PLAN.md)</h3>
+        <h3 className="font-semibold text-zinc-300">計画(AMATERAS_PLAN.md)</h3>
         {progress.total > 0 && (
           <span className="text-zinc-400">
             {progress.done}/{progress.total} 完了

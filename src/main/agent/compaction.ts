@@ -4,7 +4,7 @@ import type { ChatMessage, CompletionRequest, ContentBlock, LLMProvider } from '
  * コンテキスト自動圧縮(M8-1、M13-1で強化)。履歴が閾値を超えたら段階的に圧縮する:
  * 1. 第1段(軽量): 古いターンの tool_result 本文を切り詰める(ペア構造は不変)
  * 2. 第2段: 古いやり取りを LLM で構造化要約し「要約 + 直近の生ログ」に置換。
- *    要約で消える範囲の重要知見は onMemoryEscape 経由で MYCODEX.md へ退避できる
+ *    要約で消える範囲の重要知見は onMemoryEscape 経由で AMATERAS.md へ退避できる
  * トリガーは実測トークン(measuredTokens: 直近APIコールの input+cache_read)を優先し、
  * 無い場合のみ文字数推定へフォールバック(セッション保存の畳み込み等)。
  * tool_use と tool_result の対応(指摘#1の不変条件)を壊さない境界で切る。
@@ -27,7 +27,7 @@ export interface CompactionOptions {
    * 指定時はこちらで発火判定する(文字数推定は使わない)
    */
   measuredTokens?: number;
-  /** M13-1: 要約から「## 記憶へ退避」を抽出できたときに呼ばれる(MYCODEX.mdへの追記等) */
+  /** M13-1: 要約から「## 記憶へ退避」を抽出できたときに呼ばれる(AMATERAS.mdへの追記等) */
   onMemoryEscape?: (text: string) => void;
 }
 
@@ -196,7 +196,7 @@ export async function compactHistory(
   const rawSummary = await summarize(provider, head, opts.signal ?? new AbortController().signal);
   if (rawSummary === '') return truncated > 0; // 要約に失敗したら置換しない(生ログを保持)
 
-  // 「## 記憶へ退避」はMYCODEX.md側へ逃がし、履歴に残す要約からは外す
+  // 「## 記憶へ退避」はAMATERAS.md側へ逃がし、履歴に残す要約からは外す
   const [summary, escaped] = splitMemoryEscape(rawSummary);
   if (escaped !== null && opts.onMemoryEscape) {
     try {

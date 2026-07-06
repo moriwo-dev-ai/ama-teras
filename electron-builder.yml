@@ -1,5 +1,5 @@
-appId: local.mycodex.app
-productName: MyCodex
+appId: local.amateras.app
+productName: AMA-teras
 directories:
   output: release
   buildResources: build

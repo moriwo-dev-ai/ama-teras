@@ -137,7 +137,7 @@ export class EvolutionManager {
         // B内の生成物をコミット(差分検査・マージの前提)
         await runGit(['add', '-A'], worktree.dir);
         await runGit(
-          ['-c', 'user.name=MyCodex Evolution', '-c', 'user.email=evolution@mycodex.local',
+          ['-c', 'user.name=AMA-teras Evolution', '-c', 'user.email=evolution@amateras.local',
            'commit', '--allow-empty', '-m',
            `evolve: ${artifacts.toolName} を生成 (job-${id}, 試行${attempt})`],
           worktree.dir,

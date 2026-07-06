@@ -64,7 +64,7 @@ export const IpcChannels = {
   fileReveal: 'file:reveal',
   /** M15-4: 環境ウィジェット用の軽量git状態 */
   workspaceGitStatus: 'workspace:gitStatus',
-  /** M12-2: 計画ファイル(MYCODEX_PLAN.md)の内容取得(計画パネル用・読み取り専用) */
+  /** M12-2: 計画ファイル(AMATERAS_PLAN.md)の内容取得(計画パネル用・読み取り専用) */
   planGet: 'plan:get',
   /** M12-3: 並列サブエージェントの進行状況(エージェントパネル用) */
   subAgentUpdate: 'agent:sub_update',
@@ -100,7 +100,7 @@ export interface MyCodexApi {
   /** ディレクトリ選択ダイアログを開き、選ばれたパスを返す(キャンセルで null) */
   pickWorkspace(): Promise<string | null>;
 
-  /** 現在のワークスペースの MYCODEX.md(プロジェクト記憶)の内容 */
+  /** 現在のワークスペースの AMATERAS.md(プロジェクト記憶)の内容 */
   memoryGet(): Promise<string>;
   memorySet(content: string): Promise<void>;
 
@@ -134,7 +134,7 @@ export interface MyCodexApi {
   /** M15-4: 現在workspaceのgit状態(git無しは isGit:false) */
   workspaceGitStatus(): Promise<WorkspaceGitStatus>;
 
-  /** M12-2: 現在のワークスペースの MYCODEX_PLAN.md の内容(無ければ空文字) */
+  /** M12-2: 現在のワークスペースの AMATERAS_PLAN.md の内容(無ければ空文字) */
   planGet(): Promise<string>;
 
   /** M12-3: 並列サブエージェントの進行イベント購読 */

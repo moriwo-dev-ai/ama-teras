@@ -1,4 +1,4 @@
-/** M12-2: MYCODEX_PLAN.md のチェックボックス進捗パース(表示専用) */
+/** M12-2: AMATERAS_PLAN.md のチェックボックス進捗パース(表示専用) */
 
 export interface PlanItem {
   text: string;

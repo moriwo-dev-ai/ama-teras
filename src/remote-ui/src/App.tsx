@@ -19,9 +19,9 @@ function TokenGate({ onSubmit }: { onSubmit: (token: string) => void }): JSX.Ele
   const [error, setError] = useState('');
   return (
     <div className="gate">
-      <h1>MyCodex Remote</h1>
+      <h1>AMA-teras Remote</h1>
       <p className="hint">
-        デスクトップの MyCodex → 設定 → リモートアクセス に表示されるトークンを入力する。
+        デスクトップの AMA-teras → 設定 → リモートアクセス に表示されるトークンを入力する。
         接続URLの末尾に #t=&lt;トークン&gt; を付けて開いた場合は自動で読み込まれる。
       </p>
       <p className="hint">
@@ -157,7 +157,7 @@ export function App(): JSX.Element {
   return (
     <div className="app">
       <header className="topbar">
-        <h1>MyCodex</h1>
+        <h1>AMA-teras</h1>
         <select
           className="session-select"
           value=""

@@ -1,9 +1,10 @@
 import { app, BrowserWindow } from 'electron';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname as pathDirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getPluginCacheDir, getPluginsDir, registerIpcHandlers } from './ipc';
 import { ToolRegistry } from './tools/registry';
+import { migrateUserData } from './userDataMigration';
 
 const dirname = fileURLToPath(new URL('.', import.meta.url));
 
@@ -96,6 +97,18 @@ function createWindow(): void {
 // 稼働中のAと並行してheadless起動するため、ロックすると進化パイプラインが壊れる
 // (この不変条件は index.guard.test.ts で固定。変更時はそちらも見ること)。
 const smokeMode = process.env['MYCODEX_SMOKE'] === '1';
+
+// M17-1: リネーム(mycodex → amateras)の userData 移行。config/secrets/sessions を読む
+// あらゆる処理より前に、同期で1回だけ実行する(スモークは userData を使わないため対象外)
+if (!smokeMode) {
+  const newUserData = app.getPath('userData');
+  const oldUserData = join(pathDirname(newUserData), 'mycodex');
+  const result = migrateUserData(oldUserData, newUserData);
+  if (result.migrated || result.reason === 'error') {
+    console.log(`[migration] userData ${oldUserData} → ${newUserData}: ${result.reason} ${result.detail ?? ''}`);
+  }
+}
+
 const gotSingleInstanceLock = smokeMode ? true : app.requestSingleInstanceLock();
 
 if (!gotSingleInstanceLock) {

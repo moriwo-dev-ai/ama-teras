@@ -1,4 +1,4 @@
-# MyCodex — 自己進化型・Codexライクなデスクトップエージェント
+# AMA-teras — 自己進化型デスクトップエージェント(旧称 MyCodex)
 
 Electron + React + TypeScript製のAIコーディングエージェントアプリ。
 ユーザーと対話しながら計画→実装→デバッグ→テストをほぼ自動で行い、

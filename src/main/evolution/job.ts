@@ -34,7 +34,7 @@ export interface EvolutionJobRunner {
 /** 書き込み許可: プラグインと同ディレクトリのテストのみ(ARCHITECTURE §6.2) */
 export const EVOLUTION_WRITE_ALLOWLIST = ['src/main/tools/plugins'];
 
-const JOB_SYSTEM_PROMPT = `あなたはMyCodexの進化ジョブ。新しいツールプラグインを1つ実装する。
+const JOB_SYSTEM_PROMPT = `あなたはAMA-terasの進化ジョブ。新しいツールプラグインを1つ実装する。
 
 厳守事項:
 - 書き込みは src/main/tools/plugins/ 配下のみ許可されている(機械的にも強制される)

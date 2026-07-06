@@ -1,17 +1,21 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rename, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ToolContext, ToolPlugin, ToolResult } from '../types';
 
 /**
- * M13-1: 長期記憶ツール。エージェント自身が MYCODEX.md(プロジェクト記憶)を管理する。
+ * M13-1: 長期記憶ツール。エージェント自身が AMATERAS.md(プロジェクト記憶)を管理する。
  * - 書き込み先は workspace 直下のこの1ファイルに固定(path 入力なし)。人間も Settings から
  *   同じファイルを編集できる(共同編集)。内容は毎ターン system prompt に注入される
  * - append は「## 学習メモ」節へタイムスタンプ付き1行を追記(発見した知見の置き場)
  * - rewrite は全置換(肥大したときの整理用)
  * - 進化ジョブ(writeAllowlist コンテキスト)では書き込み系を拒否する
+ * - M17-1: 旧名 MYCODEX.md は読み込み後方互換+初回書き込み時に新名へ移行。
+ *   プラグインは実行時トランスパイルされるため、互換ロジックはこのファイル内で自己完結させる
  */
 
-const MEMORY_FILENAME = 'MYCODEX.md';
+const MEMORY_FILENAME = 'AMATERAS.md';
+const LEGACY_MEMORY_FILENAME = 'MYCODEX.md';
 const LEARNED_SECTION = '## 学習メモ';
 const MAX_APPEND_BYTES = 4 * 1024;
 const MAX_FILE_BYTES = 256 * 1024;
@@ -40,10 +44,26 @@ export function appendToLearnedSection(existing: string, entry: string): string 
   return `${base}${LEARNED_SECTION}\n${line}\n`;
 }
 
+function resolveReadPath(cwd: string): string {
+  const next = join(cwd, MEMORY_FILENAME);
+  if (existsSync(next)) return next;
+  const legacy = join(cwd, LEGACY_MEMORY_FILENAME);
+  return existsSync(legacy) ? legacy : next;
+}
+
+async function migrateLegacy(cwd: string): Promise<void> {
+  const next = join(cwd, MEMORY_FILENAME);
+  const legacy = join(cwd, LEGACY_MEMORY_FILENAME);
+  if (existsSync(next) || !existsSync(legacy)) return;
+  await rename(legacy, next).catch(() => {
+    /* 移行失敗でも読み取りフォールバックが効く */
+  });
+}
+
 export default {
   name: 'memory',
   description:
-    'プロジェクト記憶(MYCODEX.md)の管理。今後も使う知見(ビルド方法・規約・ハマりどころ)を ' +
+    'プロジェクト記憶(AMATERAS.md)の管理。今後も使う知見(ビルド方法・規約・ハマりどころ)を ' +
     '発見したら action:"append" で短く追記すること(「## 学習メモ」節にタイムスタンプ付きで入る)。' +
     '会話固有の一時的な内容は書かないこと。action:"read" で現在の記憶を確認、' +
     'action:"rewrite" は肥大した記憶を整理するときの全置換。記憶は毎ターン system prompt に注入される。',
@@ -63,7 +83,7 @@ export default {
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { action, content } = (input ?? {}) as { action?: unknown; content?: unknown };
     const file = join(ctx.cwd, MEMORY_FILENAME);
-    const current = await readFile(file, 'utf8').catch(() => '');
+    const current = await readFile(resolveReadPath(ctx.cwd), 'utf8').catch(() => '');
 
     if (action === 'read') {
       return { content: current === '' ? '(記憶はまだ無い)' : current };
@@ -91,15 +111,17 @@ export default {
           isError: true,
         };
       }
+      await migrateLegacy(ctx.cwd);
       await writeFile(file, next, 'utf8');
-      return { content: '学習メモへ追記した(MYCODEX.md)' };
+      return { content: `学習メモへ追記した(${MEMORY_FILENAME})` };
     }
 
     // rewrite
     if (Buffer.byteLength(content, 'utf8') > MAX_FILE_BYTES) {
       return { content: `記憶が大きすぎる(上限 ${MAX_FILE_BYTES / 1024}KB)`, isError: true };
     }
+    await migrateLegacy(ctx.cwd);
     await writeFile(file, content, 'utf8');
-    return { content: '記憶を書き換えた(MYCODEX.md)' };
+    return { content: `記憶を書き換えた(${MEMORY_FILENAME})` };
   },
 } satisfies ToolPlugin;

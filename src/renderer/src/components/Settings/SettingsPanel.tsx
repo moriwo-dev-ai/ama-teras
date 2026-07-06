@@ -381,7 +381,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
 
         <div className="space-y-1">
           <label className="text-xs text-zinc-400">
-            プロジェクト記憶(MYCODEX.md・作業フォルダに保存され system プロンプトへ注入)
+            プロジェクト記憶(AMATERAS.md・作業フォルダに保存され system プロンプトへ注入)
           </label>
           <textarea
             className="h-24 w-full resize-y rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
@@ -393,7 +393,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
             className="rounded bg-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-600"
             onClick={async () => {
               await window.api.memorySet(memory);
-              setNotice('プロジェクト記憶を保存した(MYCODEX.md)');
+              setNotice('プロジェクト記憶を保存した(AMATERAS.md)');
             }}
           >
             記憶を保存

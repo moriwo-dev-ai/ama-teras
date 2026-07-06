@@ -136,7 +136,7 @@ export interface AgentServiceDeps {
   fallbackProviderFactory?: (provider: ProviderId, model: string) => LLMProvider;
 }
 
-const SYSTEM_PROMPT = `あなたは MyCodex — ユーザーのマシン上で動くコーディングエージェント。
+const SYSTEM_PROMPT = `あなたは AMA-teras — ユーザーのマシン上で動くコーディングエージェント。
 与えられたツールを使ってファイルの調査・編集・コマンド実行を行い、ユーザーの指示を完遂する。
 
 規範:
@@ -338,7 +338,7 @@ export class AgentService {
 
   /**
    * M13-1: 実測トークン(直近APIコールの input+cache_read)がモデル上限の70%を超えたら
-   * 履歴を圧縮する。要約で消える範囲の普遍的知見は MYCODEX.md の学習メモへ退避される。
+   * 履歴を圧縮する。要約で消える範囲の普遍的知見は AMATERAS.md の学習メモへ退避される。
    * 圧縮したら lastPromptTokens をリセット(次のAPIコールで再実測されるまで未知のため)
    */
   private async maybeCompact(
@@ -638,7 +638,7 @@ export class AgentService {
             return result;
           },
           emit: emitWithPersist,
-          // プロジェクト記憶(MYCODEX.md)と現在の計画(MYCODEX_PLAN.md)を
+          // プロジェクト記憶(AMATERAS.md)と現在の計画(AMATERAS_PLAN.md)を
           // system プロンプトへ注入する(M8-2 / M12-2)
           systemPrompt:
             composePlanSection(
