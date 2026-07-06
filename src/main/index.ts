@@ -1,5 +1,5 @@
 import { app, BrowserWindow } from 'electron';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname as pathDirname, join } from 'node:path';
@@ -119,11 +119,15 @@ async function runSmokeBoot(): Promise<void> {
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): void {
+  // 整理3補: 非パッケージ実行(electron .)でもウィンドウ/タスクバーに自前アイコンを出す。
+  // パッケージ版はexe埋め込み(electron-builder win.icon)が使われるため無くてもよい
+  const appIcon = join(app.getAppPath(), 'build', 'icon.ico');
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 780,
     show: false,
     autoHideMenuBar: true,
+    ...(existsSync(appIcon) ? { icon: appIcon } : {}),
     webPreferences: {
       preload: join(dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -167,6 +171,9 @@ if (!smokeMode) {
     console.log(`[migration] userData ${oldUserData} → ${newUserData}: ${result.reason} ${result.detail ?? ''}`);
   }
 }
+
+// タスクバーのグループ化IDを固定(未設定だと非パッケージ実行はElectron扱いでアイコンも既定になる)
+app.setAppUserModelId('local.amateras.app');
 
 const gotSingleInstanceLock = smokeMode ? true : app.requestSingleInstanceLock();
 
