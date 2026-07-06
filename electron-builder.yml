@@ -19,6 +19,7 @@ asarUnpack:
   - node_modules/esbuild/**
   - node_modules/@esbuild/**
 win:
+  icon: build/icon.ico
   target:
     - nsis
 nsis:
