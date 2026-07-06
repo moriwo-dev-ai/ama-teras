@@ -130,6 +130,7 @@ export default function App(): JSX.Element {
         <div className="ml-auto flex gap-2">
           <button
             className="rounded border border-zinc-600 px-2 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800"
+            title="設定を開く(プロバイダ・APIキー・スコープ等)"
             onClick={() => setShowSettings(true)}
           >
             設定
