@@ -20,9 +20,3 @@ export const useRunsStore = create<RunsState>((set) => ({
   },
 }));
 
-/** このsessionIdが「別の会話」の実行に属するか(新規会話の初回イベント採用判定に使う) */
-export function belongsToOtherRun(sessionId: string, myConversationId: string | null): boolean {
-  return useRunsStore
-    .getState()
-    .runs.some((r) => r.sessionId === sessionId && r.conversationId !== myConversationId);
-}

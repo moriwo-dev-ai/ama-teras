@@ -659,7 +659,11 @@ export class AgentService {
     return capture ? { screenshot: { capture } } : {};
   }
 
-  chatSend(text: string, mode: ChatMode, images?: ChatImageInput[]): { sessionId: string } {
+  chatSend(
+    text: string,
+    mode: ChatMode,
+    images?: ChatImageInput[],
+  ): { sessionId: string; conversationId: string } {
     const planMode = mode === 'plan';
     const sessionId = randomUUID();
     const conv = this.current;
@@ -674,13 +678,14 @@ export class AgentService {
     // M21-1: 実行中の送信はエラーにせず追加指示としてキューへ積む(次ターン境界で注入)
     if (conv.run) {
       const run = conv.run;
-      if (text.trim() === '' && (images?.length ?? 0) === 0) return { sessionId: run.sessionId };
+      if (text.trim() === '' && (images?.length ?? 0) === 0)
+        return { sessionId: run.sessionId, conversationId: conv.id };
       run.pendingInstructions.push({
         text,
         ...(images && images.length > 0 ? { images } : {}),
       });
       emit({ kind: 'instruction_queued', sessionId: run.sessionId, text });
-      return { sessionId: run.sessionId };
+      return { sessionId: run.sessionId, conversationId: conv.id };
     }
     // M18: policy有効時のメイン会話は planner 帯。無効時は従来の単一モデル
     const policy = this.modelPolicy();
@@ -688,7 +693,7 @@ export class AgentService {
     if (typeof provider === 'string') {
       emit({ kind: 'error', sessionId, message: provider });
       emit({ kind: 'status', sessionId, status: 'error' });
-      return { sessionId };
+      return { sessionId, conversationId: conv.id };
     }
     // M18: worker/escalation 帯のキー未登録は実行前に警告(横断構成の取りこぼし防止)。
     // worker はメイン(planner)のプロバイダで代行して続行する
@@ -982,7 +987,7 @@ export class AgentService {
       this.publishRuns();
     });
 
-    return { sessionId };
+    return { sessionId, conversationId: conv.id };
   }
 
   /**

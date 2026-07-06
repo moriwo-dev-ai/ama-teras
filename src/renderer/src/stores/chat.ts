@@ -7,7 +7,9 @@ import type {
   ReviewCardPayload,
   SessionMeta,
 } from '../../../shared/types';
-import { belongsToOtherRun } from './runs';
+// M22: conversationId 未確定(新規会話で送信直後)の間に届いたイベントの待避場所。
+// chatSend の解決で会話IDが判明したら、該当分だけ再生する(他会話のイベントは捨てる)
+const unattributed: AgentEvent[] = [];
 
 export type UiMessage =
   | {
@@ -129,6 +131,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   newSession: async () => {
     const result = await window.api.sessionsNew();
+    unattributed.length = 0;
     if (result.ok) {
       set({
         messages: [],
@@ -170,8 +173,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ],
     }));
     try {
-      const { sessionId } = await window.api.chatSend(trimmed || '(画像を確認して)', mode, images);
+      const { sessionId, conversationId } = await window.api.chatSend(
+        trimmed || '(画像を確認して)',
+        mode,
+        images,
+      );
+      // M22: 会話IDが確定したので、待避しておいたイベントのうち自分の会話分を再生する
+      if (get().conversationId === null && conversationId !== undefined) {
+        set({ conversationId });
+        for (const e of unattributed.splice(0)) {
+          if (e.conversationId === conversationId) get().handleEvent(e);
+        }
+      }
       // このセッションの終端イベントが既に届いていたら activeSessionId を復活させない
+      // (再生された終端イベントも handleEvent 内で earlyFinished に記録される)
       if (earlyFinished.delete(sessionId)) return;
       set({ activeSessionId: sessionId });
     } catch (err) {
@@ -197,14 +212,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   handleEvent: (event) => {
     // M22: 表示中の会話のイベントだけをチャットへ反映する。
-    // conversationId 未確定(新規会話)のときは「他会話のランに属さない」イベントを初回採用する
+    // conversationId 未確定(新規会話の送信直後)の間はバッファし、send解決後に再生する
     if (event.conversationId !== undefined) {
       const mine = get().conversationId;
-      if (mine !== null && event.conversationId !== mine) return;
       if (mine === null) {
-        if (belongsToOtherRun(event.sessionId, null)) return;
-        set({ conversationId: event.conversationId });
+        if (unattributed.length < 200) unattributed.push(event);
+        return;
       }
+      if (event.conversationId !== mine) return;
     }
     switch (event.kind) {
       case 'status':
