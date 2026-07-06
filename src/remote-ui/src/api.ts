@@ -70,6 +70,25 @@ export class RemoteApi {
     return this.req('POST', '/api/sessions/load', { id });
   }
 
+  /** M23-3: 新規チャット(M22で実行中でもブロックされない) */
+  sessionsNew(): Promise<{ ok: boolean; message?: string }> {
+    return this.req('POST', '/api/sessions/new');
+  }
+
+  /** M23-2: 使用量サマリ(残高に準ずるもの) */
+  usage(): Promise<import('../../shared/types').UsageSummary> {
+    return this.req('GET', '/api/usage');
+  }
+
+  /** M23-3: 設定の取得/変更(サーバ側ホワイトリストの安全なサブセットのみ) */
+  settingsGet(): Promise<Record<string, unknown>> {
+    return this.req('GET', '/api/settings');
+  }
+
+  settingsSet(patch: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.req('POST', '/api/settings', patch);
+  }
+
   approvalRespond(id: string, decision: ApprovalDecision): Promise<{ ok: boolean }> {
     return this.req('POST', '/api/approval/respond', { id, decision });
   }

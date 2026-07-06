@@ -203,3 +203,32 @@ pre.preview {
 }
 .auto-modal-actions button.danger { background: var(--amber); border-color: var(--amber); color: #fff; }
 .auto-modal-actions button:disabled { opacity: 0.4; }
+
+/* M23-3: スマホ設定タブ・新規チャットボタン */
+.new-chat {
+  background: var(--accent, #2563eb);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.card .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 13px;
+}
+.card .row input[type='number'],
+.card .row input:not([type]),
+.card .row select {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg2, #27272a);
+  color: inherit;
+  border: 1px solid #52525b;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+}

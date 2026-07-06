@@ -51,6 +51,8 @@ export interface RemoteFacade {
   /** M15.1: セッション一覧と切替(切替はworkspace追従込み。実行中はservice側ガードで拒否) */
   sessionsList(): Promise<import('../../shared/types').SessionMeta[]>;
   sessionOpen(id: string): Promise<import('../../shared/types').SessionLoadResult>;
+  /** M23-3: スマホからの新規チャット */
+  sessionNew(): { ok: boolean; message?: string };
   /** M17-2: 自律モードの切替(ONはHTTP層で confirmed:true を強制) */
   setAutonomous(on: boolean): { on: boolean };
 }
@@ -58,6 +60,12 @@ export interface RemoteFacade {
 export interface RemoteServerDeps {
   facade: RemoteFacade;
   bus: EventBus;
+  /** M23-2/3: 使用量サマリと、安全なサブセット限定の設定読み書き(未注入なら該当APIは404) */
+  usageSummary?: () => import('../../shared/types').UsageSummary;
+  remoteSettings?: {
+    get(): Record<string, unknown>;
+    set(patch: Record<string, unknown>): Record<string, unknown>;
+  };
   auth: RemoteAuth;
   /** remote-ui のビルド出力(out/remote-ui)。無ければ静的配信は404 */
   staticDir: string;
@@ -313,6 +321,33 @@ export class RemoteServer {
           throw new HttpError(400, 'ONにはリスク確認(confirmed:true)が必要');
         }
         return sendJson(res, 200, facade.setAutonomous(on));
+      }
+
+      case 'POST /api/sessions/new': {
+        // M23-3: スマホからの新規チャット(M22で実行中でもブロックされない)
+        return sendJson(res, 200, facade.sessionNew());
+      }
+
+      case 'GET /api/usage': {
+        // M23-2: 使用量サマリ(残高に準ずるもの)
+        if (!this.deps.usageSummary) throw new HttpError(404, 'usage 未対応');
+        return sendJson(res, 200, this.deps.usageSummary());
+      }
+
+      case 'GET /api/settings': {
+        // M23-3: 安全なサブセットのみ(tokenHash等は含まれない)
+        if (!this.deps.remoteSettings) throw new HttpError(404, 'settings 未対応');
+        return sendJson(res, 200, this.deps.remoteSettings.get());
+      }
+
+      case 'POST /api/settings': {
+        if (!this.deps.remoteSettings) throw new HttpError(404, 'settings 未対応');
+        const body = await readJsonBody(req);
+        try {
+          return sendJson(res, 200, this.deps.remoteSettings.set(body));
+        } catch (err) {
+          throw new HttpError(400, err instanceof Error ? err.message : '設定が不正');
+        }
       }
 
       case 'POST /api/evolution/promote-respond': {

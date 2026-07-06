@@ -551,12 +551,53 @@ export async function registerIpcHandlers(
     remoteLastError = undefined;
     const rc = getRemoteConfig();
     if (!rc.enabled) return; // 無効時は一切 listen しない
+    // M23-3: スマホから変更してよい設定のホワイトリスト。workspace/scopeMode/
+    // fullPcAllowSession/postEditHook(任意コマンド)/remote(自身)は変更不可
+    const REMOTE_SETTABLE = new Set([
+      'provider',
+      'model',
+      'maxTurns',
+      'subAgentMaxTurns',
+      'subAgentMaxParallel',
+      'autoApprove',
+      'modelPolicy',
+      'fallback',
+    ]);
+    const sanitizedConfig = (): Record<string, unknown> => {
+      const { remote: _remote, ...rest } = config.get();
+      return rest;
+    };
     const server = new RemoteServer({
       facade: service,
       bus,
       auth: remoteAuth,
       staticDir: getRemoteUiDir(),
       auditTail: (limit) => audit.tail(limit),
+      usageSummary: () => usageMeter.summary(),
+      remoteSettings: {
+        get: sanitizedConfig,
+        set: (patch) => {
+          for (const key of Object.keys(patch)) {
+            if (!REMOTE_SETTABLE.has(key)) throw new Error(`リモートから変更できない項目: ${key}`);
+          }
+          const next: Record<string, unknown> = { ...config.get() };
+          for (const [key, value] of Object.entries(patch)) {
+            // null は「項目の削除」(modelPolicy/fallback等の無効化・既定戻し)
+            if (value === null) delete next[key];
+            else next[key] = value;
+          }
+          assertConfig(next);
+          config.set(next);
+          audit.append({
+            tool: 'remote-settings',
+            scope: 'system',
+            paths: [],
+            event: 'result',
+            detail: `変更: ${Object.keys(patch).join(', ')}`,
+          });
+          return sanitizedConfig();
+        },
+      },
     });
     try {
       await server.start(rc.port);

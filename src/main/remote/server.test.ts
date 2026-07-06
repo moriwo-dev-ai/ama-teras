@@ -31,6 +31,7 @@ function stubFacade(): { facade: RemoteFacade; calls: FacadeCalls } {
   };
   const facade: RemoteFacade = {
     getCurrentConversationId: () => 'conv-1',
+    sessionNew: () => ({ ok: true }),
     runsList: () => [],
     chatSend: (text, mode, images) => {
       calls.chatSend.push([text, mode, images]);

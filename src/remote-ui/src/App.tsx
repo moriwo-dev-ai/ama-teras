@@ -11,6 +11,7 @@ import type {
 import { clearToken, loadToken, RemoteApi, saveToken } from './api';
 import { ApprovalsView } from './components/ApprovalsView';
 import { AuditView } from './components/AuditView';
+import { SettingsView } from './components/SettingsView';
 import { ChatView } from './components/ChatView';
 import { EvolutionView } from './components/EvolutionView';
 import { useRemoteStore, type Tab } from './store';
@@ -58,6 +59,7 @@ const TAB_LABEL: Record<Tab, string> = {
   approvals: '承認',
   evolution: '進化',
   audit: '監査',
+  settings: '設定',
 };
 
 export function App(): JSX.Element {
@@ -177,13 +179,27 @@ export function App(): JSX.Element {
         >
           {autonomous ? '🔓' : '🔒'}
         </button>
+        <button
+          className="new-chat"
+          title="新規チャット(実行中の作業は止まらない)"
+          onClick={() => {
+            void api
+              .sessionsNew()
+              .then(() => {
+                useRemoteStore.getState().replaceHistory([], null);
+                void refreshSessions();
+              })
+              .catch((err: unknown) => setSessionError(err instanceof Error ? err.message : String(err)));
+          }}
+        >
+          +新規
+        </button>
         <select
           className="session-select"
           value=""
-          disabled={running}
           onFocus={() => void refreshSessions()}
           onChange={(e) => void openSession(e.target.value)}
-          title={running ? '実行中は切替不可' : 'セッションを開く'}
+          title="セッションを開く(M22: 実行中でも切替可)"
         >
           <option value="">セッション…</option>
           {sessions.map((s) => (
@@ -252,6 +268,7 @@ export function App(): JSX.Element {
       {store.tab === 'approvals' && <ApprovalsView api={api} />}
       {store.tab === 'evolution' && <EvolutionView api={api} />}
       {store.tab === 'audit' && <AuditView api={api} />}
+      {store.tab === 'settings' && <SettingsView api={api} />}
     </div>
   );
 }
