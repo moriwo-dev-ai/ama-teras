@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { groupSessionsByProject } from '../../../../shared/sessionGroups';
 import type { SessionMeta } from '../../../../shared/types';
 import { useChatStore } from '../../stores/chat';
 
@@ -71,20 +72,9 @@ export function LeftPane(): JSX.Element {
   }, [query]);
 
   const shown = searchResults ?? sessions;
-  const groups = useMemo(() => {
-    const map = new Map<string, SessionMeta[]>();
-    for (const s of shown) {
-      const key = s.workspace || '(既定)';
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(s);
-    }
-    return [...map.entries()].sort((a, b) => {
-      // 現在のプロジェクトを先頭へ
-      if (a[0] === currentWs) return -1;
-      if (b[0] === currentWs) return 1;
-      return a[0].localeCompare(b[0]);
-    });
-  }, [shown, currentWs]);
+  // M17-3: 並びは「配下セッションの最新更新の降順」に固定。選択(閲覧)では動かさない。
+  // 現在のプロジェクトはハイライト(「現在」バッジ)でのみ示す
+  const groups = useMemo(() => groupSessionsByProject(shown), [shown]);
 
   const open = async (meta: SessionMeta): Promise<void> => {
     if (busy) return;
@@ -155,7 +145,8 @@ export function LeftPane(): JSX.Element {
         {groups.map(([ws, items]) => (
           <div key={ws} className="mb-2">
             <div className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-zinc-400">
-              <span className="truncate" title={ws}>
+              {/* M17-3: 選択中プロジェクトはハイライトのみ(並びは動かさない) */}
+              <span className={`truncate ${ws === currentWs ? 'text-blue-300' : ''}`} title={ws}>
                 📁 {projectName(ws)}
               </span>
               {ws === currentWs && <span className="rounded bg-blue-900 px-1 text-[9px] text-blue-300">現在</span>}
