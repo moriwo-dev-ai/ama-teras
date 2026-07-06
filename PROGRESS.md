@@ -2,12 +2,27 @@
 
 ## 現在の状態
 
-- **M1〜M16まで実装**。テスト446件・typecheck(node/web/remote)全合格。
+- **M1〜M17まで実装**。テスト515件・typecheck(node/web/remote)全合格。
+- **M17完了(2026-07-06・Windows実機CDP検証済み)**: リブランド+自律モード+UX修正 —
+  ①**リネーム MyCodex → AMA-teras**(package name/appId/productName=amateras、
+  userData自動移行: 旧`%APPDATA%\mycodex`→新`amateras`へ実データ+**Local State(safeStorage鍵素材)**を
+  コピー・実データ有無で判定・マーカー冪等・旧dir温存。記憶/計画は AMATERAS.md / AMATERAS_PLAN.md へ
+  旧名読み込み互換+初回書き込みrename移行。実機でキー復号・セッション19件引き継ぎ確認)
+  ②**自律モード**(送信欄🔓トグル+チェック必須の危険モーダル+常時警告バー。
+  safe/write/exec/systemスコープ/動的承認を全自動承認、全操作をautonomous:trueでaudit記録。
+  ハード拒否維持: secrets読み書き・userData書き込み・システム領域の既存上書き。
+  新規作成は許可。exec系はformat/diskpart等のカタストロフィックdenylistで即拒否。
+  セッション単位・再起動/切替/新規でOFF。remote-uiからも切替可=ONはconfirmed:true必須。
+  進化ジョブ非波及をguardrailで固定)
+  ③**左ペインソート修正**(プロジェクト順=配下セッションの最新updatedAt降順に固定。
+  選択では動かさずハイライトのみ)。体感確認は `docs/M17-manual-test.md`
+- **M16完了(2026-07-06・Windows実機CDP検証済み)**: 一晩自走テスト(AICAD)の知見反映 —
 - **M16完了(2026-07-06・Windows実機CDP検証済み)**: 一晩自走テスト(AICAD)の知見反映 —
   ①モデル切替時の自動compaction(SessionData.lastLLM記録・切替検知→閾値超過なら圧縮+infoカード)
   ②一時APIエラーの自動リトライ(指数バックオフ最大3回・AbortSignal尊重)と
   課金/残高エラーのプロバイダフォールバック(AppConfig.fallback・既定OFF・1会話1回・
   本体設定不変・警告カード+audit記録・切替前compaction)
+  ※M16の記載中「MYCODEX.md/MYCODEX_PLAN.md」等の旧名はM17で AMATERAS.md/AMATERAS_PLAN.md へ改称
   ③アシスタント本文のmarkdown表示+コードブロックにコピーボタン(desktop=react-markdown、
   remote-ui=共有フェンススプリッタの軽量実装、パスリンク維持)
   ④控えめマイクロアニメーション(CSSのみ・transform/opacity限定・prefers-reduced-motion優先・
@@ -270,6 +285,21 @@
     CDPスモークでOSクリップボード実測一致)
   - M16-4: styles.cssアニメ基盤+animPref(localStorage)+CDPスモーク
     (reduced-motionエミュレーションで無効化を実測)
+- 2026-07-06: **M17 — リブランド(AMA-teras)+自律モード+左ペインソート修正**。テスト458→515件
+  - M17-1: リネーム MyCodex → AMA-teras。userDataMigration.ts(実データ有無で移行判定・
+    マーカー冪等・旧dir温存)。**実機で発覚した重要バグ**: safeStorage(DPAPI)の鍵素材は
+    Chromiumの「Local State」(os_crypt.encrypted_key)にあり、これを移行しないと
+    secrets.json が復号不能=キー消失に見える → コピー対象へ追加し実機で復号確認(M17-1fix)。
+    AMATERAS.md / AMATERAS_PLAN.md へ改称(旧名読み込み互換+初回書き込みrename移行、
+    プラグインは実行時トランスパイルのため互換ロジックを各ファイル内で自己完結)
+  - M17-2: 自律モード。executor.getAutonomous(全リスク+system+動的承認を自動承認・
+    全操作audit autonomous:true)、scope.ts autonomousオプション(システム領域=既存上書きのみ拒否・
+    新規作成許可)、autonomy.ts denylist(format/diskpart/mkfs/dd physicaldrive/
+    del・rd system/rm -rf/reg delete HKLM/cipher /w/bcdedit /delete/vssadmin delete shadows)、
+    UIトグル+モーダル+警告バー、remote-ui(POST /api/autonomous・ONはconfirmed必須)、
+    進化非波及guardrail。実機CDPでモーダルdisabled→ON→バー→OFFを確認
+  - M17-3: sessionGroups.groupSessionsByProject(最新updatedAt降順・安定・選択非依存)+LeftPane適用
+  - M17-4: docs/M17-manual-test.md、USER-GUIDE(自律モード節・名称)、本ファイル更新
 
 ## 次のタスク
 
@@ -321,6 +351,22 @@
 - ~~(M9) audit.jsonl の閲覧UIは未実装~~ → M10 のスマホUI監査タブで提供済み
 
 ## 決定事項ログ
+
+### M17での判断(2026-07-06 自律作業。planはユーザー承認済み)
+
+- **userDataの移行判定は「ディレクトリ存在」でなく実データ(config.json等)の有無**:
+  electronがキャッシュ用に新dirを先に作るため、存在判定だと移行がスキップされる(実機で確認)
+- **「Local State」を移行対象に追加**(M17-1fix): safeStorageの鍵素材。実データ判定には使わない
+- **自律モードでもuserDataへの新規ファイル作成は拒否のまま**(設計書の「新規作成許可」は
+  Windowsシステム領域にのみ適用): plugin-cacheへの新規.mjs設置=次回ロードでのコード注入経路になるため
+- **denylistは自律モード限定**: 通常モードは人間の目視承認が防波堤であり、機械判定の
+  誤検出で正当な承認済みコマンドを塞がない
+- **自律モード状態はメモリ内のみ**(configに保存しない): 再起動OFFの要件を構造的に満たす。
+  セッション切替・新規でも setAutonomous(false)
+- **リネームで変えないもの**: リポジトリパス・`refs/mycodex`(既存チェックポイント互換)・
+  localStorageキー`mycodex-*`(**変えるとスマホのremote-tokenが消えて再ログインになる**)・
+  `MYCODEX_SMOKE`等の内部識別子・進化タグ`evolve/N`・worktreeBase `../mycodex-evolve`
+- **旧ショートカット「MyCodex.lnk」はそのまま動く**(electron.exe . を指すため)。リネームは任意
 
 ### M16での判断(2026-07-06 自律作業・ユーザー確認なしで決定)
 
