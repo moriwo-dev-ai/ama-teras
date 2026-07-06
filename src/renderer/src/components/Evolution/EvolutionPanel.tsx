@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { EvolutionJobStatus } from '../../../../shared/types';
+import type { EvolutionJobStatus, EvolutionScope } from '../../../../shared/types';
 import { useEvolutionStore } from '../../stores/evolution';
 
 const STATUS_LABEL: Record<EvolutionJobStatus, { text: string; cls: string }> = {
@@ -15,14 +15,39 @@ const STATUS_LABEL: Record<EvolutionJobStatus, { text: string; cls: string }> = 
   rolled_back: { text: 'ロールバック済み', cls: 'text-red-400' },
 };
 
+/** M20: スコープバッジ(tool=灰 / renderer=青 / core=赤) */
+function ScopeBadge({ scope }: { scope?: EvolutionScope }): JSX.Element {
+  const s = scope ?? 'tool';
+  const cls =
+    s === 'core'
+      ? 'bg-red-900/70 text-red-300'
+      : s === 'renderer'
+        ? 'bg-blue-900/70 text-blue-300'
+        : 'bg-zinc-800 text-zinc-400';
+  return <span className={`rounded px-1 text-[10px] ${cls}`}>{s}</span>;
+}
+
 export function EvolutionPanel(): JSX.Element {
   const { jobs, loadJobs } = useEvolutionStore();
   const [desc, setDesc] = useState('');
   const [io, setIo] = useState('');
+  const [scope, setScope] = useState<EvolutionScope>('tool');
   const [openLog, setOpenLog] = useState<number | null>(null);
+  // M20: ロールバック履歴
+  const [history, setHistory] = useState<{ tag: string; commit: string; date: string; subject: string }[]>([]);
+  const [rollbackMsg, setRollbackMsg] = useState('');
+
+  const loadHistory = async (): Promise<void> => {
+    try {
+      setHistory(await window.api.evolutionHistory());
+    } catch {
+      /* 履歴は表示のみの情報 */
+    }
+  };
 
   useEffect(() => {
     void loadJobs();
+    void loadHistory();
   }, [loadJobs]);
 
   return (
@@ -31,21 +56,31 @@ export function EvolutionPanel(): JSX.Element {
         <span className="text-xs font-semibold text-zinc-400">進化ジョブ</span>
         <input
           className="flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
-          placeholder="必要な能力の説明(手動起動・デバッグ用)"
+          placeholder="必要な能力/変更の説明(手動起動・デバッグ用)"
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
         />
         <input
-          className="w-64 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
-          placeholder="期待する入出力"
+          className="w-48 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
+          placeholder="期待する入出力/挙動"
           value={io}
           onChange={(e) => setIo(e.target.value)}
         />
+        <select
+          className="rounded border border-zinc-600 bg-zinc-800 px-1 py-1 text-xs"
+          value={scope}
+          title="進化スコープ(renderer/coreは常に人間承認+再起動)"
+          onChange={(e) => setScope(e.target.value as EvolutionScope)}
+        >
+          <option value="tool">tool</option>
+          <option value="renderer">renderer</option>
+          <option value="core">core</option>
+        </select>
         <button
           className="rounded bg-purple-700 px-3 py-1 text-xs hover:bg-purple-600 disabled:opacity-40"
           disabled={!desc.trim()}
           onClick={() => {
-            void window.api.evolutionEnqueue(desc, io || '(指定なし)');
+            void window.api.evolutionEnqueue(desc, io || '(指定なし)', scope);
             setDesc('');
             setIo('');
           }}
@@ -59,8 +94,13 @@ export function EvolutionPanel(): JSX.Element {
           <div key={j.id} className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs">
             <div className="flex items-center gap-2">
               <span className="font-mono text-zinc-400">#{j.id}</span>
+              <ScopeBadge {...(j.scope !== undefined ? { scope: j.scope } : {})} />
               <span className="truncate">{j.description}</span>
               {j.toolName && <span className="font-mono text-blue-300">{j.toolName}</span>}
+              {/* M20: 聖域トリップワイヤによる拒否は明示的に表示 */}
+              {j.protectedReject === true && (
+                <span className="rounded bg-red-900/70 px-1 text-[10px] text-red-300">🛡 保護領域のため拒否</span>
+              )}
               <span className={`ml-auto ${STATUS_LABEL[j.status].cls}`}>{STATUS_LABEL[j.status].text}</span>
               <button
                 className="text-zinc-500 hover:text-zinc-300"
@@ -85,24 +125,82 @@ export function EvolutionPanel(): JSX.Element {
           </div>
         ))}
       </div>
+
+      {/* M20: ロールバック履歴(evolveタグ)と「1つ前へ戻す」 */}
+      <div className="border-t border-zinc-800 pt-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-zinc-400">昇格履歴(evolveタグ)</span>
+          <button
+            className="rounded border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-400 hover:bg-zinc-800"
+            onClick={() => void loadHistory()}
+          >
+            更新
+          </button>
+          <button
+            className="rounded border border-red-800 px-2 py-0.5 text-[11px] text-red-300 hover:bg-red-950 disabled:opacity-40"
+            disabled={history.length === 0}
+            title="HEADが最新evolveマージのときのみrevertする(履歴は残る)"
+            onClick={() => {
+              void window.api.evolutionRollbackLast().then((r) => {
+                setRollbackMsg(r.message);
+                void loadHistory();
+              });
+            }}
+          >
+            ⏪ 1つ前へ戻す
+          </button>
+        </div>
+        {rollbackMsg && <p className="mt-1 text-[11px] text-amber-300">{rollbackMsg}</p>}
+        {history.length === 0 ? (
+          <p className="mt-1 text-[11px] text-zinc-500">昇格履歴なし</p>
+        ) : (
+          <ul className="mt-1 max-h-24 space-y-0.5 overflow-y-auto text-[11px] text-zinc-400">
+            {history.map((h) => (
+              <li key={h.tag} className="flex gap-2">
+                <span className="font-mono text-purple-300">{h.tag}</span>
+                <span className="font-mono">{h.commit}</span>
+                <span>{h.date.slice(0, 16)}</span>
+                <span className="truncate">{h.subject}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
 
 export function PromotionDialog(): JSX.Element | null {
   const { promotion, respondPromotion } = useEvolutionStore();
+  const [confirmed, setConfirmed] = useState(false);
   if (!promotion) return null;
+  // M20: renderer/core は本体変更 — 二段確認(チェック+ボタン)を必須にする
+  const isCoreChange = promotion.scope === 'renderer' || promotion.scope === 'core';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-[720px] max-w-[95vw] rounded-lg border border-purple-700 bg-zinc-900 p-4 shadow-xl">
+      <div
+        className={`w-[720px] max-w-[95vw] rounded-lg border ${
+          isCoreChange ? 'border-red-700' : 'border-purple-700'
+        } bg-zinc-900 p-4 shadow-xl`}
+      >
+        {isCoreChange && (
+          <div className="mb-2 rounded-md border border-red-700 bg-red-950 p-2 text-xs font-semibold text-red-300">
+            ⚠ これは本体のコア変更です(scope: {promotion.scope})。
+            {promotion.requiresRestart === true && ' 承認すると再ビルド+健全性チェック後にアプリが再起動します。'}
+            失敗時は自動でrevertされ、再起動後の連続クラッシュはセーフモードで保護されます。
+          </div>
+        )}
         <h2 className="mb-2 text-sm font-semibold">
           進化ジョブ #{promotion.jobId} の昇格承認:{' '}
           <code className="text-purple-300">{promotion.toolName}</code>
+          {promotion.scope !== undefined && (
+            <span className="ml-2 rounded bg-zinc-800 px-1.5 text-xs text-zinc-300">scope: {promotion.scope}</span>
+          )}
         </h2>
         <p className="mb-2 text-xs text-zinc-400">
-          検証ゲート(差分検査 / typecheck / vitest / スモーク)は全合格。mainブランチへマージして
-          稼働中のアプリに動的ロードする。
+          検証ゲート(聖域トリップワイヤ / 危険検出 / 差分検査 / typecheck / vitest / build / スモーク)は全合格。
+          mainブランチへマージして{isCoreChange ? '再ビルド・再起動で反映する' : '稼働中のアプリに動的ロードする'}。
         </p>
         {promotion.warnings.length > 0 && (
           <div className="mb-2 rounded-md border border-red-700 bg-red-950 p-2 text-xs text-red-300">
@@ -114,18 +212,33 @@ export function PromotionDialog(): JSX.Element | null {
         <pre className="mb-3 max-h-72 overflow-auto rounded-md border border-zinc-700 bg-zinc-950 p-2 text-xs leading-5 text-zinc-300">
           {promotion.diff}
         </pre>
+        {isCoreChange && (
+          <label className="mb-3 flex items-center gap-2 text-xs text-zinc-200">
+            <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+            diff全文を確認し、本体コードの変更であることを理解した
+          </label>
+        )}
         <div className="flex justify-end gap-2">
           <button
             className="rounded-md border border-zinc-600 px-4 py-1.5 text-sm hover:bg-zinc-800"
-            onClick={() => respondPromotion(false)}
+            onClick={() => {
+              setConfirmed(false);
+              respondPromotion(false);
+            }}
           >
             却下
           </button>
           <button
-            className="rounded-md bg-purple-700 px-4 py-1.5 text-sm hover:bg-purple-600"
-            onClick={() => respondPromotion(true)}
+            className={`rounded-md px-4 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-40 ${
+              isCoreChange ? 'bg-red-700 hover:bg-red-600' : 'bg-purple-700 hover:bg-purple-600'
+            }`}
+            disabled={isCoreChange && !confirmed}
+            onClick={() => {
+              setConfirmed(false);
+              respondPromotion(true);
+            }}
           >
-            昇格を承認
+            {isCoreChange ? '本体変更を承認(自己責任)' : '昇格を承認'}
           </button>
         </div>
       </div>

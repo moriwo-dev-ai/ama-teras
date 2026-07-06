@@ -20,6 +20,20 @@ export default function App(): JSX.Element {
   const handleEvolutionEvent = useEvolutionStore((s) => s.handleEvent);
   const handleSubAgentUpdate = useSubAgentStore((s) => s.handleUpdate);
   const [showSettings, setShowSettings] = useState(false);
+  // M20: 起動時フラグ(セーフモード/進化再起動完了)のバナー
+  const [flags, setFlags] = useState<{
+    safeMode: boolean;
+    safeModeInfo?: { tag: string; prevCommit: string };
+    restartedFrom?: string;
+  } | null>(null);
+  const [restartNoticeClosed, setRestartNoticeClosed] = useState(false);
+  useEffect(() => {
+    // ready-to-show後にrestartedFromが立つため少し遅らせて取得
+    const t = setTimeout(() => {
+      window.api.runtimeFlags().then(setFlags).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(t);
+  }, []);
   // M15-1: 3ペイン(狭幅ではオーバーレイ)
   const narrow = useIsNarrow();
   const left = usePaneState('mycodex-pane-left', 240);
@@ -78,6 +92,31 @@ export default function App(): JSX.Element {
 
   return (
     <div className="flex h-screen flex-col">
+      {/* M20: セーフモード(進化再起動の連続クラッシュ検知)バナー */}
+      {flags?.safeMode && (
+        <div className="flex items-center justify-center gap-3 border-b border-red-700 bg-red-950 px-4 py-1.5 text-xs text-red-200">
+          <span>
+            ⚠ セーフモード: 進化 {flags.safeModeInfo?.tag} の再起動が連続失敗したため進化機能を停止中。
+            復旧: <code className="rounded bg-zinc-900 px-1">git reset --hard {flags.safeModeInfo?.prevCommit.slice(0, 8)} && npm run build</code>
+          </span>
+          <button
+            className="rounded border border-red-600 px-2 py-0.5 text-red-100 hover:bg-red-900"
+            onClick={() => {
+              void window.api.safeModeClear().then(() => setFlags((f) => (f ? { ...f, safeMode: false } : f)));
+            }}
+          >
+            解除(要再起動)
+          </button>
+        </div>
+      )}
+      {flags?.restartedFrom && !restartNoticeClosed && (
+        <div className="flex items-center justify-center gap-3 border-b border-emerald-800 bg-emerald-950/70 px-4 py-1 text-xs text-emerald-200">
+          <span>✅ 進化 {flags.restartedFrom} の再起動が完了しました(新しいコードで稼働中)</span>
+          <button className="text-emerald-300 hover:text-emerald-100" onClick={() => setRestartNoticeClosed(true)}>
+            ✕
+          </button>
+        </div>
+      )}
       <header className="flex items-center gap-2 border-b border-zinc-700 px-4 py-2">
         <button
           className="rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800"

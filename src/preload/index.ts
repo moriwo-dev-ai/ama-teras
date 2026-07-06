@@ -79,6 +79,9 @@ const api: MyCodexApi = {
 
   runtimeFlags: () => ipcRenderer.invoke(IpcChannels.runtimeFlags),
   safeModeClear: () => ipcRenderer.invoke(IpcChannels.safeModeClear),
+
+  evolutionHistory: () => ipcRenderer.invoke(IpcChannels.evolutionHistory),
+  evolutionRollbackLast: () => ipcRenderer.invoke(IpcChannels.evolutionRollbackLast),
 };
 
 contextBridge.exposeInMainWorld('api', api);

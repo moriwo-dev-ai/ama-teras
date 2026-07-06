@@ -83,7 +83,10 @@ function PromotionCard({ api, jobId }: { api: RemoteApi; jobId: number }): JSX.E
   const promotion = useRemoteStore((s) => s.promotions.find((p) => p.jobId === jobId));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // M20: renderer/core(本体変更)は二段確認(チェックしないと承認不可)
+  const [confirmed, setConfirmed] = useState(false);
   if (!promotion) return <></>;
+  const isCoreChange = promotion.scope === 'renderer' || promotion.scope === 'core';
 
   const respond = async (approved: boolean): Promise<void> => {
     setBusy(true);
@@ -98,7 +101,16 @@ function PromotionCard({ api, jobId }: { api: RemoteApi; jobId: number }): JSX.E
 
   return (
     <div className="card">
-      <h3>🧬 進化ジョブ #{promotion.jobId} の昇格承認: {promotion.toolName}</h3>
+      <h3>
+        🧬 進化ジョブ #{promotion.jobId} の昇格承認: {promotion.toolName}
+        {promotion.scope !== undefined && <span className="scope-badge"> [{promotion.scope}]</span>}
+      </h3>
+      {isCoreChange && (
+        <div className="error-banner">
+          ⚠ これは本体のコア変更です(scope: {promotion.scope})。
+          {promotion.requiresRestart === true && '承認するとデスクトップ側で再ビルド+再起動が走ります。'}
+        </div>
+      )}
       {promotion.warnings.length > 0 && (
         <div className="error-banner">
           {promotion.warnings.map((w, i) => (
@@ -107,13 +119,23 @@ function PromotionCard({ api, jobId }: { api: RemoteApi; jobId: number }): JSX.E
         </div>
       )}
       <pre className="preview">{promotion.diff}</pre>
+      {isCoreChange && (
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, margin: '8px 0' }}>
+          <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+          diffを確認し、本体コードの変更であることを理解した
+        </label>
+      )}
       {error && <div className="error-banner">{error}</div>}
       <div className="btnrow">
         <button className="btn-deny" disabled={busy} onClick={() => void respond(false)}>
           却下
         </button>
-        <button className="btn-approve" disabled={busy} onClick={() => void respond(true)}>
-          昇格を承認
+        <button
+          className="btn-approve"
+          disabled={busy || (isCoreChange && !confirmed)}
+          onClick={() => void respond(true)}
+        >
+          {isCoreChange ? '本体変更を承認(自己責任)' : '昇格を承認'}
         </button>
       </div>
     </div>

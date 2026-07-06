@@ -1,11 +1,14 @@
 import { create } from 'zustand';
-import type { EvolutionEvent, EvolutionJobSummary } from '../../../shared/types';
+import type { EvolutionEvent, EvolutionJobSummary, EvolutionScope } from '../../../shared/types';
 
 export interface PromotionRequest {
   jobId: number;
   toolName: string;
   diff: string;
   warnings: string[];
+  /** M20: renderer/core は昇格UIで二段確認+本体変更の強調 */
+  scope?: EvolutionScope;
+  requiresRestart?: boolean;
 }
 
 interface EvolutionState {
@@ -39,6 +42,8 @@ export const useEvolutionStore = create<EvolutionState>((set, get) => ({
           toolName: event.toolName,
           diff: event.diff,
           warnings: event.warnings,
+          ...(event.scope !== undefined ? { scope: event.scope } : {}),
+          ...(event.requiresRestart !== undefined ? { requiresRestart: event.requiresRestart } : {}),
         },
       });
     }

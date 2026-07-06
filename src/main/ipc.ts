@@ -21,8 +21,10 @@ import { SessionStore } from './core/sessions';
 import { readProjectMemory, readProjectPlan, writeProjectMemory } from './memory';
 import { AgentJobRunner } from './evolution/job';
 import { EvolutionManager } from './evolution/manager';
+import { listEvolveTags, rollbackLastEvolve } from './evolution/promote';
 import { clearSentinel, writeSentinel } from './evolution/sentinel';
 import { healthCheckAfterPromotion, rebuildAndHealthBoot } from './evolution/supervisor';
+import { defaultRunCommand } from './evolution/gates';
 import { generateToken, RemoteAuth } from './remote/auth';
 import { RemoteServer } from './remote/server';
 import { SecretStore, type SecretCipher } from './secrets';
@@ -430,6 +432,29 @@ export async function registerIpcHandlers(
   );
 
   ipcMain.handle(IpcChannels.evolutionList, () => service.evolutionList());
+
+  // ---- M20: ロールバック履歴と「1つ前へ戻す」 ----
+  ipcMain.handle(IpcChannels.evolutionHistory, () => listEvolveTags(repoDir));
+  ipcMain.handle(IpcChannels.evolutionRollbackLast, async () => {
+    const result = await rollbackLastEvolve(repoDir);
+    audit.append({
+      tool: 'evolution-rollback',
+      scope: 'system',
+      paths: [],
+      event: 'result',
+      detail: result.message.slice(0, 200),
+    });
+    if (!result.ok) return result;
+    // revert後は再ビルド+プラグイン再読込(コア変更だった場合に旧コードへ戻すため)
+    const rebuild = await defaultRunCommand('npm run build', repoDir);
+    await registry.reload().catch(() => {});
+    return {
+      ok: true,
+      message:
+        `${result.message}。再ビルド${rebuild.code === 0 ? '完了' : '失敗(手動で npm run build を実行)'}。` +
+        'コア/UI変更を戻した場合はアプリの再起動を推奨',
+    };
+  });
 
   // ---- チェックポイント(M11-3) ----
   ipcMain.handle(IpcChannels.checkpointList, () => service.checkpointList());
