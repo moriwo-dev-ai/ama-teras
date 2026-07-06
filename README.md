@@ -1,6 +1,6 @@
 # AMA-teras(旧称 MyCodex)
 
-自己進化型デスクトップAIコーディングエージェント(Electron + React + TypeScript)。
+自己進化型デスクトップAIエージェント(Electron + React + TypeScript)。
 ユーザーと対話しながら 計画→実装→デバッグ→テスト をほぼ自動で行い、
 足りない機能は自分でツールプラグインを生成して取り込む(自己進化)。
 

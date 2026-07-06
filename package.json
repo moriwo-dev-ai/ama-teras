@@ -1,7 +1,7 @@
 {
   "name": "amateras",
   "version": "0.1.0",
-  "description": "自己進化型デスクトップAIコーディングエージェント AMA-teras",
+  "description": "自己進化型デスクトップAIエージェント AMA-teras",
   "main": "out/main/index.js",
   "private": true,
   "type": "module",

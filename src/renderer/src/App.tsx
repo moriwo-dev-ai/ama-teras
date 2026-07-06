@@ -127,7 +127,7 @@ export default function App(): JSX.Element {
           ☰
         </button>
         <h1 className="text-sm font-semibold tracking-wide">AMA-teras</h1>
-        <span className="text-xs text-zinc-400">自己進化型コーディングエージェント</span>
+        <span className="text-xs text-zinc-400">自己進化型AIエージェント</span>
         <div className="ml-auto flex gap-2">
           <button
             className="rounded border border-zinc-600 px-2 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800"

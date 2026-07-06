@@ -2,7 +2,15 @@
 
 ## 現在の状態
 
-- **M1〜M20まで実装**。テスト604件・typecheck(node/web/remote)全合格。
+- **M1〜M20まで実装**。テスト607件・typecheck(node/web/remote)全合格。**v0.2.0-M20タグ済み**。
+- **整理タスク4件完了(2026-07-06)**:
+  ①右クリック「フォルダで開く」(左ペインのプロジェクト項目+チャット内ファイル参照。
+  file:reveal再利用、resolveRevealTargetでディレクトリ対応・deny判定のみ維持)
+  ②テスト用セッション23件削除(ユーザー確認済み・実作業のAICAD 2件は保持)
+  ③アイコン適用(icon-source.png→角丸icon.ico/icon-512+PWAフルブリード180/192/512、
+  electron-builder.yml win.icon・manifest icons・apple-touch-icon/favicon配線、
+  ショートカットにも適用、稼働サーバで200実測)
+  ④副題を「自己進化型AIエージェント」へ統一(ヘッダ・README・package.json。CLAUDE.mdは聖域のため不変)
 - **M20完了(2026-07-06・実機3実証済み)**: コア自己進化(提案制・保護領域つき) —
   進化scopeを **tool / renderer / core** に段階化(`src/main/evolution/scopes.ts`)。
   **聖域=保護トリップワイヤ**(`protected.ts` の PROTECTED_PATHS: 承認機構・evolution配下・
@@ -412,6 +420,17 @@
 - ~~(M9) audit.jsonl の閲覧UIは未実装~~ → M10 のスマホUI監査タブで提供済み
 
 ## 決定事項ログ
+
+### 整理タスクでの判断(2026-07-06)
+
+- **「フォルダで開く」はworkspace外制限を課さない**: エクスプローラーに場所を見せるだけで
+  内容は読まずrendererにも返さないため。左ペインには現在以外のプロジェクトも並ぶので必須。
+  保護領域denyは多層防御として維持
+- **service.ts の SYSTEM_PROMPT内「コーディングエージェント」は据え置き**: ユーザー向け表記の
+  統一(副題・README・package.json)とは別物で、モデルへの機能定義。変えると挙動に影響し得る
+- **アイコン生成は依存追加なし**(稼働中ChromiumのcanvasをCDP経由で使用・段階縮小+角丸クリップ)。
+  icoはPNG圧縮エントリのマルチサイズ(Vista+標準)。build/candidates と icon.svg は旧検討の
+  残骸なので未追跡のまま
 
 ### M20での判断(2026-07-06 自律作業。planはユーザー承認済み+不変条件3件指定)
 
