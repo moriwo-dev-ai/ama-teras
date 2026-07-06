@@ -1,4 +1,5 @@
 import { useSubAgentStore } from '../../stores/subagents';
+import { formatElapsed, useNowTick } from '../Chat/useElapsed';
 
 const STATUS_LABEL: Record<string, string> = {
   running: '実行中',
@@ -17,6 +18,8 @@ const STATUS_CLASS: Record<string, string> = {
 /** M12-3: 並列サブエージェントの進行ビュー(進化パネルと同系のレイアウト) */
 export function SubAgentPanel(): JSX.Element {
   const { agents, clear } = useSubAgentStore();
+  // M21-4: 実行中の子がいる間だけ1秒刻みで経過時間を更新
+  const now = useNowTick(agents.some((a) => a.status === 'running'));
 
   return (
     <div className="max-h-64 overflow-y-auto border-t border-zinc-700 bg-zinc-900 px-4 py-2 text-xs">
@@ -47,13 +50,24 @@ export function SubAgentPanel(): JSX.Element {
                   </span>
                 )}
                 <span className={STATUS_CLASS[a.status] ?? 'text-zinc-300'}>
+                  {a.status === 'running' && <span className="anim-spin mr-0.5">◌</span>}
                   {STATUS_LABEL[a.status] ?? a.status}
                 </span>
+                {/* M21-4: 経過時間(実行中はライブ・完了後は所要の目安として静止) */}
+                {a.startedAt !== undefined && a.status === 'running' && (
+                  <span className="font-mono text-zinc-500">{formatElapsed(now - a.startedAt)}</span>
+                )}
                 {a.status === 'running' && a.currentTool && (
                   <span className="font-mono text-zinc-500">⚙ {a.currentTool}</span>
                 )}
               </div>
               <p className="truncate text-zinc-300">{a.task}</p>
+              {/* M21-4: 最新思考のライブ表示(running中のみ) */}
+              {a.status === 'running' && a.narration && (
+                <p className="mt-0.5 line-clamp-2 whitespace-pre-wrap text-[11px] text-zinc-500">
+                  💭 {a.narration}
+                </p>
+              )}
               {a.summaryTail && a.status !== 'running' && (
                 <p className="mt-0.5 line-clamp-2 whitespace-pre-wrap text-zinc-500">{a.summaryTail}</p>
               )}

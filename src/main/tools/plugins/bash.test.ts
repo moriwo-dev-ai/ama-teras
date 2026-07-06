@@ -181,4 +181,17 @@ describe('bash の background 実行(M11-2)', () => {
     expect(r.content).toContain('id=7');
     expect(calls).toEqual([{ command: 'sleep 100', cwd: process.cwd() }]);
   });
+
+  it('M21-4: 実行中のstdoutが ctx.log でライブ配信される(初回は即時)', async () => {
+    const logs: string[] = [];
+    const c: ToolContext = {
+      cwd: process.cwd(),
+      signal: new AbortController().signal,
+      log: (m) => logs.push(m),
+    };
+    const r = await bash.execute({ command: 'echo live-progress-line' }, c);
+    expect(r.isError).toBeUndefined();
+    expect(logs.length).toBeGreaterThan(0);
+    expect(logs.join('\n')).toContain('live-progress-line');
+  });
 });

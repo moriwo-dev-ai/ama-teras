@@ -82,6 +82,13 @@ export function applyChatEvent(messages: UiMessage[], event: AgentEvent): UiMess
       for (const f of event.findings) lines.push(`・${f.file}(${f.location}): ${f.problem} → 修正: ${f.fix}`);
       return [...messages, { id: nextId(), role: 'assistant', text: lines.join('\n'), streaming: false }];
     }
+    case 'tool_progress':
+      // M21-4: 実行中ツールのライブ出力(runningの間だけ本文へ流し込む)
+      return messages.map((m) =>
+        m.role === 'tool' && m.id === event.toolUseId && m.running
+          ? { ...m, resultContent: event.outputTail }
+          : m,
+      );
     case 'instruction_queued':
       // M21-1: 実行中の追加指示(desktop/remoteどちらから送ってもこのイベントで表示が揃う)
       return [

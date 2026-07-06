@@ -276,7 +276,9 @@ export async function runAgentLoop(
       const result = await deps.executeTool(tu.name, tu.input, {
         cwd: deps.cwd,
         signal,
-        log: () => {},
+        // M21-4: ツールのライブ出力(bashのstdout末尾等)をUIへ流す
+        log: (message: string) =>
+          deps.emit({ kind: 'tool_progress', sessionId, toolUseId: tu.id, name: tu.name, outputTail: message }),
       });
       deps.emit({
         kind: 'tool_result',

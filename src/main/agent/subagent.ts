@@ -196,15 +196,34 @@ export async function runWorkSubAgent(
   const history: ChatMessage[] = [{ role: 'user', content: [{ type: 'text', text: task }] }];
   const taskLabel = task.length > 120 ? `${task.slice(0, 120)}…` : task;
   let escalated = false;
+  const startedAt = Date.now();
   const emitUpdate = (partial: Partial<SubAgentUpdate>): void =>
     deps.onUpdate?.({
       id,
       task: taskLabel,
       mode: 'work',
       status: 'running',
+      startedAt,
       ...(escalated ? { escalated: true } : {}),
       ...partial,
     });
+
+  // M21-4: 最新思考(ストリーミングテキスト)のライブ通知。500msスロットルでUIへ流す
+  let narrationBuf = '';
+  let lastNarrationAt = 0;
+  const onChildEvent = (e: import('../../shared/types').AgentEvent): void => {
+    if (e.kind === 'text_delta') {
+      narrationBuf += e.text;
+      const now = Date.now();
+      if (now - lastNarrationAt >= 500) {
+        lastNarrationAt = now;
+        emitUpdate({ narration: narrationBuf.slice(-200) });
+      }
+    } else if (e.kind === 'message_done') {
+      if (narrationBuf !== '') emitUpdate({ narration: narrationBuf.slice(-200) });
+      narrationBuf = '';
+    }
+  };
 
   // M18: 格上げトリガー(c)用 — ツール失敗(isError / 編集後フック失敗)の連続数
   let consecutiveFailures = 0;
@@ -239,7 +258,8 @@ export async function runWorkSubAgent(
           else consecutiveFailures = 0;
           return result;
         },
-        emit: () => {}, // 子の生イベントは親のチャットへ流さない(進行は onUpdate で通知)
+        // 子の生イベントは親のチャットへ流さない。M21-4: 思考テキストだけ onUpdate で間引き通知
+        emit: onChildEvent,
         systemPrompt: WORK_PROMPT(id),
         cwd: deps.cwd,
         maxTurns: deps.maxTurns ?? WORK_SUBAGENT_DEFAULT_MAX_TURNS,
@@ -296,6 +316,7 @@ export async function runWorkSubAgent(
     task: taskLabel,
     mode: 'work',
     status: finalStatus,
+    startedAt,
     summaryTail: summary.slice(-200),
     ...(escalated ? { escalated: true } : {}),
   });

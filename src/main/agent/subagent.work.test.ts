@@ -218,3 +218,40 @@ describe('WriteLockTable', () => {
     expect(t.claim('C:\\ws\\b.txt', 2)).toEqual({ ok: true });
   });
 });
+
+describe('runWorkSubAgent M21-4(可視化)', () => {
+  it('text_delta が narration として onUpdate に載り、全updateに startedAt が付く', async () => {
+    const provider: LLMProvider = {
+      id: 'anthropic',
+      async *complete(): AsyncGenerator<ProviderEvent> {
+        yield { type: 'text_delta', text: 'まずファイルを確認して、' };
+        yield { type: 'text_delta', text: '次に修正方針を決める' };
+        yield {
+          type: 'message_done',
+          message: { role: 'assistant', content: [{ type: 'text', text: 'まずファイルを確認して、次に修正方針を決める' }] },
+          stopReason: 'end_turn',
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0 },
+        };
+      },
+    };
+    const updates: SubAgentUpdate[] = [];
+    await runWorkSubAgent(
+      {
+        provider,
+        tools: registryOf(ALL_TOOLS),
+        cwd: '/x',
+        executeTool: async () => ({ content: 'ok' }),
+        onUpdate: (u) => updates.push(u),
+      },
+      7,
+      'タスク',
+      new AbortController().signal,
+    );
+    // narration が最新思考の末尾を含む(message_done時に必ず1回flushされる)
+    const narrated = updates.filter((u) => u.narration !== undefined);
+    expect(narrated.length).toBeGreaterThan(0);
+    expect(narrated.at(-1)!.narration).toContain('修正方針');
+    // 全updateに startedAt(epoch ms)が付く
+    expect(updates.every((u) => typeof u.startedAt === 'number' && u.startedAt > 0)).toBe(true);
+  });
+});

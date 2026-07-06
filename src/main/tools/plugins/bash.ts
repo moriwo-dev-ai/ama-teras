@@ -173,8 +173,18 @@ export default {
       timeoutFallback.unref?.();
       timers.push(timeoutFallback);
 
+      // M21-4: 実行中のstdout末尾をUIへライブ配信(初回は即時・以降1秒スロットル)
+      let lastProgressAt = 0;
+      const emitProgress = (): void => {
+        const now = Date.now();
+        if (now - lastProgressAt < 1000) return;
+        lastProgressAt = now;
+        const lines = out.split(/\r?\n/);
+        ctx.log(lines.slice(-5).join('\n').slice(-600));
+      };
       const append = (chunk: Buffer): void => {
         if (out.length < MAX_OUTPUT) out += chunk.toString('utf8');
+        emitProgress();
       };
       child.stdout.on('data', append);
       child.stderr.on('data', append);

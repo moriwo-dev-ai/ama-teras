@@ -32,12 +32,20 @@ export type UiMessage =
       running: boolean;
       /** M14-3: 画像付きツール結果(data URL) */
       images?: string[];
+      /** M21-4: 開始時刻(経過時間表示用) */
+      startedAt?: number;
+      /** M21-4: 実行中のライブ出力末尾(bash等)と最終受信時刻(⏳無応答判定用) */
+      progressTail?: string;
+      progressAt?: number;
     };
 
 interface ChatState {
   messages: UiMessage[];
   status: AgentStatus;
   activeSessionId: string | null;
+  /** M21-4: 実行開始時刻(経過時間表示)と最新思考テキストの末尾(現在の状況ライン) */
+  runStartedAt: number | null;
+  narration: string;
   /** M12-1: 保存済みセッションの一覧(切替ドロップダウン用) */
   sessions: SessionMeta[];
   send: (text: string, mode?: ChatMode, images?: ChatImageInput[]) => Promise<void>;
@@ -70,6 +78,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   status: 'idle',
   activeSessionId: null,
+  runStartedAt: null,
+  narration: '',
   sessions: [],
 
   refreshSessions: async () => {
@@ -105,13 +115,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         streaming: false,
       })),
       status: 'idle',
+      runStartedAt: null,
+      narration: '',
     });
   },
 
   newSession: async () => {
     if (get().activeSessionId) return;
     const result = await window.api.sessionsNew();
-    if (result.ok) set({ messages: [], status: 'idle' });
+    if (result.ok) set({ messages: [], status: 'idle', runStartedAt: null, narration: '' });
     await get().refreshSessions();
   },
 
@@ -178,16 +190,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
           set((s) => ({
             activeSessionId: null,
             status: 'idle',
+            runStartedAt: null,
+            narration: '',
             messages: s.messages.map((m) =>
               m.role === 'assistant' && m.streaming ? { ...m, streaming: false } : m,
             ),
           }));
         } else {
-          set({ status: event.status });
+          // M21-4: 実行開始時刻(最初の非終端statusで記録)
+          set((s) => ({ status: event.status, runStartedAt: s.runStartedAt ?? Date.now() }));
         }
         break;
       case 'text_delta':
-        set((s) => ({ messages: appendAssistantDelta(s.messages, event.text) }));
+        set((s) => ({
+          messages: appendAssistantDelta(s.messages, event.text),
+          // M21-4: 「現在の状況」ライン用に最新思考の末尾を保持
+          narration: (s.narration + event.text).slice(-200),
+        }));
         break;
       case 'message_done':
         set((s) => ({
@@ -208,8 +227,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
               resultContent: '',
               isError: false,
               running: true,
+              startedAt: Date.now(),
             },
           ],
+        }));
+        break;
+      case 'tool_progress':
+        set((s) => ({
+          messages: s.messages.map((m) =>
+            m.role === 'tool' && m.id === event.toolUseId
+              ? { ...m, progressTail: event.outputTail, progressAt: Date.now() }
+              : m,
+          ),
         }));
         break;
       case 'tool_result':

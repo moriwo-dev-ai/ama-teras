@@ -6,6 +6,7 @@ import { revealContextMenuHandler } from '../../stores/revealMenu';
 import { AutonomousModal } from './AutonomousModal';
 import { MarkdownMessage } from './MarkdownMessage';
 import { ReviewCard } from './ReviewCard';
+import { formatElapsed, useNowTick } from './useElapsed';
 
 /** ツール入力JSONから path を取り出す(write_file/read_file/edit_file等のリンク化用) */
 function pathFromInputPreview(inputPreview: string): string | null {
@@ -36,6 +37,10 @@ function ToolCard({ msg }: { msg: Extract<UiMessage, { role: 'tool' }> }): JSX.E
   const [open, setOpen] = useState(false);
   const openPreview = usePreviewStore((s) => s.open);
   const path = pathFromInputPreview(msg.inputPreview);
+  // M21-4: 実行中の経過時間+無応答検知(最後のライブ出力 or 開始から30秒で⏳)
+  const now = useNowTick(msg.running);
+  const lastSignalAt = msg.progressAt ?? msg.startedAt ?? 0;
+  const silentSec = msg.running && lastSignalAt > 0 ? Math.floor((now - lastSignalAt) / 1000) : 0;
   return (
     <div className="anim-appear flex justify-start">
       <div
@@ -50,9 +55,28 @@ function ToolCard({ msg }: { msg: Extract<UiMessage, { role: 'tool' }> }): JSX.E
           <span className="font-mono text-blue-300">{msg.name}</span>
           <span className="max-w-[360px] truncate text-zinc-500">{msg.inputPreview}</span>
           {msg.images && msg.images.length > 0 && <span>🖼</span>}
-          {msg.running && <span className="anim-pulse text-zinc-400">実行中…</span>}
+          {msg.running && (
+            <span className="flex items-center gap-1 text-zinc-400">
+              <span className="anim-spin">◌</span>
+              <span className="anim-pulse">実行中</span>
+              {msg.startedAt !== undefined && (
+                <span className="font-mono text-zinc-500">{formatElapsed(now - msg.startedAt)}</span>
+              )}
+              {silentSec >= 30 && (
+                <span className="text-amber-300" title="出力が途絶えているが実行は継続中(killしない)">
+                  ⏳無応答{silentSec}s
+                </span>
+              )}
+            </span>
+          )}
           {!msg.running && <span className="text-zinc-500">{open ? '▲' : '▼'}</span>}
         </button>
+        {/* M21-4: 実行中のライブ出力末尾(bash等) */}
+        {msg.running && msg.progressTail && (
+          <pre className="mt-1 max-h-24 overflow-hidden whitespace-pre-wrap border-t border-zinc-800 pt-1 font-mono text-[10px] text-zinc-500">
+            {msg.progressTail}
+          </pre>
+        )}
         {path && (
           <button
             className="mt-0.5 block truncate font-mono text-[11px] text-blue-300 underline decoration-dotted hover:text-blue-200"
@@ -82,6 +106,50 @@ function ToolCard({ msg }: { msg: Extract<UiMessage, { role: 'tool' }> }): JSX.E
         )}
       </div>
     </div>
+  );
+}
+
+/** M21-4: 受領指示の直下に出す「現在の状況」ライン(スピナー+経過+最新思考のライブ表示) */
+function LiveStatusLine(): JSX.Element {
+  const { status, narration, runStartedAt, messages } = useChatStore();
+  const now = useNowTick(true);
+  const runningTool = [...messages].reverse().find((m) => m.role === 'tool' && m.running);
+  const label =
+    status === 'calling_llm' ? 'モデル応答中' : status === 'executing_tool' ? 'ツール実行中' : '実行中';
+  // 思考の末尾1行だけ(改行を潰して詰める)
+  const tail = narration.replace(/\s+/g, ' ').trim().slice(-120);
+  return (
+    <div className="anim-fade flex justify-start">
+      <div className="max-w-[85%] rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-1.5 text-[11px] text-zinc-400">
+        <span className="anim-spin mr-1 text-blue-300">◌</span>
+        <span className="text-zinc-300">{label}</span>
+        {runStartedAt !== null && (
+          <span className="ml-1 font-mono text-zinc-500">{formatElapsed(now - runStartedAt)}</span>
+        )}
+        {runningTool && runningTool.role === 'tool' && (
+          <span className="ml-2 font-mono text-zinc-500">⚙ {runningTool.name}</span>
+        )}
+        {tail !== '' && (
+          <div className="mt-0.5 text-zinc-500">
+            <span className="text-zinc-600">現在の状況: </span>
+            {tail}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** M21-4: 入力欄上の常時ステータス(スクロール位置に関係なく生存が見える) */
+function BottomStatus({ status }: { status: string }): JSX.Element {
+  const runStartedAt = useChatStore((s) => s.runStartedAt);
+  const now = useNowTick(true);
+  return (
+    <p className="mb-1 flex items-center gap-1.5 text-xs text-zinc-500">
+      <span className="anim-spin text-blue-300">◌</span>
+      状態: {status === 'calling_llm' ? 'モデル応答中' : status === 'executing_tool' ? 'ツール実行中' : status}
+      {runStartedAt !== null && <span className="font-mono">{formatElapsed(now - runStartedAt)}</span>}
+    </p>
   );
 }
 
@@ -198,7 +266,11 @@ export function ChatView(): JSX.Element {
             指示を入力するとエージェントが作業を開始します(APIキーは設定パネルから登録)
           </p>
         )}
-        {messages.map((m) =>
+        {messages.map((m, i) => {
+          // M21-4: 受領した指示(最後のuserメッセージ)の直下に「現在の状況」ラインを挟む
+          const isLastUser = busy && m.role === 'user' && !messages.slice(i + 1).some((x) => x.role === 'user');
+          const liveLine = isLastUser ? <LiveStatusLine key={`${m.id}-live`} /> : null;
+          const rendered =
           m.role === 'tool' ? (
             <ToolCard key={m.id} msg={m} />
           ) : m.role === 'review' ? (
@@ -244,8 +316,9 @@ export function ChatView(): JSX.Element {
                 {m.streaming && <span className="anim-pulse ml-1">▍</span>}
               </div>
             </div>
-          ),
-        )}
+          );
+          return liveLine ? [rendered, liveLine] : rendered;
+        })}
         <div ref={bottomRef} />
       </div>
       <div
@@ -256,11 +329,7 @@ export function ChatView(): JSX.Element {
           void addFiles(e.dataTransfer.files);
         }}
       >
-        {busy && (
-          <p className="mb-1 text-xs text-zinc-500">
-            状態: {status === 'calling_llm' ? 'モデル応答中' : status === 'executing_tool' ? 'ツール実行中' : status}
-          </p>
-        )}
+        {busy && <BottomStatus status={status} />}
         <div className="mb-2 flex items-center gap-3 text-xs">
           <label className="flex items-center gap-1 text-zinc-400">
             <input type="checkbox" checked={planMode} onChange={(e) => setPlanMode(e.target.checked)} />

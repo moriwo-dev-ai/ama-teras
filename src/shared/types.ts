@@ -32,7 +32,9 @@ export type AgentEvent =
   /** M19: 品質レビューの採点カード */
   | ({ kind: 'review'; sessionId: string } & ReviewCardPayload)
   /** M21-1: 実行中に送られた追加指示がキューへ積まれた(次ターン境界で履歴へ注入される) */
-  | { kind: 'instruction_queued'; sessionId: string; text: string };
+  | { kind: 'instruction_queued'; sessionId: string; text: string }
+  /** M21-4: 実行中ツールのライブ出力(bash等のstdout末尾。ctx.log経由・APIコストなし) */
+  | { kind: 'tool_progress'; sessionId: string; toolUseId: string; name: string; outputTail: string };
 
 export type ProviderId = 'anthropic' | 'openai';
 
@@ -345,6 +347,10 @@ export interface SubAgentUpdate {
   summaryTail?: string;
   /** M18: 上位モデル(escalation帯)へ格上げされた(UIバッジ表示用) */
   escalated?: boolean;
+  /** M21-4: 最新の思考テキスト末尾(ストリーミングの生かじり。running中のライブ表示用) */
+  narration?: string;
+  /** M21-4: 開始時刻(epoch ms)。UI側で経過時間を表示する */
+  startedAt?: number;
 }
 
 // ---- M15-4: 環境ウィジェット ----

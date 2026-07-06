@@ -27,12 +27,19 @@
   40% { transform: scale(1.3); }
   100% { transform: scale(1); }
 }
+/* M21-4: 実行中スピナー(transformのみ)。アニメOFF時は静止した◌が残る */
+@keyframes mx-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 
 :root[data-anim='on'] .anim-appear { animation: mx-appear 0.18s ease-out both; }
 :root[data-anim='on'] .anim-pop { animation: mx-pop 0.15s ease-out both; }
 :root[data-anim='on'] .anim-fade { animation: mx-fade 0.12s ease-out both; }
 :root[data-anim='on'] .anim-pulse { animation: mx-pulse 1.6s ease-in-out infinite; }
 :root[data-anim='on'] .anim-check { display: inline-block; animation: mx-check 0.25s ease-out; }
+.anim-spin { display: inline-block; }
+:root[data-anim='on'] .anim-spin { animation: mx-spin 1s linear infinite; }
 :root[data-anim='on'] button { transition: opacity 0.12s ease, transform 0.08s ease; }
 :root[data-anim='on'] button:active:not(:disabled) { transform: scale(0.97); }
 
@@ -42,6 +49,7 @@
   :root[data-anim='on'] .anim-fade,
   :root[data-anim='on'] .anim-pulse,
   :root[data-anim='on'] .anim-check { animation: none; }
+  :root[data-anim='on'] .anim-spin { animation: none; }
   :root[data-anim='on'] button { transition: none; }
   :root[data-anim='on'] button:active:not(:disabled) { transform: none; }
 }

@@ -1135,7 +1135,8 @@ export class AgentService {
         }
         // read の並列: 従来の読み取り専用子を進行イベント付きで走らせる
         const label = task.length > 120 ? `${task.slice(0, 120)}…` : task;
-        onUpdate({ id, task: label, mode: 'read', status: 'running' });
+        const startedAt = Date.now();
+        onUpdate({ id, task: label, mode: 'read', status: 'running', startedAt });
         return runSubAgent(
           { provider, tools: this.deps.registry, cwd: this.getWorkspace(), acquireFallback },
           task,
@@ -1146,6 +1147,7 @@ export class AgentService {
             task: label,
             mode: 'read',
             status: signal.aborted ? 'cancelled' : 'done',
+            startedAt,
             summaryTail: summary.slice(-200),
           });
           return summary;
