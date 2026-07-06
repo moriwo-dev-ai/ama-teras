@@ -12,6 +12,7 @@ import type {
   CheckpointRestoreResult,
   EvolutionEvent,
   EvolutionJobSummary,
+  EvolutionScope,
   FilePreviewResult,
   HistoryMessageView,
   ModelPolicy,
@@ -75,7 +76,12 @@ export interface RegistryLike {
 /** EvolutionManager を構造的に満たす最小インターフェース */
 export interface EvolutionLike {
   list(): EvolutionJobSummary[];
-  enqueue(req: { description: string; expectedIO: string }): Promise<number>;
+  enqueue(req: {
+    description: string;
+    expectedIO: string;
+    /** M20: 省略=tool(従来) */
+    scope?: EvolutionScope;
+  }): Promise<number>;
 }
 
 /** EvolutionManager 生成時にサービス側が渡すフック(昇格承認の待ち合わせとイベント中継) */
@@ -232,15 +238,20 @@ export class AgentService {
       },
     );
     this.evolution = deps.createEvolution({
+      // M20【不変条件3・ユーザー確定】: 進化の昇格承認は自律モード(autonomousMode)に関わらず
+      // 絶対に自動化しない。このPromiseは evolutionPromoteRespond(人間のUI操作)でのみ解決される。
+      // ここに autonomousMode を参照する分岐を入れてはならない(guardrailsテストで固定)
       requestPromotionApproval: (job, diff, warnings) =>
         new Promise<boolean>((resolve) => {
           this.pendingPromotions.set(job.id, resolve);
           const event: PromotionRequestEvent = {
             kind: 'promotion_request',
             jobId: job.id,
-            toolName: job.toolName ?? '(不明)',
+            toolName: job.toolName ?? (job.scope !== undefined ? `(${job.scope}変更)` : '(不明)'),
             diff,
             warnings,
+            ...(job.scope !== undefined ? { scope: job.scope } : {}),
+            ...(job.requiresRestart !== undefined ? { requiresRestart: job.requiresRestart } : {}),
           };
           this.pendingPromotionEvents.set(job.id, event);
           deps.bus.publish('evolution:event', event);
@@ -373,8 +384,12 @@ export class AgentService {
 
   private evolutionContext() {
     return {
-      requestCapability: async (description: string, expectedIO: string) => ({
-        jobId: await this.evolution.enqueue({ description, expectedIO }),
+      requestCapability: async (
+        description: string,
+        expectedIO: string,
+        scope?: EvolutionScope,
+      ) => ({
+        jobId: await this.evolution.enqueue({ description, expectedIO, ...(scope !== undefined ? { scope } : {}) }),
       }),
     };
   }
@@ -1219,8 +1234,14 @@ export class AgentService {
     return this.evolution.list();
   }
 
-  async evolutionEnqueue(description: string, expectedIO: string): Promise<{ jobId: number }> {
-    return { jobId: await this.evolution.enqueue({ description, expectedIO }) };
+  async evolutionEnqueue(
+    description: string,
+    expectedIO: string,
+    scope?: EvolutionScope,
+  ): Promise<{ jobId: number }> {
+    return {
+      jobId: await this.evolution.enqueue({ description, expectedIO, ...(scope !== undefined ? { scope } : {}) }),
+    };
   }
 
   evolutionPromoteRespond(jobId: number, approved: boolean): void {

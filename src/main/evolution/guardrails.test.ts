@@ -10,18 +10,23 @@ import { EVOLUTION_WRITE_ALLOWLIST } from './job';
  * これらのテストが落ちる変更は、理由の提示とユーザー承認なしに入れてはならない。
  */
 
-describe('進化パイプラインの制限(M9で不変)', () => {
-  it('EVOLUTION_WRITE_ALLOWLIST は plugins ディレクトリのみ', () => {
+describe('進化パイプラインの制限(M9で不変・M20でスコープ段階化)', () => {
+  it('EVOLUTION_WRITE_ALLOWLIST(=toolスコープ)は plugins ディレクトリのみ', () => {
     expect(EVOLUTION_WRITE_ALLOWLIST).toEqual(['src/main/tools/plugins']);
   });
 
   it('進化ジョブは writeAllowlist と restrictExec を必ず付けて executor を呼ぶ(ソース・トリップワイヤ)', () => {
     const source = readFileSync(fileURLToPath(new URL('./job.ts', import.meta.url)), 'utf8');
-    expect(source).toContain('writeAllowlist: EVOLUTION_WRITE_ALLOWLIST');
+    // M20: allowlist はスコープ別(SCOPE_ALLOWLISTS[scope])になった。ユーザー承認済みの変更。
+    // 「必ず writeAllowlist を付ける」「その出所は SCOPE_ALLOWLISTS」の2点を固定する
+    expect(source).toContain('writeAllowlist: allowlist');
+    expect(source).toContain('const allowlist = SCOPE_ALLOWLISTS[scope]');
     expect(source).toContain('restrictExec: true');
     // スコープポリシー(getScopePolicy)を進化ジョブに注入しない: fullPc設定が進化ジョブへ
     // 波及して挙動が変わることを防ぐ(制限は writeAllowlist / restrictExec に一元化)
     expect(source).not.toContain('getScopePolicy');
+    // M17: 自律モードも進化ジョブへ注入しない
+    expect(source).not.toContain('getAutonomous');
   });
 
   it('M11-2: バックグラウンドプロセス(ToolContext.processes)を進化ジョブへ注入しない(ソース・トリップワイヤ)', () => {

@@ -42,8 +42,8 @@ const api: MyCodexApi = {
   onEvolutionEvent: (listener) => subscribe<EvolutionEvent>(IpcChannels.evolutionEvent, listener),
   evolutionPromoteRespond: (jobId, approved) =>
     ipcRenderer.invoke(IpcChannels.evolutionPromoteRespond, jobId, approved),
-  evolutionEnqueue: (description, expectedIo) =>
-    ipcRenderer.invoke(IpcChannels.evolutionEnqueue, description, expectedIo),
+  evolutionEnqueue: (description, expectedIo, scope) =>
+    ipcRenderer.invoke(IpcChannels.evolutionEnqueue, description, expectedIo, scope),
   evolutionList: () => ipcRenderer.invoke(IpcChannels.evolutionList),
 
   checkpointList: () => ipcRenderer.invoke(IpcChannels.checkpointList),

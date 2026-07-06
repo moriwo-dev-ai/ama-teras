@@ -416,11 +416,18 @@ export async function registerIpcHandlers(
     service.evolutionPromoteRespond(jobId, approved);
   });
 
-  ipcMain.handle(IpcChannels.evolutionEnqueue, (_e, description: unknown, expectedIo: unknown) => {
-    assertString(description, 'description');
-    assertString(expectedIo, 'expectedIo');
-    return service.evolutionEnqueue(description, expectedIo);
-  });
+  ipcMain.handle(
+    IpcChannels.evolutionEnqueue,
+    (_e, description: unknown, expectedIo: unknown, scope: unknown) => {
+      assertString(description, 'description');
+      assertString(expectedIo, 'expectedIo');
+      // M20: scope 省略=tool(後方互換)。不正値は拒否
+      if (scope !== undefined && scope !== 'tool' && scope !== 'renderer' && scope !== 'core') {
+        throw new Error('IPC payload scope が不正');
+      }
+      return service.evolutionEnqueue(description, expectedIo, scope);
+    },
+  );
 
   ipcMain.handle(IpcChannels.evolutionList, () => service.evolutionList());
 

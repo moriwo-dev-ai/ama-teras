@@ -35,7 +35,11 @@ export interface RemoteFacade {
   approvalRespond(id: string, decision: ApprovalDecision): void;
   toolsList(): { tools: ToolInfo[]; errors: PluginErrorInfo[] };
   evolutionList(): EvolutionJobSummary[];
-  evolutionEnqueue(description: string, expectedIO: string): Promise<{ jobId: number }>;
+  evolutionEnqueue(
+    description: string,
+    expectedIO: string,
+    scope?: import('../../shared/types').EvolutionScope,
+  ): Promise<{ jobId: number }>;
   evolutionPromoteRespond(jobId: number, approved: boolean): void;
   getStatus(): AgentStatusView;
   getHistoryView(): HistoryMessageView[];
@@ -286,11 +290,15 @@ export class RemoteServer {
         const body = await readJsonBody(req);
         const description = body['description'];
         const expectedIO = body['expectedIO'];
+        const scope = body['scope'];
         if (typeof description !== 'string' || description.trim() === '') {
           throw new HttpError(400, 'description が必要');
         }
         if (typeof expectedIO !== 'string') throw new HttpError(400, 'expectedIO が必要');
-        return sendJson(res, 200, await facade.evolutionEnqueue(description, expectedIO));
+        if (scope !== undefined && scope !== 'tool' && scope !== 'renderer' && scope !== 'core') {
+          throw new HttpError(400, 'scope が不正(tool/renderer/core)');
+        }
+        return sendJson(res, 200, await facade.evolutionEnqueue(description, expectedIO, scope));
       }
 
       case 'POST /api/autonomous': {

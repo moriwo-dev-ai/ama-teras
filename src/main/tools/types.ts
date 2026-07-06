@@ -50,7 +50,12 @@ export interface ToolContext {
    * (プラグインは evolution モジュールを import できないため、コンテキスト経由で注入する)
    */
   evolution?: {
-    requestCapability(description: string, expectedIO: string): Promise<{ jobId: number }>;
+    /** M20: scope 省略時は 'tool'(従来)。renderer/core は本体変更の提案(常に人間承認) */
+    requestCapability(
+      description: string,
+      expectedIO: string,
+      scope?: 'tool' | 'renderer' | 'core',
+    ): Promise<{ jobId: number }>;
   };
   /**
    * サブエージェント委譲(M8-4 / M12-3)。dispatch_agent プラグインだけが使う。

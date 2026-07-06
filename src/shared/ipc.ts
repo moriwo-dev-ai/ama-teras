@@ -11,6 +11,7 @@ import type {
   CheckpointRestoreResult,
   EvolutionEvent,
   EvolutionJobSummary,
+  EvolutionScope,
   FilePreviewResult,
   McpConfig,
   McpServerStatus,
@@ -119,7 +120,7 @@ export interface MyCodexApi {
   onEvolutionEvent(listener: (event: EvolutionEvent) => void): () => void;
   evolutionPromoteRespond(jobId: number, approved: boolean): Promise<void>;
   /** 手動で進化ジョブを起動(デバッグ・検証用) */
-  evolutionEnqueue(description: string, expectedIo: string): Promise<{ jobId: number }>;
+  evolutionEnqueue(description: string, expectedIo: string, scope?: EvolutionScope): Promise<{ jobId: number }>;
   evolutionList(): Promise<EvolutionJobSummary[]>;
 
   /** M11-3: 自動チェックポイントの一覧と作業ツリーへの復元(HEAD/indexは変更しない) */

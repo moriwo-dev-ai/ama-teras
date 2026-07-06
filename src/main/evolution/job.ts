@@ -35,8 +35,34 @@ export interface EvolutionJobRunner {
   ): Promise<JobArtifacts>;
 }
 
-/** 書き込み許可: プラグインと同ディレクトリのテストのみ(ARCHITECTURE §6.2) */
-export const EVOLUTION_WRITE_ALLOWLIST = ['src/main/tools/plugins'];
+import { SCOPE_ALLOWLISTS } from './scopes';
+
+/** 書き込み許可(scope='tool'): プラグインと同ディレクトリのテストのみ(ARCHITECTURE §6.2) */
+export const EVOLUTION_WRITE_ALLOWLIST = SCOPE_ALLOWLISTS.tool;
+
+/** M20: renderer/core 用のシステムプロンプト(既存コードの最小差分修正) */
+const CORE_JOB_SYSTEM_PROMPT = (scope: 'renderer' | 'core', allowlist: string[]): string =>
+  `あなたはAMA-terasの進化ジョブ(scope: ${scope})。本体コードの改善を1件、最小差分で実装する。
+
+厳守事項:
+- 書き込みは ${allowlist.join(' / ')} 配下のみ許可(機械的にも強制される)
+- 保護領域(聖域)は変更禁止で、差分に1行でも触れたらジョブ全体が無条件拒否される:
+  src/main/evolution / 承認関連(approval.ts・Approvalコンポーネント・ipc.ts・preload・shared/ipc.ts)/
+  secrets.ts / userDataMigration.ts / CLAUDE.md / docs/PROTECTED.md
+- 既存のコードスタイル・規約に合わせ、変更は依頼の範囲だけに絞る。新規依存の追加は禁止
+- シンボリックリンクの作成は禁止(検出したら拒否される)
+
+コーディング規約(違反するとtypecheckゲートで失格):
+- TypeScript strict + noUncheckedIndexedAccess。any 禁止(入力は unknown+型ガード)
+
+完了前の自己検証(必須):
+- bash で \`npm run typecheck\` → エラーゼロ
+- bash で \`npx vitest run\` → 全合格(既存テストを壊さない)
+- bash で \`npm run build\` → 成功
+- 【重要】bash は制限モードで検証コマンド(npm run <script> / npx vitest run / npx tsc)のみ。
+  ファイルの作成・変更は必ず write_file / edit_file を使う
+
+最後の応答で、変更概要を \`\`\`json {"summary": "..."} \`\`\` のコードブロックで必ず出力する`;
 
 const JOB_SYSTEM_PROMPT = `あなたはAMA-terasの進化ジョブ。新しいツールプラグインを1つ実装する。
 
@@ -83,6 +109,8 @@ export class AgentJobRunner implements EvolutionJobRunner {
     signal: AbortSignal,
     feedback?: string,
   ): Promise<JobArtifacts> {
+    const scope = req.scope ?? 'tool';
+    const allowlist = SCOPE_ALLOWLISTS[scope];
     // B内のプラグインを見せるため、B専用のレジストリを作る
     const registry = new ToolRegistry(
       join(worktreeDir, 'src/main/tools/plugins'),
@@ -92,6 +120,12 @@ export class AgentJobRunner implements EvolutionJobRunner {
     // 進化ジョブ内のツール実行は全自動承認(昇格時に人間の承認が入るため)
     const broker = new ApprovalBroker(() => {});
 
+    const taskText =
+      scope === 'tool'
+        ? `新しい能力が必要: ${req.description}\n期待する入出力: ${req.expectedIO}\n` +
+          `このworktree(${worktreeDir})内でプラグインとテストを実装せよ。`
+        : `本体改善の依頼(scope: ${scope}): ${req.description}\n期待する挙動: ${req.expectedIO}\n` +
+          `このworktree(${worktreeDir})内の既存コードを最小差分で修正せよ。`;
     const history: Parameters<typeof runAgentLoop>[2] = [
       {
         role: 'user',
@@ -99,8 +133,7 @@ export class AgentJobRunner implements EvolutionJobRunner {
           {
             type: 'text',
             text:
-              `新しい能力が必要: ${req.description}\n期待する入出力: ${req.expectedIO}\n` +
-              `このworktree(${worktreeDir})内でプラグインとテストを実装せよ。` +
+              taskText +
               (feedback
                 ? `\n\n【再生成】前回の生成物は検証ゲートに不合格だった。既存ファイルを修正して直せ:\n${feedback}`
                 : ''),
@@ -123,7 +156,7 @@ export class AgentJobRunner implements EvolutionJobRunner {
             },
             name,
             input,
-            { ...ctx, writeAllowlist: EVOLUTION_WRITE_ALLOWLIST, restrictExec: true },
+            { ...ctx, writeAllowlist: allowlist, restrictExec: true },
           ),
         emit: (e) => {
           if (e.kind === 'text_delta') lastText += e.text;
@@ -133,9 +166,9 @@ export class AgentJobRunner implements EvolutionJobRunner {
           }
           if (e.kind === 'tool_start') log(`[job] tool: ${e.name} ${e.inputPreview.slice(0, 120)}`);
         },
-        systemPrompt: JOB_SYSTEM_PROMPT,
+        systemPrompt: scope === 'tool' ? JOB_SYSTEM_PROMPT : CORE_JOB_SYSTEM_PROMPT(scope, allowlist),
         cwd: worktreeDir,
-        maxTurns: 40,
+        maxTurns: scope === 'tool' ? 40 : 60,
       },
       `evolve-${Date.now()}`,
       history,
@@ -152,12 +185,21 @@ export class AgentJobRunner implements EvolutionJobRunner {
       .map((b) => b.text)
       .join('\n');
     const match = /```json\s*([\s\S]*?)```/.exec(finalText);
-    if (!match) throw new Error('生成結果のメタデータ(toolName/smokeInput)が見つからない');
+    if (!match) throw new Error('生成結果のメタデータ(toolName/summary)が見つからない');
     const meta: unknown = JSON.parse(match[1]!);
     if (typeof meta !== 'object' || meta === null) {
       throw new Error('メタデータ形式が不正');
     }
     const rec = meta as Record<string, unknown>;
+
+    if (scope !== 'tool') {
+      // renderer/core: 変更概要のみ(toolName無し。スモークはフルアプリ起動が担う)
+      if (typeof rec['summary'] !== 'string' || rec['summary'].trim() === '') {
+        throw new Error('renderer/core ジョブは summary(変更概要)が必要');
+      }
+      return { summary: rec['summary'] };
+    }
+
     // toolName はこの後シェルコマンドへ補間される(gates/supervisor)ため厳格に検証する
     assertSafeToolName(rec['toolName']);
     return {
