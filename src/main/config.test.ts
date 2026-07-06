@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ConfigStore, parseModelPolicy } from './config';
+import { ConfigStore, parseModelPolicy, parseReviewGate } from './config';
 
 let dir: string;
 let file: string;
@@ -176,6 +176,44 @@ describe('ConfigStore', () => {
     expect(new ConfigStore(file).get().modelPolicy).toBeUndefined();
     await writeFile(file, JSON.stringify({ modelPolicy: { enabled: true } }));
     expect(new ConfigStore(file).get().modelPolicy).toBeUndefined();
+  });
+
+  // ---- M19: reviewGate ----
+
+  it('reviewGate の既定は未設定(=無効・従来挙動)', async () => {
+    expect(new ConfigStore(file).get().reviewGate).toBeUndefined();
+    await writeFile(file, JSON.stringify({ provider: 'openai', model: '' }));
+    expect(new ConfigStore(file).get().reviewGate).toBeUndefined();
+  });
+
+  it('reviewGate が永続化され、threshold/rounds はクランプ・axes は欠落分true補完', () => {
+    const store = new ConfigStore(file);
+    store.set({
+      ...store.get(),
+      reviewGate: {
+        enabled: true,
+        threshold: 9,
+        maxRoundsPerMilestone: 99,
+        axes: { code: true, ux: false, requirements: true, tests: true },
+      },
+    });
+    const c = new ConfigStore(file).get();
+    expect(c.reviewGate?.enabled).toBe(true);
+    expect(c.reviewGate?.threshold).toBe(5); // 1〜5クランプ
+    expect(c.reviewGate?.maxRoundsPerMilestone).toBe(5); // 0〜5クランプ
+    expect(c.reviewGate?.axes.ux).toBe(false);
+  });
+
+  it('parseReviewGate: enabledのみでも既定値(4.0/2/全軸true)で補完される', () => {
+    const r = parseReviewGate({ enabled: true });
+    expect(r).toEqual({
+      enabled: true,
+      threshold: 4.0,
+      maxRoundsPerMilestone: 2,
+      axes: { code: true, ux: true, requirements: true, tests: true },
+    });
+    expect(parseReviewGate({ threshold: 4 })).toBeNull(); // enabled欠落は無効
+    expect(parseReviewGate('on')).toBeNull();
   });
 
   it('parseModelPolicy: escalation 未指定は省略のまま(planner 使用は呼び出し側の解釈)', () => {

@@ -28,7 +28,9 @@ export type AgentEvent =
     }
   | { kind: 'error'; sessionId: string; message: string }
   /** M16-1: 中立の情報カード(モデル切替検知・フォールバック発動等) */
-  | { kind: 'info'; sessionId: string; message: string };
+  | { kind: 'info'; sessionId: string; message: string }
+  /** M19: 品質レビューの採点カード */
+  | ({ kind: 'review'; sessionId: string } & ReviewCardPayload);
 
 export type ProviderId = 'anthropic' | 'openai';
 
@@ -111,6 +113,48 @@ export interface ModelPolicy {
   maxEscalationsPerTask?: number;
 }
 
+/** M19: 品質レビュー・ゲート設定 */
+export interface ReviewGateConfig {
+  enabled: boolean;
+  /** 合格閾値(1〜5)。総合平均がこれ未満なら差し戻し。既定 4.0 */
+  threshold: number;
+  /** 1マイルストーンあたりの差し戻し上限。既定 2(0でレビューのみ・差し戻し無し) */
+  maxRoundsPerMilestone: number;
+  /** 採点軸のON/OFF。ux はUI無しタスクではレビュアー判断でスキップされる */
+  axes: { code: boolean; ux: boolean; requirements: boolean; tests: boolean };
+}
+
+/** M19: レビュー1件の具体指摘(抽象指摘禁止のため4フィールド必須) */
+export interface ReviewFinding {
+  file: string;
+  location: string;
+  problem: string;
+  fix: string;
+}
+
+/** M19: 採点結果(スキップされた軸は null) */
+export interface ReviewScores {
+  code: number | null;
+  ux: number | null;
+  requirements: number | null;
+  tests: number | null;
+}
+
+/** M19: チャットのレビューカード表示用ペイロード */
+export interface ReviewCardPayload {
+  /** レビュー対象(完了したマイルストーン項目 or「完成時レビュー」) */
+  milestone: string;
+  /** 0=初回レビュー、1〜=差し戻し後の再レビュー */
+  round: number;
+  scores: ReviewScores;
+  average: number;
+  pass: boolean;
+  findings: ReviewFinding[];
+  summary: string;
+  /** 上限到達で未解決のまま先へ進んだ */
+  unresolved?: boolean;
+}
+
 export interface AppConfig {
   autoApprove: AutoApproveSettings;
   provider: ProviderId;
@@ -152,6 +196,12 @@ export interface AppConfig {
    * 進化ジョブは影響を受けない(従来の provider/model 設定を使う)
    */
   modelPolicy?: ModelPolicy;
+  /**
+   * M19: 品質レビュー・ゲート。既定 undefined=無効(従来挙動)。
+   * マイルストーン(AMATERAS_PLAN.md項目完了)ごとに planner 帯が4軸採点し、
+   * 閾値未満なら worker 帯へ具体指摘つきで差し戻す。進化ジョブには適用しない
+   */
+  reviewGate?: ReviewGateConfig;
   /**
    * M10: スマホWebアクセス。既定 disabled。省略可(後方互換)で、ConfigStore が既定値を補う。
    * renderer からの settings:set では上書きされない(専用IPCでのみ変更)。

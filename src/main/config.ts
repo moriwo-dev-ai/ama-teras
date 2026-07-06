@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { AppConfig, ModelBand, ModelPolicy } from '../shared/types';
+import type { AppConfig, ModelBand, ModelPolicy, ReviewGateConfig } from '../shared/types';
 
 /** M11-1: maxTurns のクランプ範囲。未設定はループ側の既定(30)に委ねる */
 export const MAX_TURNS_MIN = 1;
@@ -19,6 +19,38 @@ function parseBand(raw: unknown): ModelBand | null {
   if (rec['provider'] !== 'anthropic' && rec['provider'] !== 'openai') return null;
   if (typeof rec['model'] !== 'string') return null;
   return { provider: rec['provider'], model: rec['model'] };
+}
+
+/** M19: レビュー閾値・回数のクランプ範囲 */
+export const REVIEW_THRESHOLD_MIN = 1;
+export const REVIEW_THRESHOLD_MAX = 5;
+export const REVIEW_ROUNDS_MAX = 5;
+export const REVIEW_DEFAULT_THRESHOLD = 4.0;
+export const REVIEW_DEFAULT_ROUNDS = 2;
+
+/** M19: reviewGate の読み込みバリデーション。形が崩れていたら未設定(=無効)として扱う */
+export function parseReviewGate(raw: unknown): ReviewGateConfig | null {
+  const rec = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : null;
+  if (!rec || typeof rec['enabled'] !== 'boolean') return null;
+  const threshold =
+    typeof rec['threshold'] === 'number' && Number.isFinite(rec['threshold'])
+      ? Math.min(REVIEW_THRESHOLD_MAX, Math.max(REVIEW_THRESHOLD_MIN, rec['threshold']))
+      : REVIEW_DEFAULT_THRESHOLD;
+  const rounds =
+    typeof rec['maxRoundsPerMilestone'] === 'number' && Number.isFinite(rec['maxRoundsPerMilestone'])
+      ? Math.min(REVIEW_ROUNDS_MAX, Math.max(0, Math.round(rec['maxRoundsPerMilestone'])))
+      : REVIEW_DEFAULT_ROUNDS;
+  const axesRec =
+    typeof rec['axes'] === 'object' && rec['axes'] !== null
+      ? (rec['axes'] as Record<string, unknown>)
+      : {};
+  const axis = (k: string): boolean => (typeof axesRec[k] === 'boolean' ? (axesRec[k] as boolean) : true);
+  return {
+    enabled: rec['enabled'],
+    threshold,
+    maxRoundsPerMilestone: rounds,
+    axes: { code: axis('code'), ux: axis('ux'), requirements: axis('requirements'), tests: axis('tests') },
+  };
 }
 
 /** M18: modelPolicy の読み込みバリデーション。形が崩れていたら未設定(=無効)として扱う */
@@ -86,6 +118,9 @@ export class ConfigStore {
       // M18: モデル自動切替(壊れた形は未設定=無効へフォールバック)
       const policy = parseModelPolicy(rec['modelPolicy']);
       if (policy) merged.modelPolicy = policy;
+      // M19: 品質レビュー・ゲート(同上)
+      const review = parseReviewGate(rec['reviewGate']);
+      if (review) merged.reviewGate = review;
       const remote = rec['remote'];
       if (typeof remote === 'object' && remote !== null && merged.remote) {
         const r = remote as Record<string, unknown>;
@@ -124,6 +159,12 @@ export class ConfigStore {
       const policy = parseModelPolicy(clone.modelPolicy);
       if (policy) clone.modelPolicy = policy;
       else delete clone.modelPolicy;
+    }
+    // M19: 同上
+    if (clone.reviewGate !== undefined) {
+      const review = parseReviewGate(clone.reviewGate);
+      if (review) clone.reviewGate = review;
+      else delete clone.reviewGate;
     }
     this.config = clone;
     mkdirSync(dirname(this.filePath), { recursive: true });

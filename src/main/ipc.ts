@@ -53,6 +53,26 @@ function isBandLike(v: unknown): boolean {
   );
 }
 
+/** M19: reviewGate の形チェック(undefined は許可=無効) */
+function isReviewGateLike(v: unknown): boolean {
+  if (v === undefined) return true;
+  const r = typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null;
+  const axes = r?.['axes'];
+  return (
+    r !== null &&
+    typeof r['enabled'] === 'boolean' &&
+    typeof r['threshold'] === 'number' &&
+    Number.isFinite(r['threshold']) &&
+    typeof r['maxRoundsPerMilestone'] === 'number' &&
+    Number.isFinite(r['maxRoundsPerMilestone']) &&
+    typeof axes === 'object' &&
+    axes !== null &&
+    (['code', 'ux', 'requirements', 'tests'] as const).every(
+      (k) => typeof (axes as Record<string, unknown>)[k] === 'boolean',
+    )
+  );
+}
+
 /** M18: modelPolicy の形チェック(undefined は許可=無効) */
 function isModelPolicyLike(v: unknown): boolean {
   if (v === undefined) return true;
@@ -95,7 +115,8 @@ function assertConfig(value: unknown): asserts value is AppConfig {
         ((rec['fallback'] as Record<string, unknown>)['provider'] === 'anthropic' ||
           (rec['fallback'] as Record<string, unknown>)['provider'] === 'openai') &&
         typeof (rec['fallback'] as Record<string, unknown>)['model'] === 'string')) &&
-    isModelPolicyLike(rec['modelPolicy']);
+    isModelPolicyLike(rec['modelPolicy']) &&
+    isReviewGateLike(rec['reviewGate']);
   if (!ok) throw new Error('IPC payload config が不正');
 }
 
