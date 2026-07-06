@@ -46,6 +46,19 @@ describe('userDataMigration (M17-1)', () => {
     expect(existsSync(join(oldDir, 'secrets.json'))).toBe(true);
   });
 
+  it('rendererのlocalStorage実体(Local Storage / Session Storage)も移行される', async () => {
+    await seedOld();
+    await mkdir(join(oldDir, 'Local Storage', 'leveldb'), { recursive: true });
+    await writeFile(join(oldDir, 'Local Storage', 'leveldb', '000001.log'), 'host-data', 'utf8');
+    await mkdir(join(oldDir, 'Session Storage'), { recursive: true });
+    await writeFile(join(oldDir, 'Session Storage', '000001.log'), 's', 'utf8');
+
+    const r = migrateUserData(oldDir, newDir);
+    expect(r.migrated).toBe(true);
+    expect(await readFile(join(newDir, 'Local Storage', 'leveldb', '000001.log'), 'utf8')).toBe('host-data');
+    expect(existsSync(join(newDir, 'Session Storage', '000001.log'))).toBe(true);
+  });
+
   it('safeStorage の鍵素材(Local State)も移行され、新側の自動生成鍵を上書きする', async () => {
     await seedOld();
     // electron が migration より先に新プロファイル用の鍵を生成しているケース

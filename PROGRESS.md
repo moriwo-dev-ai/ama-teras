@@ -2,7 +2,7 @@
 
 ## 現在の状態
 
-- **M1〜M20まで実装**。テスト607件・typecheck(node/web/remote)全合格。**v0.2.0-M20タグ済み**。
+- **M1〜M20まで実装**。テスト608件・typecheck(node/web/remote)全合格。**v0.2.0-M20タグ済み**。
 - **整理タスク4件完了(2026-07-06)**:
   ①右クリック「フォルダで開く」(左ペインのプロジェクト項目+チャット内ファイル参照。
   file:reveal再利用、resolveRevealTargetでディレクトリ対応・deny判定のみ維持)
@@ -420,6 +420,15 @@
 - ~~(M9) audit.jsonl の閲覧UIは未実装~~ → M10 のスマホUI監査タブで提供済み
 
 ## 決定事項ログ
+
+### QR非表示バグ修正での判断(2026-07-06)
+
+- **リモート接続ホスト名はconfig.json(remote.host)へ永続化**: 旧実装はrendererのlocalStorage
+  保存で、M17のuserData移行に「Local Storage」(leveldb実体)が含まれず消失→ホスト空→URL組めず
+  →QR非表示、が原因だった。UI側は旧localStorage値からの自己修復(読み取り→config保存)つき
+- **userData移行のCOPY_ENTRIESに「Local Storage」「Session Storage」を追加**(再発防止・
+  将来の移行向け。テストで固定)
+
 
 ### 整理タスクでの判断(2026-07-06)
 

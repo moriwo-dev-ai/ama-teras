@@ -1,9 +1,10 @@
 import { toDataURL } from 'qrcode';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RemoteStatusPayload } from '../../../../shared/types';
 import { buildRemoteUrl } from './remoteUrl';
 
-const HOST_KEY = 'mycodex-remote-host';
+/** 旧保存先(〜M17)。localStorageはuserData移行で消えるため、読み取りフォールバックとしてのみ残す */
+const LEGACY_HOST_KEY = 'mycodex-remote-host';
 
 /** M13-0: 接続URLのQR表示。スマホカメラで読むだけで接続できるようにする */
 function RemoteQr({ url, withToken }: { url: string; withToken: boolean }): JSX.Element | null {
@@ -45,16 +46,31 @@ export function RemoteAccessSection(): JSX.Element {
   const [status, setStatus] = useState<RemoteStatusPayload | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [port, setPort] = useState('8787');
-  const [host, setHost] = useState(() => window.localStorage.getItem(HOST_KEY) ?? '');
+  const [host, setHost] = useState('');
   const [notice, setNotice] = useState('');
   const [confirmRegen, setConfirmRegen] = useState(false);
+  const hostSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     void window.api.remoteStatus().then((s) => {
       setStatus(s);
       setPort(String(s.port));
+      // ホスト名はconfig優先。空なら旧localStorageから引き継いでconfigへ保存(自己修復)
+      const legacy = window.localStorage.getItem(LEGACY_HOST_KEY) ?? '';
+      const initial = s.host ?? legacy;
+      setHost(initial);
+      if (!s.host && legacy !== '') void window.api.remoteSetHost(legacy);
     });
   }, []);
+
+  const saveHost = (value: string): void => {
+    setHost(value);
+    // 1文字ごとのconfig書き込みを避ける(500msデバウンス)
+    if (hostSaveTimer.current) clearTimeout(hostSaveTimer.current);
+    hostSaveTimer.current = setTimeout(() => {
+      window.api.remoteSetHost(value).catch(() => setNotice('ホスト名の保存に失敗'));
+    }, 500);
+  };
 
   if (!status) return <p className="text-xs text-zinc-400">リモート状態を読込中…</p>;
 
@@ -149,10 +165,7 @@ export function RemoteAccessSection(): JSX.Element {
             className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono text-xs"
             placeholder="mypc.tailxxxx.ts.net"
             value={host}
-            onChange={(e) => {
-              setHost(e.target.value);
-              window.localStorage.setItem(HOST_KEY, e.target.value);
-            }}
+            onChange={(e) => saveHost(e.target.value)}
           />
           {url && (
             <div className="flex items-center gap-2">

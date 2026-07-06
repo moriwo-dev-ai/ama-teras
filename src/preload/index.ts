@@ -70,6 +70,7 @@ const api: MyCodexApi = {
   remoteStatus: () => ipcRenderer.invoke(IpcChannels.remoteStatus),
   remoteSetEnabled: (enabled, port) =>
     ipcRenderer.invoke(IpcChannels.remoteSetEnabled, enabled, port),
+  remoteSetHost: (host) => ipcRenderer.invoke(IpcChannels.remoteSetHost, host),
   remoteRegenerateToken: () => ipcRenderer.invoke(IpcChannels.remoteRegenerateToken),
 
   autonomousGet: () => ipcRenderer.invoke(IpcChannels.autonomousGet),

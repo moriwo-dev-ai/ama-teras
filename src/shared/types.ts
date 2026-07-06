@@ -238,6 +238,11 @@ export interface RemoteConfig {
   enabled: boolean;
   port: number;
   tokenHash?: string;
+  /**
+   * 接続ホスト名(TailscaleのMagicDNS名等)。QR/接続URLの組み立て用。
+   * 以前はrendererのlocalStorage保存だったが、userData移行等で消えるため本体設定に永続化
+   */
+  host?: string;
 }
 
 /** デスクトップ設定UI用のリモートサーバ状態 */
@@ -250,6 +255,8 @@ export interface RemoteStatusPayload {
   tokenSet: boolean;
   /** listen 失敗等のエラー(UI表示用) */
   lastError?: string;
+  /** 接続ホスト名(設定済みの場合) */
+  host?: string;
 }
 
 /** main → renderer/remote: 承認要求がいずれかの画面で解決された通知(開いたままのダイアログを閉じる) */

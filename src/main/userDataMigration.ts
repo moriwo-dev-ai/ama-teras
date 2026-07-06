@@ -27,9 +27,11 @@ const DATA_ENTRIES = [
  * Local State は Chromium が safeStorage(DPAPI)の暗号鍵(os_crypt.encrypted_key)を
  * 保持するファイルで、これを移行しないと secrets.json が新プロファイルの別鍵で
  * 復号不能になる(=APIキーが消えたように見える)。実データ判定には使わない
- * (electron が起動時に自動生成するため)
+ * (electron が起動時に自動生成するため)。
+ * 「Local Storage」「Session Storage」はrendererのlocalStorage等の実体(leveldb)。
+ * 移行しないとUI側の保存値が消える(M17でリモートホスト名が消えた実績あり)
  */
-const COPY_ENTRIES = [...DATA_ENTRIES, 'Local State'] as const;
+const COPY_ENTRIES = [...DATA_ENTRIES, 'Local State', 'Local Storage', 'Session Storage'] as const;
 
 const MIGRATED_MARKER = 'migrated-from-mycodex.json';
 

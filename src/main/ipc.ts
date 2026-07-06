@@ -520,6 +520,7 @@ export async function registerIpcHandlers(
       tokenSet: rc.tokenHash !== undefined,
     };
     if (remoteLastError !== undefined) status.lastError = remoteLastError;
+    if (rc.host !== undefined && rc.host !== '') status.host = rc.host;
     return status;
   };
 
@@ -575,6 +576,20 @@ export async function registerIpcHandlers(
     const result: { status: RemoteStatusPayload; token?: string } = { status: remoteStatus() };
     if (token !== undefined) result.token = token;
     return result;
+  });
+
+  // ホスト名はURL/QR組み立て用の表示情報(listenには影響しない)。
+  // localStorage保存はuserData移行で消えたためconfigへ永続化する
+  ipcMain.handle(IpcChannels.remoteSetHost, (_e, host: unknown) => {
+    assertString(host, 'host');
+    const trimmed = host.trim();
+    if (trimmed.length > 253) throw new Error('ホスト名が長すぎる');
+    const rc = getRemoteConfig();
+    const next: RemoteConfig = { ...rc };
+    if (trimmed === '') delete next.host;
+    else next.host = trimmed;
+    setRemoteConfig(next);
+    return remoteStatus();
   });
 
   ipcMain.handle(IpcChannels.remoteRegenerateToken, () => {

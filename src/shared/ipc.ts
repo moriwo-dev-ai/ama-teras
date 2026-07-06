@@ -76,6 +76,7 @@ export const IpcChannels = {
   /** M10: リモートアクセス管理(デスクトップ専用) */
   remoteStatus: 'remote:status',
   remoteSetEnabled: 'remote:set-enabled',
+  remoteSetHost: 'remote:set-host',
   remoteRegenerateToken: 'remote:regenerate-token',
   /** M17-2: 自律モード(承認なし自動実行)の取得・切替・変更通知 */
   autonomousGet: 'autonomous:get',
@@ -159,6 +160,7 @@ export interface MyCodexApi {
   /** M10: リモートアクセス(スマホWeb)管理。トークン平文は生成時に一度だけ返る */
   remoteStatus(): Promise<RemoteStatusPayload>;
   remoteSetEnabled(enabled: boolean, port: number): Promise<{ status: RemoteStatusPayload; token?: string }>;
+  remoteSetHost(host: string): Promise<RemoteStatusPayload>;
   remoteRegenerateToken(): Promise<{ status: RemoteStatusPayload; token: string }>;
 
   /** M17-2: 自律モード(承認なし自動実行)。状態はセッション単位・再起動でOFF */
