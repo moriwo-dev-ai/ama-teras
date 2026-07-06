@@ -2,7 +2,26 @@
 
 ## 現在の状態
 
-- **M1〜M19まで実装**。テスト566件・typecheck(node/web/remote)全合格。
+- **M1〜M20まで実装**。テスト604件・typecheck(node/web/remote)全合格。
+- **M20完了(2026-07-06・実機3実証済み)**: コア自己進化(提案制・保護領域つき) —
+  進化scopeを **tool / renderer / core** に段階化(`src/main/evolution/scopes.ts`)。
+  **聖域=保護トリップワイヤ**(`protected.ts` の PROTECTED_PATHS: 承認機構・evolution配下・
+  スーパーバイザー・secrets・IPC/preload・CLAUDE.md/PROTECTED.md)は scope問わず
+  **A側(稼働中)のメモリ上リストのみで判定**し、該当差分は承認ダイアログにも出さず即reject
+  (protectedReject)。B側protected.tsを空にしても捕捉されることをテストで実証。symlink差分も拒否。
+  ゲートは7段固定順: 聖域→危険検出→差分allowlist→typecheck→vitest→build→スモーク起動
+  (renderer/coreは `--smoke-boot`: userData隔離mkdtemp+単一インスタンスロック非取得で
+  本体と同時起動可・React mount確認・60s watchdog)。昇格(renderer/core)は
+  **常に人間の二段確認**(赤枠+理解チェック必須。自律モードONでも自動化されない=不変条件テスト)
+  → mainへマージ+evolveタグ → A再ビルド+健全性ブート → 失敗なら自動revert+旧ビルド復元
+  (rolled_back・再起動しない)→ 成功なら5秒予告後に自動再起動。再起動はセンチネル
+  (restart-sentinel.json)で見守り、2回連続クラッシュで**セーフモード起動**
+  (赤バナー+復旧コマンド+進化無効化+解除ボタン)。進化パネル: scopeバッジ・🛡拒否表示・
+  昇格履歴+「⏪1つ前へ戻す」。スマホ承認も二段確認対応。
+  **実証: (a)renderer scope「設定ボタンにツールチップ」全線通過(AI差分1行→7ゲート→二段確認→
+  再ビルド→健全性→自動再起動→完了バナー+反映、evolve/4) (b)ApprovalDialog.tsx変更を指示厳守で
+  強制→protectedゲートのみ実行で即reject・ダイアログ非表示 (c)センチネルbootAttempts=2→
+  セーフモード起動・enqueue拒否・解除でセンチネル消滅**。体感確認は `docs/M20-manual-test.md`
 - **M19完了(2026-07-06・実機実測済み)**: 品質レビュー・ゲート —
   AppConfig.reviewGate(**既定undefined=無効・従来挙動完全維持**)。有効時:
   マイルストーン(AMATERAS_PLAN.mdの項目 - [ ]→- [x])ごとにplanner帯の辛口レビュアーが
@@ -393,6 +412,32 @@
 - ~~(M9) audit.jsonl の閲覧UIは未実装~~ → M10 のスマホUI監査タブで提供済み
 
 ## 決定事項ログ
+
+### M20での判断(2026-07-06 自律作業。planはユーザー承認済み+不変条件3件指定)
+
+- **聖域判定はA側のメモリ上PROTECTED_PATHSのみ**(ユーザー指定の不変条件1):
+  worktree B側のprotected.tsをrequire/importして判定に使うことを構造的に禁止
+  (ソーストリップワイヤテスト+「Bで無力化しても捕捉」実証テストで固定)
+- **IPC聖域の粒度は ipc.ts + preload + shared/ipc.ts の丸ごと保護**: チャネル単位の
+  細分化は「安全な追加」と「承認バイパスの追加」を機械で区別できないため、太く守る
+- **`src/shared` はrenderer scopeに含めない(=core扱い)**: 型定義経由でmain側挙動に
+  影響し得るため、UI変更の名目でshared改変されるのを防ぐ
+- **--smoke-boot は単一インスタンスロックを取らずuserData隔離(mkdtemp)**(不変条件2):
+  稼働中Aと並走して健全性チェックできる。MYCODEX_SMOKE既存スキップに乗せ、
+  配線をソーストリップワイヤテストで固定
+- **昇格承認は自律モードでも絶対に自動化しない**(不変条件3): 挙動テスト
+  (autonomous ON+全自動承認ONでもrespondまで未解決)+承認フローにautonomousMode参照が
+  ないことのソース検査で二重固定
+- **健全性は「再起動前」に判定**: B側スモーク+A側再ビルド後スモークの二重ゲートで
+  合格したときだけ再起動する。センチネル/セーフモードは「それでも起動後に壊れた」ときの二次防衛
+- **rollbackLastEvolve はHEAD==最新evolveマージのときだけ自動revert**: それ以外は
+  手動手順を提示(履歴が進んだ後の自動revertはコンフリクトで中途半端に壊すリスクの方が大きい)
+- **M19品質レビューの進化ジョブ適用は見送り**(ユーザー承認済み): ゲート7段+人間承認が
+  既にあり、レビュー追加はコスト増に見合わない。必要になれば後続で
+- **symlink差分(mode 120000)は聖域チェックで一律拒否**: 聖域外パスからのリンクで
+  実体を聖域に向ける迂回を塞ぐ
+- **コミット順を3(スーパーバイザー)→4(配線)に入替**: 未完成のrenderer/core昇格経路が
+  一瞬でも露出しないように、受け側を先にコミット
 
 ### M19での判断(2026-07-06 自律作業。planはユーザー承認済み)
 
