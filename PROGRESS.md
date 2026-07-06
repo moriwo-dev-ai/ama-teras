@@ -2,7 +2,18 @@
 
 ## 現在の状態
 
-- **M1〜M17まで実装**。テスト515件・typecheck(node/web/remote)全合格。
+- **M1〜M18まで実装**。テスト532件・typecheck(node/web/remote)全合格。
+- **M18完了(2026-07-06・実機ベンチ実測済み)**: モデル自動切替(役割ベース割当) —
+  AppConfig.modelPolicy(**既定undefined=無効・従来挙動完全維持**)。有効時:
+  メイン会話=planner帯 / dispatch_agentサブ=worker帯 / 詰まったらescalation帯へ自動格上げ
+  (error・maxTurns到達・ツール失敗3連続で発火、子履歴をcompaction経由で引き継ぎ、
+  上限maxEscalationsPerTask、infoカード+audit `model-escalation`)。プロバイダ横断可・
+  帯ごとキー未登録警告(workerはplanner代行で続行)・M16フォールバックは子ループにも配線
+  (1会話1回の制限共有)・進化ジョブ非波及(guardrail固定)。Settings節(プリセット2種・
+  帯別選択・現在の割り当て一覧)+plannerバッジ+⤴格上げバッジ。
+  **ベンチ②実測: planner=Fable5/worker=Sonnet5 で2.3分完遂・介入0・vitest10/10、
+  実行の手数(23コール中18)をworkerが担いコスト約半減**(docs/autonomy-comparison.md)。
+  体感確認は `docs/M18-manual-test.md`
 - **M17完了(2026-07-06・Windows実機CDP検証済み)**: リブランド+自律モード+UX修正 —
   ①**リネーム MyCodex → AMA-teras**(package name/appId/productName=amateras、
   userData自動移行: 旧`%APPDATA%\mycodex`→新`amateras`へ実データ+**Local State(safeStorage鍵素材)**を
@@ -300,6 +311,15 @@
     進化非波及guardrail。実機CDPでモーダルdisabled→ON→バー→OFFを確認
   - M17-3: sessionGroups.groupSessionsByProject(最新updatedAt降順・安定・選択非依存)+LeftPane適用
   - M17-4: docs/M17-manual-test.md、USER-GUIDE(自律モード節・名称)、本ファイル更新
+- 2026-07-06: **M18 — モデル自動切替(planner/worker/escalation)**。テスト515→532件
+  - M18-1: AppConfig.modelPolicy + parseModelPolicy(壊れた形は無効へ・格上げ回数0〜3クランプ)
+  - M18-2/3: 帯ルーティング(chatSend=planner、subagent=worker、currentLLM/compaction閾値も
+    planner基準でM16-1と整合)、runWorkSubAgentのエスカレーションループ(compact経由・
+    履歴引き継ぎ・プロバイダ横断でtool_use/resultペア不変をテスト固定)、
+    acquireChildFallback(子ループ用M16フォールバック・メインのrunProvider/lastLLM非干渉)
+  - M18-4: ModelPolicySection(Settings)+plannerバッジ+⤴格上げバッジ
+  - M18-5: ベンチ②実測(2.3分・vitest10/10・worker委譲でコスト約半減)→autonomy-comparison.md、
+    docs/M18-manual-test.md、USER-GUIDE「モデル自動切替」節
 
 ## 次のタスク
 
@@ -351,6 +371,23 @@
 - ~~(M9) audit.jsonl の閲覧UIは未実装~~ → M10 のスマホUI監査タブで提供済み
 
 ## 決定事項ログ
+
+### M18での判断(2026-07-06 自律作業。planはユーザー承認済み)
+
+- **createProvider()(進化ジョブの経路)はmodelPolicyを一切参照しない**: 帯選択はchatSend側の
+  createBandProviderに分離。「進化はpolicyの影響を受けない」をコード構造で保証+guardrailテスト
+- **帯プロバイダのキー判定はfactory差し替えより先**: キー未登録の警告経路もテスト可能にするため
+- **worker帯キー未登録は停止でなくplanner代行+警告カード**: 横断構成の取りこぼしで作業が
+  止まるより、高い方のモデルで続行する方が自走の趣旨に合う
+- **エスカレーションのトリガー(c)は「ツール失敗3連続」**(isError または 編集後フック失敗を
+  本文パターンで検出)。成功で連続カウントはリセット
+- **子ループのフォールバックは専用のacquireChildFallback**: メインのacquireFallbackを共用すると
+  メインのrunProvider/lastLLMが子の課金エラーで書き換わるため分離。1会話1回の制限
+  (fallbackUsedFor)は共有。子履歴は小さいので切替前compactionは省略
+- **チャットのバッジは「メイン応答=planner・サブパネル=worker/⤴格上げ」の最小実装**:
+  ツールカード単位のバッジは情報過多と判断(必要になれば追加)
+- **ベンチ後の設定復元でmodelPolicyはenabled:false+帯設定保存**: ユーザーがSettingsで
+  ワンクリック有効化できる状態にした(既定は無効の絶対条件は維持)
 
 ### M17での判断(2026-07-06 自律作業。planはユーザー承認済み)
 
