@@ -4,6 +4,7 @@ import { useChatStore, type UiMessage } from '../../stores/chat';
 import { usePreviewStore } from '../../stores/preview';
 import { AutonomousModal } from './AutonomousModal';
 import { MarkdownMessage } from './MarkdownMessage';
+import { ReviewCard } from './ReviewCard';
 
 /** ツール入力JSONから path を取り出す(write_file/read_file/edit_file等のリンク化用) */
 function pathFromInputPreview(inputPreview: string): string | null {
@@ -197,6 +198,8 @@ export function ChatView(): JSX.Element {
         {messages.map((m) =>
           m.role === 'tool' ? (
             <ToolCard key={m.id} msg={m} />
+          ) : m.role === 'review' ? (
+            <ReviewCard key={m.id} card={m} />
           ) : m.role === 'info' ? (
             <div key={m.id} className="anim-appear flex justify-center">
               <div className="max-w-[85%] rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-center text-[11px] text-zinc-400">

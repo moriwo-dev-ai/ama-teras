@@ -72,6 +72,16 @@ export function applyChatEvent(messages: UiMessage[], event: AgentEvent): UiMess
     case 'info':
       // M16-1: システム通知(モデル切替・フォールバック等)
       return [...messages, { id: nextId(), role: 'assistant', text: `ℹ️ ${event.message}`, streaming: false }];
+    case 'review': {
+      // M19: レビューカード(remote-uiはテキスト整形で表示)
+      const icon = event.unresolved === true ? '🔴 残課題あり' : event.pass ? '✅ 合格' : '🔶 不合格→差し戻し';
+      const lines = [
+        `🧪 品質レビュー${event.round > 0 ? `(再レビュー${event.round}回目)` : ''} ${icon} ${event.average.toFixed(1)}/5 — ${event.milestone}`,
+      ];
+      if (event.summary) lines.push(event.summary);
+      for (const f of event.findings) lines.push(`・${f.file}(${f.location}): ${f.problem} → 修正: ${f.fix}`);
+      return [...messages, { id: nextId(), role: 'assistant', text: lines.join('\n'), streaming: false }];
+    }
     case 'status':
       if (TERMINAL.includes(event.status)) {
         return messages.map((m) => (m.role === 'assistant' && m.streaming ? { ...m, streaming: false } : m));

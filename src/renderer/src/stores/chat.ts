@@ -1,10 +1,19 @@
 import { create } from 'zustand';
-import type { AgentEvent, AgentStatus, ChatImageInput, ChatMode, SessionMeta } from '../../../shared/types';
+import type {
+  AgentEvent,
+  AgentStatus,
+  ChatImageInput,
+  ChatMode,
+  ReviewCardPayload,
+  SessionMeta,
+} from '../../../shared/types';
 
 export type UiMessage =
   | { id: string; role: 'user' | 'assistant'; text: string; streaming: boolean; images?: string[] }
   /** M16-1: 中立の情報カード(モデル切替・フォールバック等のシステム通知) */
   | { id: string; role: 'info'; text: string }
+  /** M19: 品質レビューの採点カード */
+  | ({ id: string; role: 'review' } & ReviewCardPayload)
   | {
       id: string;
       role: 'tool';
@@ -220,6 +229,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
           messages: [...s.messages, { id: crypto.randomUUID(), role: 'info', text: event.message }],
         }));
         break;
+      case 'review': {
+        const { kind: _kind, sessionId: _sid, ...card } = event;
+        set((s) => ({
+          messages: [...s.messages, { id: crypto.randomUUID(), role: 'review', ...card }],
+        }));
+        break;
+      }
     }
   },
 }));

@@ -5,6 +5,7 @@ import { animEnabled, setAnimEnabled } from '../../lib/animPref';
 import { McpSection } from './McpSection';
 import { ModelPolicySection } from './ModelPolicySection';
 import { RemoteAccessSection } from './RemoteAccessSection';
+import { ReviewGateSection } from './ReviewGateSection';
 
 const CUSTOM = '__custom__';
 
@@ -322,6 +323,12 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
         <ModelPolicySection
           config={config}
           secrets={status}
+          onSave={(next) => void window.api.settingsSet(next).then(setConfig)}
+        />
+
+        {/* M19: 品質レビュー・ゲート */}
+        <ReviewGateSection
+          config={config}
           onSave={(next) => void window.api.settingsSet(next).then(setConfig)}
         />
 
