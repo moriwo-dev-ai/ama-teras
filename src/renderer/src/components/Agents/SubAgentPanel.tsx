@@ -40,6 +40,12 @@ export function SubAgentPanel(): JSX.Element {
               <div className="flex items-center gap-2">
                 <span className="font-mono text-zinc-400">#{a.id}</span>
                 <span className="rounded bg-zinc-800 px-1 text-zinc-400">{a.mode}</span>
+                {/* M18: どの帯で処理したか(通常=worker帯、⤴=escalation帯へ格上げ) */}
+                {a.escalated === true && (
+                  <span className="rounded bg-amber-900/60 px-1 text-amber-300" title="上位モデルへ格上げ済み">
+                    ⤴ 格上げ
+                  </span>
+                )}
                 <span className={STATUS_CLASS[a.status] ?? 'text-zinc-300'}>
                   {STATUS_LABEL[a.status] ?? a.status}
                 </span>

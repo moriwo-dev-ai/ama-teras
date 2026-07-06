@@ -100,6 +100,8 @@ export function ChatView(): JSX.Element {
   // M17-2: 自律モード(main側が正。イベントで同期し、ON操作は警告モーダルを必須にする)
   const [autonomous, setAutonomous] = useState(false);
   const [autoModal, setAutoModal] = useState(false);
+  // M18: モデル自動切替が有効ならメイン応答に planner バッジを出す
+  const [policyOn, setPolicyOn] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const busy = activeSessionId !== null;
 
@@ -110,6 +112,15 @@ export function ChatView(): JSX.Element {
       .catch(() => {});
     return window.api.onAutonomousChanged((p) => setAutonomous(p.on));
   }, []);
+
+  // 設定変更(Settingsを閉じた後)を拾えるよう、アイドル復帰のたびに読み直す
+  useEffect(() => {
+    if (busy) return;
+    window.api
+      .settingsGet()
+      .then((c) => setPolicyOn(c.modelPolicy?.enabled === true))
+      .catch(() => {});
+  }, [busy]);
 
   const addFiles = async (files: Iterable<File>): Promise<void> => {
     const added: ChatImageInput[] = [];
@@ -214,6 +225,10 @@ export function ChatView(): JSX.Element {
                       />
                     ))}
                   </div>
+                )}
+                {/* M18: policy有効時、メイン応答は planner 帯であることを小さく明示 */}
+                {m.role === 'assistant' && policyOn && (
+                  <div className="mb-0.5 text-[9px] uppercase tracking-wider text-zinc-500">planner</div>
                 )}
                 {m.role === 'assistant' ? <MarkdownMessage text={m.text} /> : m.text}
                 {m.streaming && <span className="anim-pulse ml-1">▍</span>}

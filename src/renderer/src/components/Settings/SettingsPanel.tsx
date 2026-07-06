@@ -3,6 +3,7 @@ import type { AppConfig, ProviderId, SecretsStatus } from '../../../../shared/ty
 import { DEFAULT_MODELS, KNOWN_MODELS, isKnownModel } from '../../../../shared/models';
 import { animEnabled, setAnimEnabled } from '../../lib/animPref';
 import { McpSection } from './McpSection';
+import { ModelPolicySection } from './ModelPolicySection';
 import { RemoteAccessSection } from './RemoteAccessSection';
 
 const CUSTOM = '__custom__';
@@ -316,6 +317,13 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
             変更しない・1会話につき1回まで・発動は audit.jsonl に記録)。切替先のAPIキー登録が必要
           </p>
         </div>
+
+        {/* M18: モデル自動切替(役割ベース割当) */}
+        <ModelPolicySection
+          config={config}
+          secrets={status}
+          onSave={(next) => void window.api.settingsSet(next).then(setConfig)}
+        />
 
         <div className="space-y-1">
           <label className="flex items-center gap-2 text-xs text-zinc-300">
