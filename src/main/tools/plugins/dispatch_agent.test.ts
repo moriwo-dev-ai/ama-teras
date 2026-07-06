@@ -54,7 +54,7 @@ describe('dispatch_agent(M12-3)', () => {
     expect(subagent.runParallel).toHaveBeenCalledWith(['A'], 'read', expect.anything());
   });
 
-  it('parallel は最大3件(4件はエラー)・空配列もエラー', async () => {
+  it('parallel は既定最大3件(4件はエラー)・空配列もエラー', async () => {
     const subagent = subagentMock();
     const over = await dispatch.execute(
       { parallel: [{ task: 'a' }, { task: 'b' }, { task: 'c' }, { task: 'd' }] },
@@ -65,6 +65,23 @@ describe('dispatch_agent(M12-3)', () => {
     const empty = await dispatch.execute({ parallel: [] }, ctx({ subagent }));
     expect(empty.isError).toBe(true);
     expect(subagent.runParallel).not.toHaveBeenCalled();
+  });
+
+  it('M21-2: ctx.subagent.maxParallel が上限になる(5設定で5件OK・6件はエラー)', async () => {
+    const subagent = { ...subagentMock(), maxParallel: 5 };
+    const five = await dispatch.execute(
+      { parallel: Array.from({ length: 5 }, (_, i) => ({ task: `t${i}` })) },
+      ctx({ subagent }),
+    );
+    expect(five.isError).not.toBe(true);
+    expect(subagent.runParallel).toHaveBeenCalledTimes(1);
+
+    const six = await dispatch.execute(
+      { parallel: Array.from({ length: 6 }, (_, i) => ({ task: `t${i}` })) },
+      ctx({ subagent }),
+    );
+    expect(six.isError).toBe(true);
+    expect(six.content).toContain('最大 5');
   });
 
   it('不正な mode はエラー', async () => {

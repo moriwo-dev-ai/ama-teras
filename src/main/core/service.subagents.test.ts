@@ -87,7 +87,7 @@ describe('AgentService.runParallelSubAgents(M12-3)', () => {
     }
   });
 
-  it('read モードの並列も動き、4件以上は3件に制限される', async () => {
+  it('read モードの並列も動き、4件以上は既定3件に制限される', async () => {
     const { svc, bus } = makeService();
     const updates: SubAgentUpdate[] = [];
     bus.subscribe('agent:sub_update', (u) => updates.push(u));
@@ -101,6 +101,31 @@ describe('AgentService.runParallelSubAgents(M12-3)', () => {
     );
     expect(results).toHaveLength(3);
     expect(updates.every((u) => u.mode === 'read')).toBe(true);
+  });
+
+  it('M21-2: subAgentMaxParallel 設定で同時数が変わる(5設定→5本・範囲外はクランプ)', async () => {
+    const cfg5: AppConfig = { ...BASE_CONFIG, subAgentMaxParallel: 5 };
+    const { svc } = makeService({ config: { get: () => structuredClone(cfg5) } });
+    const results = await svc.runParallelSubAgents(
+      textProvider(),
+      'sess-4',
+      ['1', '2', '3', '4', '5', '6'],
+      'read',
+      new AbortController().signal,
+    );
+    expect(results).toHaveLength(5);
+
+    // 範囲外(99)は8へクランプ
+    const cfg99: AppConfig = { ...BASE_CONFIG, subAgentMaxParallel: 99 };
+    const { svc: svc99 } = makeService({ config: { get: () => structuredClone(cfg99) } });
+    const nine = await svc99.runParallelSubAgents(
+      textProvider(),
+      'sess-5',
+      Array.from({ length: 9 }, (_, i) => String(i)),
+      'read',
+      new AbortController().signal,
+    );
+    expect(nine).toHaveLength(8);
   });
 
   it('チェックポイント未設定(非gitワークスペース等)でも失敗しない', async () => {

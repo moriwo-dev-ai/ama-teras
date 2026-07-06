@@ -767,9 +767,11 @@ export class AgentService {
                     task,
                     signal,
                   ),
-                // M12-3: 最大3並列(read/work)。work は executor 経由で承認・スコープが効く
+                // M12-3: 並列(read/work)。work は executor 経由で承認・スコープが効く。
+                // M21-2: 同時数はAppConfig.subAgentMaxParallel(既定3・1〜8)
                 runParallel: (tasks, subMode, signal) =>
                   this.runParallelSubAgents(workerProvider, sessionId, tasks, subMode, signal),
+                maxParallel: this.subAgentMaxParallel(),
               },
             });
             // M11-3: 書き込み/実行系ツールの成功直後に自動チェックポイント(メインループのみ)。
@@ -1080,6 +1082,12 @@ export class AgentService {
    * work モードでは write 衝突テーブルを全子で共有する。親 signal で全子キャンセル。
    * (public なのはテストのため。通常は chatSend 内の ctx.subagent.runParallel 経由)
    */
+  /** M21-2: 並列サブエージェント同時数の実効値(未設定=既定3。1〜8にクランプ) */
+  private subAgentMaxParallel(): number {
+    const raw = this.deps.config.get().subAgentMaxParallel;
+    return raw !== undefined ? Math.min(8, Math.max(1, Math.round(raw))) : MAX_PARALLEL_SUBAGENTS;
+  }
+
   async runParallelSubAgents(
     provider: LLMProvider,
     sessionId: string,
@@ -1087,7 +1095,7 @@ export class AgentService {
     mode: 'read' | 'work',
     signal: AbortSignal,
   ): Promise<string[]> {
-    const limited = tasks.slice(0, MAX_PARALLEL_SUBAGENTS);
+    const limited = tasks.slice(0, this.subAgentMaxParallel());
     await this.getCheckpoints()
       ?.snapshot(sessionId, `サブエージェント並列実行前(${mode}×${limited.length})`)
       .catch(() => null);

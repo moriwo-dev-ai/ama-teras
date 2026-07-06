@@ -259,6 +259,32 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
           </p>
         </div>
 
+        <div className="space-y-1">
+          <label className="text-xs text-zinc-400">サブエージェント同時実行数(subAgentMaxParallel)</label>
+          <select
+            className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5"
+            value={config.subAgentMaxParallel ?? 3}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              const next: AppConfig = { ...config };
+              if (n === 3) delete next.subAgentMaxParallel;
+              else next.subAgentMaxParallel = n;
+              void window.api.settingsSet(next).then(setConfig);
+            }}
+          >
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+              <option key={n} value={n}>
+                {n}
+                {n === 3 ? '(既定)' : ''}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-zinc-500">
+            dispatch_agent parallel の同時数(1〜8)。実質の制限はAPIレート/コストで、
+            429エラーは自動リトライ(M16)が吸収する。同一ファイルへの書き込み衝突は従来どおり拒否される
+          </p>
+        </div>
+
         <div className="space-y-1 rounded-md border border-zinc-700 p-3">
           <label className="flex items-center gap-2 text-xs font-semibold text-zinc-300">
             <input

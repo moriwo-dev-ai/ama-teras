@@ -179,6 +179,11 @@ export interface AppConfig {
   /** M12-3: work サブエージェント1体あたりの最大ターン数。未設定=既定30(1〜100にクランプ) */
   subAgentMaxTurns?: number;
   /**
+   * M21-2: dispatch_agent parallel の同時実行数上限。未設定=既定3(1〜8にクランプ)。
+   * 実質の制限はAPIレート/コスト(429はM16リトライが吸収)
+   */
+  subAgentMaxParallel?: number;
+  /**
    * M14-5: fullPc の system スコープ承認に「セッション中許可(このフォルダ)」を出す。
    * 既定 false(=M9どおり毎回承認)。粒度はツール×ディレクトリ、exec系は対象外。
    * セッション許可で自動通過した操作も全件 audit.jsonl に記録される

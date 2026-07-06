@@ -65,6 +65,8 @@ export interface ToolContext {
   subagent?: {
     run(task: string, signal: AbortSignal): Promise<string>;
     runParallel?(tasks: string[], mode: 'read' | 'work', signal: AbortSignal): Promise<string[]>;
+    /** M21-2: 並列同時数の実効上限(AppConfig.subAgentMaxParallel。未注入なら既定3) */
+    maxParallel?: number;
   };
   /**
    * M12-3: サブエージェント実行由来のツール呼び出し識別(1始まりの子番号)。
