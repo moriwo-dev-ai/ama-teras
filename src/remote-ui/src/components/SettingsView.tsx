@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { RemoteApi } from '../api';
 import type { UsageSummary } from '../../../shared/types';
+import { applyTheme, loadTheme, type Theme } from '../theme';
 
 /**
  * M23-3: スマホ用の設定タブ。サーバ側ホワイトリストの安全なサブセットのみ変更できる
@@ -15,6 +16,8 @@ export function SettingsView({ api }: { api: RemoteApi }): JSX.Element {
   const [cfg, setCfg] = useState<Record<string, unknown> | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [notice, setNotice] = useState('');
+  // M25-4: テーマはサーバ設定ではなく端末ローカルのUI好み(デスクトップと同様、localStorage保存)
+  const [theme, setThemeState] = useState<Theme>(() => loadTheme());
 
   const refresh = (): void => {
     api.settingsGet().then(setCfg).catch((e: unknown) => setNotice(String(e)));
@@ -41,6 +44,25 @@ export function SettingsView({ api }: { api: RemoteApi }): JSX.Element {
 
   return (
     <div className="content">
+      <div className="card">
+        <h3>表示</h3>
+        <label className="row">
+          テーマ
+          <select
+            value={theme}
+            onChange={(e) => {
+              const next = e.target.value === 'light' ? 'light' : 'dark';
+              setThemeState(next);
+              applyTheme(next);
+            }}
+          >
+            <option value="dark">ダーク</option>
+            <option value="light">ライト</option>
+          </select>
+        </label>
+        <p className="muted">この端末のブラウザだけに保存される(サーバ設定ではない)</p>
+      </div>
+
       <div className="card">
         <h3>モデル</h3>
         <label className="row">

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { AppConfig, ProviderId, SecretsStatus } from '../../../../shared/types';
 import { DEFAULT_MODELS, KNOWN_MODELS, isKnownModel } from '../../../../shared/models';
 import { animEnabled, setAnimEnabled } from '../../lib/animPref';
+import { currentTheme, setTheme as persistTheme } from '../../lib/themePref';
 import { McpSection } from './McpSection';
 import { ModelPolicySection } from './ModelPolicySection';
 import { RemoteAccessSection } from './RemoteAccessSection';
@@ -20,6 +21,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
   // fullPc 有効化は影響が大きいため確認モーダルを挟む(M9-4)
   const [confirmFullPc, setConfirmFullPc] = useState(false);
   const [animOn, setAnimOn] = useState(animEnabled());
+  const [theme, setTheme] = useState(currentTheme());
 
   useEffect(() => {
     void window.api.settingsGet().then(setConfig);
@@ -53,9 +55,26 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
       <div className="max-h-[90vh] w-[520px] max-w-[90vw] space-y-4 overflow-y-auto rounded-lg border border-zinc-600 bg-zinc-900 p-5 text-sm shadow-xl">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">設定</h2>
-          <button className="text-zinc-400 hover:text-zinc-200" onClick={onClose}>
-            ✕ 閉じる
-          </button>
+          <div className="flex items-center gap-3 text-xs text-zinc-400">
+            <label className="flex items-center gap-1">
+              テーマ
+              <select
+                className="rounded border border-zinc-600 bg-zinc-800 px-1 py-0.5 text-xs"
+                value={theme}
+                onChange={(e) => {
+                  const next = e.target.value === 'light' ? 'light' : 'dark';
+                  setTheme(next);
+                  persistTheme(next);
+                }}
+              >
+                <option value="dark">ダーク</option>
+                <option value="light">ライト</option>
+              </select>
+            </label>
+            <button className="text-zinc-400 hover:text-zinc-200" onClick={onClose}>
+              ✕ 閉じる
+            </button>
+          </div>
         </div>
 
         <div className="space-y-1">

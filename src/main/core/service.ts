@@ -405,11 +405,22 @@ export class AgentService {
           : '変更は昇格済み。元のタスクを続行せよ。');
     } else {
       const gate = (job.gates ?? []).find((g) => !g.ok);
-      text =
+      const detail =
         `(自動通知)進化ジョブ#${job.id}(${job.description.slice(0, 80)})は「${job.status}」で終わった。` +
         (gate ? `失敗ゲート: ${gate.name}。詳細: ${(gate.detail ?? '').slice(0, 300)}。` : '') +
-        (job.error !== undefined ? `エラー: ${job.error.slice(0, 200)}。` : '') +
-        'この能力は当面使えない前提で、既存ツールでの代替手段を検討してタスクを続行するか、進化の依頼内容を修正して再申請せよ。';
+        (job.error !== undefined ? `エラー: ${job.error.slice(0, 200)}。` : '');
+      // M25-4: scope='tool'(新ツール欠如)は既存ツールでの代替が安全な回避策になるが、
+      // scope='renderer'/'core' の失敗で「既存ツールでの代替」を提案すると、モデルが
+      // edit_file/write_file で本体の生きたソースを直接・無検証で書き換えてしまう事故になる
+      // (worktree隔離・検証ゲート・人間承認を全部バイパスする=進化パイプラインの意味が無くなる)。
+      // renderer/core は代替提案をせず、再申請か人間への相談のみを促す
+      text =
+        job.scope === 'renderer' || job.scope === 'core'
+          ? `${detail}これは自己修正(scope:${job.scope})の失敗である。直接 edit_file/write_file で本体のソースを書き換えて代替することは絶対にしてはならない` +
+            '(worktree隔離・検証ゲート・人間承認を経ずに本体を変更することになるため)。' +
+            '依頼内容(description/expected_io)を見直して request_capability を再申請するか、' +
+            'それも難しければユーザーに状況を説明し、直接編集が必要か判断を仰げ。'
+          : `${detail}この能力は当面使えない前提で、既存ツールでの代替手段を検討してタスクを続行するか、進化の依頼内容を修正して再申請せよ。`;
     }
     if (conv.run) {
       // 実行中: M21-1の追加指示キューへ(次のターン境界で履歴に注入される)

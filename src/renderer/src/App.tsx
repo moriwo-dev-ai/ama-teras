@@ -11,7 +11,7 @@ import { useApprovalStore } from './stores/approval';
 import { useChatStore } from './stores/chat';
 import { useEvolutionStore } from './stores/evolution';
 import { usePreviewStore } from './stores/preview';
-import { useRightPaneStore, type RightPaneTab } from './stores/rightPane';
+import { useRightPaneStore } from './stores/rightPane';
 import { useRunsStore } from './stores/runs';
 import { useSubAgentStore } from './stores/subagents';
 
@@ -40,7 +40,6 @@ export default function App(): JSX.Element {
   const narrow = useIsNarrow();
   const left = usePaneState('mycodex-pane-left', 240);
   const right = usePaneState('mycodex-pane-right', 320);
-  const openTab = useRightPaneStore((s) => s.openTab);
   const openRequestCount = useRightPaneStore((s) => s.openRequestCount);
   // M15-3/4: プレビューを開く・タブを開く要求で右ペインの折りたたみを解除
   const previewOpen = usePreviewStore((s) => s.result !== null);
@@ -90,15 +89,6 @@ export default function App(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey);
   }, [left, right]);
 
-  const tabButton = (label: string, tab: RightPaneTab, cls: string): JSX.Element => (
-    <button
-      className={`rounded border px-2 py-0.5 text-xs hover:bg-zinc-800 ${cls}`}
-      onClick={() => openTab(tab)}
-    >
-      {label}
-    </button>
-  );
-
   return (
     <div className="flex h-screen flex-col">
       {/* M20: セーフモード(進化再起動の連続クラッシュ検知)バナー */}
@@ -134,7 +124,7 @@ export default function App(): JSX.Element {
         >
           ☰
         </button>
-        <h1 className="text-sm font-semibold tracking-wide">AMA-teras</h1>
+        <h1 className="text-sm font-semibold tracking-wide text-rose-700">AMA-teras</h1>
         <span className="text-xs text-zinc-400">自己進化型AIエージェント</span>
         <div className="ml-auto flex gap-2">
           <button
@@ -144,10 +134,6 @@ export default function App(): JSX.Element {
           >
             設定
           </button>
-          {tabButton('計画', 'plan', 'border-emerald-800 text-emerald-300')}
-          {tabButton('エージェント', 'agents', 'border-sky-800 text-sky-300')}
-          {tabButton('進化', 'evolution', 'border-purple-800 text-purple-300')}
-          {tabButton('デバッグ', 'debug', 'border-zinc-600 text-zinc-400')}
           <button
             className="rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800"
             title="右ペイン(Ctrl+J)"

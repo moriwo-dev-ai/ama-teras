@@ -38,7 +38,28 @@ describe('UsageMeter', () => {
     expect(
       estimateCostUsd('anthropic/claude-fable-5', { input: 1_000_000, output: 1_000_000, cacheRead: 1_000_000 }),
     ).toBeCloseTo(61);
+    // gpt-5.1 は旧世代のため単価表に無い(M25-4時点で意図的に非対応=null)
     expect(estimateCostUsd('openai/gpt-5.1', { input: 1000, output: 1000, cacheRead: 0 })).toBeNull();
+  });
+
+  it('M25-4: OpenAI現行モデルの概算コスト(gpt-5.4系はmini/nanoをgpt-5.4より先に照合)', () => {
+    // 1Mトークンずつ: 5 + 30 + 0.5(cache 1M × $5 × 0.1) = $35.5
+    expect(
+      estimateCostUsd('openai/gpt-5.5', { input: 1_000_000, output: 1_000_000, cacheRead: 1_000_000 }),
+    ).toBeCloseTo(35.5);
+    // gpt-5.4-mini は 'gpt-5.4' で始まるが、より具体的な mini 単価($0.75/$4.5)が優先される
+    expect(
+      estimateCostUsd('openai/gpt-5.4-mini', { input: 1_000_000, output: 1_000_000, cacheRead: 0 }),
+    ).toBeCloseTo(0.75 + 4.5);
+    expect(
+      estimateCostUsd('openai/gpt-5.4-nano', { input: 1_000_000, output: 1_000_000, cacheRead: 0 }),
+    ).toBeCloseTo(0.2 + 1.25);
+    expect(
+      estimateCostUsd('openai/gpt-5.4', { input: 1_000_000, output: 1_000_000, cacheRead: 0 }),
+    ).toBeCloseTo(2.5 + 15);
+    expect(
+      estimateCostUsd('openai/gpt-5.3-codex', { input: 1_000_000, output: 1_000_000, cacheRead: 0 }),
+    ).toBeCloseTo(1.75 + 14);
   });
 
   it('flushで永続化され、新しいメーターに引き継がれる', () => {

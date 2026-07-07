@@ -2,7 +2,29 @@
 
 ## 現在の状態
 
-- **M1〜M25まで実装**。テスト664件・typecheck(node/web/remote)全合格。
+- **M1〜M25まで実装**。テスト668件・typecheck(node/web/remote)全合格。
+- **M25-4追加(2026-07-08)**: **①進化パイプラインの安全な迂回バグを修正 ②OpenAIモデルを現行世代へ更新 ③ライトテーマの未完成部分を完成**。
+  経緯: request_capability(scope:renderer)のジョブ#10がインフラ側エラーで異常終了 →
+  M25-2の自動フィードバック文言「既存ツールでの代替手段を検討して続行せよ」を受け、モデルが
+  worktree隔離・検証ゲート・人間承認を経ずに**本体の生きたソースを直接edit_file**して実装を
+  代替してしまった(承認済み設計自体は正しかったが、安全な進化パイプラインを迂回した点が問題)。
+  ①**根本修正**: feedEvolutionResultToModel をscope対応に分岐 — scope=renderer/coreの失敗では
+  「既存ツールでの代替」を提案せず、直接編集を明示的に禁止し、再申請かユーザーへの相談のみを促す
+  文言へ変更(scope=toolは従来通り)。②**OpenAIモデル更新**: gpt-5.1は2026-07時点で公式カタログ
+  落ち(現行は gpt-5.5 flagship・gpt-5.4・gpt-5.4-mini/nano・gpt-5.3-codex)。KNOWN_MODELS/
+  DEFAULT_MODELS/CONTEXT_LIMITSをgpt-5.5既定へ更新、usage.tsに単価表追加(gpt-5.4系はmini/nano
+  を汎用gpt-5.4より先に照合する順序に注意)。旧gpt-5.1は非推奨ラベル付きで選択肢に残置。
+  ③**ライトテーマ完成**: デスクトップは生のTailwind zincクラス直書きのため、コンポーネント無改修で
+  [data-theme='light']スコープの一括CSS上書きで対応(themePref.ts新設・main.tsxで起動時適用・
+  SettingsPanelは共通関数経由に統一)。remote-uiは theme.ts/CSSは既にあったが**トグルUI自体が
+  存在せず**(App.tsxにimportのみ残る死んだコード)ライトテーマを選ぶ手段が皆無だったため、
+  SettingsViewに「表示」カード(サーバ設定を経由しない端末ローカルのトグル)を追加。
+  死んだimport(App.tsxのopenTab/RightPaneTab、remote-ui App.tsxのtheme関連)も削除。
+  実機Electron(CDP)でダーク/ライト両方を計6画面スクリーンショット確認(メイン・進化タブ・
+  設定パネル)、gpt-5.5既定表示も実機確認。テスト4件追加、全668件・typecheck・build合格。
+  未検証: remote-ui(スマホ版)のトグルは実際の画面では未確認(typecheck/buildのみ、リモート
+  トークン発行の手間を省略)。theme-mock/(検討用ダミーHTML)とAMATERAS_PLAN.mdは削除保留
+  (自動削除がブロックされたため未追跡のまま残置。手動削除して問題ない)。
 - **M25-3追加(2026-07-07)**: **コア/UI自己書き換え(evolve/job-9)でも意味のある要約が出るように修正**。
   ジョブ#9(AMA-teras自身がscope:coreで申請・renderer側のみ改修)は聖域(src/main/evolution/)を
   触れないため、要約はマージコミットの定型文(subject)止まりだった。人間(Claude Code)が聖域側を

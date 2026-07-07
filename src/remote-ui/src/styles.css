@@ -232,3 +232,46 @@ pre.preview {
   padding: 4px 8px;
   font-size: 13px;
 }
+
+/* ---- ライトテーマ(AMA-terasロゴ配色: 白基調+タイトルのみ渋赤 #9E3B36) ---- */
+[data-theme='light'] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --panel: #f9f9f8;
+  --border: #e5e5e2;
+  --text: #1f1e1d;
+  --muted: #6f6c68;
+  --blue: #1f1e1d; /* 主要ボタンはモノトーン(黒) */
+  --bg2: #ffffff;
+}
+[data-theme='light'] .topbar h1 { color: #9e3b36; }
+[data-theme='light'] .conn.on { background: #dcf1e2; color: #14532d; }
+[data-theme='light'] .conn.off { background: #fde5e5; color: #7f1d1d; }
+[data-theme='light'] .msg.user .bubble {
+  background: var(--panel); color: var(--text); border: 1px solid var(--border);
+}
+[data-theme='light'] .msg.tool .bubble { background: #f3f3f1; border-color: var(--border); color: #55524d; }
+[data-theme='light'] .msg.tool .bubble.error { background: #fdeaea; border-color: var(--red); color: #991b1b; }
+[data-theme='light'] .codeblock { background: #f6f6f4; }
+[data-theme='light'] .codeblock-head { background: rgba(0, 0, 0, 0.05); }
+[data-theme='light'] pre.preview { background: #f6f6f4; }
+[data-theme='light'] .warn-banner { background: #fdf3df; color: #92400e; }
+[data-theme='light'] .error-banner { background: #fdeaea; color: #b91c1c; }
+[data-theme='light'] .diff .add { background: #e5f5e9; color: #166534; }
+[data-theme='light'] .diff .del { background: #fdeaea; color: #b91c1c; }
+[data-theme='light'] .risk.safe { background: #a3a09b; }
+[data-theme='light'] .btn-deny { background: #6f6c68; }
+[data-theme='light'] .job .st { background: #ececea; color: var(--text); }
+[data-theme='light'] .job .st.done { background: #dcf1e2; color: #14532d; }
+[data-theme='light'] .job .st.failed,
+[data-theme='light'] .job .st.rolled_back { background: #fde5e5; color: #7f1d1d; }
+[data-theme='light'] .job .st.awaiting_promotion { background: #fdf3df; color: #92400e; }
+[data-theme='light'] .auto-toggle.on { background: #fdf3df; color: #92400e; }
+[data-theme='light'] .auto-banner { background: #fdf3df; color: #92400e; }
+[data-theme='light'] .auto-banner button { color: #92400e; }
+[data-theme='light'] .auto-modal h3 { color: #92400e; }
+[data-theme='light'] .audit-entry .paths { color: #1d4ed8; }
+[data-theme='light'] .new-chat {
+  background: transparent; color: var(--text); border: 1px solid var(--border);
+}
+[data-theme='light'] .composer .cancel { background: var(--red); }

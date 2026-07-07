@@ -388,10 +388,10 @@ export function ChatView(): JSX.Element {
               else setAutoModal(true);
             }}
           >
-            {autonomous ? '🔓 自律モード' : '🔒 通常'}
+            {autonomous ? '🔓' : '🔒'}
           </button>
           <textarea
-            className="max-h-40 flex-1 resize-none rounded-md border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm outline-none focus:border-blue-500"
+            className="max-h-40 flex-1 resize-none rounded-xl border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm outline-none focus:border-blue-500"
             rows={2}
             placeholder={
               busy
@@ -417,30 +417,12 @@ export function ChatView(): JSX.Element {
               }
             }}
           />
-          {busy ? (
-            <>
-              <button
-                className="rounded-md border border-blue-500 px-3 text-sm text-blue-300 hover:bg-blue-900/40 disabled:opacity-40"
-                disabled={!input.trim() && attachments.length === 0}
-                title="実行を止めずに追加の指示を送る(次のターン境界で反映)"
-                onClick={submit}
-              >
-                ↩ 追加指示
-              </button>
-              <button
-                className="rounded-md bg-red-600 px-4 text-sm hover:bg-red-500"
-                onClick={cancel}
-              >
-                停止
-              </button>
-            </>
-          ) : (
+          {busy && (
             <button
-              className="rounded-md bg-blue-600 px-4 text-sm hover:bg-blue-500 disabled:opacity-40"
-              disabled={!input.trim() && attachments.length === 0}
-              onClick={submit}
+              className="rounded-md bg-red-600 px-4 text-sm hover:bg-red-500"
+              onClick={cancel}
             >
-              送信
+              停止
             </button>
           )}
         </div>

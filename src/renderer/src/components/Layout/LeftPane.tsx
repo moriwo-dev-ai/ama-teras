@@ -132,11 +132,11 @@ export function LeftPane(): JSX.Element {
     <div className="flex min-h-0 flex-1 flex-col" onClick={() => setMenu(null)}>
       <div className="space-y-2 border-b border-zinc-800 p-2">
         <button
-          className="w-full rounded bg-blue-600 px-2 py-1.5 text-xs hover:bg-blue-500"
-          title={busy ? '実行は止まらずに新しい会話を開始する' : undefined}
+          className="w-full rounded border border-zinc-700 px-2 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800"
+          title={busy ? '実行は止まらずに新しいタスクを開始する' : undefined}
           onClick={() => void newSession()}
         >
-          + 新規チャット
+          + 新しいタスク
         </button>
         <input
           ref={searchRef}

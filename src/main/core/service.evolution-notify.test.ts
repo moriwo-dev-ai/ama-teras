@@ -97,6 +97,17 @@ const failedJob = (origin?: string, id = 9): EvolutionJobSummary => ({
   ...(origin !== undefined ? { originConversationId: origin } : {}),
 });
 
+const failedRendererJob = (origin?: string, id = 10): EvolutionJobSummary => ({
+  id,
+  description: 'UI改善',
+  status: 'failed',
+  scope: 'renderer',
+  log: [],
+  gates: [],
+  error: '進化ジョブのエージェントが異常終了: error',
+  ...(origin !== undefined ? { originConversationId: origin } : {}),
+});
+
 describe('進化結果のチャット/モデル通知(M23-7)', () => {
   it('終端状態でinfoカードが1回だけ出る(同状態の重複update抑止)', () => {
     const { events, hooks } = makeService(echoProvider('x'));
@@ -132,6 +143,25 @@ describe('進化結果のチャット/モデル通知(M23-7)', () => {
     expect(notice?.text).toContain('processes 未注入');
     expect(notice?.text).toContain('代替手段');
     expect(view[view.length - 1]?.role).toBe('assistant');
+  });
+
+  it('M25-4: scope=renderer/coreの失敗は「既存ツールで代替」を提案せず直接編集を明示的に禁止する', async () => {
+    const { svc, bus, hooks } = makeService(echoProvider('了解'));
+    const done = waitDone(bus);
+    svc.chatSend('UIを進化させて', 'normal');
+    await done;
+    await new Promise((r) => setTimeout(r, 0));
+    const convId = svc.getCurrentConversationId();
+
+    const resumed = waitDone(bus);
+    hooks().onEvent({ kind: 'job_update', job: failedRendererJob(convId) });
+    await resumed;
+
+    const view = svc.getHistoryView();
+    const notice = view.find((m) => m.role === 'user' && m.text.includes('(自動通知)'));
+    expect(notice?.text).toContain('直接');
+    expect(notice?.text).toContain('絶対にしてはならない');
+    expect(notice?.text).not.toContain('既存ツールでの代替手段を検討してタスクを続行');
   });
 
   it('M25-2: 人間が却下(rejected)したジョブは自動再開せず、履歴注入のみ', async () => {

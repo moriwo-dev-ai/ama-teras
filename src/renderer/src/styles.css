@@ -53,3 +53,89 @@
   :root[data-anim='on'] button { transition: none; }
   :root[data-anim='on'] button:active:not(:disabled) { transform: none; }
 }
+
+/*
+ * M25-4: ライトテーマ(AMA-terasロゴ配色: 白基調+タイトルのみ渋赤)。
+ * デスクトップ側は各コンポーネントが生の Tailwind zinc系クラスを直書きしているため
+ * (remote-ui のようなCSS変数駆動ではない)、コンポーネントを一切書き換えずに
+ * [data-theme='light'] スコープで実際に生成されたユーティリティクラス名を
+ * 直接上書きする方式で対応する(既存の zinc クラスをコンポーネント側で全置換すると
+ * 差分が巨大になるため、CSS側だけで完結させる)。
+ * 属性セレクタ分だけ素の .bg-zinc-800 等より詳細度が高いため !important は不要。
+ */
+[data-theme='light'] {
+  color-scheme: light;
+}
+
+/* 背景: zinc の濃淡(950=最も奥まった面 → 600=やや持ち上がった面)を白→淡灰の階調へ反転 */
+[data-theme='light'] .bg-zinc-950,
+[data-theme='light'] .bg-zinc-900 { background-color: #ffffff; }
+[data-theme='light'] .bg-zinc-800 { background-color: #f9f9f8; }
+[data-theme='light'] .bg-zinc-700 { background-color: #ececea; }
+[data-theme='light'] .bg-zinc-600 { background-color: #e0ddd8; }
+
+/* 枠線: 全て承認済みの淡灰枠へ統一 */
+[data-theme='light'] .border-zinc-800,
+[data-theme='light'] .border-zinc-700,
+[data-theme='light'] .border-zinc-600 { border-color: #e5e5e2; }
+
+/* 文字色: 白背景で読める濃さへ反転(100/200=見出し級 → 600=かなり薄い) */
+[data-theme='light'] .text-zinc-100,
+[data-theme='light'] .text-zinc-200 { color: #1f1e1d; }
+[data-theme='light'] .text-zinc-300 { color: #45423e; }
+[data-theme='light'] .text-zinc-400,
+[data-theme='light'] .text-zinc-500 { color: #6f6c68; }
+[data-theme='light'] .text-zinc-600 { color: #a3a09b; }
+
+/* 主要ボタン(承認済みモック: プライマリはモノトーン黒。汎用hover:bg-zinc-800はパネル色へ) */
+[data-theme='light'] .bg-blue-600,
+[data-theme='light'] .bg-blue-500 { background-color: #1f1e1d; }
+[data-theme='light'] .hover\:bg-blue-500:hover { background-color: #33312e; }
+
+/* 危険/警告/成功/評価系バッジ(dark-bg+light-textの組をlight-bg+dark-textへ反転。色相は維持) */
+[data-theme='light'] .bg-red-950,
+[data-theme='light'] .bg-red-900,
+[data-theme='light'] .bg-red-700 { background-color: #fde5e5; }
+[data-theme='light'] .text-red-400,
+[data-theme='light'] .text-red-300,
+[data-theme='light'] .text-red-200,
+[data-theme='light'] .text-red-100 { color: #b91c1c; }
+[data-theme='light'] .border-red-900,
+[data-theme='light'] .border-red-700 { border-color: #f3c6c6; }
+
+[data-theme='light'] .bg-amber-950,
+[data-theme='light'] .bg-amber-900,
+[data-theme='light'] .bg-amber-800 { background-color: #fdf3df; }
+[data-theme='light'] .text-amber-400,
+[data-theme='light'] .text-amber-300,
+[data-theme='light'] .text-amber-200,
+[data-theme='light'] .text-amber-100 { color: #92400e; }
+[data-theme='light'] .border-amber-700,
+[data-theme='light'] .border-amber-600,
+[data-theme='light'] .border-amber-500 { border-color: #f2dfb8; }
+
+[data-theme='light'] .bg-green-900,
+[data-theme='light'] .bg-emerald-950 { background-color: #dcf1e2; }
+[data-theme='light'] .text-green-400,
+[data-theme='light'] .text-green-300,
+[data-theme='light'] .text-emerald-400,
+[data-theme='light'] .text-emerald-300,
+[data-theme='light'] .text-emerald-200,
+[data-theme='light'] .text-emerald-100 { color: #166534; }
+
+/* 評価/進化タブ系のアクセント(色相は維持し文字色だけ濃く)。
+   bg-purple-600/700 は実行ボタン(白文字前提)の塗りなので、Tailwind既定の彩度のまま
+   白背景でも視認できるため上書き不要(赤/青系ボタンと同様) */
+[data-theme='light'] .text-purple-300,
+[data-theme='light'] .text-purple-200 { color: #6b21a8; }
+[data-theme='light'] .border-purple-700 { border-color: #e4cdf5; }
+[data-theme='light'] .text-sky-200 { color: #075985; }
+[data-theme='light'] .border-sky-700 { border-color: #bfe3f3; }
+
+/* バッジ系の青(scope/種別バッジ等)。プライマリボタンは上のモノトーン扱いで別途上書き済み */
+[data-theme='light'] .bg-blue-900 { background-color: #dbeafe; }
+[data-theme='light'] .text-blue-400,
+[data-theme='light'] .text-blue-300,
+[data-theme='light'] .text-blue-200 { color: #1d4ed8; }
+[data-theme='light'] .border-blue-600,
+[data-theme='light'] .border-blue-500 { border-color: #1d4ed8; }

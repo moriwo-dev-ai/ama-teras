@@ -9,7 +9,8 @@ import type {
   StopReason,
 } from './types';
 
-export const DEFAULT_OPENAI_MODEL = 'gpt-5.1';
+// M25-4: gpt-5.1 は旧世代のため gpt-5.5(現行フラッグシップ)へ更新
+export const DEFAULT_OPENAI_MODEL = 'gpt-5.5';
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
