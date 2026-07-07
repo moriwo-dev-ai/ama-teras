@@ -866,14 +866,24 @@ export class AgentService {
       sessionId,
       ac,
       startedAt: Date.now(),
-      workspace: this.getWorkspace(),
+      workspace: conv.workspace !== '' ? conv.workspace : this.getWorkspace(),
       processes: new ProcessManager(),
       pendingInstructions: [],
       lastStatus: 'calling_llm',
       model: `${this.currentLLM().provider}/${this.currentLLM().model}`,
     };
     conv.run = run;
-    conv.workspace = run.workspace;
+    // 既存会話の workspace は黙って上書きしない。未記録(初送信)のみ束縛値を記録し、
+    // 記録とグローバル設定が食い違う場合は警告を出す(会話の記録が優先される)
+    if (conv.workspace === '') {
+      conv.workspace = run.workspace;
+    } else if (conv.workspace !== this.getWorkspace()) {
+      emit({
+        kind: 'info',
+        sessionId,
+        message: `この会話は ${conv.workspace} で作業します(現在の設定は ${this.getWorkspace()})`,
+      });
+    }
     // M14-2: 添付画像はテキストの後ろに image ブロックとして積む
     conv.history.push({
       role: 'user',
