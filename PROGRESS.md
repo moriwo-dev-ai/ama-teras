@@ -2,7 +2,19 @@
 
 ## 現在の状態
 
-- **M1〜M24まで実装**。テスト643件・typecheck(node/web/remote)全合格。
+- **M1〜M25まで実装**。テスト664件・typecheck(node/web/remote)全合格。
+- **M25-3追加(2026-07-07)**: **コア/UI自己書き換え(evolve/job-9)でも意味のある要約が出るように修正**。
+  ジョブ#9(AMA-teras自身がscope:coreで申請・renderer側のみ改修)は聖域(src/main/evolution/)を
+  触れないため、要約はマージコミットの定型文(subject)止まりだった。人間(Claude Code)が聖域側を
+  直接修正: `promoteBranch` に `description` 引数を追加し、マージコミット本文(2行目以降)へ
+  ジョブの説明を埋め込む(subject=1行目は従来どおり定型文で互換維持)。`listEvolveTags` は
+  ASCII制御文字(0x1e/0x1f)区切りで `%(contents:body)` を取得し `body` フィールドを追加
+  (execFile経由でシェル解釈を挟まないため本文中の改行・タブと衝突しない)。
+  renderer の `capabilitySummary` は renderer/core 種別で body を優先表示(無ければ subject
+  にフォールバック=旧evolveタグとの後方互換)。テスト6件追加(promote 3件+renderer 3件)。
+  副次的に、job-9の作業で workspace=C:\dev\mycodex 実行時に残った検証済み完了済みの
+  AMATERAS_PLAN.md(全項目チェック済み)がユニットテスト(process.cwd()をworkspaceに使う
+  service.switch.test.ts)へ「要約」の文字列で誤混入していたため削除して解消。
 - **M25-2追加(2026-07-07)**: **進化結果での会話の自動再開** — 「進化の通知が来ても
   メインエージェントが動かない/『待ってください』と言って止まる」対策。待機中の依頼元会話に
   終端結果(done/failed/rolled_back)が届いたら、履歴注入だけでなく chatSend(内部targetConv)で

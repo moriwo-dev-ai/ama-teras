@@ -24,15 +24,25 @@ export async function assertPromotable(repoDir: string, baseRef: string): Promis
  * 未コミットの無関係な変更(PROGRESS.md 等)があってもマージが触れなければ成功する。
  * マージが衝突・競合した場合は merge --abort で巻き戻し、MERGE_HEAD を残さない。
  */
+/** マージコミット本文の1行目は従来どおりの定型文(subject行の互換を壊さない)。
+ * 2行目以降にジョブの説明を載せることで、コミットログ・EvolutionPanelの要約双方から
+ * 「何が獲得されたか」が読めるようにする(コア/UI自己書き換えは要約表示できない制約への対処) */
+function buildPromotionMessage(jobId: number, description?: string): string {
+  const trimmed = description?.trim();
+  if (!trimmed) return `evolve: job-${jobId} を昇格`;
+  return `evolve: job-${jobId} を昇格\n\n${trimmed}`;
+}
+
 export async function promoteBranch(
   repoDir: string,
   branch: string,
   jobId: number,
   baseRef: string,
+  description?: string,
 ): Promise<PromotionResult> {
   await assertPromotable(repoDir, baseRef);
   try {
-    await runGit(['merge', '--no-ff', branch, '-m', `evolve: job-${jobId} を昇格`], repoDir);
+    await runGit(['merge', '--no-ff', branch, '-m', buildPromotionMessage(jobId, description)], repoDir);
   } catch (err) {
     // 衝突・作業ツリー競合で中断した場合、半マージ状態(MERGE_HEAD)を残さず巻き戻す
     await runGit(['merge', '--abort'], repoDir).catch(() => {});
@@ -58,22 +68,36 @@ export interface EvolveTagInfo {
   commit: string;
   date: string;
   subject: string;
+  /** M25-3: マージコミット本文(2行目以降)。ジョブの説明が入る(無ければ空文字) */
+  body: string;
 }
+
+/**
+ * M25-3: フィールド区切りに実際のASCII制御文字(0x1e=RS/0x1f=US)を使う。
+ * execFile(シェル経由なし)で渡すため、コミット本文中のタブ・改行・パイプ等と衝突しない
+ */
+const FIELD_SEP = '\x1e';
+const RECORD_SEP = '\x1f';
 
 /** M20: evolve/N タグの一覧(新しい順)。ロールバック履歴UIに使う */
 export async function listEvolveTags(repoDir: string): Promise<EvolveTagInfo[]> {
   const out = await runGit(
     [
       'tag', '-l', 'evolve/*', '--sort=-creatordate',
-      '--format=%(refname:short)\t%(objectname:short)\t%(creatordate:iso8601)\t%(subject)',
+      `--format=%(refname:short)${FIELD_SEP}%(objectname:short)${FIELD_SEP}%(creatordate:iso8601)` +
+        `${FIELD_SEP}%(subject)${FIELD_SEP}%(contents:body)${RECORD_SEP}`,
     ],
     repoDir,
   ).catch(() => '');
   if (out === '') return [];
-  return out.split('\n').map((line) => {
-    const [tag = '', commit = '', date = '', ...rest] = line.split('\t');
-    return { tag, commit, date, subject: rest.join('\t') };
-  });
+  return out
+    .split(RECORD_SEP)
+    .map((rec) => rec.replace(/^\n/, ''))
+    .filter((rec) => rec.trim() !== '')
+    .map((rec) => {
+      const [tag = '', commit = '', date = '', subject = '', body = ''] = rec.split(FIELD_SEP);
+      return { tag, commit, date, subject, body: body.trim() };
+    });
 }
 
 /** M23-6: 進化で獲得した能力(スキル/自己書き換え)の一覧項目 */

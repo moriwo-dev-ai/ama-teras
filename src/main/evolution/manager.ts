@@ -228,6 +228,7 @@ export class EvolutionManager {
         worktree.branch,
         id,
         this.baseRef,
+        job.description,
       );
       this.log(job, `昇格完了: ${tag} (${mergeCommit.slice(0, 8)})`);
 

@@ -204,15 +204,18 @@ export interface MyCodexApi {
   safeModeClear(): Promise<{ cleared: boolean }>;
 
   /** M20: 進化のロールバック履歴と「1つ前へ戻す」(HEADが最新evolveマージのときのみ) */
-  evolutionHistory(): Promise<{ tag: string; commit: string; date: string; subject: string }[]>;
+  evolutionHistory(): Promise<
+    { tag: string; commit: string; date: string; subject: string; body: string }[]
+  >;
   evolutionRollbackLast(): Promise<{ ok: boolean; message: string }>;
-  /** M23-6: 昇格ごとの獲得内容(kind/ツール名/変更ファイル) */
+  /** M23-6: 昇格ごとの獲得内容(kind/ツール名/変更ファイル)。M25-3: body にジョブ説明が入る */
   evolutionCapabilities(): Promise<
     {
       tag: string;
       commit: string;
       date: string;
       subject: string;
+      body: string;
       kind: 'tool' | 'renderer' | 'core';
       toolNames: string[];
       files: string[];

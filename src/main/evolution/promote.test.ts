@@ -119,3 +119,40 @@ describe('listEvolvedCapabilities(M23-6)', { timeout: 30_000 }, () => {
     expect(tool!.files).toContain('src/main/tools/plugins/foo.ts');
   });
 });
+
+describe('promoteBranch の description 埋め込み(M25-3)', { timeout: 30_000 }, () => {
+  it('description を渡すとマージコミット本文に入り、listEvolvedCapabilities の body で読める', async () => {
+    await makePluginBranch('evolve/job-1', 'export const x = 1;\n');
+    await promoteBranch(repo, 'evolve/job-1', 1, 'main', '設定画面にダークモード切替を追加');
+
+    const caps = await listEvolvedCapabilities(repo);
+    expect(caps[0]!.body).toBe('設定画面にダークモード切替を追加');
+    expect(caps[0]!.subject).toBe('evolve: job-1 を昇格'); // subject(1行目)は従来どおり定型文
+  });
+
+  it('description が改行を含んでいても body として1レコード分だけ読める(次タグと混線しない)', async () => {
+    await makePluginBranch('evolve/job-1', 'export const x = 1;\n');
+    await promoteBranch(repo, 'evolve/job-1', 1, 'main', '1行目の説明\n2行目の説明');
+
+    await runGit(['checkout', '-b', 'evolve/job-2'], repo);
+    await writeFile(join(repo, 'src/main/tools/plugins/bar.ts'), 'export const y = 2;\n');
+    await commitAll('add bar plugin');
+    await runGit(['checkout', 'main'], repo);
+    await promoteBranch(repo, 'evolve/job-2', 2, 'main', '別ジョブの説明');
+
+    const caps = await listEvolvedCapabilities(repo);
+    expect(caps).toHaveLength(2);
+    const job2 = caps.find((c) => c.tag === 'evolve/2')!;
+    const job1 = caps.find((c) => c.tag === 'evolve/1')!;
+    expect(job2.body).toBe('別ジョブの説明');
+    expect(job1.body).toBe('1行目の説明\n2行目の説明');
+  });
+
+  it('description 省略時は body が空文字になる(従来どおりの定型文コミット)', async () => {
+    await makePluginBranch('evolve/job-1', 'export const x = 1;\n');
+    await promoteBranch(repo, 'evolve/job-1', 1, 'main');
+
+    const caps = await listEvolvedCapabilities(repo);
+    expect(caps[0]!.body).toBe('');
+  });
+});

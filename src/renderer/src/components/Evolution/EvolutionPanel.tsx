@@ -18,11 +18,12 @@ const STATUS_LABEL: Record<EvolutionJobStatus, { text: string; cls: string }> = 
 /**
  * 昇格履歴エントリの「どういう能力か」要約を導出する。
  * kind=tool は現在ロード中のツール説明(toolsList)から引く(複数ツールなら「name: 説明」を連結)。
- * それ以外(renderer/core)はマージコミットの subject を使う。
+ * それ以外(renderer/core)は M25-3: マージコミット本文に埋め込まれたジョブの説明(body)を使う。
+ * body が無い(旧evolveタグ・説明未記録)場合のみ subject にフォールバックする。
  * (git タグからの導出ロジックは src/main/evolution=聖域のため renderer 側で補完する)
  */
 export function capabilitySummary(
-  h: { kind: 'tool' | 'renderer' | 'core'; toolNames: string[]; subject: string },
+  h: { kind: 'tool' | 'renderer' | 'core'; toolNames: string[]; subject: string; body?: string },
   toolDescs: Record<string, string>,
 ): string {
   if (h.kind === 'tool' && h.toolNames.length > 0) {
@@ -35,6 +36,7 @@ export function capabilitySummary(
       .filter((s) => s !== '');
     if (parts.length > 0) return parts.join(' / ');
   }
+  if (h.body !== undefined && h.body.trim() !== '') return h.body.trim();
   return h.subject;
 }
 
@@ -63,6 +65,7 @@ export function EvolutionPanel(): JSX.Element {
       commit: string;
       date: string;
       subject: string;
+      body: string;
       kind: 'tool' | 'renderer' | 'core';
       toolNames: string[];
       files: string[];

@@ -32,11 +32,27 @@ describe('capabilitySummary(昇格履歴の能力要約)', () => {
     expect(s).toBe('evolve: job-3 を昇格');
   });
 
-  it('renderer/core 昇格: マージコミットの subject が要約になる', () => {
+  it('renderer/core 昇格: M25-3 マージコミット本文(ジョブの説明)が要約になる', () => {
+    const s = capabilitySummary(
+      { kind: 'core', toolNames: [], subject: 'evolve: job-4 を昇格', body: '設定画面にダークモード切替を追加' },
+      descs,
+    );
+    expect(s).toBe('設定画面にダークモード切替を追加');
+  });
+
+  it('renderer/core 昇格: body が無い(旧タグ等)場合は subject にフォールバック', () => {
     const s = capabilitySummary(
       { kind: 'core', toolNames: [], subject: 'evolve: job-4 を昇格' },
       descs,
     );
     expect(s).toBe('evolve: job-4 を昇格');
+  });
+
+  it('renderer/core 昇格: body が空白のみなら subject にフォールバック', () => {
+    const s = capabilitySummary(
+      { kind: 'renderer', toolNames: [], subject: 'evolve: job-5 を昇格', body: '   \n  ' },
+      descs,
+    );
+    expect(s).toBe('evolve: job-5 を昇格');
   });
 });
