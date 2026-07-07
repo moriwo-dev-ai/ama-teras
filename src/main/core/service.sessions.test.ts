@@ -213,6 +213,88 @@ describe('AgentService × セッション永続化(M12-1)', () => {
     await done;
   });
 
+  it('既存会話の workspace は記録が優先され、グローバル設定と食い違うと警告 info が出る', async () => {
+    const sessions = memorySessions();
+    // 会話記録=A の保存済みセッションを用意し、グローバル設定=B で開いて送信する
+    const saved: SessionData = {
+      version: SESSION_SCHEMA_VERSION,
+      id: '44444444-4444-4444-4444-444444444444',
+      title: '既存会話',
+      workspace: 'C:\\conv-a',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      history: [{ role: 'user', content: [{ type: 'text', text: '最初の指示' }] }],
+    };
+    await sessions.save(saved);
+    const hanging: LLMProvider = {
+      id: 'anthropic',
+      async *complete(req): AsyncGenerator<ProviderEvent> {
+        await new Promise<void>((res) =>
+          req.signal.addEventListener('abort', () => res(), { once: true }),
+        );
+        throw new Error('aborted');
+      },
+    };
+    const { svc, bus } = makeService({
+      providerFactory: () => hanging,
+      sessions,
+      config: { get: () => structuredClone({ ...BASE_CONFIG, workspace: 'C:\\global-b' }) },
+    });
+    const infos: string[] = [];
+    bus.subscribe('chat:event', (e) => {
+      if (e.kind === 'info') infos.push(e.message);
+    });
+    expect((await svc.sessionLoad(saved.id)).ok).toBe(true);
+    const { sessionId } = svc.chatSend('続きをやって', 'normal');
+
+    // run.workspace は会話の記録(A)が優先される
+    expect(svc.runsList().find((r) => r.sessionId === sessionId)?.workspace).toBe('C:\\conv-a');
+    // 食い違いの警告 info が出る
+    expect(infos).toContain('この会話は C:\\conv-a で作業します(現在の設定は C:\\global-b)');
+
+    const done = waitForDone(bus);
+    svc.chatCancel(sessionId);
+    await done;
+    await new Promise((r) => setTimeout(r, 20)); // persistChain の完了待ち
+    // conv.workspace は上書きされない(保存データも A のまま)
+    const last = sessions.saved[sessions.saved.length - 1]!;
+    expect(last.id).toBe(saved.id);
+    expect(last.workspace).toBe('C:\\conv-a');
+  });
+
+  it('新規会話(workspace未記録)は従来どおりグローバル設定に束縛される(警告なし)', async () => {
+    const sessions = memorySessions();
+    const hanging: LLMProvider = {
+      id: 'anthropic',
+      async *complete(req): AsyncGenerator<ProviderEvent> {
+        await new Promise<void>((res) =>
+          req.signal.addEventListener('abort', () => res(), { once: true }),
+        );
+        throw new Error('aborted');
+      },
+    };
+    const { svc, bus } = makeService({
+      providerFactory: () => hanging,
+      sessions,
+      config: { get: () => structuredClone({ ...BASE_CONFIG, workspace: 'C:\\global-b' }) },
+    });
+    const infos: string[] = [];
+    bus.subscribe('chat:event', (e) => {
+      if (e.kind === 'info') infos.push(e.message);
+    });
+    const { sessionId } = svc.chatSend('初めまして', 'normal');
+    expect(svc.runsList().find((r) => r.sessionId === sessionId)?.workspace).toBe('C:\\global-b');
+    expect(infos.some((m) => m.includes('この会話は'))).toBe(false);
+
+    const done = waitForDone(bus);
+    svc.chatCancel(sessionId);
+    await done;
+    await new Promise((r) => setTimeout(r, 20));
+    // conv.workspace = グローバル設定が記録される
+    const last = sessions.saved[sessions.saved.length - 1]!;
+    expect(last.workspace).toBe('C:\\global-b');
+  });
+
   it('sessions 未注入でもチャットは従来どおり動く(機能無効)', async () => {
     const { svc, bus } = makeService({ providerFactory: () => textProvider('OK') });
     const done = waitForDone(bus);
