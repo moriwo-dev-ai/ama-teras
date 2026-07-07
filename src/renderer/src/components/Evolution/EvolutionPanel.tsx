@@ -15,6 +15,29 @@ const STATUS_LABEL: Record<EvolutionJobStatus, { text: string; cls: string }> = 
   rolled_back: { text: 'ロールバック済み', cls: 'text-red-400' },
 };
 
+/**
+ * 昇格履歴エントリの「どういう能力か」要約を導出する。
+ * kind=tool は現在ロード中のツール説明(toolsList)から引く(複数ツールなら「name: 説明」を連結)。
+ * それ以外(renderer/core)はマージコミットの subject を使う。
+ * (git タグからの導出ロジックは src/main/evolution=聖域のため renderer 側で補完する)
+ */
+export function capabilitySummary(
+  h: { kind: 'tool' | 'renderer' | 'core'; toolNames: string[]; subject: string },
+  toolDescs: Record<string, string>,
+): string {
+  if (h.kind === 'tool' && h.toolNames.length > 0) {
+    const parts = h.toolNames
+      .map((n) => {
+        const d = toolDescs[n];
+        if (d === undefined || d === '') return '';
+        return h.toolNames.length > 1 ? `${n}: ${d}` : d;
+      })
+      .filter((s) => s !== '');
+    if (parts.length > 0) return parts.join(' / ');
+  }
+  return h.subject;
+}
+
 /** M20: スコープバッジ(tool=灰 / renderer=青 / core=赤) */
 function ScopeBadge({ scope }: { scope?: EvolutionScope }): JSX.Element {
   const s = scope ?? 'tool';
@@ -45,11 +68,15 @@ export function EvolutionPanel(): JSX.Element {
       files: string[];
     }[]
   >([]);
+  // ツール名→説明。kind=tool の履歴に「どういう能力か」の要約を出すために使う
+  const [toolDescs, setToolDescs] = useState<Record<string, string>>({});
   const [rollbackMsg, setRollbackMsg] = useState('');
 
   const loadHistory = async (): Promise<void> => {
     try {
       setHistory(await window.api.evolutionCapabilities());
+      const { tools } = await window.api.toolsList();
+      setToolDescs(Object.fromEntries(tools.map((t) => [t.name, t.description])));
     } catch {
       /* 履歴は表示のみの情報 */
     }
@@ -61,7 +88,7 @@ export function EvolutionPanel(): JSX.Element {
   }, [loadJobs]);
 
   return (
-    <div className="space-y-2 border-t border-zinc-700 bg-zinc-950 p-3 text-sm">
+    <div className="flex min-h-0 flex-1 flex-col gap-2 border-t border-zinc-700 bg-zinc-950 p-3 text-sm">
       <div className="flex items-center gap-2">
         <span className="text-xs font-semibold text-zinc-400">進化ジョブ</span>
         <input
@@ -136,8 +163,8 @@ export function EvolutionPanel(): JSX.Element {
         ))}
       </div>
 
-      {/* M20: ロールバック履歴(evolveタグ)と「1つ前へ戻す」 */}
-      <div className="border-t border-zinc-800 pt-2">
+      {/* M20: ロールバック履歴(evolveタグ)と「1つ前へ戻す」— 右ペインの残り高さを使う */}
+      <div className="flex min-h-0 flex-1 flex-col border-t border-zinc-800 pt-2">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-zinc-400">獲得した能力(昇格履歴)</span>
           <button
@@ -164,42 +191,49 @@ export function EvolutionPanel(): JSX.Element {
         {history.length === 0 ? (
           <p className="mt-1 text-[11px] text-zinc-500">昇格履歴なし(進化で獲得した能力がここに並ぶ)</p>
         ) : (
-          <ul className="mt-1 max-h-48 space-y-1 overflow-y-auto text-[11px] text-zinc-400">
-            {history.map((h) => (
-              <li key={h.tag} className="rounded border border-zinc-800 px-2 py-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-purple-300">{h.tag}</span>
-                  {/* M23-6: 獲得の種類(ツール追加 or 自己書き換え) */}
-                  <span
-                    className={`shrink-0 whitespace-nowrap rounded px-1 text-[10px] ${
-                      h.kind === 'tool'
-                        ? 'bg-zinc-800 text-zinc-300'
-                        : h.kind === 'renderer'
-                          ? 'bg-blue-900/70 text-blue-300'
-                          : 'bg-red-900/70 text-red-300'
-                    }`}
-                  >
-                    {h.kind === 'tool' ? '🔧 ツール追加' : h.kind === 'renderer' ? '🎨 UI自己書き換え' : '⚙ コア自己書き換え'}
-                  </span>
-                  {h.toolNames.map((n) => (
-                    <span key={n} className="rounded bg-emerald-900/50 px-1 font-mono text-[10px] text-emerald-300">
-                      {n}
+          <ul className="mt-1 max-h-[60vh] min-h-0 flex-1 space-y-1 overflow-y-auto text-[11px] text-zinc-400">
+            {history.map((h) => {
+              const summary = capabilitySummary(h, toolDescs);
+              return (
+                <li key={h.tag} className="rounded border border-zinc-800 px-2 py-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-purple-300">{h.tag}</span>
+                    {/* M23-6: 獲得の種類(ツール追加 or 自己書き換え) */}
+                    <span
+                      className={`shrink-0 whitespace-nowrap rounded px-1 text-[10px] ${
+                        h.kind === 'tool'
+                          ? 'bg-zinc-800 text-zinc-300'
+                          : h.kind === 'renderer'
+                            ? 'bg-blue-900/70 text-blue-300'
+                            : 'bg-red-900/70 text-red-300'
+                      }`}
+                    >
+                      {h.kind === 'tool' ? '🔧 ツール追加' : h.kind === 'renderer' ? '🎨 UI自己書き換え' : '⚙ コア自己書き換え'}
                     </span>
-                  ))}
-                  <span className="ml-auto shrink-0 text-zinc-500">{h.date.slice(0, 16)}</span>
-                </div>
-                <details className="mt-0.5">
-                  <summary className="cursor-pointer text-zinc-500">
-                    変更ファイル {h.files.length}件 — {h.subject}
-                  </summary>
-                  <ul className="mt-0.5 space-y-0.5 pl-3 font-mono text-[10px] text-zinc-500">
-                    {h.files.map((f) => (
-                      <li key={f}>{f}</li>
+                    {h.toolNames.map((n) => (
+                      <span key={n} className="rounded bg-emerald-900/50 px-1 font-mono text-[10px] text-emerald-300">
+                        {n}
+                      </span>
                     ))}
-                  </ul>
-                </details>
-              </li>
-            ))}
+                    <span className="ml-auto shrink-0 text-zinc-500">{h.date.slice(0, 16)}</span>
+                  </div>
+                  {/* どういう能力かの要約(空なら非表示・長文は3行で省略) */}
+                  {summary !== '' && (
+                    <p className="mt-0.5 line-clamp-3 text-[11px] text-zinc-400">{summary}</p>
+                  )}
+                  <details className="mt-0.5">
+                    <summary className="cursor-pointer text-zinc-500">
+                      変更ファイル {h.files.length}件 — {h.subject}
+                    </summary>
+                    <ul className="mt-0.5 space-y-0.5 pl-3 font-mono text-[10px] text-zinc-500">
+                      {h.files.map((f) => (
+                        <li key={f}>{f}</li>
+                      ))}
+                    </ul>
+                  </details>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
