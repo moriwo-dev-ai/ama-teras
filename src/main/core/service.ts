@@ -592,6 +592,8 @@ export class AgentService {
           ...(origin !== undefined ? { originConversationId: origin.id } : {}),
         }),
       }),
+      // M24: evolution_jobs ツールがパイプラインの内部ログを読むための入口
+      list: () => this.evolution.list(),
     };
   }
 

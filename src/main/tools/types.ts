@@ -1,4 +1,4 @@
-import type { ToolRisk } from '../../shared/types';
+import type { EvolutionJobSummary, ToolRisk } from '../../shared/types';
 
 export type JsonSchemaProperty = {
   type: 'string' | 'number' | 'integer' | 'boolean' | 'array' | 'object';
@@ -56,6 +56,12 @@ export interface ToolContext {
       expectedIO: string,
       scope?: 'tool' | 'renderer' | 'core',
     ): Promise<{ jobId: number }>;
+    /**
+     * M24: 進化パイプラインの内部状態を読む(evolution_jobs ツール専用)。
+     * 現行プロセスで走った/走っているジョブの状態・ゲート結果・ログを返す。
+     * 再起動で揮発する(過去に昇格した能力は listEvolvedCapabilities / EvolutionPanel を参照)。
+     */
+    list?(): EvolutionJobSummary[];
   };
   /**
    * サブエージェント委譲(M8-4 / M12-3)。dispatch_agent プラグインだけが使う。

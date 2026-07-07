@@ -2,7 +2,16 @@
 
 ## 現在の状態
 
-- **M1〜M23まで実装**。テスト628件・typecheck(node/web/remote)全合格。
+- **M1〜M24まで実装**。テスト643件・typecheck(node/web/remote)全合格。
+- **M24追加(2026-07-07・スマホからの追加指示)**: チャットモデルが**進化パイプラインの内部ログ**を
+  自分で確認できる読み取り専用ツール `evolution_jobs` を追加。id省略=現行プロセスの全ジョブ一覧
+  (id/status/scope/tool/失敗ゲート/説明)、id指定=ゲート合否詳細+ログ末尾(logTailで行数調整)。
+  ctx.evolution に `list()` を追加(service.evolutionContextで注入、chatSend/toolsExecute両経路)。
+  進化ジョブの状態はメモリ上のみで再起動で揮発する旨をツール説明に明記(過去の昇格済み能力は
+  EvolutionPanelの「獲得した能力」を参照)。ユニット7件。
+  なお「再起動でツールが消えるかも」の懸念は調査の結果**実体は全て健在**(devは
+  src/main/tools/plugins/をソースから起動時ロード、evolve/7のhttp_screenshot含む16プラグイン。
+  git clean)。消えて見える場合はロードエラー(Debugパネルのregistry.errorsに表示)であり削除ではない。
 - **M23-6追加(2026-07-06 夜間・スマホからの追加指示)**: 進化パネルの昇格履歴を
   **「獲得した能力」リスト**へ拡張 — evolveタグごとにマージ第1親との差分から
   kind(🔧ツール追加/🎨UI自己書き換え/⚙コア自己書き換え)・追加ツール名・変更ファイル
