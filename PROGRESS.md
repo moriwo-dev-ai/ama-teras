@@ -3,6 +3,15 @@
 ## 現在の状態
 
 - **M1〜M24まで実装**。テスト643件・typecheck(node/web/remote)全合格。
+- **evolve/8(2026-07-07)**: **workspace無言移住バグをAMA-teras自身がcore進化で修正**(人間監視付き)。
+  バグ: chatSendのラン開始時に常にグローバル設定のworkspaceを束縛し conv.workspace を無言上書き
+  → sessionOpen(別セッションを開くとグローバル追従)が引き金で、古い会話へ戻って送信すると
+  別プロジェクトへ無言で移住(実害: 「初めまして」会話が Documents\AMA-teras→C:\dev\3DCAD へ)。
+  修正: 会話記録のworkspace優先(新規会話のみグローバル束縛)・既存記録は上書きしない・
+  食い違い時は警告infoカード。回帰テスト2件(記録A/設定B→Aのまま+警告+永続化もA、新規→B)。
+  フロー: Claude Codeが診断検証→チャット指示→AMA-terasがrequest_capability(scope:core)→
+  全ゲート合格→Claude Codeがdiff先行レビュー→ユーザー承認→再ビルド+健全性チェック→自動再起動。
+  残課題: 既存会話のworkspaceを意図的に変更する明示操作(「この会話を移動」)は未実装。
 - **M24-2追加(2026-07-07)**: 計画時の**能力ギャップ評価**をプロンプト規範化 —
   「既存ツールの遠回りな組み合わせで妥協せず、専用ツールがあれば効率よく・自動でできると
   判断したら request_capability で積極提案(名前案+期待入出力を明記)」を SYSTEM_PROMPT 規範と
