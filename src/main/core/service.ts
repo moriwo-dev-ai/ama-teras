@@ -247,6 +247,11 @@ interface ConvState {
    * 別会話への切替でこの会話のフラグは変わらない(実行中の自律ランは維持される)
    */
   autonomous: boolean;
+  /**
+   * M25-2: 進化結果による自動再開の回数(人間の送信でリセット)。
+   * 進化失敗→自動再開→再申請→失敗…の無限連鎖でトークンを浪費しないための上限カウンター
+   */
+  autoResumeCount: number;
   /** 会話に束縛された作業ディレクトリ(送信/ロード時に更新) */
   workspace: string;
   run: RunState | null;
@@ -279,6 +284,7 @@ export class AgentService {
       persistChain: Promise.resolve(),
       fallbackUsed: false,
       autonomous: false,
+      autoResumeCount: 0,
       workspace: '',
       run: null,
     };
@@ -414,16 +420,39 @@ export class AgentService {
         text,
         conversationId: conv.id,
       });
-    } else {
-      // 待機中: 履歴へ直接積む(直前がuserメッセージなら結合してAPIの交互制約を守る)
-      const last = conv.history[conv.history.length - 1];
-      if (last && last.role === 'user') last.content.push({ type: 'text', text });
-      else conv.history.push({ role: 'user', content: [{ type: 'text', text }] });
-      this.persistSession(conv);
+      return;
+    }
+    // M25-2: 待機中は履歴に積むだけでなくランを自動再開する(「通知が来てもエージェントが
+    // 動かない」対策)。人間が却下した rejected は再開しない(却下の意思を尊重+再申請ループ防止)。
+    // 自動再開はユーザー送信なしで最大3連鎖まで(失敗→再申請→失敗…の暴走防止)
+    const canAutoResume = job.status !== 'rejected' && conv.autoResumeCount < 3;
+    if (canAutoResume) {
+      conv.autoResumeCount += 1;
       this.deps.bus.publish('chat:event', {
-        kind: 'instruction_queued',
+        kind: 'info',
         sessionId: `evolution-${job.id}`,
-        text,
+        message: `🧬 進化ジョブ#${job.id} の結果を受けて、依頼元の会話を自動再開します(${conv.autoResumeCount}/3)`,
+        conversationId: conv.id,
+      });
+      this.chatSend(text, 'normal', undefined, conv);
+      return;
+    }
+    // 再開しない場合(rejected / 上限到達): 履歴へ積んで次のユーザー送信で読まれる
+    const last = conv.history[conv.history.length - 1];
+    if (last && last.role === 'user') last.content.push({ type: 'text', text });
+    else conv.history.push({ role: 'user', content: [{ type: 'text', text }] });
+    this.persistSession(conv);
+    this.deps.bus.publish('chat:event', {
+      kind: 'instruction_queued',
+      sessionId: `evolution-${job.id}`,
+      text,
+      conversationId: conv.id,
+    });
+    if (job.status !== 'rejected') {
+      this.deps.bus.publish('chat:event', {
+        kind: 'info',
+        sessionId: `evolution-${job.id}`,
+        message: `🧬 自動再開の上限(3回)に達したため停止中。続きはメッセージを送ると再開されます`,
         conversationId: conv.id,
       });
     }
@@ -765,6 +794,7 @@ export class AgentService {
       fallbackUsed: false,
       // M17-2: ディスクから開いた会話の自律モードは必ずOFF(会話単位・再起動/開き直しでOFF)
       autonomous: false,
+      autoResumeCount: 0,
       workspace: data.workspace,
       run: null,
     };
@@ -811,10 +841,14 @@ export class AgentService {
     text: string,
     mode: ChatMode,
     images?: ChatImageInput[],
+    /** M25-2: 進化の自動再開だけが使う内部パラメータ(表示中でない依頼元会話でランを起動する) */
+    targetConv?: ConvState,
   ): { sessionId: string; conversationId: string } {
     const planMode = mode === 'plan';
     const sessionId = randomUUID();
-    const conv = this.current;
+    const conv = targetConv ?? this.current;
+    // 人間の送信で自動再開の上限カウンターをリセット(自動再開の連鎖は3回まで)
+    if (targetConv === undefined) conv.autoResumeCount = 0;
     // M22: 全イベントに会話IDを付ける(renderer/remoteは表示中の会話だけ反映する)
     const emit = (event: AgentEvent): void => {
       if (event.kind === 'status' && conv.run?.sessionId === sessionId) {

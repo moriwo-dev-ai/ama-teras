@@ -84,8 +84,8 @@ const waitDone = (bus: EventBus): Promise<void> =>
     });
   });
 
-const failedJob = (origin?: string): EvolutionJobSummary => ({
-  id: 9,
+const failedJob = (origin?: string, id = 9): EvolutionJobSummary => ({
+  id,
   description: 'ヘッドレスブラウザツール',
   status: 'failed',
   log: [],
@@ -107,7 +107,7 @@ describe('進化結果のチャット/モデル通知(M23-7)', () => {
     expect(infos[0]!.kind === 'info' && infos[0]!.message).toContain('smokeゲート');
   });
 
-  it('待機中の依頼元会話には履歴へ自動通知が積まれ、モデルが次の送信で読める', async () => {
+  it('M25-2: 待機中の依頼元会話はランが自動再開され、モデルが結果に反応できる', async () => {
     const { svc, bus, events, hooks } = makeService(echoProvider('了解'));
     const done = waitDone(bus);
     svc.chatSend('進化を申請して', 'normal');
@@ -116,14 +116,67 @@ describe('進化結果のチャット/モデル通知(M23-7)', () => {
     await new Promise((r) => setTimeout(r, 0));
     const convId = svc.getCurrentConversationId();
 
+    const resumed = waitDone(bus);
     hooks().onEvent({ kind: 'job_update', job: failedJob(convId) });
+    await resumed;
 
-    // 履歴にモデル向けの自動通知が入っている(=次のLLM呼び出しに載る)
+    // 自動再開のinfoが依頼元会話に出る
+    expect(
+      events.some(
+        (e) => e.kind === 'info' && e.message.includes('自動再開します') && e.conversationId === convId,
+      ),
+    ).toBe(true);
+    // 履歴に自動通知(user)が入り、モデルがそれに応答している(=動いた)
     const view = svc.getHistoryView();
     const notice = view.find((m) => m.role === 'user' && m.text.includes('(自動通知)'));
     expect(notice?.text).toContain('processes 未注入');
     expect(notice?.text).toContain('代替手段');
-    // UI用の instruction_queued も conversationId 付きで出る
+    expect(view[view.length - 1]?.role).toBe('assistant');
+  });
+
+  it('M25-2: 人間が却下(rejected)したジョブは自動再開せず、履歴注入のみ', async () => {
+    const { svc, bus, events, hooks } = makeService(echoProvider('了解'));
+    const done = waitDone(bus);
+    svc.chatSend('進化を申請して', 'normal');
+    await done;
+    await new Promise((r) => setTimeout(r, 0));
+    const convId = svc.getCurrentConversationId();
+
+    hooks().onEvent({
+      kind: 'job_update',
+      job: { ...failedJob(convId, 12), status: 'rejected' },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(events.some((e) => e.kind === 'info' && e.message.includes('自動再開します'))).toBe(false);
+    // 履歴には積まれる(次のユーザー送信でモデルが読む)
+    expect(
+      events.some((e) => e.kind === 'instruction_queued' && e.conversationId === convId),
+    ).toBe(true);
+  });
+
+  it('M25-2: 自動再開はユーザー送信なしで3回まで(4回目は履歴注入+上限info)', async () => {
+    const { svc, bus, events, hooks } = makeService(echoProvider('了解'));
+    const done = waitDone(bus);
+    svc.chatSend('進化を申請して', 'normal');
+    await done;
+    await new Promise((r) => setTimeout(r, 0));
+    const convId = svc.getCurrentConversationId();
+
+    for (const id of [21, 22, 23]) {
+      const resumed = waitDone(bus);
+      hooks().onEvent({ kind: 'job_update', job: failedJob(convId, id) });
+      await resumed;
+      await new Promise((r) => setTimeout(r, 0)); // run クリア(finally)待ち
+    }
+    const resumeInfos = events.filter((e) => e.kind === 'info' && e.message.includes('自動再開します'));
+    expect(resumeInfos).toHaveLength(3);
+
+    // 4回目は再開されず、上限infoと履歴注入になる
+    hooks().onEvent({ kind: 'job_update', job: failedJob(convId, 24) });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(events.filter((e) => e.kind === 'info' && e.message.includes('自動再開します'))).toHaveLength(3);
+    expect(events.some((e) => e.kind === 'info' && e.message.includes('上限'))).toBe(true);
     expect(
       events.some((e) => e.kind === 'instruction_queued' && e.conversationId === convId),
     ).toBe(true);
