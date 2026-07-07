@@ -3,7 +3,9 @@ import type { ToolContext, ToolPlugin, ToolResult } from '../types';
 export default {
   name: 'request_capability',
   description:
-    '現在のツールでは対応できない要求に遭遇したときに呼ぶ。自己進化ジョブを開始する。' +
+    '自己進化ジョブを開始する。現在のツールでは対応できない要求に遭遇したときに加え、' +
+    '「専用ツールがあれば効率よく・自動でできる」と計画段階で判断したときも積極的に呼ぶこと' +
+    '(既存ツールの遠回りな組み合わせで妥協しない)。' +
     'scope="tool"(既定)は新しいツールプラグインの生成。M20: scope="renderer" はUI(src/renderer)、' +
     'scope="core" は本体(src/main)の改善提案 — どちらも聖域(承認機構・進化・secrets等)には触れられず、' +
     '検証ゲート合格後に必ず人間の承認(二段確認)と再起動を経て反映される。' +

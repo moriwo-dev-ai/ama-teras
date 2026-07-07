@@ -83,6 +83,9 @@ describe('AgentService × 計画注入(M12-2)', () => {
     expect(system).toContain('- [ ] REST APIの雛形');
     // 運用指示(planツールを使う規範)も system に含まれる
     expect(system).toContain('plan ツール');
+    // M24-2: 能力ギャップ評価の規範(新ツールの積極提案)も system に含まれる
+    expect(system).toContain('能力ギャップ');
+    expect(system).toContain('request_capability');
   });
 
   it('計画が無ければ従来どおり(計画セクションなし)', async () => {
