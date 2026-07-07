@@ -6,10 +6,13 @@ import { existsSync, writeFileSync } from 'node:fs';
 import {
   composePlanSection,
   composeSystemPrompt,
+  composeUserPolicySection,
   planPath,
   readProjectMemory,
   readProjectPlan,
+  readUserMemory,
   writeProjectMemory,
+  writeUserMemory,
 } from './memory';
 
 let dir: string;
@@ -60,6 +63,24 @@ describe('project memory(M8-2)', () => {
     writeFileSync(join(dir, 'MYCODEX.md'), '- 旧', 'utf8');
     writeFileSync(join(dir, 'AMATERAS.md'), '- 新', 'utf8');
     expect(readProjectMemory(dir)).toBe('- 新');
+  });
+});
+
+describe('user memory(M25: ユーザー方針・全プロジェクト共通)', () => {
+  it('不在なら空文字、write→read で往復する', () => {
+    expect(readUserMemory(dir)).toBe('');
+    writeUserMemory(dir, '- 成果物は必ずツールで動作確認してから完了とする');
+    expect(readUserMemory(dir)).toContain('動作確認してから完了');
+  });
+
+  it('composeUserPolicySection はユーザー方針を注入する(空なら素通し)', () => {
+    const composed = composeUserPolicySection('base', '- 報告は結論から');
+    expect(composed).toContain('base');
+    expect(composed).toContain('AMATERAS-USER.md');
+    expect(composed).toContain('全プロジェクト共通');
+    expect(composed).toContain('報告は結論から');
+    expect(composeUserPolicySection('base', '')).toBe('base');
+    expect(composeUserPolicySection('base', ' \n ')).toBe('base');
   });
 });
 

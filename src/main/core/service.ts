@@ -41,8 +41,10 @@ import {
   appendLearnedMemory,
   composePlanSection,
   composeSystemPrompt,
+  composeUserPolicySection,
   readProjectMemory,
   readProjectPlan,
+  readUserMemory,
 } from '../memory';
 import { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from '../providers/anthropic';
 import { DEFAULT_OPENAI_MODEL, OpenAIProvider } from '../providers/openai';
@@ -174,7 +176,11 @@ const SYSTEM_PROMPT = `あなたは AMA-teras — ユーザーのマシン上で
   進むので、待つ間は既存ツールで進められる部分を先に進める。進化が失敗したら
   evolution_jobs で失敗ゲートとログを確認し、依頼内容を直して再申請する
 - 今後も使う知見(ビルド方法・規約・ハマりどころ)を発見したら memory ツールで短く追記すること。
-  会話固有の一時的な内容は記憶に書かないこと
+  会話固有の一時的な内容は記憶に書かないこと。ユーザーが「今後こうして」と恒久的な作業方針を
+  教えてくれたら memory ツールの scope:"user" で保存すること(全プロジェクト共通で毎回注入される)
+- ユーザーが体験する成果物(UI・Webページ・スクリプト・アプリ等)は、完了と報告する前に必ず
+  ツールで実際に動かして確認すること — 画面は screenshot / http_screenshot で見た目を確認し、
+  スクリプトは bash で実行し、サーバは起動してレスポンスを確かめる。「書けたはず」で完了としない
 - 完了したら何をしたか簡潔に日本語で報告する`;
 
 const PLAN_SUFFIX = `\n\n# プランモード\n今回は「計画のみ」を求められている。実装に入らず、
@@ -1017,6 +1023,7 @@ export class AgentService {
               ...ctx,
               evolution: this.evolutionContext(conv),
               processes: run.processes,
+              userMemoryDir: this.deps.denyPaths.userDataDir,
               ...this.screenshotContext(),
               subagent: {
                 // M18: サブエージェントは worker 帯(policy無効時はメインと同一)
@@ -1073,11 +1080,17 @@ export class AgentService {
             return result;
           },
           emit: emitWithPersist,
-          // プロジェクト記憶(AMATERAS.md)と現在の計画(AMATERAS_PLAN.md)を
-          // system プロンプトへ注入する(M8-2 / M12-2)。M22: ランのworkspaceに束縛
+          // ユーザー方針(AMATERAS-USER.md・全プロジェクト共通)→プロジェクト記憶(AMATERAS.md)
+          // →現在の計画(AMATERAS_PLAN.md)の順で system プロンプトへ注入する(M25 / M8-2 / M12-2)
           systemPrompt:
             composePlanSection(
-              composeSystemPrompt(SYSTEM_PROMPT, readProjectMemory(run.workspace)),
+              composeSystemPrompt(
+                composeUserPolicySection(
+                  SYSTEM_PROMPT,
+                  readUserMemory(this.deps.denyPaths.userDataDir),
+                ),
+                readProjectMemory(run.workspace),
+              ),
               readProjectPlan(run.workspace),
             ) +
             (policy ? POLICY_HINT : '') +
@@ -1528,6 +1541,7 @@ export class AgentService {
         log: () => {},
         evolution: this.evolutionContext(),
         processes: this.processes,
+        userMemoryDir: this.deps.denyPaths.userDataDir,
         ...this.screenshotContext(),
       },
     );

@@ -101,3 +101,52 @@ describe('memory ツール(M13-1)', () => {
     expect(existsSync(join(dir, 'MYCODEX.md'))).toBe(false); // renameで移行
   });
 });
+
+describe('memory scope:"user"(M25: ユーザー方針)', () => {
+  let userDir: string;
+  beforeEach(async () => {
+    userDir = await mkdtemp(join(tmpdir(), 'mycodex-usermem-'));
+  });
+  afterEach(async () => {
+    await rm(userDir, { recursive: true, force: true }).catch(() => {});
+  });
+  const userCtx = (): ToolContext => ctx({ userMemoryDir: userDir });
+
+  it('append は AMATERAS-USER.md(userData)に書き、AMATERAS.md(workspace)には触れない', async () => {
+    const w = await memory.execute(
+      { action: 'append', content: '成果物は必ずツールで動作確認してから完了とする', scope: 'user' },
+      userCtx(),
+    );
+    expect(w.isError).not.toBe(true);
+    expect(w.content).toContain('AMATERAS-USER.md');
+    const file = await readFile(join(userDir, 'AMATERAS-USER.md'), 'utf8');
+    expect(file).toContain('動作確認してから完了');
+    expect(existsSync(join(dir, 'AMATERAS.md'))).toBe(false);
+  });
+
+  it('read は scope で読み分ける', async () => {
+    await writeFile(join(dir, 'AMATERAS.md'), '- プロジェクト側', 'utf8');
+    await writeFile(join(userDir, 'AMATERAS-USER.md'), '- ユーザー側', 'utf8');
+    const p = await memory.execute({ action: 'read' }, userCtx());
+    const u = await memory.execute({ action: 'read', scope: 'user' }, userCtx());
+    expect(p.content).toContain('プロジェクト側');
+    expect(u.content).toContain('ユーザー側');
+  });
+
+  it('rewrite scope:"user" は全置換される', async () => {
+    await writeFile(join(userDir, 'AMATERAS-USER.md'), '- 古い方針', 'utf8');
+    await memory.execute({ action: 'rewrite', content: '- 新しい方針', scope: 'user' }, userCtx());
+    expect(await readFile(join(userDir, 'AMATERAS-USER.md'), 'utf8')).toBe('- 新しい方針');
+  });
+
+  it('userMemoryDir 未注入(進化ジョブ等)では scope:"user" はエラー', async () => {
+    const r = await memory.execute({ action: 'read', scope: 'user' }, ctx());
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain('userMemoryDir');
+  });
+
+  it('不正な scope はエラー', async () => {
+    const r = await memory.execute({ action: 'read', scope: 'global' }, userCtx());
+    expect(r.isError).toBe(true);
+  });
+});

@@ -64,6 +64,11 @@ export interface ToolContext {
     list?(): EvolutionJobSummary[];
   };
   /**
+   * M25: ユーザー方針(AMATERAS-USER.md・全プロジェクト共通)の保存先ディレクトリ(userData)。
+   * memory ツールの scope:'user' だけが使う。進化ジョブには注入されない
+   */
+  userMemoryDir?: string;
+  /**
    * サブエージェント委譲(M8-4 / M12-3)。dispatch_agent プラグインだけが使う。
    * run は従来の読み取り専用の単発委譲。runParallel は最大3並列で、
    * mode:'work' なら書き込み/実行込みの子(すべて executor=承認フロー経由)。

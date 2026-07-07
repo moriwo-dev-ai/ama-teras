@@ -16,6 +16,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
   const [apiKey, setApiKey] = useState('');
   const [notice, setNotice] = useState('');
   const [memory, setMemory] = useState('');
+  const [userMemory, setUserMemory] = useState('');
   // fullPc 有効化は影響が大きいため確認モーダルを挟む(M9-4)
   const [confirmFullPc, setConfirmFullPc] = useState(false);
   const [animOn, setAnimOn] = useState(animEnabled());
@@ -24,6 +25,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
     void window.api.settingsGet().then(setConfig);
     void window.api.secretsStatus().then(setStatus);
     void window.api.memoryGet().then(setMemory);
+    void window.api.userMemoryGet().then(setUserMemory);
   }, []);
 
   if (!config) return <div className="p-4 text-sm text-zinc-400">読込中…</div>;
@@ -422,6 +424,27 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
         <RemoteAccessSection />
 
         <McpSection />
+
+        <div className="space-y-1">
+          <label className="text-xs text-zinc-400">
+            ユーザー方針(AMATERAS-USER.md・全プロジェクト共通で system プロンプトへ注入)
+          </label>
+          <textarea
+            className="h-24 w-full resize-y rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
+            value={userMemory}
+            placeholder={'例:\n- ユーザーが体験する成果物は必ずツールで動作確認してから完了とする\n- 報告は結論から'}
+            onChange={(e) => setUserMemory(e.target.value)}
+          />
+          <button
+            className="rounded bg-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-600"
+            onClick={async () => {
+              await window.api.userMemorySet(userMemory);
+              setNotice('ユーザー方針を保存した(AMATERAS-USER.md)');
+            }}
+          >
+            方針を保存
+          </button>
+        </div>
 
         <div className="space-y-1">
           <label className="text-xs text-zinc-400">

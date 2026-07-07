@@ -1,6 +1,6 @@
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { ToolContext, ToolPlugin, ToolResult } from '../types';
 
 /**
@@ -60,13 +60,18 @@ async function migrateLegacy(cwd: string): Promise<void> {
   });
 }
 
+const USER_MEMORY_FILENAME = 'AMATERAS-USER.md';
+
 export default {
   name: 'memory',
   description:
-    'プロジェクト記憶(AMATERAS.md)の管理。今後も使う知見(ビルド方法・規約・ハマりどころ)を ' +
-    '発見したら action:"append" で短く追記すること(「## 学習メモ」節にタイムスタンプ付きで入る)。' +
-    '会話固有の一時的な内容は書かないこと。action:"read" で現在の記憶を確認、' +
-    'action:"rewrite" は肥大した記憶を整理するときの全置換。記憶は毎ターン system prompt に注入される。',
+    '記憶の管理。scope:"project"(既定)はプロジェクト記憶(AMATERAS.md・作業フォルダ)、' +
+    'scope:"user" はユーザー方針(AMATERAS-USER.md・全プロジェクト共通)。' +
+    '今後も使う知見(ビルド方法・規約・ハマりどころ)を発見したら action:"append" で短く追記すること' +
+    '(「## 学習メモ」節にタイムスタンプ付きで入る)。ユーザーが「今後こうして」と恒久的な作業方針を' +
+    '教えてくれたら scope:"user" で保存すること。会話固有の一時的な内容は書かないこと。' +
+    'action:"read" で現在の記憶を確認、action:"rewrite" は肥大した記憶を整理するときの全置換。' +
+    '記憶は毎ターン system prompt に注入される。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -76,14 +81,31 @@ export default {
         description: 'read=現在の記憶 / append=学習メモへ1件追記 / rewrite=全置換(整理用)',
       },
       content: { type: 'string', description: 'append: 追記する知見(短く) / rewrite: 新しい全文' },
+      scope: {
+        type: 'string',
+        enum: ['project', 'user'],
+        description: '省略=project(このプロジェクトだけ)。user=全プロジェクト共通のユーザー方針',
+      },
     },
     required: ['action'],
   },
   risk: 'safe',
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
-    const { action, content } = (input ?? {}) as { action?: unknown; content?: unknown };
-    const file = join(ctx.cwd, MEMORY_FILENAME);
-    const current = await readFile(resolveReadPath(ctx.cwd), 'utf8').catch(() => '');
+    const { action, content, scope } = (input ?? {}) as {
+      action?: unknown;
+      content?: unknown;
+      scope?: unknown;
+    };
+    if (scope !== undefined && scope !== 'project' && scope !== 'user') {
+      return { content: 'scope は "project" / "user" のいずれか', isError: true };
+    }
+    const isUser = scope === 'user';
+    if (isUser && !ctx.userMemoryDir) {
+      return { content: 'このコンテキストではユーザー方針を扱えない(userMemoryDir 未注入)', isError: true };
+    }
+    const fileName = isUser ? USER_MEMORY_FILENAME : MEMORY_FILENAME;
+    const file = isUser ? join(ctx.userMemoryDir!, USER_MEMORY_FILENAME) : join(ctx.cwd, MEMORY_FILENAME);
+    const current = await readFile(isUser ? file : resolveReadPath(ctx.cwd), 'utf8').catch(() => '');
 
     if (action === 'read') {
       return { content: current === '' ? '(記憶はまだ無い)' : current };
@@ -111,17 +133,19 @@ export default {
           isError: true,
         };
       }
-      await migrateLegacy(ctx.cwd);
+      if (!isUser) await migrateLegacy(ctx.cwd);
+      await mkdir(dirname(file), { recursive: true });
       await writeFile(file, next, 'utf8');
-      return { content: `学習メモへ追記した(${MEMORY_FILENAME})` };
+      return { content: `学習メモへ追記した(${fileName})` };
     }
 
     // rewrite
     if (Buffer.byteLength(content, 'utf8') > MAX_FILE_BYTES) {
       return { content: `記憶が大きすぎる(上限 ${MAX_FILE_BYTES / 1024}KB)`, isError: true };
     }
-    await migrateLegacy(ctx.cwd);
+    if (!isUser) await migrateLegacy(ctx.cwd);
+    await mkdir(dirname(file), { recursive: true });
     await writeFile(file, content, 'utf8');
-    return { content: `記憶を書き換えた(${MEMORY_FILENAME})` };
+    return { content: `記憶を書き換えた(${fileName})` };
   },
 } satisfies ToolPlugin;

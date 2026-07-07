@@ -3,6 +3,14 @@
 ## 現在の状態
 
 - **M1〜M24まで実装**。テスト643件・typecheck(node/web/remote)全合格。
+- **M25追加(2026-07-07)**: **育成レイヤー(ユーザー方針)+完了前動作確認の規範化**。
+  ①全プロジェクト共通の AMATERAS-USER.md(userData)を新設 — memory ツールに scope:"user" を追加し、
+  「今後こうして」という恒久方針をAMA-teras自身が保存できる(=チャットからの育成)。毎ターン
+  system prompt へ「# ユーザー方針」として注入(優先順: プロジェクト固有 > ユーザー方針 > 一般規範)。
+  進化ジョブには userMemoryDir 非注入で書けない。Settings に編集欄(userMemoryGet/Set IPC)。
+  ②SYSTEM_PROMPT 規範に「ユーザーが体験する成果物は完了報告の前に必ずツールで実際に動かして確認
+  (screenshot/http_screenshot/bash実行)。『書けたはず』で完了としない」を追加。
+  テスト8件追加(compose/read-write往復・scope書き分け・未注入エラー・system注入)。
 - **evolve/8(2026-07-07)**: **workspace無言移住バグをAMA-teras自身がcore進化で修正**(人間監視付き)。
   バグ: chatSendのラン開始時に常にグローバル設定のworkspaceを束縛し conv.workspace を無言上書き
   → sessionOpen(別セッションを開くとグローバル追従)が引き金で、古い会話へ戻って送信すると

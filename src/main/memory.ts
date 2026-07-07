@@ -83,6 +83,43 @@ export function composeSystemPrompt(base: string, memory: string): string {
 }
 
 /**
+ * M25: ユーザー方針(全プロジェクト共通の育成レイヤー)。userData の AMATERAS-USER.md に
+ * 保存され、workspace に関係なく毎ターン system プロンプトへ注入される。
+ * ユーザーが「今後こうして」と教えた恒久的な作業方針の置き場(memory ツール scope:'user' が書く)
+ */
+export const USER_MEMORY_FILENAME = 'AMATERAS-USER.md';
+
+export function userMemoryPath(userDataDir: string): string {
+  return join(userDataDir, USER_MEMORY_FILENAME);
+}
+
+/** ユーザー方針を読む。無ければ空文字(不在は正常) */
+export function readUserMemory(userDataDir: string): string {
+  try {
+    return readFileSync(userMemoryPath(userDataDir), 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+export function writeUserMemory(userDataDir: string, content: string): void {
+  const p = userMemoryPath(userDataDir);
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, content, 'utf8');
+}
+
+/** system プロンプトにユーザー方針を連結する(空なら素通し)。プロジェクト記憶より前に置く */
+export function composeUserPolicySection(base: string, memory: string): string {
+  if (memory.trim() === '') return base;
+  return (
+    `${base}\n\n# ユーザー方針(${USER_MEMORY_FILENAME}・全プロジェクト共通)\n` +
+    'ユーザーが恒久的に定めた作業方針。一般規範より優先して従うこと' +
+    '(プロジェクト固有の指示と矛盾する場合はプロジェクト側を優先)。\n\n' +
+    memory.trim()
+  );
+}
+
+/**
  * M12-2: 計画ファイル(AMATERAS_PLAN.md)。plan ツールが書き、毎ターン system prompt へ
  * 注入することで、compaction(要約畳み込み)後もタスクリストが失われないようにする。
  */

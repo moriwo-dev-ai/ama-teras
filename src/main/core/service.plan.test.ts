@@ -42,7 +42,7 @@ function capturingProvider(): LLMProvider & { requests: CompletionRequest[] } {
   };
 }
 
-function makeService(provider: LLMProvider): { svc: AgentService; bus: EventBus } {
+function makeService(provider: LLMProvider, userDataDir = '/tmp/x-userdata'): { svc: AgentService; bus: EventBus } {
   const bus = new EventBus();
   const svc = new AgentService({
     bus,
@@ -51,7 +51,7 @@ function makeService(provider: LLMProvider): { svc: AgentService; bus: EventBus 
     secrets: { get: () => null },
     audit: { append: () => {} },
     defaultWorkspace: () => ws,
-    denyPaths: { userDataDir: '/tmp/x-userdata', repoGitDir: '/tmp/x-git' },
+    denyPaths: { userDataDir, repoGitDir: '/tmp/x-git' },
     createEvolution: () => ({ list: () => [], enqueue: vi.fn(async () => 1) }),
     providerFactory: () => provider,
   });
@@ -86,6 +86,24 @@ describe('AgentService × 計画注入(M12-2)', () => {
     // M24-2: 能力ギャップ評価の規範(新ツールの積極提案)も system に含まれる
     expect(system).toContain('能力ギャップ');
     expect(system).toContain('request_capability');
+  });
+
+  it('M25: ユーザー方針(AMATERAS-USER.md)が全ワークスペース共通で system に注入される', async () => {
+    // userDataDir 相当の別ディレクトリに方針を置く(workspace とは別)
+    const userDir = join(ws, 'fake-userdata');
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, 'AMATERAS-USER.md'), '- 成果物は必ずツールで動作確認', 'utf8');
+
+    const provider = capturingProvider();
+    const { svc, bus } = makeService(provider, userDir);
+    const done = waitForDone(bus);
+    svc.chatSend('お願い', 'normal');
+    await done;
+
+    const system = provider.requests[0]!.system;
+    expect(system).toContain('# ユーザー方針');
+    expect(system).toContain('成果物は必ずツールで動作確認');
   });
 
   it('計画が無ければ従来どおり(計画セクションなし)', async () => {

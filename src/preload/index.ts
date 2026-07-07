@@ -36,6 +36,8 @@ const api: MyCodexApi = {
   pickWorkspace: () => ipcRenderer.invoke(IpcChannels.workspacePick),
   memoryGet: () => ipcRenderer.invoke(IpcChannels.memoryGet),
   memorySet: (content) => ipcRenderer.invoke(IpcChannels.memorySet, content),
+  userMemoryGet: () => ipcRenderer.invoke(IpcChannels.userMemoryGet),
+  userMemorySet: (content) => ipcRenderer.invoke(IpcChannels.userMemorySet, content),
 
   secretsSet: (provider, apiKey) => ipcRenderer.invoke(IpcChannels.secretsSet, provider, apiKey),
   secretsStatus: () => ipcRenderer.invoke(IpcChannels.secretsStatus),

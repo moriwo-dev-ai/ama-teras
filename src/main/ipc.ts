@@ -19,7 +19,7 @@ import { EventBus } from './core/events';
 import { AgentService } from './core/service';
 import { UsageMeter } from './core/usage';
 import { SessionStore } from './core/sessions';
-import { readProjectMemory, readProjectPlan, writeProjectMemory } from './memory';
+import { readProjectMemory, readProjectPlan, readUserMemory, writeProjectMemory, writeUserMemory } from './memory';
 import { AgentJobRunner } from './evolution/job';
 import { EvolutionManager } from './evolution/manager';
 import { listEvolvedCapabilities, listEvolveTags, rollbackLastEvolve } from './evolution/promote';
@@ -392,6 +392,12 @@ export async function registerIpcHandlers(
   ipcMain.handle(IpcChannels.memorySet, (_e, content: unknown) => {
     assertString(content, 'content');
     writeProjectMemory(service.getWorkspace(), content);
+  });
+  // M25: ユーザー方針(全プロジェクト共通の育成レイヤー)
+  ipcMain.handle(IpcChannels.userMemoryGet, () => readUserMemory(app.getPath('userData')));
+  ipcMain.handle(IpcChannels.userMemorySet, (_e, content: unknown) => {
+    assertString(content, 'content');
+    writeUserMemory(app.getPath('userData'), content);
   });
   ipcMain.handle(IpcChannels.workspacePick, async () => {
     const result = await dialog.showOpenDialog({

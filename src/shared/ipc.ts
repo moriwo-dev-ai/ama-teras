@@ -46,6 +46,8 @@ export const IpcChannels = {
   workspacePick: 'workspace:pick',
   memoryGet: 'memory:get',
   memorySet: 'memory:set',
+  userMemoryGet: 'memory:user-get',
+  userMemorySet: 'memory:user-set',
   secretsSet: 'secrets:set',
   secretsStatus: 'secrets:status',
   evolutionEvent: 'evolution:event',
@@ -130,6 +132,9 @@ export interface MyCodexApi {
   /** 現在のワークスペースの AMATERAS.md(プロジェクト記憶)の内容 */
   memoryGet(): Promise<string>;
   memorySet(content: string): Promise<void>;
+  /** M25: ユーザー方針(AMATERAS-USER.md・全プロジェクト共通) */
+  userMemoryGet(): Promise<string>;
+  userMemorySet(content: string): Promise<void>;
 
   /** APIキーは書き込みのみ。読み出しは有無のbooleanだけ */
   secretsSet(provider: ProviderId, apiKey: string): Promise<SecretsStatus>;
