@@ -77,6 +77,9 @@ export class EvolutionManager {
       status: 'queued',
       log: [],
       gates: [],
+      ...(req.originConversationId !== undefined
+        ? { originConversationId: req.originConversationId }
+        : {}),
     };
     this.jobs.set(id, job);
     this.emit(job);

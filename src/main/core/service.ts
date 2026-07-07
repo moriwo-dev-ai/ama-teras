@@ -322,8 +322,96 @@ export class AgentService {
           this.pendingPromotionEvents.set(job.id, event);
           deps.bus.publish('evolution:event', event);
         }),
-      onEvent: (e) => deps.bus.publish('evolution:event', e),
+      onEvent: (e) => {
+        deps.bus.publish('evolution:event', e);
+        this.notifyEvolutionToChat(e);
+      },
     });
+  }
+
+  /** 進化ジョブごとの通知済み状態(同じ状態のjob_updateが複数回来ても1回だけ通知) */
+  private readonly evolutionNotified = new Map<number, string>();
+
+  /**
+   * M23-7: 進化の節目(承認待ち/完了/失敗/拒否/ロールバック)をチャットにも通知する。
+   * conversationId を付けない=どの会話を見ていても表示される(remote-uiにも流れる)。
+   * infoカードは履歴に保存されないため、詳細は従来どおり進化タブで確認する
+   */
+  private notifyEvolutionToChat(e: EvolutionEvent): void {
+    if (e.kind !== 'job_update') return;
+    const job = e.job;
+    const NOTIFY: Record<string, (j: EvolutionJobSummary) => string> = {
+      awaiting_promotion: (j) =>
+        `🧬 進化ジョブ#${j.id} が検証ゲートを全て通過。昇格の承認待ちです(進化タブまたはダイアログで確認)`,
+      done: (j) =>
+        `🧬 進化ジョブ#${j.id} 完了${j.toolName ? `: 新ツール「${j.toolName}」が使えるようになりました` : ''}(詳細は進化タブ)`,
+      failed: (j) => {
+        const gate = (j.gates ?? []).find((g) => !g.ok);
+        return `🧬 進化ジョブ#${j.id} 失敗${gate ? `(${gate.name}ゲート)` : ''}: ${(j.error ?? '原因不明').slice(0, 200)}(詳細は進化タブ)`;
+      },
+      rejected: (j) =>
+        j.protectedReject === true
+          ? `🧬 進化ジョブ#${j.id} は保護領域(聖域)に触れるため自動拒否されました(詳細は進化タブ)`
+          : `🧬 進化ジョブ#${j.id} は却下されました`,
+      rolled_back: (j) =>
+        `🧬 進化ジョブ#${j.id} は昇格後の健全性チェックに失敗し、自動で巻き戻されました(詳細は進化タブ)`,
+    };
+    const build = NOTIFY[job.status];
+    if (!build) return;
+    if (this.evolutionNotified.get(job.id) === job.status) return;
+    this.evolutionNotified.set(job.id, job.status);
+    this.deps.bus.publish('chat:event', {
+      kind: 'info',
+      sessionId: `evolution-${job.id}`,
+      message: build(job),
+    });
+    // M23-7: 依頼元の会話には「モデル自身への自動フィードバック」も入れる(人間向けinfoとは別)。
+    // 実行中なら次のターン境界で注入(M21-1キュー)、待機中なら履歴へ積んで次の送信で読まれる
+    if (job.status !== 'awaiting_promotion') this.feedEvolutionResultToModel(job);
+  }
+
+  /** M23-7: 進化の結果を依頼元会話のモデルへ伝える指示文を作って注入する */
+  private feedEvolutionResultToModel(job: EvolutionJobSummary): void {
+    if (job.originConversationId === undefined) return; // 手動起動(パネル/リモート)は人間が見ている
+    const conv = this.conversations.get(job.originConversationId);
+    if (!conv) return;
+    let text: string;
+    if (job.status === 'done') {
+      text =
+        `(自動通知)進化ジョブ#${job.id} が完了した。` +
+        (job.toolName
+          ? `新ツール「${job.toolName}」が動的ロード済みで、次のターンからツールとして使用できる。元のタスクの続きに活用せよ。`
+          : '変更は昇格済み。元のタスクを続行せよ。');
+    } else {
+      const gate = (job.gates ?? []).find((g) => !g.ok);
+      text =
+        `(自動通知)進化ジョブ#${job.id}(${job.description.slice(0, 80)})は「${job.status}」で終わった。` +
+        (gate ? `失敗ゲート: ${gate.name}。詳細: ${(gate.detail ?? '').slice(0, 300)}。` : '') +
+        (job.error !== undefined ? `エラー: ${job.error.slice(0, 200)}。` : '') +
+        'この能力は当面使えない前提で、既存ツールでの代替手段を検討してタスクを続行するか、進化の依頼内容を修正して再申請せよ。';
+    }
+    if (conv.run) {
+      // 実行中: M21-1の追加指示キューへ(次のターン境界で履歴に注入される)
+      conv.run.pendingInstructions.push({ text });
+      this.deps.bus.publish('chat:event', {
+        kind: 'instruction_queued',
+        sessionId: conv.run.sessionId,
+        text,
+        conversationId: conv.id,
+      });
+    } else {
+      // 待機中: 履歴へ直接積む(直前がuserメッセージなら結合してAPIの交互制約を守る)
+      const last = conv.history[conv.history.length - 1];
+      if (last && last.role === 'user') last.content.push({ type: 'text', text });
+      else conv.history.push({ role: 'user', content: [{ type: 'text', text }] });
+      this.persistSession(conv);
+      this.deps.bus.publish('chat:event', {
+        kind: 'instruction_queued',
+        sessionId: `evolution-${job.id}`,
+        text,
+        conversationId: conv.id,
+      });
+    }
   }
 
   // ---- provider ----
@@ -489,14 +577,20 @@ export class AgentService {
     return this.checkpointsCache;
   }
 
-  private evolutionContext() {
+  private evolutionContext(origin?: ConvState) {
     return {
       requestCapability: async (
         description: string,
         expectedIO: string,
         scope?: EvolutionScope,
       ) => ({
-        jobId: await this.evolution.enqueue({ description, expectedIO, ...(scope !== undefined ? { scope } : {}) }),
+        jobId: await this.evolution.enqueue({
+          description,
+          expectedIO,
+          ...(scope !== undefined ? { scope } : {}),
+          // M23-7: 結果をモデルへ自動フィードバックする宛先(依頼元の会話)
+          ...(origin !== undefined ? { originConversationId: origin.id } : {}),
+        }),
       }),
     };
   }
@@ -900,7 +994,7 @@ export class AgentService {
               input,
               {
               ...ctx,
-              evolution: this.evolutionContext(),
+              evolution: this.evolutionContext(conv),
               processes: run.processes,
               ...this.screenshotContext(),
               subagent: {

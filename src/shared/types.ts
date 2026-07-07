@@ -519,6 +519,8 @@ export interface EvolutionJobSummary {
   requiresRestart?: boolean;
   /** M20: 聖域トリップワイヤによる拒否(通常の failed と区別してUI表示) */
   protectedReject?: boolean;
+  /** M23-7: 依頼元の会話(request_capability経由)。結果をモデルへ自動フィードバックする宛先 */
+  originConversationId?: string;
 }
 
 /** main → renderer: 進化ジョブの状態遷移・昇格承認依頼 */

@@ -12,6 +12,8 @@ export interface EvolutionRequest {
   expectedIO: string;
   /** M20: 進化スコープ。未指定は 'tool'(従来)。renderer/core は常に人間承認+再起動 */
   scope?: import('../../shared/types').EvolutionScope;
+  /** M23-7: 依頼元の会話ID(結果をモデルへ自動フィードバックする宛先。手動起動では無し) */
+  originConversationId?: string;
 }
 
 export interface JobArtifacts {
