@@ -23,6 +23,7 @@ import { readProjectMemory, readProjectPlan, readUserMemory, writeProjectMemory,
 import { AgentJobRunner } from './evolution/job';
 import { EvolutionManager } from './evolution/manager';
 import { listEvolvedCapabilities, listEvolveTags, rollbackLastEvolve } from './evolution/promote';
+import { readAndClearPendingQueue, writePendingQueue } from './evolution/pendingQueue';
 import { clearSentinel, writeSentinel } from './evolution/sentinel';
 import { healthCheckAfterPromotion, rebuildAndHealthBoot } from './evolution/supervisor';
 import { defaultRunCommand } from './evolution/gates';
@@ -293,7 +294,9 @@ export async function registerIpcHandlers(
           },
         };
       }
-      return new EvolutionManager({
+      // M25-7: requestRestart(下のdeps内)はmanager.pendingRequests()を参照するが、
+      // クロージャなので実際に呼ばれるのは new EvolutionManager(...) 完了後(=manager代入後)。
+      const manager: EvolutionManager = new EvolutionManager({
         repoDir,
         worktreeBase: join(repoDir, '..', 'mycodex-evolve'),
         runner: new AgentJobRunner(() => service.createProviderOrThrow()),
@@ -306,12 +309,18 @@ export async function registerIpcHandlers(
         // M20: 健全性確定後の再起動(センチネル書き込み→5秒後にrelaunch)
         requestRestart: (tag, prevCommit) => {
           writeSentinel(app.getPath('userData'), tag, prevCommit);
+          // M25-7: 直列キューでまだ着手していない依頼は、この再起動で強制終了されると
+          // 何のエラーも履歴も残さず消えてしまうため、再enqueueできるよう退避しておく
+          const pending = manager.pendingRequests();
+          writePendingQueue(app.getPath('userData'), pending);
           audit.append({
             tool: 'evolution-restart',
             scope: 'system',
             paths: [],
             event: 'result',
-            detail: `tag=${tag} prev=${prevCommit.slice(0, 8)} — 5秒後に再起動`,
+            detail:
+              `tag=${tag} prev=${prevCommit.slice(0, 8)} — 5秒後に再起動` +
+              (pending.length > 0 ? `。キュー中の${pending.length}件は再起動後に再投入する` : ''),
           });
           setTimeout(() => {
             app.relaunch();
@@ -320,6 +329,13 @@ export async function registerIpcHandlers(
         },
         onEvent: hooks.onEvent,
       });
+      // M25-7: 前回起動が進化再起動で強制終了され、まだ着手していなかった依頼が
+      // 残っていれば読み戻して再投入する(セーフモード中はこの分岐自体に入らないため
+      // ファイルは手つかずのまま残り、通常起動に戻ったときに拾われる)
+      for (const req of readAndClearPendingQueue(app.getPath('userData'))) {
+        void manager.enqueue(req);
+      }
+      return manager;
     },
   });
 

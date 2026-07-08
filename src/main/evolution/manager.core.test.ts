@@ -199,6 +199,44 @@ describe('M20: renderer/core 昇格フロー(実git統合)', { timeout: 30_000 }
     expect(job.protectedReject).toBe(true);
   });
 
+  it('M25-7: renderer/coreの昇格が再起動要求を出したら、キュー中の次のジョブは着手せず残る' +
+    '(直列キューが5秒の再起動待ちの間に次を進めて強制終了で消えるのを防ぐ)', async () => {
+    // 2つ目のジョブが「実際に着手したか」をタイミング頼みでなく判定するため、
+    // generate() 呼び出し自体をカウントする専用ランナーを使う
+    let job2GenerateCalls = 0;
+    const runner: EvolutionJobRunner = {
+      async generate(req, worktreeDir, log, signal, feedback) {
+        if (req.description === '2つ目の依頼') {
+          job2GenerateCalls += 1;
+          return { toolName: 'x', smokeInput: {} };
+        }
+        return scriptedRunner(
+          { 'src/renderer/src/NewWidget.tsx': '// widget' },
+          { summary: 'UI改善' },
+        ).generate(req, worktreeDir, log, signal, feedback);
+      },
+    };
+    const ctx = makeManager({ runner });
+    await ctx.manager.enqueue({ description: 'UI改善', expectedIO: '-', scope: 'renderer' });
+    await ctx.manager.enqueue({ description: '2つ目の依頼', expectedIO: '-2' }); // scope未指定=tool
+    expect(await waitForTerminal(ctx.events)).toBe('done'); // 1つ目(renderer)が完了
+    expect(ctx.restarts).toHaveLength(1);
+
+    // 実gitのworktree作成・commit等は実時間がかかるため、バグがあれば十分検出できる
+    // 猶予(1つ目のジョブがgateまで到達するのと同程度の実時間)を与えてから確認する
+    await new Promise((r) => setTimeout(r, 800));
+
+    // 2つ目はgenerate()すら呼ばれていない(=drainが着手していない)
+    expect(job2GenerateCalls).toBe(0);
+    const second = ctx.manager.list().find((j) => j.description === '2つ目の依頼');
+    expect(second?.status).toBe('queued');
+
+    // 再起動前に退避すべき依頼としてpendingRequests()に残っている
+    const pending = ctx.manager.pendingRequests();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.description).toBe('2つ目の依頼');
+  });
+
   it('回帰: scope未指定(tool)は従来どおりホットリロード経路(再起動要求なし)', async () => {
     const ctx = makeManager({
       runner: scriptedRunner(

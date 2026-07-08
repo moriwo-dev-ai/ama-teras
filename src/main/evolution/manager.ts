@@ -58,6 +58,9 @@ export class EvolutionManager {
   private queue: { id: number; req: EvolutionRequest }[] = [];
   private processing = false;
   private lastId = 0;
+  /** M25-7: renderer/core昇格がrequestRestartを呼んだら立つ。以降drainはキューを進めない
+   *  (5秒後のapp.exit(0)までの間に次のジョブが着手→強制終了で消えるのを防ぐ) */
+  private restarting = false;
 
   constructor(private readonly deps: EvolutionManagerDeps) {
     this.worktrees = new WorktreeManager(deps.repoDir, deps.worktreeBase);
@@ -66,6 +69,11 @@ export class EvolutionManager {
 
   list(): EvolutionJobSummary[] {
     return [...this.jobs.values()];
+  }
+
+  /** M25-7: キュー中でまだ着手していない依頼(再起動前の永続化用に公開) */
+  pendingRequests(): EvolutionRequest[] {
+    return this.queue.map((q) => q.req);
   }
 
   async enqueue(req: EvolutionRequest): Promise<number> {
@@ -106,7 +114,9 @@ export class EvolutionManager {
     if (this.processing) return;
     this.processing = true;
     try {
-      for (let item = this.queue.shift(); item; item = this.queue.shift()) {
+      while (!this.restarting) {
+        const item = this.queue.shift();
+        if (!item) break;
         await this.process(item.id, item.req);
       }
     } finally {
@@ -274,6 +284,9 @@ export class EvolutionManager {
       }
 
       this.log(job, `健全性OK。再起動を要求する(復旧点: ${prevCommit.slice(0, 8)})`);
+      // M25-7: 先にrestartingを立ててからdeps呼び出し(deps側がpendingRequests()で
+      // キューの残りを読むより前に、drainが次のジョブへ進んでしまわないようにする)
+      this.restarting = true;
       this.deps.requestRestart?.(tag, prevCommit);
       this.update(job, { status: 'done' });
     } catch (err) {
