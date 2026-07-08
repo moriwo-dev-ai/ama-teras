@@ -176,14 +176,15 @@ pre.preview {
   background: var(--bg); color: var(--muted); border: 1px solid var(--border);
 }
 .auto-toggle.on { background: rgba(217, 119, 6, 0.25); border-color: var(--amber); color: #fcd34d; }
+/* M25-5: 自律モードの警告バーは濃茶(amber)からくすみ赤へ(トグル・確認モーダルは変更なし) */
 .auto-banner {
   display: flex; align-items: center; justify-content: center; gap: 10px;
   padding: 6px 10px; font-size: 12px;
-  background: rgba(217, 119, 6, 0.2); color: #fcd34d; border-bottom: 1px solid var(--amber);
+  background: rgba(139, 42, 34, 0.25); color: #f3b8b0; border-bottom: 1px solid #6b2e27;
 }
 .auto-banner button {
   padding: 2px 8px; font-size: 11px; border-radius: 6px;
-  background: transparent; color: #fde68a; border: 1px solid var(--amber);
+  background: transparent; color: #f3b8b0; border: 1px solid #8a3a30;
 }
 .auto-modal-overlay {
   position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
@@ -238,9 +239,9 @@ pre.preview {
   color-scheme: light;
   --bg: #ffffff;
   --panel: #f9f9f8;
-  --border: #e5e5e2;
-  --text: #1f1e1d;
-  --muted: #6f6c68;
+  --border: #e9e7e1;
+  --text: #2c2c2a;
+  --muted: #6b6b6b;
   --blue: #1f1e1d; /* 主要ボタンはモノトーン(黒) */
   --bg2: #ffffff;
 }
@@ -248,7 +249,14 @@ pre.preview {
 [data-theme='light'] .conn.on { background: #dcf1e2; color: #14532d; }
 [data-theme='light'] .conn.off { background: #fde5e5; color: #7f1d1d; }
 [data-theme='light'] .msg.user .bubble {
-  background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  background: #f2f1ed; color: #2c2c2a; border: none;
+}
+/* M25-5: 送信/追加/カメラ(いずれも .send)・停止は黒地アイコンをやめ、白地+濃色アイコンへ統一 */
+[data-theme='light'] .composer .send {
+  background: #ffffff; color: #2c2c2a; border: 1px solid #e2e2e2;
+}
+[data-theme='light'] .composer .cancel {
+  background: #ffffff; color: #8a2a22; border: 1px solid #e6b7b0;
 }
 [data-theme='light'] .msg.tool .bubble { background: #f3f3f1; border-color: var(--border); color: #55524d; }
 [data-theme='light'] .msg.tool .bubble.error { background: #fdeaea; border-color: var(--red); color: #991b1b; }
@@ -267,11 +275,10 @@ pre.preview {
 [data-theme='light'] .job .st.rolled_back { background: #fde5e5; color: #7f1d1d; }
 [data-theme='light'] .job .st.awaiting_promotion { background: #fdf3df; color: #92400e; }
 [data-theme='light'] .auto-toggle.on { background: #fdf3df; color: #92400e; }
-[data-theme='light'] .auto-banner { background: #fdf3df; color: #92400e; }
-[data-theme='light'] .auto-banner button { color: #92400e; }
+[data-theme='light'] .auto-banner { background: #fbeae8; color: #8a2a22; border-color: #e6b7b0; }
+[data-theme='light'] .auto-banner button { background: #ffffff; color: #8a2a22; border-color: #ddb0a9; }
 [data-theme='light'] .auto-modal h3 { color: #92400e; }
 [data-theme='light'] .audit-entry .paths { color: #1d4ed8; }
 [data-theme='light'] .new-chat {
   background: transparent; color: var(--text); border: 1px solid var(--border);
 }
-[data-theme='light'] .composer .cancel { background: var(--red); }

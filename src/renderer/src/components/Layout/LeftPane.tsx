@@ -27,7 +27,7 @@ function relTime(iso: string): string {
 }
 
 export function LeftPane(): JSX.Element {
-  const { sessions, refreshSessions, loadSession, newSession, activeSessionId } = useChatStore();
+  const { sessions, refreshSessions, loadSession, newSession, activeSessionId, conversationId } = useChatStore();
   // M22: 実行中でも切替・新規はブロックしない。busy は表示にのみ使う
   const busy = activeSessionId !== null;
   const runs = useRunsStore((s) => s.runs);
@@ -197,7 +197,9 @@ export function LeftPane(): JSX.Element {
                     />
                   ) : (
                     <button
-                      className="flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-zinc-300 hover:bg-zinc-800"
+                      className={`sess-btn flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-zinc-300 ${
+                        s.id === conversationId ? 'sess-btn-active' : ''
+                      }`}
                       title={`${s.title}(${new Date(s.updatedAt).toLocaleString()})${runningIds.has(s.id) ? ' — 実行中' : ''}`}
                       onClick={() => void open(s)}
                       onContextMenu={(e) => {

@@ -55,13 +55,18 @@
 }
 
 /*
- * M25-4: ライトテーマ(AMA-terasロゴ配色: 白基調+タイトルのみ渋赤)。
+ * M25-5: ライトテーマ(AMA-terasロゴ配色: 白基調+タイトルのみ渋赤)。
  * デスクトップ側は各コンポーネントが生の Tailwind zinc系クラスを直書きしているため
  * (remote-ui のようなCSS変数駆動ではない)、コンポーネントを一切書き換えずに
  * [data-theme='light'] スコープで実際に生成されたユーティリティクラス名を
  * 直接上書きする方式で対応する(既存の zinc クラスをコンポーネント側で全置換すると
  * 差分が巨大になるため、CSS側だけで完結させる)。
  * 属性セレクタ分だけ素の .bg-zinc-800 等より詳細度が高いため !important は不要。
+ *
+ * 注意: Tailwindの透明度サフィックス付きクラス(例 bg-red-900/70)は
+ * `.bg-red-900` とは別のセレクタ(`.bg-red-900\/70`)としてコンパイルされるため、
+ * 無印クラスだけ上書きしても効かない。実際に使われている /NN 付きクラスは
+ * 個別にエイリアスとして追記する(進化タグが「浮いて見える」の主因はこれだった)。
  */
 [data-theme='light'] {
   color-scheme: light;
@@ -73,29 +78,57 @@
 [data-theme='light'] .bg-zinc-800 { background-color: #f9f9f8; }
 [data-theme='light'] .bg-zinc-700 { background-color: #ececea; }
 [data-theme='light'] .bg-zinc-600 { background-color: #e0ddd8; }
+/* 透明度サフィックス付きの別名クラス(存在箇所を都度確認して追加) */
+[data-theme='light'] .bg-zinc-900\/60 { background-color: #f9f9f8; }
+[data-theme='light'] .bg-zinc-950\/50 { background-color: #f9f9f8; }
+[data-theme='light'] .bg-zinc-800\/80 { background-color: #ececea; }
+[data-theme='light'] .bg-zinc-700\/70 { background-color: #ececea; }
+[data-theme='light'] .hover\:bg-blue-900\/40:hover { background-color: #dbeafe; }
 
 /* 枠線: 全て承認済みの淡灰枠へ統一 */
 [data-theme='light'] .border-zinc-800,
 [data-theme='light'] .border-zinc-700,
-[data-theme='light'] .border-zinc-600 { border-color: #e5e5e2; }
+[data-theme='light'] .border-zinc-600 { border-color: #e9e7e1; }
+[data-theme='light'] .border-zinc-700\/60 { border-color: #e9e7e1; }
 
 /* 文字色: 白背景で読める濃さへ反転(100/200=見出し級 → 600=かなり薄い) */
 [data-theme='light'] .text-zinc-100,
-[data-theme='light'] .text-zinc-200 { color: #1f1e1d; }
+[data-theme='light'] .text-zinc-200 { color: #2c2c2a; }
 [data-theme='light'] .text-zinc-300 { color: #45423e; }
 [data-theme='light'] .text-zinc-400,
-[data-theme='light'] .text-zinc-500 { color: #6f6c68; }
+[data-theme='light'] .text-zinc-500 { color: #6b6b6b; }
 [data-theme='light'] .text-zinc-600 { color: #a3a09b; }
 
 /* 主要ボタン(承認済みモック: プライマリはモノトーン黒。汎用hover:bg-zinc-800はパネル色へ) */
 [data-theme='light'] .bg-blue-600,
 [data-theme='light'] .bg-blue-500 { background-color: #1f1e1d; }
 [data-theme='light'] .hover\:bg-blue-500:hover { background-color: #33312e; }
+/* ユーザーメッセージの吹き出しは bg-blue-600 を共有しているため、専用クラスで
+   モノトーンボタンの上書きより詳細度を上げて淡灰地に振り替える(黒地化を防ぐ) */
+[data-theme='light'] .user-msg.bg-blue-600 { background-color: #f2f1ed; color: #2c2c2a; }
+
+/* 左ペイン: セッション行(ダーク側の見た目は既存踏襲。ライトはホバーでも白のまま、
+   選択中のみ淡灰の塗り。枠線・カラーバーは付けない) */
+.sess-btn:hover { background-color: #27272a; }
+.sess-btn-active { background-color: #3f3f46; }
+[data-theme='light'] .sess-btn:hover { background-color: #ffffff; }
+[data-theme='light'] .sess-btn-active,
+[data-theme='light'] .sess-btn-active:hover { background-color: #eceae4; color: #2c2c2a; }
+
+/* 自律モード警告バー(濃茶→くすみ赤)。汎用red系Tailwindクラスと衝突しないよう専用クラスで管理 */
+.auto-warn-bar { background-color: #3a1a17; color: #f3b8b0; border-color: #5c2822; }
+.auto-warn-off { background: transparent; color: #f3b8b0; border: 1px solid #7a352c; }
+.auto-warn-off:hover { background-color: #5c2822; }
+[data-theme='light'] .auto-warn-bar { background-color: #fbeae8; color: #8a2a22; border-color: #e6b7b0; }
+[data-theme='light'] .auto-warn-off { background-color: #ffffff; color: #8a2a22; border-color: #ddb0a9; }
+[data-theme='light'] .auto-warn-off:hover { background-color: #fbeae8; }
 
 /* 危険/警告/成功/評価系バッジ(dark-bg+light-textの組をlight-bg+dark-textへ反転。色相は維持) */
 [data-theme='light'] .bg-red-950,
 [data-theme='light'] .bg-red-900,
 [data-theme='light'] .bg-red-700 { background-color: #fde5e5; }
+[data-theme='light'] .bg-red-900\/70,
+[data-theme='light'] .bg-red-950\/60 { background-color: #fde5e5; }
 [data-theme='light'] .text-red-400,
 [data-theme='light'] .text-red-300,
 [data-theme='light'] .text-red-200,
@@ -106,6 +139,9 @@
 [data-theme='light'] .bg-amber-950,
 [data-theme='light'] .bg-amber-900,
 [data-theme='light'] .bg-amber-800 { background-color: #fdf3df; }
+[data-theme='light'] .bg-amber-900\/60,
+[data-theme='light'] .bg-amber-900\/50,
+[data-theme='light'] .bg-amber-950\/40 { background-color: #fdf3df; }
 [data-theme='light'] .text-amber-400,
 [data-theme='light'] .text-amber-300,
 [data-theme='light'] .text-amber-200,
@@ -116,12 +152,17 @@
 
 [data-theme='light'] .bg-green-900,
 [data-theme='light'] .bg-emerald-950 { background-color: #dcf1e2; }
+[data-theme='light'] .bg-emerald-900\/50,
+[data-theme='light'] .bg-emerald-950\/70,
+[data-theme='light'] .bg-emerald-950\/40 { background-color: #dcf1e2; }
 [data-theme='light'] .text-green-400,
 [data-theme='light'] .text-green-300,
 [data-theme='light'] .text-emerald-400,
 [data-theme='light'] .text-emerald-300,
 [data-theme='light'] .text-emerald-200,
 [data-theme='light'] .text-emerald-100 { color: #166534; }
+[data-theme='light'] .border-emerald-800,
+[data-theme='light'] .border-emerald-700 { border-color: #bfe3cb; }
 
 /* 評価/進化タブ系のアクセント(色相は維持し文字色だけ濃く)。
    bg-purple-600/700 は実行ボタン(白文字前提)の塗りなので、Tailwind既定の彩度のまま
@@ -134,6 +175,7 @@
 
 /* バッジ系の青(scope/種別バッジ等)。プライマリボタンは上のモノトーン扱いで別途上書き済み */
 [data-theme='light'] .bg-blue-900 { background-color: #dbeafe; }
+[data-theme='light'] .bg-blue-900\/70 { background-color: #dbeafe; }
 [data-theme='light'] .text-blue-400,
 [data-theme='light'] .text-blue-300,
 [data-theme='light'] .text-blue-200 { color: #1d4ed8; }

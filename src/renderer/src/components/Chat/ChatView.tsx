@@ -159,17 +159,7 @@ function BottomStatus({ status }: { status: string }): JSX.Element {
 }
 
 export function ChatView(): JSX.Element {
-  const {
-    messages,
-    status,
-    activeSessionId,
-    sessions,
-    send,
-    cancel,
-    refreshSessions,
-    loadSession,
-    newSession,
-  } = useChatStore();
+  const { messages, status, activeSessionId, send, cancel } = useChatStore();
   const [input, setInput] = useState('');
   const [planMode, setPlanMode] = useState(false);
   const [attachments, setAttachments] = useState<ChatImageInput[]>([]);
@@ -221,14 +211,6 @@ export function ChatView(): JSX.Element {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  useEffect(() => {
-    void refreshSessions();
-  }, [refreshSessions]);
-  // セッション完了のたびに一覧を最新化(タイトル・更新時刻の反映)
-  useEffect(() => {
-    if (!busy) void refreshSessions();
-  }, [busy, refreshSessions]);
-
   const submit = (): void => {
     // M21-1: 実行中も送信可(追加指示としてキューに積まれ、次ターン境界で反映される)
     if (!input.trim() && attachments.length === 0) return;
@@ -240,40 +222,13 @@ export function ChatView(): JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {autonomous && (
-        <div className="flex items-center justify-center gap-3 border-b border-amber-700 bg-amber-900/60 px-4 py-1.5 text-xs text-amber-200">
+        <div className="auto-warn-bar flex items-center justify-center gap-3 border-b px-4 py-1.5 text-xs">
           <span>🔓 自律モード有効 — ツールを承認なしで自動実行中(自己責任)</span>
-          <button
-            className="rounded border border-amber-500 px-2 py-0.5 text-amber-100 hover:bg-amber-800"
-            onClick={() => void window.api.autonomousSet(false)}
-          >
+          <button className="auto-warn-off rounded px-2 py-0.5" onClick={() => void window.api.autonomousSet(false)}>
             OFFにする
           </button>
         </div>
       )}
-      <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-1.5 text-xs">
-        <select
-          className="max-w-[320px] flex-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-zinc-300"
-          value=""
-          onFocus={() => void refreshSessions()}
-          onChange={(e) => {
-            if (e.target.value) void loadSession(e.target.value);
-          }}
-        >
-          <option value="">過去のセッションを開く…({sessions.length}件)</option>
-          {sessions.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.title || '(無題)'} — {new Date(s.updatedAt).toLocaleString()}
-            </option>
-          ))}
-        </select>
-        <button
-          className="rounded border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800"
-          title={busy ? '実行は止まらずに新しい会話を開始する' : undefined}
-          onClick={() => void newSession()}
-        >
-          新規セッション
-        </button>
-      </div>
       <div className="flex-1 space-y-2 overflow-y-auto px-4 py-3">
         {messages.length === 0 && (
           <p className="mt-16 text-center text-sm text-zinc-500">
@@ -303,7 +258,7 @@ export function ChatView(): JSX.Element {
               <div
                 className={
                   'max-w-[80%] rounded-lg px-3 py-2 text-sm ' +
-                  (m.role === 'user' ? 'whitespace-pre-wrap bg-blue-600' : 'bg-zinc-800')
+                  (m.role === 'user' ? 'whitespace-pre-wrap bg-blue-600 user-msg' : 'bg-zinc-800')
                 }
               >
                 {m.images && m.images.length > 0 && (
