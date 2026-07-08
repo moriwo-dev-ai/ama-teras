@@ -99,13 +99,31 @@
 [data-theme='light'] .text-zinc-500 { color: #6b6b6b; }
 [data-theme='light'] .text-zinc-600 { color: #a3a09b; }
 
-/* 主要ボタン(承認済みモック: プライマリはモノトーン黒。汎用hover:bg-zinc-800はパネル色へ) */
+/* 主要ボタン(承認済みモック: プライマリはモノトーン黒。汎用hover:bg-zinc-800はパネル色へ)。
+   多くの塗りボタンは文字色を明示せず「暗背景+ボディ既定の明るい文字」に頼っている
+   (ダークでは成立するが、ボディ既定をライト用に反転させた結果このボタンだけ暗文字を
+   継承し黒地に黒文字で読めなくなる=M25-6で発見)ため、背景と一緒に白文字も明示する */
 [data-theme='light'] .bg-blue-600,
-[data-theme='light'] .bg-blue-500 { background-color: #1f1e1d; }
+[data-theme='light'] .bg-blue-500 { background-color: #1f1e1d; color: #ffffff; }
 [data-theme='light'] .hover\:bg-blue-500:hover { background-color: #33312e; }
 /* ユーザーメッセージの吹き出しは bg-blue-600 を共有しているため、専用クラスで
    モノトーンボタンの上書きより詳細度を上げて淡灰地に振り替える(黒地化を防ぐ) */
 [data-theme='light'] .user-msg.bg-blue-600 { background-color: #f2f1ed; color: #2c2c2a; }
+
+/* M25-6: 汎用ボタンのホバー(ライトでは暗色ホバーが素通りしていた=ホバーで黒くなるバグの本体)。
+   通常/ゴースト/アイコンボタン(静止=透明or白+#2C2C2A文字)は淡い温かみグレーへ、
+   bg-zinc-700地の塗りボタン(hover:bg-zinc-600)はそれより少し濃い淡灰へ。
+   文字色のホバー変化(hover:text-zinc-200等、ダークでは明るくする方向)もライトでは
+   逆に暗くする方向へ倒さないと白背景で薄くなって読みにくくなる。 */
+[data-theme='light'] .hover\:bg-zinc-900:hover,
+[data-theme='light'] .hover\:bg-zinc-800:hover,
+[data-theme='light'] .hover\:bg-zinc-700:hover { background-color: #f0eee9; }
+[data-theme='light'] .hover\:bg-zinc-600:hover { background-color: #e4e1da; }
+[data-theme='light'] .hover\:text-zinc-200:hover,
+[data-theme='light'] .hover\:text-zinc-300:hover { color: #2c2c2a; }
+[data-theme='light'] .hover\:bg-red-950:hover,
+[data-theme='light'] .hover\:bg-red-900:hover { background-color: #fde5e5; }
+[data-theme='light'] .hover\:bg-amber-950:hover { background-color: #fdf3df; }
 
 /* 左ペイン: セッション行(ダーク側の見た目は既存踏襲。ライトはホバーでも白のまま、
    選択中のみ淡灰の塗り。枠線・カラーバーは付けない) */
@@ -123,10 +141,12 @@
 [data-theme='light'] .auto-warn-off { background-color: #ffffff; color: #8a2a22; border-color: #ddb0a9; }
 [data-theme='light'] .auto-warn-off:hover { background-color: #fbeae8; }
 
-/* 危険/警告/成功/評価系バッジ(dark-bg+light-textの組をlight-bg+dark-textへ反転。色相は維持) */
+/* 危険/警告/成功/評価系バッジ(dark-bg+light-textの組をlight-bg+dark-textへ反転。色相は維持)。
+   bg-red-700 は本来バッジには使われておらず、実際は昇格ダイアログの承認ボタン等の
+   塗りボタン専用(下のM25-6ブロック参照)なので、ここには含めない
+   (含めていた版は淡ピンクに化けて赤い危険ボタンに見えなくなるバグだった) */
 [data-theme='light'] .bg-red-950,
-[data-theme='light'] .bg-red-900,
-[data-theme='light'] .bg-red-700 { background-color: #fde5e5; }
+[data-theme='light'] .bg-red-900 { background-color: #fde5e5; }
 [data-theme='light'] .bg-red-900\/70,
 [data-theme='light'] .bg-red-950\/60 { background-color: #fde5e5; }
 [data-theme='light'] .text-red-400,
@@ -135,6 +155,15 @@
 [data-theme='light'] .text-red-100 { color: #b91c1c; }
 [data-theme='light'] .border-red-900,
 [data-theme='light'] .border-red-700 { border-color: #f3c6c6; }
+
+/* M25-6: 塗り(solid)のCTA/危険ボタン(bg-red-700・bg-purple-700・bg-amber-700)は文字色を
+   明示しておらずボディ既定の文字色に頼っていたため、ライトでは黒文字化して読めなくなっていた
+   (昇格ダイアログの承認ボタン・リモートアクセスの無効化ボタン・MCPの「信頼して接続」等。
+   bg-amber-700は実測コントラスト比2.78:1で不合格だったため含める)。彩度自体はTailwind既定の
+   まま白背景でも視認できるため背景は上書きせず、白文字だけ強制する */
+[data-theme='light'] .bg-red-700,
+[data-theme='light'] .bg-purple-700,
+[data-theme='light'] .bg-amber-700 { color: #ffffff; }
 
 [data-theme='light'] .bg-amber-950,
 [data-theme='light'] .bg-amber-900,
