@@ -44,7 +44,7 @@ function stubFacade(): { facade: RemoteFacade; calls: FacadeCalls } {
       calls.approvalRespond.push([id, decision]);
     },
     toolsList: () => ({
-      tools: [{ name: 'bash', description: 'd', risk: 'exec', warnings: [] }],
+      tools: [{ name: 'bash', description: 'd', risk: 'exec', warnings: [], tags: [] }],
       errors: [],
     }),
     evolutionList: () => [

@@ -49,6 +49,7 @@ export default {
     required: ['pattern'],
   },
   risk: 'safe',
+  tags: ['ファイル操作', '検索'],
   pathParams: ['path'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { pattern, path, include } = input as { pattern?: unknown; path?: unknown; include?: unknown };

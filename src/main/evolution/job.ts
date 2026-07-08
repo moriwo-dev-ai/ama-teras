@@ -14,6 +14,12 @@ export interface EvolutionRequest {
   scope?: import('../../shared/types').EvolutionScope;
   /** M23-7: 依頼元の会話ID(結果をモデルへ自動フィードバックする宛先。手動起動では無し) */
   originConversationId?: string;
+  /**
+   * M25-8: 修正対象の既存ツール名(scope='tool'のみ)。指定すると「新規作成」ではなく
+   * 「既存プラグインファイルの修正」として扱われる(プロンプトが変わり、生成結果の
+   * toolName がこの名前と一致することを manager.ts が検証する)
+   */
+  targetTool?: string;
 }
 
 export interface JobArtifacts {
@@ -66,14 +72,19 @@ const CORE_JOB_SYSTEM_PROMPT = (scope: 'renderer' | 'core', allowlist: string[])
 
 最後の応答で、変更概要を \`\`\`json {"summary": "..."} \`\`\` のコードブロックで必ず出力する`;
 
-const JOB_SYSTEM_PROMPT = `あなたはAMA-terasの進化ジョブ。新しいツールプラグインを1つ実装する。
+const JOB_SYSTEM_PROMPT = `あなたはAMA-terasの進化ジョブ。新しいツールプラグインを1つ実装する
+(依頼が「既存ツールの修正」の場合は、新規作成ではなく該当ファイルを直接編集して直す。
+下のタスク文で対象ツール名が明示されていたら必ずそのファイルを読んでから編集すること)。
 
 厳守事項:
 - 書き込みは src/main/tools/plugins/ 配下のみ許可されている(機械的にも強制される)
-- 成果物: (1) src/main/tools/plugins/<name>.ts のプラグイン本体
-  (2) src/main/tools/plugins/<name>.test.ts のvitestユニットテスト
-- プラグイン規約: export default { name, description, inputSchema, risk, warnings?, execute } satisfies ToolPlugin。
-  name はファイル名と一致。型は import type { ToolPlugin, ToolContext, ToolResult } from '../types' で参照。
+- 新規作成の成果物: (1) src/main/tools/plugins/<name>.ts のプラグイン本体
+  (2) src/main/tools/plugins/<name>.test.ts のvitestユニットテスト。
+  既存ツールの修正では、この2ファイルを直接編集する(新しい名前のファイルを作ってはならない)
+- プラグイン規約: export default { name, description, inputSchema, risk, tags?, warnings?, execute }
+  satisfies ToolPlugin。name はファイル名と一致(修正時は絶対に変更しない)。
+  tags は分類(例: ['ファイル操作']・['Web操作']・['コマンド実行']・['テキスト処理'])を1つ以上つける。
+  型は import type { ToolPlugin, ToolContext, ToolResult } from '../types' で参照。
   実行時importはnode組み込みモジュールのみ可(相対importの実行時参照は禁止)
 - child_process やネットワークアクセスを使う場合は warnings に自己申告すること
 
@@ -124,8 +135,13 @@ export class AgentJobRunner implements EvolutionJobRunner {
 
     const taskText =
       scope === 'tool'
-        ? `新しい能力が必要: ${req.description}\n期待する入出力: ${req.expectedIO}\n` +
-          `このworktree(${worktreeDir})内でプラグインとテストを実装せよ。`
+        ? req.targetTool !== undefined
+          ? `既存ツール「${req.targetTool}」の修正が必要: ${req.description}\n期待する入出力: ${req.expectedIO}\n` +
+            `まず src/main/tools/plugins/${req.targetTool}.ts と ${req.targetTool}.test.ts を読み、` +
+            `このworktree(${worktreeDir})内で既存ファイルを直接編集して修正せよ` +
+            `(新しい名前のファイルを作ってはならない。toolNameは「${req.targetTool}」のまま変更しないこと)。`
+          : `新しい能力が必要: ${req.description}\n期待する入出力: ${req.expectedIO}\n` +
+            `このworktree(${worktreeDir})内でプラグインとテストを実装せよ。`
         : `本体改善の依頼(scope: ${scope}): ${req.description}\n期待する挙動: ${req.expectedIO}\n` +
           `このworktree(${worktreeDir})内の既存コードを最小差分で修正せよ。`;
     const history: Parameters<typeof runAgentLoop>[2] = [

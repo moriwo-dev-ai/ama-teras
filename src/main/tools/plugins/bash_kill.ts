@@ -13,6 +13,7 @@ export default {
     required: ['id'],
   },
   risk: 'exec',
+  tags: ['コマンド実行'],
   warnings: ['実行中のバックグラウンドプロセスを強制終了します'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { id } = input as { id?: unknown };

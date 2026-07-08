@@ -90,6 +90,7 @@ export default {
     required: ['action'],
   },
   risk: 'safe',
+  tags: ['記憶'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { action, content, scope } = (input ?? {}) as {
       action?: unknown;

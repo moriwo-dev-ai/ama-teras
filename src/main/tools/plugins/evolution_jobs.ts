@@ -79,6 +79,7 @@ const plugin: ToolPlugin = {
   description:
     '進化パイプライン(自己進化)の内部状態を確認する読み取り専用ツール。id を省略すると現行プロセスで走った全ジョブの一覧(状態・スコープ・失敗ゲート)を返す。id を指定するとそのジョブのゲート詳細とログ末尾を返す。進化(request_capability)が失敗した理由を自分で調べたいときに使う。状態はアプリ再起動で揮発する。',
   risk: 'safe',
+  tags: ['進化'],
   inputSchema: {
     type: 'object',
     properties: {

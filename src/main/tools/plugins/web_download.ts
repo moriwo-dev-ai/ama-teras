@@ -161,6 +161,7 @@ export default {
     additionalProperties: false,
   },
   risk: 'write',
+  tags: ['Web操作', 'ファイル操作'],
   pathParams: ['dest'],
   warnings: [
     'ネットワークアクセスを行う(指定URLへのHTTP GETリクエスト。リダイレクト追従あり)',

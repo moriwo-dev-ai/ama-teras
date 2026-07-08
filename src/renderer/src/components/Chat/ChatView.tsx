@@ -345,41 +345,47 @@ export function ChatView(): JSX.Element {
           >
             {autonomous ? '🔓' : '🔒'}
           </button>
-          <textarea
-            className="max-h-40 flex-1 resize-none rounded-xl border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm outline-none focus:border-blue-500"
-            rows={2}
-            placeholder={
-              busy
-                ? '追加の指示を入力(実行中でも送れる・次のターンで反映)'
-                : '指示を入力(Enterで送信 / Shift+Enterで改行)'
-            }
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                submit();
+          <div className="relative flex-1">
+            <textarea
+              className={
+                'max-h-40 w-full resize-none rounded-xl border border-zinc-600 bg-zinc-800 py-2 pl-3 text-sm outline-none focus:border-blue-500 ' +
+                (busy ? 'pr-12' : 'pr-3')
               }
-            }}
-            onPaste={(e) => {
-              const files = [...e.clipboardData.items]
-                .filter((it) => it.kind === 'file')
-                .map((it) => it.getAsFile())
-                .filter((f): f is File => f !== null);
-              if (files.length > 0) {
-                e.preventDefault();
-                void addFiles(files);
+              rows={2}
+              placeholder={
+                busy
+                  ? '追加の指示を入力(実行中でも送れる・次のターンで反映)'
+                  : '指示を入力(Enterで送信 / Shift+Enterで改行)'
               }
-            }}
-          />
-          {busy && (
-            <button
-              className="rounded-md bg-red-600 px-4 text-sm hover:bg-red-500"
-              onClick={cancel}
-            >
-              停止
-            </button>
-          )}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+              onPaste={(e) => {
+                const files = [...e.clipboardData.items]
+                  .filter((it) => it.kind === 'file')
+                  .map((it) => it.getAsFile())
+                  .filter((f): f is File => f !== null);
+                if (files.length > 0) {
+                  e.preventDefault();
+                  void addFiles(files);
+                }
+              }}
+            />
+            {busy && (
+              <button
+                className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-black hover:opacity-80"
+                title="停止"
+                onClick={cancel}
+              >
+                <span className="block h-3 w-3 rounded-[2px] bg-white" aria-hidden />
+              </button>
+            )}
+          </div>
         </div>
       </div>
       {autoModal && (

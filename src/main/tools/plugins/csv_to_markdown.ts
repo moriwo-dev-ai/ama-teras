@@ -91,6 +91,7 @@ export default {
     additionalProperties: false,
   },
   risk: 'safe',
+  tags: ['テキスト処理'],
   async execute(input: unknown, _ctx: ToolContext): Promise<ToolResult> {
     if (!isCsvToMarkdownInput(input)) {
       return { content: 'Input must be an object with a string property "csv".', isError: true };

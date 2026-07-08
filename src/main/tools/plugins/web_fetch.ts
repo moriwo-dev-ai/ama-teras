@@ -223,6 +223,7 @@ export default {
     additionalProperties: false,
   },
   risk: 'safe',
+  tags: ['Web操作'],
   warnings: ['ネットワークアクセスを行う(指定URLへのHTTP GETリクエスト1回。リダイレクト追従あり)'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const parsed = parseInput(input);

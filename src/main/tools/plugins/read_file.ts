@@ -22,6 +22,7 @@ export default {
     required: ['path'],
   },
   risk: 'safe',
+  tags: ['ファイル操作'],
   pathParams: ['path'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { path, offset, limit } = input as { path?: unknown; offset?: unknown; limit?: unknown };

@@ -71,6 +71,7 @@ export default {
     required: ['command'],
   },
   risk: 'exec',
+  tags: ['コマンド実行'],
   warnings: ['child_process を使用して任意のシェルコマンドを実行します'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { command, timeout_ms, background } = input as {

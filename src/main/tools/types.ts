@@ -50,11 +50,16 @@ export interface ToolContext {
    * (プラグインは evolution モジュールを import できないため、コンテキスト経由で注入する)
    */
   evolution?: {
-    /** M20: scope 省略時は 'tool'(従来)。renderer/core は本体変更の提案(常に人間承認) */
+    /**
+     * M20: scope 省略時は 'tool'(従来)。renderer/core は本体変更の提案(常に人間承認)。
+     * M25-8: targetTool を指定すると「新規作成」ではなく「既存ツールの修正」として扱われる
+     * (scope='tool'のときのみ意味を持つ)
+     */
     requestCapability(
       description: string,
       expectedIO: string,
       scope?: 'tool' | 'renderer' | 'core',
+      targetTool?: string,
     ): Promise<{ jobId: number }>;
     /**
      * M24: 進化パイプラインの内部状態を読む(evolution_jobs ツール専用)。
@@ -141,6 +146,8 @@ export interface ToolPlugin {
   inputSchema: JsonSchema;
   /** 'safe' は読み取り専用。'write' はファイル変更。'exec' は任意コード実行相当 */
   risk: ToolRisk;
+  /** M25-8: 分類タグ(例: 'ファイル操作' / 'Web操作' / '進化')。UIの絞り込み・検索専用で挙動には影響しない */
+  tags?: string[];
   /** 承認ダイアログに出す追加警告(child_process / ネットワーク使用は必ず自己申告) */
   warnings?: string[];
   /**

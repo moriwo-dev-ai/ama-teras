@@ -57,6 +57,7 @@ export default {
     required: ['url'],
   },
   risk: 'safe',
+  tags: ['Web操作'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const parsed = parseInput(input);
     if ('error' in parsed) {

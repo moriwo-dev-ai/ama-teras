@@ -45,6 +45,11 @@ export interface EvolutionManagerDeps {
    */
   requestRestart?: (tag: string, prevCommit: string) => void;
   onEvent: (e: EvolutionEvent) => void;
+  /**
+   * M25-8: 現在Aで実際にロードされているツール名一覧(scope='tool'の新規/修正判定に使う)。
+   * 未注入なら衝突チェックはスキップする(配線漏れで新規作成そのものが止まらないようにする)
+   */
+  existingToolNames?: () => string[];
   /** テスト用注入 */
   runGatesFn?: (opts: GateOptions) => Promise<GatesOutcome>;
   runCommand?: CommandRunner;
@@ -124,12 +129,49 @@ export class EvolutionManager {
     }
   }
 
+  /**
+   * M25-8: 生成結果のtoolNameが依頼と整合しているか検証する(scope='tool'のみ意味を持つ)。
+   * - targetTool指定(既存修正のつもり)なのに別名で生成された → 修正対象を取り違えている
+   * - targetTool未指定(新規のつもり)なのに既存ツール名と衝突 → 気づかず上書き/重複してしまう
+   * どちらも合格扱いにせず、フィードバック付きで再生成させる(通常のゲート不合格と同じ経路)
+   */
+  private checkToolNameConsistency(req: EvolutionRequest, toolName: string): string | null {
+    if (req.targetTool !== undefined) {
+      if (toolName !== req.targetTool) {
+        return (
+          `既存ツール「${req.targetTool}」の修正を依頼したのに、生成結果のtoolNameが` +
+          `「${toolName}」になっている。ファイル名・toolNameを変更せず「${req.targetTool}」のまま修正すること`
+        );
+      }
+      return null;
+    }
+    const existing = this.deps.existingToolNames?.();
+    if (existing !== undefined && existing.includes(toolName)) {
+      return (
+        `toolName「${toolName}」は既に存在する既存ツールと衝突している。既存ツールを修正したいなら` +
+        `target_tool で明示すること。新規ツールのつもりなら別の名前にすること`
+      );
+    }
+    return null;
+  }
+
   private async process(id: number, req: EvolutionRequest): Promise<void> {
     const job = this.jobs.get(id)!;
     // M20: スコープ段階化。未指定は tool(従来挙動)
     const scope: EvolutionScope = req.scope ?? 'tool';
     let worktree: Awaited<ReturnType<WorktreeManager['create']>> | null = null;
     try {
+      // M25-8: target_tool指定なら、worktreeを作る前に対象が実在するか確認する
+      if (scope === 'tool' && req.targetTool !== undefined) {
+        const existing = this.deps.existingToolNames?.();
+        if (existing !== undefined && !existing.includes(req.targetTool)) {
+          this.update(job, {
+            status: 'rejected',
+            error: `target_tool "${req.targetTool}" という既存ツールが見つからない`,
+          });
+          return;
+        }
+      }
       this.update(job, {
         status: 'preparing_worktree',
         scope,
@@ -160,6 +202,18 @@ export class EvolutionManager {
           artifacts = await generate();
         }
         if (artifacts.toolName !== undefined) this.update(job, { toolName: artifacts.toolName });
+
+        // M25-8: 新規作成/既存修正の名前整合性チェック(gateの前段。不一致ならgate実行やcommitを
+        // 待たずに次のattemptへフィードバックする)
+        if (scope === 'tool' && artifacts.toolName !== undefined) {
+          const nameError = this.checkToolNameConsistency(req, artifacts.toolName);
+          if (nameError !== null) {
+            gatesOk = false;
+            feedback = nameError;
+            this.update(job, { gates: [{ name: 'tool-name', ok: false, detail: nameError }] });
+            continue;
+          }
+        }
 
         // B内の生成物をコミット(差分検査・マージの前提)
         await runGit(['add', '-A'], worktree.dir);

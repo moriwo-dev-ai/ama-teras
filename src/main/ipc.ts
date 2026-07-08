@@ -302,6 +302,8 @@ export async function registerIpcHandlers(
         runner: new AgentJobRunner(() => service.createProviderOrThrow()),
         requestPromotionApproval: hooks.requestPromotionApproval,
         reloadPlugins: () => registry.reload(),
+        // M25-8: 新規作成時の既存ツール名衝突チェック/既存修正時の実在確認に使う
+        existingToolNames: () => registry.list().map((t) => t.name),
         healthCheck: (toolName, smokeInput) =>
           healthCheckAfterPromotion(repoDir, toolName, smokeInput),
         // M20: renderer/core 昇格後の再ビルド+フルアプリ健全性(失敗時はmanagerが自動revert)

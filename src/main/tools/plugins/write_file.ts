@@ -24,6 +24,7 @@ export default {
     required: ['path', 'content'],
   },
   risk: 'write',
+  tags: ['ファイル操作'],
   pathParams: ['path'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { path, content } = input as { path?: unknown; content?: unknown };

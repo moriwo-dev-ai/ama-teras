@@ -44,4 +44,40 @@ describe('request_capability(指摘#10 の契約)', () => {
     const r = await requestCapability.execute({ description: 1, expected_io: 2 }, ctx({ evolution: { requestCapability: vi.fn() } }));
     expect(r.isError).toBe(true);
   });
+
+  describe('M25-8: target_tool(既存ツール修正)', () => {
+    it('target_toolを指定すると4引数目として渡り、応答に既存修正の注意が入る', async () => {
+      const requestCapabilityFn = vi.fn(async () => ({ jobId: 9 }));
+      const r = await requestCapability.execute(
+        { ...input, target_tool: 'web_search' },
+        ctx({ evolution: { requestCapability: requestCapabilityFn } }),
+      );
+      expect(requestCapabilityFn).toHaveBeenCalledWith(input.description, input.expected_io, 'tool', 'web_search');
+      expect(r.isError).toBeUndefined();
+      expect(r.content).toContain('web_search');
+    });
+
+    it('target_tool省略時は従来どおり3引数のまま呼ぶ(回帰: 呼び出し引数を増やさない)', async () => {
+      const requestCapabilityFn = vi.fn(async () => ({ jobId: 10 }));
+      await requestCapability.execute(input, ctx({ evolution: { requestCapability: requestCapabilityFn } }));
+      expect(requestCapabilityFn).toHaveBeenCalledWith(input.description, input.expected_io, 'tool');
+    });
+
+    it('target_toolが文字列でなければエラー', async () => {
+      const r = await requestCapability.execute(
+        { ...input, target_tool: 123 },
+        ctx({ evolution: { requestCapability: vi.fn() } }),
+      );
+      expect(r.isError).toBe(true);
+    });
+
+    it('target_toolはscope=tool以外では指定できない', async () => {
+      const r = await requestCapability.execute(
+        { ...input, scope: 'renderer', target_tool: 'web_search' },
+        ctx({ evolution: { requestCapability: vi.fn() } }),
+      );
+      expect(r.isError).toBe(true);
+      expect(r.content).toContain('scope="tool"');
+    });
+  });
 });

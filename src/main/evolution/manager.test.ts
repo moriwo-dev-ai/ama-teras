@@ -66,6 +66,7 @@ interface Overrides {
   approve?: boolean;
   healthy?: boolean;
   runCommand?: EvolutionManagerDeps['runCommand'];
+  existingToolNames?: EvolutionManagerDeps['existingToolNames'];
 }
 
 function makeManager(o: Overrides = {}): {
@@ -92,6 +93,7 @@ function makeManager(o: Overrides = {}): {
     onEvent: (e) => events.push(e),
     // typecheck/vitest/smoke は既定で全成功扱い(差分検査だけ実gitで検証する)
     runCommand: o.runCommand ?? (async () => ({ code: 0, output: 'ok' })),
+    ...(o.existingToolNames !== undefined ? { existingToolNames: o.existingToolNames } : {}),
   };
   return { manager: new EvolutionManager(deps), events, reloads };
 }
@@ -277,6 +279,50 @@ describe('再生成・リトライ', { timeout: 30_000 }, () => {
     const status = await waitForTerminal(events);
     expect(status).toBe('done');
     expect(calls).toBe(2);
+  });
+});
+
+// Windows では git のプロセス起動が遅く、並列負荷で既定5sを超えることがある
+describe('M25-8: 既存ツール修正パイプライン(targetTool)', { timeout: 30_000 }, () => {
+  it('targetTool指定+生成結果のtoolNameが一致すれば通常どおり昇格する', async () => {
+    const { manager, events } = makeManager({ existingToolNames: () => ['json_format'] });
+    await manager.enqueue({ description: '修正', expectedIO: 'x', targetTool: 'json_format' });
+    expect(await waitForTerminal(events)).toBe('done');
+  });
+
+  it('targetTool指定+生成結果のtoolNameが不一致 → フィードバック付き再生成→2回目で一致すれば昇格する', async () => {
+    let calls = 0;
+    const runner: EvolutionJobRunner = {
+      async generate(_req, worktreeDir) {
+        calls += 1;
+        // 1回目はわざと別名で生成(取り違えを模擬)、2回目でtargetToolどおりに修正
+        const name = calls === 1 ? 'wrong_name' : 'json_format';
+        await writeFile(join(worktreeDir, `src/main/tools/plugins/${name}.ts`), PLUGIN_SOURCE.replace('json_format', name));
+        return { toolName: name, smokeInput: {} };
+      },
+    };
+    const { manager, events } = makeManager({ runner, existingToolNames: () => ['json_format'] });
+    await manager.enqueue({ description: '修正', expectedIO: 'x', targetTool: 'json_format' });
+    expect(await waitForTerminal(events)).toBe('done');
+    expect(calls).toBe(2);
+  });
+
+  it('targetToolが実在しない既存ツール名だとworktreeも作らず即rejectされる', async () => {
+    const { manager, events } = makeManager({ existingToolNames: () => ['json_format'] });
+    const jobId = await manager.enqueue({ description: '修正', expectedIO: 'x', targetTool: 'nonexistent' });
+    const status = await waitForTerminal(events);
+    expect(status).toBe('rejected');
+    // worktreeを作る前に弾かれている(無駄なB環境が残らない)
+    expect(existsSync(join(base, 'evolve', `job-${jobId}`))).toBe(false);
+  });
+
+  it('targetTool未指定(新規のつもり)で既存ツール名と衝突すると、直らずfailedになる', async () => {
+    // 既定のscriptedRunnerは常に'json_format'を返す(フィードバックを反映しないダムモック)ので、
+    // 2回試行しても衝突が解消せずfailedになるはず
+    const { manager, events } = makeManager({ existingToolNames: () => ['json_format'] });
+    await manager.enqueue({ description: '新規のつもり', expectedIO: 'x' }); // targetTool省略
+    const status = await waitForTerminal(events);
+    expect(status).toBe('failed');
   });
 });
 

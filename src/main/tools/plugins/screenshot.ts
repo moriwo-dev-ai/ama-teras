@@ -48,6 +48,7 @@ export default {
     required: ['url'],
   },
   risk: 'safe',
+  tags: ['Web操作'],
   dynamicApproval(input: unknown): DynamicApprovalPolicy {
     const target = parseTarget(input);
     if ('error' in target) return { error: target.error };

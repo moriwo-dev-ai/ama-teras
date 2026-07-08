@@ -208,6 +208,7 @@ export default {
     additionalProperties: false,
   },
   risk: 'safe',
+  tags: ['Web操作', '検索'],
   warnings: ['ネットワークアクセスを行う(DuckDuckGo検索エンドポイントへのHTTP GETリクエスト1回)'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const parsed = parseInput(input);

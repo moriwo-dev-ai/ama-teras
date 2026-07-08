@@ -390,7 +390,7 @@ describe('AgentService: ツール一覧', () => {
       },
     });
     expect(svc.toolsList()).toEqual({
-      tools: [{ name: 'demo', description: 'デモ', risk: 'safe', warnings: ['注意'] }],
+      tools: [{ name: 'demo', description: 'デモ', risk: 'safe', warnings: ['注意'], tags: [] }],
       errors: [{ filePath: 'x.ts', message: '壊れてる' }],
     });
   });

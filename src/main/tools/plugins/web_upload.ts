@@ -209,6 +209,7 @@ export default {
     additionalProperties: false,
   },
   risk: 'exec',
+  tags: ['Web操作', 'ファイル操作'],
   pathParams: ['file'],
   warnings: [
     'ネットワークアクセスを行う(指定URLへローカルファイルの内容を送信する)',

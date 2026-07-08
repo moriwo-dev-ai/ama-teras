@@ -13,6 +13,9 @@ export function ToolDebugPanel(): JSX.Element {
   // M11-3: チェックポイント一覧(最小限のデバッグUI)
   const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
   const [ckptMsg, setCkptMsg] = useState('');
+  // M25-8: ツール一覧のタグ絞り込み・検索
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [toolSearch, setToolSearch] = useState('');
 
   const refresh = async (reload: boolean): Promise<void> => {
     const r = reload ? await window.api.toolsReload() : await window.api.toolsList();
@@ -58,6 +61,15 @@ export function ToolDebugPanel(): JSX.Element {
     };
     setConfig(await window.api.settingsSet(next));
   };
+
+  // M25-8: 全ツールのタグ集合(出現順→アルファベット順にはせず、頻度の高い順にする必要はないため単純にユニーク化)
+  const allTags = [...new Set(tools.flatMap((t) => t.tags))].sort();
+  const filteredTools = tools.filter((t) => {
+    if (tagFilter !== null && !t.tags.includes(tagFilter)) return false;
+    if (toolSearch.trim() === '') return true;
+    const q = toolSearch.trim().toLowerCase();
+    return t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q);
+  });
 
   return (
     <div className="space-y-2 border-t border-zinc-700 bg-zinc-950 p-3 text-sm">
@@ -127,6 +139,59 @@ export function ToolDebugPanel(): JSX.Element {
           {result.content}
         </pre>
       )}
+
+      <div className="space-y-1 border-t border-zinc-800 pt-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-zinc-400">ツール一覧(タグ絞り込み)</span>
+          <input
+            className="rounded border border-zinc-600 bg-zinc-800 px-2 py-0.5 text-[11px]"
+            placeholder="名前・説明で検索…"
+            value={toolSearch}
+            onChange={(e) => setToolSearch(e.target.value)}
+          />
+          <span className="text-[11px] text-zinc-500">{filteredTools.length}/{tools.length}件</span>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          <button
+            className={`rounded-full px-2 py-0.5 text-[11px] ${
+              tagFilter === null ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+            }`}
+            onClick={() => setTagFilter(null)}
+          >
+            すべて
+          </button>
+          {allTags.map((tag) => (
+            <button
+              key={tag}
+              className={`rounded-full px-2 py-0.5 text-[11px] ${
+                tagFilter === tag ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+              }`}
+              onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
+            >
+              {tag}
+            </button>
+          ))}
+        </div>
+        <ul className="max-h-48 space-y-1 overflow-auto text-xs">
+          {filteredTools.length === 0 && <p className="text-zinc-500">該当なし</p>}
+          {filteredTools.map((t) => (
+            <li key={t.name} className="rounded border border-zinc-800 px-2 py-1">
+              <div className="flex items-center gap-2">
+                <button className="font-mono text-blue-300 hover:underline" onClick={() => setSelected(t.name)}>
+                  {t.name}
+                </button>
+                <span className="text-[10px] text-zinc-500">({t.risk})</span>
+                {t.tags.map((tag) => (
+                  <span key={tag} className="rounded bg-zinc-800 px-1 text-[10px] text-zinc-400">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-0.5 text-zinc-500">{t.description}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
 
       <div className="space-y-1 border-t border-zinc-800 pt-2">
         <div className="flex items-center gap-2">

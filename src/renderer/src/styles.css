@@ -84,6 +84,11 @@
 [data-theme='light'] .bg-zinc-800\/80 { background-color: #ececea; }
 [data-theme='light'] .bg-zinc-700\/70 { background-color: #ececea; }
 [data-theme='light'] .hover\:bg-blue-900\/40:hover { background-color: #dbeafe; }
+/* M25-8: 任意バリアント記法([&_th]:bg-zinc-700 等)は `.bg-zinc-700` とは別の
+   コンパイル結果(`.\[\&_th\]\:bg-zinc-700 th {...}`)になるため上書き対象外だった
+   (MarkdownMessage/FilePreviewの表ヘッダーが黒背景のまま残るバグの原因) */
+[data-theme='light'] .\[\&_th\]\:bg-zinc-700 th { background-color: #ececea; }
+[data-theme='light'] .\[\&_th\]\:bg-zinc-800 th { background-color: #f9f9f8; }
 
 /* 枠線: 全て承認済みの淡灰枠へ統一 */
 [data-theme='light'] .border-zinc-800,

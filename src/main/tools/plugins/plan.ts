@@ -49,6 +49,7 @@ export default {
     required: ['action'],
   },
   risk: 'safe',
+  tags: ['計画'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { action, content } = (input ?? {}) as { action?: unknown; content?: unknown };
 

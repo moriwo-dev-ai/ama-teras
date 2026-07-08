@@ -42,6 +42,7 @@ const plugin: ToolPlugin = {
   name: 'text_stats',
   description: 'Compute basic statistics for a given text or file: character count, line count, word count (whitespace-delimited), and byte size (UTF-8). Supports mixed Japanese and English text.',
   risk: 'safe',
+  tags: ['テキスト処理'],
   inputSchema: {
     type: 'object',
     properties: {

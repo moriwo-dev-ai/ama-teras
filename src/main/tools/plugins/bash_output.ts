@@ -17,6 +17,7 @@ export default {
     required: ['id'],
   },
   risk: 'safe',
+  tags: ['コマンド実行'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { id, since_byte } = input as { id?: unknown; since_byte?: unknown };
     if (typeof id !== 'number' || !Number.isInteger(id)) {

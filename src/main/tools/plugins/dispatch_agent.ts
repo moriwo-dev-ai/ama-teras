@@ -66,6 +66,7 @@ export default {
     },
   },
   risk: 'safe',
+  tags: ['サブエージェント'],
   async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
     if (!ctx.subagent) {
       return { content: 'この実行コンテキストではサブエージェントを起動できない', isError: true };

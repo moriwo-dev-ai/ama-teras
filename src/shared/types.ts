@@ -232,6 +232,8 @@ export interface ToolInfo {
   description: string;
   risk: ToolRisk;
   warnings: string[];
+  /** M25-8: 分類タグ(絞り込み・検索用) */
+  tags: string[];
 }
 
 export interface ToolExecResultPayload {

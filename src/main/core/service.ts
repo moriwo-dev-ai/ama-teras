@@ -85,6 +85,8 @@ export interface EvolutionLike {
     expectedIO: string;
     /** M20: 省略=tool(従来) */
     scope?: EvolutionScope;
+    /** M25-8: 既存ツールの修正対象(scope='tool'のみ意味を持つ) */
+    targetTool?: string;
   }): Promise<number>;
 }
 
@@ -638,11 +640,13 @@ export class AgentService {
         description: string,
         expectedIO: string,
         scope?: EvolutionScope,
+        targetTool?: string,
       ) => ({
         jobId: await this.evolution.enqueue({
           description,
           expectedIO,
           ...(scope !== undefined ? { scope } : {}),
+          ...(targetTool !== undefined ? { targetTool } : {}),
           // M23-7: 結果をモデルへ自動フィードバックする宛先(依頼元の会話)
           ...(origin !== undefined ? { originConversationId: origin.id } : {}),
         }),
@@ -1557,6 +1561,7 @@ export class AgentService {
         description: p.description,
         risk: p.risk,
         warnings: p.warnings ?? [],
+        tags: p.tags ?? [],
       })),
       errors: this.deps.registry.errors,
     };
