@@ -1,4 +1,4 @@
-import { Children, isValidElement, memo, useState, type ReactElement, type ReactNode } from 'react';
+import { Children, isValidElement, memo, useState, type MouseEvent, type ReactElement, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { LinkifiedText } from './LinkifiedText';
@@ -8,6 +8,10 @@ import { LinkifiedText } from './LinkifiedText';
  * コードブロックには言語ラベル+コピーボタンを付ける。
  * パスのリンク化(M15-3)は p / li のテキスト部分に対して維持する。
  */
+
+function openExternalLink(url: string): void {
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
 
 function CodeBlock({ lang, code }: { lang: string | null; code: string }): JSX.Element {
   const [copied, setCopied] = useState(false);
@@ -77,6 +81,26 @@ function MarkdownMessageInner({ text }: { text: string }): JSX.Element {
           code: ({ children }) => (
             <code className="rounded bg-zinc-700/70 px-1 font-mono text-[12px]">{children}</code>
           ),
+          a: ({ href, children }) => {
+            const isExternal = typeof href === 'string' && /^https?:\/\//i.test(href);
+            return (
+              <a
+                href={href}
+                target={isExternal ? '_blank' : undefined}
+                rel={isExternal ? 'noopener noreferrer' : undefined}
+                onClick={
+                  isExternal
+                    ? (e: MouseEvent<HTMLAnchorElement>) => {
+                        e.preventDefault();
+                        openExternalLink(href);
+                      }
+                    : undefined
+                }
+              >
+                {children}
+              </a>
+            );
+          },
           // whitespace-pre-wrap で従来どおり単改行を保持しつつ、パスリンク化も維持
           p: ({ children }) => <p className="my-1 whitespace-pre-wrap">{linkify(children)}</p>,
           li: ({ children }) => <li className="ml-4 whitespace-pre-wrap">{linkify(children)}</li>,
