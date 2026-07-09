@@ -3,6 +3,21 @@
 ## 現在の状態
 
 - **M1〜M26着手中**。テスト742件・typecheck(node/web/remote)全合格。
+- **M26-3追加(2026-07-09 夜間自律作業 T3)**: **3段エスカレーション + explorer帯**。
+  `ModelPolicy.midEscalation?`(中間格上げ先。未指定なら escalation)と
+  `ModelPolicy.explorer?`(調査用。未指定なら worker)を追加。
+  レビュー差し戻しfixは **round 1-2=worker → 3=midEscalation → 4以降=escalation** の階段に変更
+  (従来は round>=3 で即 escalation)。dispatch_agent の調査系(mode:"read"。単発runと
+  parallel read の両方)は explorer 帯を使用、mode:"work" は従来どおり worker 帯。
+  POLICY_HINT に「調査・ファイル探索は mode:"read" で委譲(安価な explorer が担当)。
+  planner は大量のファイルを自分で読まない」を追記。sub_update の表示モデルラベルも
+  read=explorer帯 に追従。ModelPolicySection に explorer/midEscalation の行を追加し、
+  プリセット更新(高品質重視: explorer=Sonnet, mid=Opus4.8 / コスパ重視: explorer=Haiku,
+  mid=Opus4.8)。自分で決めた判断: (a) NIGHT_TASKS の「mode:'research'」は本アプリでは
+  dispatch_agent の mode:"read"(読み取り専用調査)が該当するためそちらへ適用。
+  (b) midEscalation帯のキー未登録は警告なしで escalation へ静かにフォールバック
+  (オプショナルな中間段のため。explorer未登録は警告カードあり=worker代行)。
+  テスト4件追加(fix階段1・explorer配線1・config2)。全751件・typecheck 合格。
 - **M26-2追加(2026-07-09 夜間自律作業 T2)**: **レビュアー帯の分離(監査役パターン)**。
   従来レビューは常に planner 帯(最上位モデル)だったため日常レビューのコストが高かった。
   `ModelPolicy.reviewer?: ModelBand` を追加(未指定なら従来どおり planner 代行)。

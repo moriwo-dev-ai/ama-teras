@@ -243,6 +243,18 @@ describe('ConfigStore', () => {
     expect(broken?.reviewer).toBeUndefined();
   });
 
+  it('M26-3: parseModelPolicy は midEscalation / explorer を保持する', () => {
+    const p = parseModelPolicy({
+      enabled: true,
+      planner: { provider: 'anthropic', model: 'a' },
+      worker: { provider: 'anthropic', model: 'b' },
+      midEscalation: { provider: 'anthropic', model: 'claude-opus-4-8' },
+      explorer: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+    });
+    expect(p?.midEscalation).toEqual({ provider: 'anthropic', model: 'claude-opus-4-8' });
+    expect(p?.explorer).toEqual({ provider: 'anthropic', model: 'claude-haiku-4-5' });
+  });
+
   it('M26-1: parseReviewGate は passMode を保持し、3値以外は未指定(=severity扱い)へ正規化', () => {
     const base = { enabled: true, threshold: 4, maxRoundsPerMilestone: 2 };
     expect(parseReviewGate({ ...base, passMode: 'score' })?.passMode).toBe('score');

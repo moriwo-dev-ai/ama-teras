@@ -41,6 +41,7 @@ function makeService(opts: {
   secrets?: (p: ProviderId) => string | null;
   bandProviderFactory?: AgentServiceDeps['bandProviderFactory'];
   providerFactory?: () => LLMProvider | string;
+  registry?: AgentServiceDeps['registry'];
 }): { svc: AgentService; bus: EventBus; events: AgentEvent[] } {
   const bus = new EventBus();
   const events: AgentEvent[] = [];
@@ -54,7 +55,7 @@ function makeService(opts: {
   };
   const svc = new AgentService({
     bus,
-    registry: { list: () => [], get: () => undefined, reload: async () => {}, errors: [] },
+    registry: opts.registry ?? { list: () => [], get: () => undefined, reload: async () => {}, errors: [] },
     config: { get: () => structuredClone(config) },
     secrets: { get: opts.secrets ?? (() => 'test-key') },
     audit: { append: () => {} },
@@ -143,6 +144,56 @@ describe('M18: modelPolicy の service 配線', () => {
         (e) => e.kind === 'error' && e.message.includes('planner帯') && e.message.includes('未設定'),
       ),
     ).toBe(true);
+  });
+
+  it('M26-3: dispatch_agent(mode:"read"相当の単発調査)は explorer 帯で走る', async () => {
+    const { default: dispatchAgent } = await import('../tools/plugins/dispatch_agent');
+    const planner = textProvider('anthropic', ''); // 下で差し替え
+    const explorer = textProvider('anthropic', '調査済み');
+    const worker = textProvider('anthropic', 'worker');
+    // planner は dispatch_agent を1回呼んでから完了する
+    const plannerRequests: CompletionRequest[] = planner.requests;
+    let turn = 0;
+    const plannerProvider: LLMProvider = {
+      id: 'anthropic',
+      async *complete(req: CompletionRequest): AsyncGenerator<ProviderEvent> {
+        plannerRequests.push(req);
+        turn++;
+        yield {
+          type: 'message_done',
+          message:
+            turn === 1
+              ? {
+                  role: 'assistant',
+                  content: [{ type: 'tool_use', id: 't1', name: 'dispatch_agent', input: { task: '調べて' } }],
+                }
+              : { role: 'assistant', content: [{ type: 'text', text: '完了' }] },
+          stopReason: turn === 1 ? 'tool_use' : 'end_turn',
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0 },
+        };
+      },
+    };
+    const reg = [dispatchAgent];
+    const { svc, bus } = makeService({
+      policy: {
+        ...POLICY,
+        explorer: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+      },
+      registry: {
+        list: () => reg,
+        get: (n) => reg.find((p) => p.name === n),
+        reload: async () => {},
+        errors: [],
+      },
+      bandProviderFactory: (band) =>
+        band === 'planner' ? plannerProvider : band === 'explorer' ? explorer : worker,
+    });
+    const terminal = waitForTerminal(bus);
+    svc.chatSend('やって', 'normal');
+    await terminal;
+
+    expect(explorer.requests.length).toBeGreaterThan(0); // 調査は explorer 帯
+    expect(worker.requests).toHaveLength(0); // worker には流れない
   });
 
   it('guardrail: createProviderOrThrow(進化ジョブ経路)は policy の影響を受けない', () => {

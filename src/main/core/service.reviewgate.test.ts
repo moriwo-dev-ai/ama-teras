@@ -119,13 +119,16 @@ function makeService(opts: {
   worker?: LLMProvider;
   /** M26-2: reviewer帯のプロバイダ。指定時は modelPolicy に reviewer 帯が入る */
   reviewer?: LLMProvider;
+  /** M26-3: midEscalation帯のプロバイダ。指定時は modelPolicy に midEscalation 帯が入る */
+  mid?: LLMProvider;
   reviewGate?: ReviewGateConfig;
 }): { svc: AgentService; bus: EventBus; events: AgentEvent[]; audits: ScopeAuditEvent[] } {
   const bus = new EventBus();
   const events: AgentEvent[] = [];
   const audits: ScopeAuditEvent[] = [];
   bus.subscribe('chat:event', (e) => events.push(e));
-  const usePolicy = opts.worker !== undefined || opts.reviewer !== undefined;
+  const usePolicy =
+    opts.worker !== undefined || opts.reviewer !== undefined || opts.mid !== undefined;
   const config: AppConfig = {
     autoApprove: { safe: true, write: true, exec: true },
     provider: 'anthropic',
@@ -141,6 +144,9 @@ function makeService(opts: {
             worker: { provider: 'anthropic' as const, model: 'worker-m' },
             ...(opts.reviewer
               ? { reviewer: { provider: 'anthropic' as const, model: 'reviewer-m' } }
+              : {}),
+            ...(opts.mid
+              ? { midEscalation: { provider: 'anthropic' as const, model: 'mid-m' } }
               : {}),
             maxEscalationsPerTask: 0,
           },
@@ -169,7 +175,9 @@ function makeService(opts: {
               ? opts.worker
               : band === 'reviewer' && opts.reviewer
                 ? opts.reviewer
-                : opts.main) as AgentServiceDeps['bandProviderFactory'],
+                : band === 'midEscalation' && opts.mid
+                  ? opts.mid
+                  : opts.main) as AgentServiceDeps['bandProviderFactory'],
         }
       : { providerFactory: () => opts.main }),
   } as AgentServiceDeps);
@@ -413,6 +421,32 @@ describe('M19: レビュー・ゲート(service配線)', () => {
     await new Promise((r) => setTimeout(r, 100));
     expect(events.filter((e) => e.kind === 'review')).toHaveLength(1);
     expect(reviewer.requests).toHaveLength(0);
+  });
+
+  it('M26-3: 差し戻しfixの階段 — round1-2=worker、round3=midEscalation', async () => {
+    const main = queuedProvider([
+      toolUse('t1', 'plan', { action: 'write', content: '- [x] A' }), // 最終→plannerレビュー
+      text(reviewJson({ code: 2, req: 2, tests: 2 }, 1)), // review round0 不合格
+      text(reviewJson({ code: 2, req: 2, tests: 2 }, 1)), // round1 不合格
+      text(reviewJson({ code: 2, req: 2, tests: 2 }, 1)), // round2 不合格
+      text(reviewJson({ code: 2, req: 2, tests: 2 }, 1)), // round3 不合格(上限)
+      text('完了'),
+    ]);
+    const worker = queuedProvider([text('fix1'), text('fix2')]);
+    const mid = queuedProvider([text('fix3(中間格上げ)')]);
+    const { svc, bus } = makeService({
+      main,
+      worker,
+      mid,
+      reviewGate: { ...REVIEW_ON, maxRoundsPerMilestone: 3 },
+    });
+    svc.setAutonomous(true); // 上限到達の承認ダイアログを飛ばす
+    const terminal = waitForTerminal(bus);
+    svc.chatSend('やって', 'normal');
+    await terminal;
+
+    expect(worker.requests).toHaveLength(2); // round1-2
+    expect(mid.requests).toHaveLength(1); // round3 は midEscalation 帯
   });
 
   it('計画に既存の完了項目があっても、新規完了だけがマイルストーンになる', async () => {

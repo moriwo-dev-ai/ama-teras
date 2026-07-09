@@ -23,6 +23,9 @@ const PRESETS: { label: string; policy: Omit<ModelPolicy, 'enabled'> }[] = [
       worker: { provider: 'anthropic', model: 'claude-sonnet-5' },
       // M26-2: 高品質重視は日常レビューも planner と同格で行う
       reviewer: { provider: 'anthropic', model: 'claude-fable-5' },
+      // M26-3: 調査も worker と同格。中間格上げは Opus を挟む
+      explorer: { provider: 'anthropic', model: 'claude-sonnet-5' },
+      midEscalation: { provider: 'anthropic', model: 'claude-opus-4-8' },
       escalation: { provider: 'anthropic', model: 'claude-fable-5' },
       maxEscalationsPerTask: 1,
     },
@@ -34,17 +37,24 @@ const PRESETS: { label: string; policy: Omit<ModelPolicy, 'enabled'> }[] = [
       worker: { provider: 'anthropic', model: 'claude-haiku-4-5' },
       // M26-2: コスパ重視は日常レビューを worker と同じ安価帯へ
       reviewer: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+      // M26-3: 調査は Haiku、中間格上げに Opus(いきなり Fable まで上げない)
+      explorer: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+      midEscalation: { provider: 'anthropic', model: 'claude-opus-4-8' },
       escalation: { provider: 'anthropic', model: 'claude-fable-5' },
       maxEscalationsPerTask: 1,
     },
   },
 ];
 
-const BAND_LABEL: Record<'planner' | 'worker' | 'reviewer' | 'escalation', string> = {
+type BandName = 'planner' | 'worker' | 'explorer' | 'reviewer' | 'midEscalation' | 'escalation';
+
+const BAND_LABEL: Record<BandName, string> = {
   planner: 'planner(計画・重要レビュー・最終応答)',
   worker: 'worker(実行サブエージェント)',
+  explorer: 'explorer(調査・ファイル探索)',
   reviewer: 'reviewer(日常レビューの監査役)',
-  escalation: 'escalation(詰まったら格上げ)',
+  midEscalation: 'midEscalation(中間格上げ・fix 3回目)',
+  escalation: 'escalation(最終格上げ)',
 };
 
 function BandRow({
@@ -53,7 +63,7 @@ function BandRow({
   keyMissing,
   onChange,
 }: {
-  name: 'planner' | 'worker' | 'reviewer' | 'escalation';
+  name: BandName;
   band: ModelBand;
   keyMissing: boolean;
   onChange: (next: ModelBand) => void;
@@ -156,10 +166,22 @@ export function ModelPolicySection({
             onChange={(b) => save({ ...policy, worker: b })}
           />
           <BandRow
+            name="explorer"
+            band={policy.explorer ?? policy.worker}
+            keyMissing={keyMissing((policy.explorer ?? policy.worker).provider)}
+            onChange={(b) => save({ ...policy, explorer: b })}
+          />
+          <BandRow
             name="reviewer"
             band={policy.reviewer ?? policy.planner}
             keyMissing={keyMissing((policy.reviewer ?? policy.planner).provider)}
             onChange={(b) => save({ ...policy, reviewer: b })}
+          />
+          <BandRow
+            name="midEscalation"
+            band={policy.midEscalation ?? policy.escalation ?? policy.planner}
+            keyMissing={keyMissing((policy.midEscalation ?? policy.escalation ?? policy.planner).provider)}
+            onChange={(b) => save({ ...policy, midEscalation: b })}
           />
           <BandRow
             name="escalation"
@@ -186,13 +208,17 @@ export function ModelPolicySection({
           <p className="text-[11px] leading-relaxed text-zinc-500">
             現在: メイン会話 = {policy.planner.provider}/{effective(policy.planner)} ・
             実行サブ = {policy.worker.provider}/{effective(policy.worker)} ・
+            調査サブ = {(policy.explorer ?? policy.worker).provider}/
+            {effective(policy.explorer ?? policy.worker)} ・
             日常レビュー = {(policy.reviewer ?? policy.planner).provider}/
             {effective(policy.reviewer ?? policy.planner)} ・
-            格上げ先 = {(policy.escalation ?? policy.planner).provider}/
-            {effective(policy.escalation ?? policy.planner)}(worker が
-            エラー/ターン上限/失敗3連続で自動格上げ)。最終マイルストーン完了時・
-            コア領域に触れる変更のレビューは reviewer 指定があっても planner で実施。
-            進化ジョブは本体設定のモデルを使う
+            格上げ = {(policy.midEscalation ?? policy.escalation ?? policy.planner).provider}/
+            {effective(policy.midEscalation ?? policy.escalation ?? policy.planner)} →{' '}
+            {(policy.escalation ?? policy.planner).provider}/
+            {effective(policy.escalation ?? policy.planner)}(レビュー差し戻しfixは
+            1-2回目=worker、3回目=midEscalation、4回目以降=escalation の階段)。
+            最終マイルストーン完了時・コア領域に触れる変更のレビューは reviewer 指定が
+            あっても planner で実施。進化ジョブは本体設定のモデルを使う
           </p>
         </div>
       )}

@@ -163,8 +163,8 @@ export interface AgentServiceDeps {
   usage?: { record(provider: string, model: string, delta: UsageDelta): void };
 }
 
-/** M18: モデル帯の名前(M26-2: reviewer=日常レビューの監査役を追加) */
-export type ModelBandName = 'planner' | 'worker' | 'escalation' | 'reviewer';
+/** M18: モデル帯の名前(M26-2: reviewer / M26-3: midEscalation・explorer を追加) */
+export type ModelBandName = 'planner' | 'worker' | 'escalation' | 'reviewer' | 'midEscalation' | 'explorer';
 
 const SYSTEM_PROMPT = `あなたは AMA-teras — ユーザーのマシン上で動くコーディングエージェント。
 与えられたツールを使ってファイルの調査・編集・コマンド実行を行い、ユーザーの指示を完遂する。
@@ -200,7 +200,9 @@ const PLAN_SUFFIX = `\n\n# プランモード\n今回は「計画のみ」を求
 const POLICY_HINT = `\n\n# 分業ヒント(モデル自動切替 有効)
 あなた(メイン会話)は高性能な planner 帯で動いている。実装の手数が多い工程
 (複数ファイルの編集・テストの反復実行など)は dispatch_agent(mode:"work")へ委譲し、
-あなたは計画・レビュー・統合・最終報告に集中すること。小さな作業は直接行ってよい。`;
+あなたは計画・レビュー・統合・最終報告に集中すること。小さな作業は直接行ってよい。
+調査・ファイル探索・コードの下読みは dispatch_agent(mode:"read")へ委譲する
+(安価な explorer 帯が担当)。planner のあなたは大量のファイルを自分で読まないこと。`;
 
 /** 会話履歴を表示用に整形する(tool_result のみのメッセージは省く) */
 export function toHistoryView(messages: ChatMessage[]): HistoryMessageView[] {
@@ -527,7 +529,10 @@ export class AgentService {
     return p !== undefined && p.enabled ? p : null;
   }
 
-  /** 帯の実効 provider+model。escalation/reviewer 未指定は planner を使う。policy 無効なら null */
+  /**
+   * 帯の実効 provider+model。policy 無効なら null。未指定時のフォールバック:
+   * escalation/reviewer→planner、midEscalation→escalation(→planner)、explorer→worker
+   */
   private bandLLM(band: ModelBandName): { provider: ProviderId; model: string } | null {
     const p = this.modelPolicy();
     if (!p) return null;
@@ -536,7 +541,11 @@ export class AgentService {
         ? (p.escalation ?? p.planner)
         : band === 'reviewer'
           ? (p.reviewer ?? p.planner)
-          : p[band];
+          : band === 'midEscalation'
+            ? (p.midEscalation ?? p.escalation ?? p.planner)
+            : band === 'explorer'
+              ? (p.explorer ?? p.worker)
+              : p[band];
     return { provider: b.provider, model: b.model.trim() !== '' ? b.model : DEFAULT_MODELS[b.provider] };
   }
 
@@ -919,8 +928,11 @@ export class AgentService {
     // M18: worker/escalation 帯のキー未登録は実行前に警告(横断構成の取りこぼし防止)。
     // worker はメイン(planner)のプロバイダで代行して続行する
     let workerProvider: LLMProvider = provider;
-    // M19: レビュー差し戻し3ラウンド目以降のfixに使う(escalation帯。無ければworkerで代行)
+    // M19/M26-3: レビュー差し戻しfixの階段(1-2=worker → 3=midEscalation → 4+=escalation)
     let escalationProvider: LLMProvider = provider;
+    let midEscalationProvider: LLMProvider = provider;
+    // M26-3: 調査(mode:"read")サブエージェント用。未設定・キー未登録は worker で代行
+    let explorerProvider: LLMProvider = provider;
     if (policy) {
       const w = this.createBandProvider('worker');
       if (typeof w === 'string') {
@@ -933,6 +945,15 @@ export class AgentService {
         emit({ kind: 'info', sessionId, message: `⚠ ${e} — 格上げは無効になります` });
       } else {
         escalationProvider = e;
+      }
+      const m = this.createBandProvider('midEscalation');
+      midEscalationProvider = typeof m === 'string' ? escalationProvider : m;
+      const x = this.createBandProvider('explorer');
+      if (typeof x === 'string') {
+        emit({ kind: 'info', sessionId, message: `⚠ ${x} — 調査サブエージェントは worker 帯で代行します` });
+        explorerProvider = workerProvider;
+      } else {
+        explorerProvider = x;
       }
     }
     // M19: レビュー・ゲートの実行状況(マイルストーン発動が無かったrunは完了時に1回縮退)
@@ -1101,11 +1122,12 @@ export class AgentService {
               userMemoryDir: this.deps.denyPaths.userDataDir,
               ...this.screenshotContext(),
               subagent: {
-                // M18: サブエージェントは worker 帯(policy無効時はメインと同一)
+                // M18: サブエージェントは worker 帯(policy無効時はメインと同一)。
+                // M26-3: 単発run(mode:"read"の調査)は安価な explorer 帯(未設定ならworker)
                 run: (task, signal) =>
                   runSubAgent(
                     {
-                      provider: workerProvider,
+                      provider: explorerProvider,
                       tools: this.deps.registry,
                       cwd: run.workspace,
                       acquireFallback: this.acquireChildFallback(conv, emit, sessionId),
@@ -1115,8 +1137,15 @@ export class AgentService {
                   ),
                 // M12-3: 並列(read/work)。work は executor 経由で承認・スコープが効く。
                 // M21-2: 同時数はAppConfig.subAgentMaxParallel(既定3・1〜8)
+                // M26-3: read(調査)は explorer 帯、work(実装)は worker 帯
                 runParallel: (tasks, subMode, signal) =>
-                  this.runParallelSubAgents(workerProvider, sessionId, tasks, subMode, signal),
+                  this.runParallelSubAgents(
+                    subMode === 'read' ? explorerProvider : workerProvider,
+                    sessionId,
+                    tasks,
+                    subMode,
+                    signal,
+                  ),
                 maxParallel: this.subAgentMaxParallel(),
               },
             });
@@ -1153,6 +1182,7 @@ export class AgentService {
                   plannerProvider: runProvider,
                   forcePlannerReview: finalMilestone || coreAreaTouched,
                   workerProvider,
+                  midEscalationProvider,
                   escalationProvider,
                 });
                 if (summary !== null) {
@@ -1223,6 +1253,7 @@ export class AgentService {
           // M26-2: タスク全体の完成時レビューは最終マイルストーン相当として planner 帯で実施
           forcePlannerReview: true,
           workerProvider,
+          midEscalationProvider,
           escalationProvider,
         });
       }
@@ -1359,6 +1390,7 @@ export class AgentService {
      */
     forcePlannerReview: boolean;
     workerProvider: LLMProvider;
+    midEscalationProvider: LLMProvider;
     escalationProvider: LLMProvider;
   }): Promise<string | null> {
     const cfg = this.deps.config.get().reviewGate;
@@ -1408,8 +1440,14 @@ export class AgentService {
           args.signal,
         ),
       fix: async (card, round) => {
-        // worker修正が2回失敗した後(3ラウンド目〜)は escalation 帯へ格上げして直す(M18連動)
-        const provider = round >= 3 ? args.escalationProvider : args.workerProvider;
+        // M26-3: 差し戻しfixの3段階段。round 1-2=worker → 3=midEscalation(未設定なら
+        // escalationへフォールバック済み)→ 4以降=escalation(既定planner)
+        const provider =
+          round >= 4
+            ? args.escalationProvider
+            : round === 3
+              ? args.midEscalationProvider
+              : args.workerProvider;
         await this.runParallelSubAgents(
           provider,
           args.sessionId,
@@ -1506,8 +1544,8 @@ export class AgentService {
       ?.snapshot(sessionId, `サブエージェント並列実行前(${mode}×${limited.length})`)
       .catch(() => null);
     const locks = new WriteLockTable();
-    // M23: 子が使うモデルの表示ラベル(worker帯。格上げ済みはescalation帯)
-    const workerLLM = this.bandLLM('worker') ?? this.currentLLM();
+    // M23: 子が使うモデルの表示ラベル(read=explorer帯/work=worker帯。格上げ済みはescalation帯)
+    const workerLLM = this.bandLLM(mode === 'read' ? 'explorer' : 'worker') ?? this.currentLLM();
     const escLLM = this.bandLLM('escalation') ?? workerLLM;
     const onUpdate = (u: SubAgentUpdate): void =>
       this.deps.bus.publish('agent:sub_update', {

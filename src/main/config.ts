@@ -70,6 +70,11 @@ export function parseModelPolicy(raw: unknown): ModelPolicy | null {
   // M26-2: reviewer 帯(壊れた形は未指定=planner代行として扱う)
   const reviewer = parseBand(rec['reviewer']);
   if (reviewer) policy.reviewer = reviewer;
+  // M26-3: 中間格上げ先・調査帯(壊れた形は未指定=各フォールバックへ)
+  const midEscalation = parseBand(rec['midEscalation']);
+  if (midEscalation) policy.midEscalation = midEscalation;
+  const explorer = parseBand(rec['explorer']);
+  if (explorer) policy.explorer = explorer;
   const max = rec['maxEscalationsPerTask'];
   if (typeof max === 'number' && Number.isFinite(max)) {
     policy.maxEscalationsPerTask = Math.min(MAX_ESCALATIONS_MAX, Math.max(0, Math.round(max)));
