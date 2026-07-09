@@ -13,6 +13,9 @@ export function EnvWidget(): JSX.Element {
   const [git, setGit] = useState<WorkspaceGitStatus | null>(null);
   const [checkpoints, setCheckpoints] = useState<number | null>(null);
   const [plan, setPlan] = useState<{ done: number; total: number } | null>(null);
+  // M26-7: 「この会話を移動」— 選択済みの移動先(確認待ち)と結果メッセージ
+  const [movePending, setMovePending] = useState<string | null>(null);
+  const [moveMsg, setMoveMsg] = useState('');
 
   const refresh = useCallback(async () => {
     try {
@@ -47,13 +50,54 @@ export function EnvWidget(): JSX.Element {
         <span className="truncate font-mono text-zinc-300" title={ws || '(既定workspace)'}>
           📁 {wsName}
         </span>
+        {/* M26-7: 表示中の会話のworkspaceを移動(実行中はmain側でも拒否されるがUIでも防ぐ) */}
         <button
-          className="ml-auto rounded border border-zinc-800 px-1 text-[10px] text-zinc-500 hover:bg-zinc-800"
+          className="ml-auto rounded border border-zinc-800 px-1 text-[10px] text-zinc-500 hover:bg-zinc-800 disabled:opacity-40"
+          disabled={busy}
+          title="この会話の作業ディレクトリを別の場所へ移動する(以降のツール実行が移動先を参照)"
+          onClick={async () => {
+            setMoveMsg('');
+            const picked = await window.api.pickWorkspace();
+            if (picked) setMovePending(picked);
+          }}
+        >
+          移動
+        </button>
+        <button
+          className="rounded border border-zinc-800 px-1 text-[10px] text-zinc-500 hover:bg-zinc-800"
           onClick={() => void refresh()}
         >
           更新
         </button>
       </div>
+      {movePending !== null && (
+        <div className="rounded border border-amber-700 bg-amber-950 px-1.5 py-1">
+          <p className="break-all text-amber-300">
+            この会話を <span className="font-mono">{movePending}</span> へ移動する?
+            以降のツール実行・チェックポイント・計画はこちらを参照する
+          </p>
+          <div className="mt-0.5 flex gap-1">
+            <button
+              className="rounded bg-amber-700 px-1.5 py-0.5 text-[10px] hover:bg-amber-600"
+              onClick={async () => {
+                const r = await window.api.conversationMoveWorkspace(movePending);
+                setMovePending(null);
+                setMoveMsg(r.ok ? `移動した: ${r.message}` : `移動できない: ${r.message}`);
+                if (r.ok) void refresh();
+              }}
+            >
+              移動する
+            </button>
+            <button
+              className="rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-800"
+              onClick={() => setMovePending(null)}
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+      {moveMsg !== '' && <p className="break-all text-amber-300">{moveMsg}</p>}
       {git?.isGit && (
         <div>
           ⎇ {git.branch}

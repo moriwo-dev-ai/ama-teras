@@ -49,6 +49,8 @@ const api: MyCodexApi = {
     ipcRenderer.invoke(IpcChannels.evolutionEnqueue, description, expectedIo, scope),
   evolutionList: () => ipcRenderer.invoke(IpcChannels.evolutionList),
   evolutionCancel: (jobId) => ipcRenderer.invoke(IpcChannels.evolutionCancel, jobId),
+  conversationMoveWorkspace: (newWorkspace) =>
+    ipcRenderer.invoke(IpcChannels.conversationMoveWorkspace, newWorkspace),
 
   checkpointList: () => ipcRenderer.invoke(IpcChannels.checkpointList),
   checkpointRestore: (sha) => ipcRenderer.invoke(IpcChannels.checkpointRestore, sha),

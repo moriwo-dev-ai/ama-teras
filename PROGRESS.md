@@ -3,6 +3,22 @@
 ## 現在の状態
 
 - **M1〜M26着手中**。テスト742件・typecheck(node/web/remote)全合格。
+- **M26-7追加(2026-07-09 夜間自律作業 T7)**: **会話の workspace 移動操作(evolve/8 残課題)**。
+  `AgentService.conversationMoveWorkspace(newWorkspace)`: 現在表示中の会話の workspace を
+  明示的に変更する。実行中(conv.run あり)は拒否(実行中ランの束縛は変えない設計)。
+  移動先は絶対パス+実在ディレクトリのみ。移動するとグローバル設定(config.workspace)も
+  追従し(左ペイン会話切替=sessionOpen と同じ規則)、セッション永続化+チャットへ
+  infoカードを流す。以降のラン(ツール実行・チェックポイント・計画/記憶)は移動先を参照。
+  scopeMode='project' のスコープ境界も次のランから新 workspace 基準になる。
+  UI: EnvWidget(右ペイン上部の📁行)に「移動」ボタンを追加。フォルダ選択(pickWorkspace)→
+  インライン確認(移動する/取消)→実行、の二段。実行中(busy)はボタン無効。
+  IPC `conversation:move-workspace` を新設(ipc.ts/preloadは聖域だがユーザー明示指示の開発作業)。
+  自分で決めた判断: (a) 対象は「現在表示中の会話」のみとした(UIの「この会話を移動」の
+  意味に一致。他会話は切り替えてから移動すればよい)。(b) config.workspace への追従は
+  sessionOpen の既存規則に合わせた(移動後に新規会話を作った場合も同じ場所で始まり、
+  EnvWidget 表示とも食い違わない)。テスト3件追加(移動+設定追従+次ランのcwd反映・
+  実行中拒否・不正パス3種)。全764件(うち2件はgit系の既知Windows並列負荷タイムアウトで
+  単独再実行により全緑=完了条件どおり合格扱い)・typecheck・build 合格。
 - **M26-6追加(2026-07-09 夜間自律作業 T6)**: **進化ジョブのキャンセルUI**。
   manager.ts:187 の NOTE(signal配線のみでabort経路なし)に対応。
   `EvolutionManager.cancel(id)`: queued=キューから除去して即 cancelled、

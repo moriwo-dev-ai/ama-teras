@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { relative } from 'node:path';
+import { statSync } from 'node:fs';
+import { isAbsolute, relative } from 'node:path';
 import type {
   AgentEvent,
   AgentStatus,
@@ -824,6 +825,48 @@ export class AgentService {
         console.error('[sessions] 保存失敗:', err instanceof Error ? err.message : err);
       }
     });
+  }
+
+  /**
+   * M26-7: 現在表示中の会話の workspace を明示的に移動する(evolve/8 残課題)。
+   * 実行中(conv.run あり)は不可。移動後は以降のラン(ツール実行・チェックポイント・
+   * 計画/記憶の読取)が新 workspace を参照する。scopeMode='project' のスコープ境界も
+   * 次のランから新 workspace 基準になる(実行中ランの束縛は変えない設計のため実行中は拒否)。
+   * グローバル設定(config.workspace)も追従させる(左ペインの会話切替=sessionOpen と同じ規則。
+   * EnvWidget 表示・新規会話の既定と食い違わないようにする)
+   */
+  conversationMoveWorkspace(newWorkspace: string): { ok: boolean; message: string } {
+    const conv = this.current;
+    if (conv.run !== null) {
+      return { ok: false, message: '実行中の会話は移動できない(停止または完了後に実行すること)' };
+    }
+    const target = newWorkspace.trim();
+    if (target === '' || !isAbsolute(target)) {
+      return { ok: false, message: '移動先は絶対パスで指定すること' };
+    }
+    try {
+      if (!statSync(target).isDirectory()) {
+        return { ok: false, message: '移動先がディレクトリではない' };
+      }
+    } catch {
+      return { ok: false, message: '移動先ディレクトリが存在しない' };
+    }
+    const prev = conv.workspace !== '' ? conv.workspace : this.getWorkspace();
+    if (prev === target) return { ok: false, message: '既に同じ workspace で作業している' };
+    conv.workspace = target;
+    // グローバル設定へ追従(sessionOpen と同じ規則)
+    const cfg = this.deps.config.get();
+    if (this.deps.config.set && target !== (cfg.workspace ?? '')) {
+      this.deps.config.set({ ...cfg, workspace: target });
+    }
+    this.persistSession(conv);
+    this.deps.bus.publish('chat:event', {
+      kind: 'info',
+      sessionId: 'workspace-move',
+      message: `📁 この会話の作業ディレクトリを移動した: ${prev} → ${target}(以降のツール実行はこちらを参照)`,
+      conversationId: conv.id,
+    });
+    return { ok: true, message: `${prev} → ${target}` };
   }
 
   async sessionsList(): Promise<SessionMeta[]> {

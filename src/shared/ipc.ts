@@ -56,6 +56,8 @@ export const IpcChannels = {
   evolutionList: 'evolution:list',
   /** M26-6: ジョブのキャンセル(queued=キュー除去/実行中=abort) */
   evolutionCancel: 'evolution:cancel',
+  /** M26-7: 表示中の会話の workspace を明示的に移動する */
+  conversationMoveWorkspace: 'conversation:move-workspace',
   /** M11-3: 自動チェックポイント(Debugパネル) */
   checkpointList: 'checkpoint:list',
   checkpointRestore: 'checkpoint:restore',
@@ -149,6 +151,8 @@ export interface MyCodexApi {
   evolutionList(): Promise<EvolutionJobSummary[]>;
   /** M26-6: ジョブのキャンセル。ok=false は対象外の状態(昇格待ち以降・完了済み等) */
   evolutionCancel(jobId: number): Promise<{ ok: boolean }>;
+  /** M26-7: 表示中の会話の workspace を移動(実行中は不可)。以降のツール実行が移動先を参照 */
+  conversationMoveWorkspace(newWorkspace: string): Promise<{ ok: boolean; message: string }>;
 
   /** M11-3: 自動チェックポイントの一覧と作業ツリーへの復元(HEAD/indexは変更しない) */
   checkpointList(): Promise<CheckpointInfo[]>;

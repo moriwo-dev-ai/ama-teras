@@ -470,6 +470,12 @@ export async function registerIpcHandlers(
     return service.evolutionCancel(jobId);
   });
 
+  // M26-7: 表示中の会話の workspace 移動(実行中は service 側で拒否)
+  ipcMain.handle(IpcChannels.conversationMoveWorkspace, (_e, newWorkspace: unknown) => {
+    assertString(newWorkspace, 'newWorkspace');
+    return service.conversationMoveWorkspace(newWorkspace);
+  });
+
   // ---- M20: ロールバック履歴と「1つ前へ戻す」 ----
   ipcMain.handle(IpcChannels.evolutionHistory, () => listEvolveTags(repoDir));
   // M23-6: 進化で獲得した能力(スキル/自己書き換え)一覧
