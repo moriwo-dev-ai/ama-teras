@@ -3,6 +3,25 @@
 ## 現在の状態
 
 - **M1〜M26着手中**。テスト742件・typecheck(node/web/remote)全合格。
+- **M26-5追加(2026-07-09 夜間自律作業 T5)**: **設定画面のタブ分け**。525行の SettingsPanel.tsx を
+  5タブ構成に再構成: **基本**(プロバイダ/モデル+Fable5注意/APIキー/作業ディレクトリ/操作範囲)、
+  **モデル運用**(ModelPolicy/フォールバック/maxTurns/サブエージェント設定)、
+  **品質**(ReviewGate/ツール自動承認/編集後フック)、**接続**(Usage/RemoteAccess/MCP)、
+  **記憶**(ユーザー方針/プロジェクト記憶)。テーマ+アニメーション切替はヘッダへ移動。
+  中身は BasicSection / ModelOpsSection / QualitySection / ConnectionsSection / MemorySection の
+  5ファイルへ切り出し(既存の ModelPolicySection 等はその中で再利用)。状態(config等)は
+  従来どおり SettingsPanel に集約して props で渡す(zustand導入なし)。タブUIは RightPane の
+  既存パターン(border-b-2 border-blue-500)を流用し、タブ切替の anim-fade も同じ。
+  見た目の確認: CDPでの実機確認を試みたが、(1)`npx electron out/main/index.js` 直接起動は
+  appName が Electron になり userData 迷子+プラグインパス解決が壊れて不成立
+  (この誤起動が `C:\Users\haru-\AppData\Roaming\Electron` に実設定の複製を作ってしまった。
+  **→ユーザーへ: このフォルダは削除推奨**。rm はツール権限で拒否されたため残っている)、
+  (2)`electron-vite preview` 起動は成功したがポート競合や単一インスタンスロックの絡みで
+  CDP接続まで到達できず、プロセス強制終了も権限で不可だったため断念。
+  **preview 起動のインスタンス(現行ビルド・タブUI入り)が1つデスクトップに開いたまま残っている**
+  (無害。ウィンドウを閉じてもらえばよい)。代替として、ビルド後の実バンドルに
+  5タブのラベル・Fable5注意文・帯別コスト表・severityラジオ・新帯ラベルが全て含まれることを
+  スクリプトで確認済み(11項目 OK)。typecheck・build・全757テスト合格(挙動変更なしのUI再構成)。
 - **M26-4追加(2026-07-09 夜間自律作業 T4)**: **セーフガード拒否(refusal)の自動フォールバック
   +帯別コスト可視化**。Fable5 は API 経由だとセーフガード該当時に stop_reason='refusal' で
   応答拒否され、従来 loop.ts は即エラー停止していた(空応答扱い。部分出力ありの
