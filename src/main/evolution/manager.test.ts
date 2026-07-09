@@ -104,7 +104,7 @@ function lastStatus(events: EvolutionEvent[]): string | undefined {
 }
 
 async function waitForTerminal(events: EvolutionEvent[], timeoutMs = 30_000): Promise<string> {
-  const terminal = ['done', 'failed', 'rejected', 'rolled_back'];
+  const terminal = ['done', 'failed', 'rejected', 'rolled_back', 'cancelled'];
   const start = Date.now();
   for (;;) {
     const s = lastStatus(events);
@@ -323,6 +323,107 @@ describe('M25-8: 既存ツール修正パイプライン(targetTool)', { timeout
     await manager.enqueue({ description: '新規のつもり', expectedIO: 'x' }); // targetTool省略
     const status = await waitForTerminal(events);
     expect(status).toBe('failed');
+  });
+});
+
+// Windows では git のプロセス起動が遅く、並列負荷で既定5sを超えることがある
+describe('M26-6: ジョブのキャンセル', { timeout: 30_000 }, () => {
+  /** signal.abort で中断できるブロッキングランナー(release() で通常完了もできる) */
+  function blockingRunner(): { runner: EvolutionJobRunner; started: () => boolean; release: () => void } {
+    let startedFlag = false;
+    let releaseFn: (() => void) | null = null;
+    const runner: EvolutionJobRunner = {
+      generate(_req, worktreeDir, _log, signal) {
+        startedFlag = true;
+        return new Promise((resolve, reject) => {
+          if (signal.aborted) {
+            reject(new Error('生成が中断された'));
+            return;
+          }
+          signal.addEventListener('abort', () => reject(new Error('生成が中断された')), { once: true });
+          releaseFn = () => {
+            void writeFile(join(worktreeDir, 'src/main/tools/plugins/json_format.ts'), PLUGIN_SOURCE).then(() =>
+              resolve({ toolName: 'json_format', smokeInput: {} }),
+            );
+          };
+        });
+      },
+    };
+    return { runner, started: () => startedFlag, release: () => releaseFn?.() };
+  }
+
+  async function waitFor(cond: () => boolean, timeoutMs = 15_000): Promise<void> {
+    const start = Date.now();
+    while (!cond()) {
+      if (Date.now() - start > timeoutMs) throw new Error('waitFor タイムアウト');
+      await new Promise((r) => setTimeout(r, 30));
+    }
+  }
+
+  it('queued(未着手)のジョブはキューから除去され cancelled になる。先行ジョブは影響を受けない', async () => {
+    const { runner, started, release } = blockingRunner();
+    const { manager } = makeManager({ runner });
+    const id1 = await manager.enqueue({ description: '先行', expectedIO: 'x' });
+    const id2 = await manager.enqueue({ description: '後続(未着手)', expectedIO: 'x' });
+    await waitFor(started); // 先行が generate に入った=後続はまだキュー
+
+    expect(manager.cancel(id2)).toBe(true);
+    const job2 = manager.list().find((j) => j.id === id2)!;
+    expect(job2.status).toBe('cancelled');
+
+    release(); // 先行は通常どおり完走する
+    await waitFor(() => manager.list().find((j) => j.id === id1)?.status === 'done');
+  });
+
+  it('実行中(generating)のジョブは abort で中断され cancelled になり、worktreeも掃除される', async () => {
+    const { runner, started } = blockingRunner();
+    const { manager, events } = makeManager({ runner });
+    const id = await manager.enqueue({ description: '実行中を止める', expectedIO: 'x' });
+    await waitFor(started);
+
+    expect(manager.cancel(id)).toBe(true);
+    expect(await waitForTerminal(events)).toBe('cancelled');
+    const job = manager.list().find((j) => j.id === id)!;
+    expect(job.error).toContain('キャンセル');
+    expect(existsSync(join(base, 'evolve', `job-${id}`))).toBe(false);
+  });
+
+  it('実行中ジョブをキャンセルしても、後続のキューは止まらず処理される', async () => {
+    let calls = 0;
+    let firstStarted = false;
+    const runner: EvolutionJobRunner = {
+      generate(_req, worktreeDir, _log, signal) {
+        calls += 1;
+        if (calls === 1) {
+          firstStarted = true;
+          // 1本目はabortされるまでブロック
+          return new Promise((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(new Error('中断')), { once: true });
+          });
+        }
+        // 2本目以降は普通に成功
+        return writeFile(join(worktreeDir, 'src/main/tools/plugins/json_format.ts'), PLUGIN_SOURCE).then(() => ({
+          toolName: 'json_format',
+          smokeInput: {},
+        }));
+      },
+    };
+    const { manager } = makeManager({ runner });
+    const id1 = await manager.enqueue({ description: '中断される', expectedIO: 'x' });
+    const id2 = await manager.enqueue({ description: '後続', expectedIO: 'x' });
+    await waitFor(() => firstStarted);
+    expect(manager.cancel(id1)).toBe(true);
+
+    await waitFor(() => manager.list().find((j) => j.id === id2)?.status === 'done');
+    expect(manager.list().find((j) => j.id === id1)?.status).toBe('cancelled');
+  });
+
+  it('完了済み・存在しないジョブのキャンセルは受理されない(false)', async () => {
+    const { manager, events } = makeManager();
+    const id = await manager.enqueue({ description: 'x', expectedIO: 'x' });
+    await waitForTerminal(events);
+    expect(manager.cancel(id)).toBe(false); // done
+    expect(manager.cancel(999)).toBe(false); // 存在しない
   });
 });
 

@@ -3,6 +3,25 @@
 ## 現在の状態
 
 - **M1〜M26着手中**。テスト742件・typecheck(node/web/remote)全合格。
+- **M26-6追加(2026-07-09 夜間自律作業 T6)**: **進化ジョブのキャンセルUI**。
+  manager.ts:187 の NOTE(signal配線のみでabort経路なし)に対応。
+  `EvolutionManager.cancel(id)`: queued=キューから除去して即 cancelled、
+  実行中(preparing_worktree/generating/verifying)=AbortController.abort() で中断。
+  awaiting_promotion 以降は対象外(昇格ダイアログの「却下」の担当領域)。
+  `EvolutionJobStatus` に 'cancelled' を追加。IPC 経路 `evolution:cancel` を新設
+  (shared/ipc.ts・preload・main/ipc.ts。聖域だがユーザー明示指示の開発作業。
+  承認UI・ゲートのロジックは不変更)。EvolutionPanel の実行中/待機中ジョブに
+  「✕ キャンセル」ボタンを表示。
+  実装中に発見した実バグ: 生成例外の「1回リトライ」がキャンセル(abort)起因の失敗でも
+  走ってしまい、abort済みsignalで generate が再実行される問題があった
+  (リスナーは既発火のabortイベントを二度受けられないため永久ブロックし得る)。
+  キャンセル起因ならリトライせず即中断へ倒す修正を追加(テストのタイムアウトが検出)。
+  自分で決めた判断: (a) 'cancelled' は failed と区別する専用ステータスにした
+  (remote-ui は生ステータス文字列表示なので追加変更不要)。
+  (b) verifying 中のキャンセルは実行中のゲート子プロセス自体は殺さず、
+  次のチェックポイントで中断する(ゲートは短時間で完了するため)。
+  テスト4件追加(queued除去・実行中abort+worktree掃除・後続キュー継続・対象外false)。
+  全761件・typecheck 合格。
 - **M26-5追加(2026-07-09 夜間自律作業 T5)**: **設定画面のタブ分け**。525行の SettingsPanel.tsx を
   5タブ構成に再構成: **基本**(プロバイダ/モデル+Fable5注意/APIキー/作業ディレクトリ/操作範囲)、
   **モデル運用**(ModelPolicy/フォールバック/maxTurns/サブエージェント設定)、

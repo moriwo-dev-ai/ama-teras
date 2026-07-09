@@ -537,6 +537,8 @@ export type EvolutionJobStatus =
   | 'done'
   | 'failed'
   | 'rejected'
+  /** M26-6: ユーザーによる明示キャンセル(queued=キューから除去、実行中=abort) */
+  | 'cancelled'
   | 'rolled_back';
 
 export interface EvolutionGateResult {

@@ -92,6 +92,8 @@ export interface EvolutionLike {
     /** M25-8: 既存ツールの修正対象(scope='tool'のみ意味を持つ) */
     targetTool?: string;
   }): Promise<number>;
+  /** M26-6: ジョブのキャンセル(queued=キュー除去/実行中=abort)。未実装(セーフモード等)なら省略可 */
+  cancel?(id: number): boolean;
 }
 
 /** EvolutionManager 生成時にサービス側が渡すフック(昇格承認の待ち合わせとイベント中継) */
@@ -1822,6 +1824,11 @@ export class AgentService {
       this.pendingPromotionEvents.delete(jobId);
       resolve(approved);
     }
+  }
+
+  /** M26-6: 進化ジョブのキャンセル(queued=キュー除去/実行中=abort) */
+  evolutionCancel(jobId: number): { ok: boolean } {
+    return { ok: this.evolution.cancel?.(jobId) === true };
   }
 
   getPendingPromotionRequests(): PromotionRequestEvent[] {

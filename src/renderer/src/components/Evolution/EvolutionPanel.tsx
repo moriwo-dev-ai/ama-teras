@@ -12,8 +12,12 @@ const STATUS_LABEL: Record<EvolutionJobStatus, { text: string; cls: string }> = 
   done: { text: '完了', cls: 'text-green-400' },
   failed: { text: '失敗', cls: 'text-red-400' },
   rejected: { text: '却下', cls: 'text-zinc-400' },
+  cancelled: { text: 'キャンセル済み', cls: 'text-zinc-400' },
   rolled_back: { text: 'ロールバック済み', cls: 'text-red-400' },
 };
+
+/** M26-6: キャンセル可能な状態(昇格待ち以降は昇格ダイアログの「却下」が担当) */
+const CANCELLABLE: EvolutionJobStatus[] = ['queued', 'preparing_worktree', 'generating', 'verifying'];
 
 /**
  * 昇格履歴エントリの「どういう能力か」要約を導出する。
@@ -142,6 +146,16 @@ export function EvolutionPanel(): JSX.Element {
                 <span className="rounded bg-red-900/70 px-1 text-[10px] text-red-300">🛡 保護領域のため拒否</span>
               )}
               <span className={`ml-auto ${STATUS_LABEL[j.status].cls}`}>{STATUS_LABEL[j.status].text}</span>
+              {/* M26-6: 実行中/待機中ジョブのキャンセル */}
+              {CANCELLABLE.includes(j.status) && (
+                <button
+                  className="rounded border border-red-800 px-1.5 py-0.5 text-[10px] text-red-300 hover:bg-red-950"
+                  title="このジョブをキャンセルする(待機中=キューから除去/実行中=中断)"
+                  onClick={() => void window.api.evolutionCancel(j.id)}
+                >
+                  ✕ キャンセル
+                </button>
+              )}
               <button
                 className="text-zinc-500 hover:text-zinc-300"
                 onClick={() => setOpenLog(openLog === j.id ? null : j.id)}

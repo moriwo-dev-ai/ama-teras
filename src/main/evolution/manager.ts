@@ -66,6 +66,8 @@ export class EvolutionManager {
   /** M25-7: renderer/core昇格がrequestRestartを呼んだら立つ。以降drainはキューを進めない
    *  (5秒後のapp.exit(0)までの間に次のジョブが着手→強制終了で消えるのを防ぐ) */
   private restarting = false;
+  /** M26-6: 実行中ジョブのキャンセル用(直列実行なので高々1件) */
+  private activeCancel: { id: number; ac: AbortController } | null = null;
 
   constructor(private readonly deps: EvolutionManagerDeps) {
     this.worktrees = new WorktreeManager(deps.repoDir, deps.worktreeBase);
@@ -79,6 +81,33 @@ export class EvolutionManager {
   /** M25-7: キュー中でまだ着手していない依頼(再起動前の永続化用に公開) */
   pendingRequests(): EvolutionRequest[] {
     return this.queue.map((q) => q.req);
+  }
+
+  /**
+   * M26-6: ジョブのキャンセル。queued=キューから除去して即 cancelled、
+   * 実行中(preparing_worktree/generating/verifying)=AbortController.abort()で中断させる。
+   * awaiting_promotion 以降は対象外(昇格ダイアログの「却下」やロールバックが担当領域)。
+   * 戻り値=キャンセル要求を受理したか
+   */
+  cancel(id: number): boolean {
+    const qi = this.queue.findIndex((q) => q.id === id);
+    if (qi >= 0) {
+      this.queue.splice(qi, 1);
+      const job = this.jobs.get(id);
+      if (job) this.update(job, { status: 'cancelled', error: 'ユーザーによりキャンセルされた' });
+      return true;
+    }
+    const job = this.jobs.get(id);
+    if (
+      job !== undefined &&
+      this.activeCancel?.id === id &&
+      (job.status === 'preparing_worktree' || job.status === 'generating' || job.status === 'verifying')
+    ) {
+      this.log(job, 'キャンセル要求を受理した(実行中の処理を中断する)');
+      this.activeCancel.ac.abort();
+      return true;
+    }
+    return false;
   }
 
   async enqueue(req: EvolutionRequest): Promise<number> {
@@ -160,6 +189,9 @@ export class EvolutionManager {
     // M20: スコープ段階化。未指定は tool(従来挙動)
     const scope: EvolutionScope = req.scope ?? 'tool';
     let worktree: Awaited<ReturnType<WorktreeManager['create']>> | null = null;
+    // M26-6: キャンセルUI用。worktree作成〜検証までを中断可能にする(awaiting_promotion以降は対象外)
+    const ac = new AbortController();
+    this.activeCancel = { id, ac };
     try {
       // M25-8: target_tool指定なら、worktreeを作る前に対象が実在するか確認する
       if (scope === 'tool' && req.targetTool !== undefined) {
@@ -179,23 +211,24 @@ export class EvolutionManager {
       });
       worktree = await this.worktrees.create(id, this.baseRef);
       this.log(job, `B環境を作成: ${worktree.dir}(scope: ${scope})`);
+      if (ac.signal.aborted) throw new Error('cancelled');
 
       // 生成→ゲートを最大2回試行。1回目のゲート不合格は失敗内容をフィードバックして再生成する
       let artifacts: Awaited<ReturnType<EvolutionJobRunner['generate']>> | null = null;
       let gatesOk = false;
       let feedback: string | undefined;
-      // NOTE: 進化ジョブのキャンセルUIは未実装のため ac.abort() を呼ぶ経路はまだ無い
-      //       (将来キャンセルを足すときのための signal 配線)。
-      const ac = new AbortController();
       const generate = (): ReturnType<EvolutionJobRunner['generate']> =>
         this.deps.runner.generate(req, worktree!.dir, (line) => this.log(job, line), ac.signal, feedback);
 
       for (let attempt = 1; attempt <= 2 && !gatesOk; attempt++) {
+        if (ac.signal.aborted) throw new Error('cancelled');
         this.update(job, { status: 'generating' });
         if (attempt > 1) this.log(job, 'ゲート不合格のため、フィードバック付きで再生成する');
         try {
           artifacts = await generate();
         } catch (err) {
+          // M26-6: キャンセル起因の失敗はリトライせず即座に中断へ
+          if (ac.signal.aborted) throw err;
           // 生成自体の失敗は1回だけリトライ
           if (attempt === 2) throw err;
           this.log(job, `生成失敗(リトライする): ${err instanceof Error ? err.message : String(err)}`);
@@ -264,6 +297,7 @@ export class EvolutionManager {
             .join('\n');
         }
       }
+      if (ac.signal.aborted) throw new Error('cancelled');
       if (!gatesOk || !artifacts) {
         this.update(job, { status: 'failed', error: '検証ゲート不合格(再生成でも解消せず)' });
         return;
@@ -344,11 +378,17 @@ export class EvolutionManager {
       this.deps.requestRestart?.(tag, prevCommit);
       this.update(job, { status: 'done' });
     } catch (err) {
-      this.update(job, {
-        status: 'failed',
-        error: err instanceof Error ? err.message : String(err),
-      });
+      // M26-6: キャンセル起因の中断は failed と区別する(abort後の生成側エラーも含む)
+      if (ac.signal.aborted) {
+        this.update(job, { status: 'cancelled', error: 'ユーザーによりキャンセルされた' });
+      } else {
+        this.update(job, {
+          status: 'failed',
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     } finally {
+      this.activeCancel = null;
       if (worktree) await this.worktrees.remove(worktree).catch(() => {});
     }
   }

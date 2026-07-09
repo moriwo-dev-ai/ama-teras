@@ -54,6 +54,8 @@ export const IpcChannels = {
   evolutionPromoteRespond: 'evolution:promote-respond',
   evolutionEnqueue: 'evolution:enqueue',
   evolutionList: 'evolution:list',
+  /** M26-6: ジョブのキャンセル(queued=キュー除去/実行中=abort) */
+  evolutionCancel: 'evolution:cancel',
   /** M11-3: 自動チェックポイント(Debugパネル) */
   checkpointList: 'checkpoint:list',
   checkpointRestore: 'checkpoint:restore',
@@ -145,6 +147,8 @@ export interface MyCodexApi {
   /** 手動で進化ジョブを起動(デバッグ・検証用) */
   evolutionEnqueue(description: string, expectedIo: string, scope?: EvolutionScope): Promise<{ jobId: number }>;
   evolutionList(): Promise<EvolutionJobSummary[]>;
+  /** M26-6: ジョブのキャンセル。ok=false は対象外の状態(昇格待ち以降・完了済み等) */
+  evolutionCancel(jobId: number): Promise<{ ok: boolean }>;
 
   /** M11-3: 自動チェックポイントの一覧と作業ツリーへの復元(HEAD/indexは変更しない) */
   checkpointList(): Promise<CheckpointInfo[]>;

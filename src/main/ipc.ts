@@ -462,6 +462,14 @@ export async function registerIpcHandlers(
 
   ipcMain.handle(IpcChannels.evolutionList, () => service.evolutionList());
 
+  // M26-6: ジョブのキャンセル(queued=キュー除去/実行中=abort)
+  ipcMain.handle(IpcChannels.evolutionCancel, (_e, jobId: unknown) => {
+    if (typeof jobId !== 'number' || !Number.isInteger(jobId)) {
+      throw new Error('IPC payload jobId が不正');
+    }
+    return service.evolutionCancel(jobId);
+  });
+
   // ---- M20: ロールバック履歴と「1つ前へ戻す」 ----
   ipcMain.handle(IpcChannels.evolutionHistory, () => listEvolveTags(repoDir));
   // M23-6: 進化で獲得した能力(スキル/自己書き換え)一覧
