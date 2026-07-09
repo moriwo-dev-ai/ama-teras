@@ -62,6 +62,40 @@ describe('UsageMeter', () => {
     ).toBeCloseTo(1.75 + 14);
   });
 
+  it('M26-4: band付きrecordが帯別に集計され、帯別コストも概算される', () => {
+    let now = new Date('2026-07-06T10:00:00');
+    const meter = new UsageMeter(join(dir, 'usage.json'), () => now);
+    meter.record('anthropic', 'claude-fable-5', { inputTokens: 1_000_000, outputTokens: 0, cacheReadTokens: 0 }, 'planner');
+    meter.record('anthropic', 'claude-haiku-4-5', { inputTokens: 1_000_000, outputTokens: 0, cacheReadTokens: 0 }, 'explorer');
+    meter.record('anthropic', 'claude-haiku-4-5', { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0 }); // band無し→other
+    now = new Date('2026-07-07T10:00:00');
+    meter.record('anthropic', 'claude-fable-5', { inputTokens: 500, outputTokens: 100, cacheReadTokens: 0 }, 'planner');
+
+    const s = meter.summary();
+    const planner = s.bands.find((b) => b.band === 'planner')!;
+    expect(planner.total).toMatchObject({ input: 1_000_500, output: 100, calls: 2 });
+    expect(planner.today).toMatchObject({ input: 500, output: 100, calls: 1 });
+    expect(planner.total.costUsd).toBeCloseTo(10 + (500 * 10 + 100 * 50) / 1_000_000);
+    const explorer = s.bands.find((b) => b.band === 'explorer')!;
+    expect(explorer.total.costUsd).toBeCloseTo(1); // Haiku $1/1M input
+    expect(s.bands.some((b) => b.band === 'other')).toBe(true);
+  });
+
+  it('M26-4: 旧形式ファイル(bandDays無し)でも壊れず、bandsは空になる', () => {
+    const file = join(dir, 'usage.json');
+    const now = new Date('2026-07-06T10:00:00');
+    const meter = new UsageMeter(file, () => now);
+    meter.record('anthropic', 'claude-fable-5', { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0 });
+    meter.flush();
+    // bandDays を意図的に消した旧形式を再現
+    const { readFileSync, writeFileSync } = require('node:fs') as typeof import('node:fs');
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as { days: unknown };
+    writeFileSync(file, JSON.stringify({ days: raw.days }), 'utf8');
+    const reloaded = new UsageMeter(file, () => now);
+    expect(reloaded.summary().bands).toEqual([]);
+    expect(reloaded.summary().models).toHaveLength(1);
+  });
+
   it('flushで永続化され、新しいメーターに引き継がれる', () => {
     const file = join(dir, 'usage.json');
     const now = new Date('2026-07-06T10:00:00');

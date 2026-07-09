@@ -3,6 +3,28 @@
 ## 現在の状態
 
 - **M1〜M26着手中**。テスト742件・typecheck(node/web/remote)全合格。
+- **M26-4追加(2026-07-09 夜間自律作業 T4)**: **セーフガード拒否(refusal)の自動フォールバック
+  +帯別コスト可視化**。Fable5 は API 経由だとセーフガード該当時に stop_reason='refusal' で
+  応答拒否され、従来 loop.ts は即エラー停止していた(空応答扱い。部分出力ありの
+  mid-stream refusal は無言で done になっていた)。
+  変更: `AgentLoopDeps.acquireFallback` に `kind?: 'billing'|'refusal'` を追加。
+  loop は refusal を検知すると acquireFallback(reason,'refusal') を呼び、プロバイダが
+  返れば**同一ターンをやり直す**。service 側は billing の「1会話1回」(fallbackUsed)とは
+  **別枠のカウンタ `refusalFallbackCount`(1会話2回まで)**で管理し、候補は
+  「同一プロバイダの1段下モデル」優先(fable-5→opus-4-8→sonnet-5→haiku、gpt-5.5→5.4。
+  段下が無ければ設定済みフォールバック先)。audit には 'refusal(N/2)' 付きで記録。
+  フォールバック不発の refusal は部分出力があっても error 停止に変更(無言のdone廃止)。
+  コスト可視化: `track()`/UsageMeter.record に band ラベルを追加し、
+  usage.json に day→band→model の帯別集計を併記(旧ファイルは bands 空で後方互換)。
+  UsageSection に帯別(main/planner/worker/explorer/reviewer/midEscalation/escalation/
+  fallback/other)の累積トークン・概算コスト表を追加。設定画面のモデル選択で
+  claude-fable-5 選択時に「入力データは安全対策のため30日間保持されます(ZDR非適用)」を表示。
+  自分で決めた判断: (a) refusal の1段下切替は fallback 設定が無効でも発動する
+  (メインプロバイダのキーをそのまま使うため追加設定不要。突然死回避を優先)。
+  ただし子エージェント(acquireChildFallback)は現在モデルを機械決定できないため
+  設定済みフォールバック先を使う(fb無効なら発動しない)。
+  (b) 進化ジョブ(createProviderOrThrow経由)の帯ラベルは 'main' に含まれる。
+  テスト6件追加(loop refusal 4・usage band 2)。全757件・typecheck 合格。
 - **M26-3追加(2026-07-09 夜間自律作業 T3)**: **3段エスカレーション + explorer帯**。
   `ModelPolicy.midEscalation?`(中間格上げ先。未指定なら escalation)と
   `ModelPolicy.explorer?`(調査用。未指定なら worker)を追加。

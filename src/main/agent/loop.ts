@@ -32,9 +32,11 @@ export interface AgentLoopDeps {
   /**
    * M16-2: 課金系エラー(残高枯渇等)時のフォールバック取得。新しいプロバイダを返せば
    * 同一ターンから続行、null なら従来どおり error 停止。1セッション1回の制限・
-   * 事前compaction・監査記録は呼び出し側(AgentService)が担う
+   * 事前compaction・監査記録は呼び出し側(AgentService)が担う。
+   * M26-4: kind='refusal' はセーフガード拒否(stop_reason='refusal')からの復帰要求。
+   * billing の「1会話1回」とは別枠のカウンタ(1会話2回まで)を呼び出し側が管理する
    */
-  acquireFallback?: (reason: string) => Promise<LLMProvider | null>;
+  acquireFallback?: (reason: string, kind?: 'billing' | 'refusal') => Promise<LLMProvider | null>;
   /**
    * M21-1: 実行中に積まれた追加指示のdrain。各ターンのLLM呼び出し前に呼ばれ、
    * 返った指示は直前の user メッセージ(tool_result群)の末尾へ text/image ブロックとして
@@ -161,6 +163,23 @@ export async function runAgentLoop(
               break;
           }
         }
+        // M26-4: セーフガード拒否(stop_reason='refusal')は HTTP 200 の正常応答として届く。
+        // acquireFallback があれば代替プロバイダで同一ターンをやり直す(呼び出し側が
+        // billing とは別枠の「1会話2回まで」カウンタを管理)。無し/上限なら下の空応答扱いへ
+        if (stopReason === 'refusal' && deps.acquireFallback) {
+          const fallback = await deps.acquireFallback('モデルが応答を拒否した(セーフガード)', 'refusal');
+          if (signal.aborted) return finish('cancelled');
+          if (fallback) {
+            deps.emit({
+              kind: 'info',
+              sessionId,
+              message: 'セーフガードによる応答拒否を検知したため、代替モデルで同一ターンをやり直します',
+            });
+            provider = fallback;
+            retriesUsed = 0;
+            continue;
+          }
+        }
         break; // 成功
       } catch (err) {
         if (signal.aborted) return finish('cancelled');
@@ -199,11 +218,15 @@ export async function runAgentLoop(
     }
 
     if (signal.aborted) return finish('cancelled');
-    if (!finalMessage || finalMessage.content.length === 0) {
+    // M26-4: フォールバック不発の refusal は部分出力があっても信頼できないため error 停止
+    if (stopReason === 'refusal' || !finalMessage || finalMessage.content.length === 0) {
       deps.emit({
         kind: 'error',
         sessionId,
-        message: stopReason === 'refusal' ? 'モデルが応答を拒否した' : 'モデル応答が空だった',
+        message:
+          stopReason === 'refusal'
+            ? 'モデルが応答を拒否した(セーフガード)。フォールバック未設定または上限のため停止'
+            : 'モデル応答が空だった',
       });
       return finish('error');
     }

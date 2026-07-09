@@ -116,3 +116,74 @@ describe('M16-2: 課金系フォールバック', () => {
     expect(status).toBe('error');
   });
 });
+
+describe('M26-4: セーフガード拒否(refusal)フォールバック', () => {
+  const refusalEvent = (content: { type: 'text'; text: string }[] = []): ProviderEvent => ({
+    type: 'message_done',
+    message: { role: 'assistant', content },
+    stopReason: 'refusal',
+    usage: { inputTokens: 1, outputTokens: 0, cacheReadTokens: 0 },
+  });
+
+  /** 呼び出しごとに指定イベント列を流すプロバイダ */
+  function eventScripted(script: ProviderEvent[][]): LLMProvider & { calls: number } {
+    const state = { calls: 0 };
+    return {
+      id: 'anthropic',
+      get calls() {
+        return state.calls;
+      },
+      async *complete(_req: CompletionRequest): AsyncGenerator<ProviderEvent> {
+        const step = script[Math.min(state.calls, script.length - 1)]!;
+        state.calls++;
+        yield* step;
+      },
+    };
+  }
+
+  it("refusal で acquireFallback が kind='refusal' 付きで呼ばれ、代替プロバイダで同一ターンをやり直す", async () => {
+    const primary = eventScripted([[refusalEvent()]]);
+    const fallback = eventScripted([[okEvent]]);
+    const acquire = vi.fn(async (_reason: string, kind?: string) => {
+      expect(kind).toBe('refusal');
+      return fallback;
+    });
+    const { d, events } = deps(primary, { acquireFallback: acquire });
+    const status = await runAgentLoop(d, 's1', [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], new AbortController().signal);
+    expect(status).toBe('done');
+    expect(acquire).toHaveBeenCalledTimes(1);
+    expect(primary.calls).toBe(1);
+    expect(fallback.calls).toBe(1);
+    expect(events.some((e) => e.kind === 'error')).toBe(false);
+    expect(events.some((e) => e.kind === 'info' && e.message.includes('拒否'))).toBe(true);
+  });
+
+  it('部分出力つき(mid-stream)の refusal でもフォールバックで同一ターンをやり直す', async () => {
+    const primary = eventScripted([[refusalEvent([{ type: 'text', text: '途中まで…' }])]]);
+    const fallback = eventScripted([[okEvent]]);
+    const acquire = vi.fn(async () => fallback);
+    const { d } = deps(primary, { acquireFallback: acquire });
+    const status = await runAgentLoop(d, 's1', [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], new AbortController().signal);
+    expect(status).toBe('done');
+    expect(fallback.calls).toBe(1);
+  });
+
+  it('acquireFallback が null(上限・未設定相当)なら error 停止し、理由がセーフガードだと分かる', async () => {
+    const primary = eventScripted([[refusalEvent()]]);
+    const acquire = vi.fn(async () => null);
+    const { d, events } = deps(primary, { acquireFallback: acquire });
+    const status = await runAgentLoop(d, 's1', [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], new AbortController().signal);
+    expect(status).toBe('error');
+    expect(
+      events.some((e) => e.kind === 'error' && e.message.includes('セーフガード')),
+    ).toBe(true);
+  });
+
+  it('acquireFallback 未設定の従来構成では refusal は従来どおり error 停止', async () => {
+    const primary = eventScripted([[refusalEvent()]]);
+    const { d, events } = deps(primary);
+    const status = await runAgentLoop(d, 's1', [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], new AbortController().signal);
+    expect(status).toBe('error');
+    expect(events.some((e) => e.kind === 'error')).toBe(true);
+  });
+});

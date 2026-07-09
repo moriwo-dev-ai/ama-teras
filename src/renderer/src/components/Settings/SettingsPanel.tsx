@@ -127,6 +127,14 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
               </>
             );
           })()}
+          {/* M26-4: Fable 5 のデータ保持ポリシー注意(選択時のみ) */}
+          {config.provider === 'anthropic' &&
+            (config.model.trim() === '' ? DEFAULT_MODELS.anthropic : config.model.trim()) ===
+              'claude-fable-5' && (
+              <p className="text-xs text-amber-400">
+                ℹ claude-fable-5 では、入力データは安全対策のため30日間保持されます(ZDR非適用)
+              </p>
+            )}
         </div>
 
         <div className="space-y-1">

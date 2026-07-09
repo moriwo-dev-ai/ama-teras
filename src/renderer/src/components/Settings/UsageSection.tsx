@@ -4,6 +4,19 @@ import type { UsageSummary } from '../../../../shared/types';
 const fmt = (n: number): string => n.toLocaleString();
 const cost = (v: number | null): string => (v === null ? '—' : `$${v.toFixed(2)}`);
 
+/** M26-4: 帯ラベルの表示名(band無しの旧記録・進化ジョブ等は other に集約される) */
+const BAND_LABEL: Record<string, string> = {
+  main: 'main(単一モデル)',
+  planner: 'planner(計画)',
+  worker: 'worker(実行)',
+  explorer: 'explorer(調査)',
+  reviewer: 'reviewer(レビュー)',
+  midEscalation: 'midEscalation(中間格上げ)',
+  escalation: 'escalation(格上げ)',
+  fallback: 'fallback(切替)',
+  other: 'その他',
+};
+
 /**
  * M23-2: 使用量と残高。プロバイダに「残高を返すAPI」は無いため、
  * アプリで実測した使用トークンと概算コストを表示し、正確な残高はダッシュボードへ誘導する
@@ -63,6 +76,38 @@ export function UsageSection(): JSX.Element {
                 <td />
                 <td className="font-mono">{cost(summary.totalCostUsd)}</td>
               </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {summary !== null && summary.bands.length > 0 && (
+        <div className="overflow-x-auto">
+          <p className="mb-1 text-[11px] font-semibold text-zinc-400">帯別(役割別)の累積</p>
+          <table className="w-full text-left text-[11px]">
+            <thead className="text-zinc-500">
+              <tr>
+                <th className="pr-2">帯</th>
+                <th className="pr-2">今日 in/out</th>
+                <th className="pr-2">今日$</th>
+                <th className="pr-2">累計 in/out</th>
+                <th>累計$</th>
+              </tr>
+            </thead>
+            <tbody className="text-zinc-300">
+              {summary.bands.map((b) => (
+                <tr key={b.band} className="border-t border-zinc-800">
+                  <td className="pr-2">{BAND_LABEL[b.band] ?? b.band}</td>
+                  <td className="pr-2 font-mono">
+                    {fmt(b.today.input)}/{fmt(b.today.output)}
+                  </td>
+                  <td className="pr-2 font-mono">{cost(b.today.costUsd)}</td>
+                  <td className="pr-2 font-mono">
+                    {fmt(b.total.input)}/{fmt(b.total.output)}
+                  </td>
+                  <td className="font-mono">{cost(b.total.costUsd)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { UsageDelta, UsageSummary, UsageModelRow } from '../../shared/types';
+import type { UsageBandRow, UsageDelta, UsageSummary, UsageModelRow } from '../../shared/types';
 
 /**
  * M23-2: 使用量メーター(残高に準ずるもの)。
@@ -19,6 +19,11 @@ interface Cell {
 interface UsageFile {
   /** day(YYYY-MM-DD, ローカル) → "provider/model" → 集計 */
   days: Record<string, Record<string, Cell>>;
+  /**
+   * M26-4: day → band → "provider/model" → 集計。帯別コストの概算はモデル単価が要るため
+   * band直下にもモデルキーを保持する。旧ファイルには無い(optional・後方互換)
+   */
+  bandDays?: Record<string, Record<string, Record<string, Cell>>>;
 }
 
 /**
@@ -70,15 +75,22 @@ export class UsageMeter {
     }
   }
 
-  record(provider: string, model: string, delta: UsageDelta): void {
+  record(provider: string, model: string, delta: UsageDelta, band?: string): void {
     const day = localDay(this.now());
     const key = `${provider}/${model}`;
+    const add = (cell: Cell): void => {
+      cell.input += delta.inputTokens;
+      cell.output += delta.outputTokens;
+      cell.cacheRead += delta.cacheReadTokens;
+      cell.calls += 1;
+    };
     const byModel = (this.data.days[day] ??= {});
-    const cell = (byModel[key] ??= { input: 0, output: 0, cacheRead: 0, calls: 0 });
-    cell.input += delta.inputTokens;
-    cell.output += delta.outputTokens;
-    cell.cacheRead += delta.cacheReadTokens;
-    cell.calls += 1;
+    add((byModel[key] ??= { input: 0, output: 0, cacheRead: 0, calls: 0 }));
+    // M26-4: 帯別集計(band無しは 'other' に集約)
+    const bandDays = (this.data.bandDays ??= {});
+    const byBand = (bandDays[day] ??= {});
+    const bandModels = (byBand[band ?? 'other'] ??= {});
+    add((bandModels[key] ??= { input: 0, output: 0, cacheRead: 0, calls: 0 }));
     this.scheduleWrite();
   }
 
@@ -128,6 +140,36 @@ export class UsageMeter {
         total: { ...r.total, costUsd: estimateCostUsd(key, r.total) },
       }))
       .sort((a, b) => (b.today.input + b.today.output) - (a.today.input + a.today.output));
+
+    // M26-4: 帯別集計。コストはモデルごとに単価照合してから帯へ合算する
+    const bandAgg = new Map<string, { today: Cell & { cost: number | null }; total: Cell & { cost: number | null } }>();
+    for (const [day, byBand] of Object.entries(this.data.bandDays ?? {})) {
+      for (const [band, byModel] of Object.entries(byBand)) {
+        const row =
+          bandAgg.get(band) ??
+          { today: { ...empty(), cost: null }, total: { ...empty(), cost: null } };
+        for (const [key, c] of Object.entries(byModel)) {
+          const cost = estimateCostUsd(key, c);
+          const addTo = (side: Cell & { cost: number | null }): void => {
+            side.input += c.input;
+            side.output += c.output;
+            side.cacheRead += c.cacheRead;
+            side.calls += c.calls;
+            if (cost !== null) side.cost = (side.cost ?? 0) + cost;
+          };
+          addTo(row.total);
+          if (day === today) addTo(row.today);
+        }
+        bandAgg.set(band, row);
+      }
+    }
+    const bands: UsageBandRow[] = [...bandAgg.entries()]
+      .map(([band, r]) => ({
+        band,
+        today: { input: r.today.input, output: r.today.output, cacheRead: r.today.cacheRead, calls: r.today.calls, costUsd: r.today.cost },
+        total: { input: r.total.input, output: r.total.output, cacheRead: r.total.cacheRead, calls: r.total.calls, costUsd: r.total.cost },
+      }))
+      .sort((a, b) => (b.total.input + b.total.output) - (a.total.input + a.total.output));
     const sum = (pick: (m: UsageModelRow) => number | null): number | null => {
       let acc = 0;
       let known = false;
@@ -143,6 +185,7 @@ export class UsageMeter {
     return {
       day: today,
       models,
+      bands,
       todayCostUsd: sum((m) => m.today.costUsd),
       totalCostUsd: sum((m) => m.total.costUsd),
     };

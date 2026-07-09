@@ -422,10 +422,20 @@ export interface UsageModelRow {
   total: UsageCellView;
 }
 
+/** M26-4: 帯(planner/worker/reviewer/explorer/escalation等)別の集計行 */
+export interface UsageBandRow {
+  /** 帯ラベル。band無しの旧記録・進化ジョブ等は 'other' に集約 */
+  band: string;
+  today: UsageCellView;
+  total: UsageCellView;
+}
+
 export interface UsageSummary {
   /** 集計上の「今日」(YYYY-MM-DD・ローカル) */
   day: string;
   models: UsageModelRow[];
+  /** M26-4: 帯別集計(band付きで記録された分のみ。旧データはmodelsだけに現れる) */
+  bands: UsageBandRow[];
   todayCostUsd: number | null;
   totalCostUsd: number | null;
 }

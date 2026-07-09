@@ -159,8 +159,11 @@ export interface AgentServiceDeps {
    * 前に行われる(キー未登録の警告経路もテスト可能にするため)
    */
   bandProviderFactory?: (band: ModelBandName, provider: ProviderId, model: string) => LLMProvider;
-  /** M23-2: 使用量メーター(全LLM呼び出しの実測トークンを記録)。未指定なら計測しない */
-  usage?: { record(provider: string, model: string, delta: UsageDelta): void };
+  /**
+   * M23-2: 使用量メーター(全LLM呼び出しの実測トークンを記録)。未指定なら計測しない。
+   * M26-4: band(帯ラベル)付きで記録し、帯別のコスト可視化に使う
+   */
+  usage?: { record(provider: string, model: string, delta: UsageDelta, band?: string): void };
 }
 
 /** M18: モデル帯の名前(M26-2: reviewer / M26-3: midEscalation・explorer を追加) */
@@ -250,6 +253,8 @@ interface ConvState {
   persistChain: Promise<void>;
   /** M16-2: フォールバックは1会話1回まで */
   fallbackUsed: boolean;
+  /** M26-4: セーフガード拒否(refusal)からの復帰は billing とは別枠で1会話2回まで */
+  refusalFallbackCount: number;
   /**
    * M17-2→M22: 自律モードを会話単位に。メモリ内のみ=アプリ再起動で必ずOFF。
    * 別会話への切替でこの会話のフラグは変わらない(実行中の自律ランは維持される)
@@ -291,6 +296,7 @@ export class AgentService {
       lastPromptTokens: 0,
       persistChain: Promise.resolve(),
       fallbackUsed: false,
+      refusalFallbackCount: 0,
       autonomous: false,
       autoResumeCount: 0,
       workspace: '',
@@ -480,10 +486,37 @@ export class AgentService {
   // ---- provider ----
 
   /**
-   * M23-2: プロバイダを使用量計測つきでラップする。message_done の実測usageを
-   * UsageMeter へ記録するだけで、ストリームは素通し(挙動不変)。未注入なら素のまま
+   * M26-4: セーフガード拒否(refusal)時の「同一プロバイダの1段下モデル」候補。
+   * 前方一致で照合し、段下が無い(最下段等)場合は設定済みフォールバック先へ委ねる
    */
-  private track(provider: LLMProvider, providerId: string, model: string): LLMProvider {
+  private refusalFallbackLLM(current: {
+    provider: ProviderId;
+    model: string;
+  }): { provider: ProviderId; model: string } | null {
+    const DOWNGRADES: { provider: ProviderId; prefix: string; model: string }[] = [
+      { provider: 'anthropic', prefix: 'claude-fable-5', model: 'claude-opus-4-8' },
+      { provider: 'anthropic', prefix: 'claude-opus', model: 'claude-sonnet-5' },
+      { provider: 'anthropic', prefix: 'claude-sonnet', model: 'claude-haiku-4-5' },
+      { provider: 'openai', prefix: 'gpt-5.5', model: 'gpt-5.4' },
+    ];
+    const down = DOWNGRADES.find(
+      (d) => d.provider === current.provider && current.model.startsWith(d.prefix) && d.model !== current.model,
+    );
+    if (down) return { provider: down.provider, model: down.model };
+    // 段下が定義できないモデル: 設定済みフォールバック先(有効時)を使う
+    const fb = this.deps.config.get().fallback;
+    if (!fb || fb.enabled !== true) return null;
+    const fbModel = fb.model.trim() !== '' ? fb.model : DEFAULT_MODELS[fb.provider];
+    if (fb.provider === current.provider && fbModel === current.model) return null;
+    return { provider: fb.provider, model: fbModel };
+  }
+
+  /**
+   * M23-2: プロバイダを使用量計測つきでラップする。message_done の実測usageを
+   * UsageMeter へ記録するだけで、ストリームは素通し(挙動不変)。未注入なら素のまま。
+   * M26-4: band ラベル(planner/worker/reviewer/explorer/escalation等)を付けて帯別集計する
+   */
+  private track(provider: LLMProvider, providerId: string, model: string, band?: string): LLMProvider {
     const usage = this.deps.usage;
     if (!usage) return provider;
     return {
@@ -493,11 +526,16 @@ export class AgentService {
         return (async function* () {
           for await (const ev of inner) {
             if (ev.type === 'message_done') {
-              usage.record(providerId, model, {
-                inputTokens: ev.usage.inputTokens,
-                outputTokens: ev.usage.outputTokens,
-                cacheReadTokens: ev.usage.cacheReadTokens,
-              });
+              usage.record(
+                providerId,
+                model,
+                {
+                  inputTokens: ev.usage.inputTokens,
+                  outputTokens: ev.usage.outputTokens,
+                  cacheReadTokens: ev.usage.cacheReadTokens,
+                },
+                band,
+              );
             }
             yield ev;
           }
@@ -513,12 +551,12 @@ export class AgentService {
       const key = this.deps.secrets.get('openai');
       if (!key) return 'OpenAI APIキーが未設定(設定画面から登録)';
       const model = cfg.model || DEFAULT_OPENAI_MODEL;
-      return this.track(new OpenAIProvider(key, model), 'openai', model);
+      return this.track(new OpenAIProvider(key, model), 'openai', model, 'main');
     }
     const key = this.deps.secrets.get('anthropic');
     if (!key) return 'Anthropic APIキーが未設定(設定画面から登録)';
     const model = cfg.model || DEFAULT_ANTHROPIC_MODEL;
-    return this.track(new AnthropicProvider(key, model), 'anthropic', model);
+    return this.track(new AnthropicProvider(key, model), 'anthropic', model, 'main');
   }
 
   // ---- M18: モデル自動切替(役割ベース割当) ----
@@ -578,6 +616,7 @@ export class AgentService {
       llm.provider === 'openai' ? new OpenAIProvider(key, llm.model) : new AnthropicProvider(key, llm.model),
       llm.provider,
       llm.model,
+      band,
     );
   }
 
@@ -840,6 +879,7 @@ export class AgentService {
       lastPromptTokens: estimateTokens(data.history),
       persistChain: Promise.resolve(),
       fallbackUsed: false,
+      refusalFallbackCount: 0,
       // M17-2: ディスクから開いた会話の自律モードは必ずOFF(会話単位・再起動/開き直しでOFF)
       autonomous: false,
       autoResumeCount: 0,
@@ -1024,48 +1064,70 @@ export class AgentService {
 
     /**
      * M16-2: 課金系エラー時のフォールバック。1会話1回・同一先への切替禁止。
-     * 発動時は警告カード+audit記録+事前compaction(キャッシュ前提が崩れるため)
+     * 発動時は警告カード+audit記録+事前compaction(キャッシュ前提が崩れるため)。
+     * M26-4: kind='refusal'(セーフガード拒否)は billing とは別枠のカウンタで1会話2回まで。
+     * 同一プロバイダの1段下モデル(例 claude-fable-5 → Opus)を優先候補にし、
+     * 段下が無いモデルのときだけ設定済みフォールバック先を使う
      */
-    const acquireFallback = async (reason: string): Promise<LLMProvider | null> => {
-      const fb = this.deps.config.get().fallback;
-      if (!fb || fb.enabled !== true) return null;
-      if (conv.fallbackUsed) return null;
+    const acquireFallback = async (
+      reason: string,
+      kind?: 'billing' | 'refusal',
+    ): Promise<LLMProvider | null> => {
+      const isRefusal = kind === 'refusal';
       const current = this.currentLLM();
-      const fbModel = fb.model.trim() !== '' ? fb.model : DEFAULT_MODELS[fb.provider];
-      if (fb.provider === current.provider && fbModel === current.model) return null;
+      let target: { provider: ProviderId; model: string };
+      if (isRefusal) {
+        if (conv.refusalFallbackCount >= 2) return null;
+        const resolved = this.refusalFallbackLLM(conv.lastLLM ?? current);
+        if (!resolved) return null;
+        target = resolved;
+      } else {
+        const fb = this.deps.config.get().fallback;
+        if (!fb || fb.enabled !== true) return null;
+        if (conv.fallbackUsed) return null;
+        const fbModel = fb.model.trim() !== '' ? fb.model : DEFAULT_MODELS[fb.provider];
+        if (fb.provider === current.provider && fbModel === current.model) return null;
+        target = { provider: fb.provider, model: fbModel };
+      }
 
       let next: LLMProvider;
       if (this.deps.fallbackProviderFactory) {
-        next = this.deps.fallbackProviderFactory(fb.provider, fbModel);
+        next = this.deps.fallbackProviderFactory(target.provider, target.model);
       } else {
-        const key = this.deps.secrets.get(fb.provider);
+        const key = this.deps.secrets.get(target.provider);
         if (!key) {
           emit({
             kind: 'info',
             sessionId,
-            message: `フォールバック先(${fb.provider})のAPIキーが未設定のため切り替えできない`,
+            message: `フォールバック先(${target.provider})のAPIキーが未設定のため切り替えできない`,
           });
           return null;
         }
         next = this.track(
-          fb.provider === 'openai' ? new OpenAIProvider(key, fbModel) : new AnthropicProvider(key, fbModel),
-          fb.provider,
-          fbModel,
+          target.provider === 'openai'
+            ? new OpenAIProvider(key, target.model)
+            : new AnthropicProvider(key, target.model),
+          target.provider,
+          target.model,
+          'fallback',
         );
       }
 
-      conv.fallbackUsed = true;
+      if (isRefusal) conv.refusalFallbackCount++;
+      else conv.fallbackUsed = true;
       this.deps.audit.append({
         tool: 'provider-fallback',
         scope: 'system',
         paths: [],
         event: 'result',
-        detail: `${current.provider}/${current.model} → ${fb.provider}/${fbModel}: ${reason.slice(0, 160)}`,
+        detail: `${isRefusal ? `refusal(${conv.refusalFallbackCount}/2): ` : ''}${current.provider}/${current.model} → ${target.provider}/${target.model}: ${reason.slice(0, 160)}`,
       });
       emit({
         kind: 'info',
         sessionId,
-        message: `⚠ 残高/課金エラーを検知したため、フォールバック(${fb.provider}/${fbModel})へ切り替えて続行します: ${reason}`,
+        message: isRefusal
+          ? `⚠ セーフガードによる応答拒否を検知したため、代替モデル(${target.provider}/${target.model})で同一ターンをやり直します(${conv.refusalFallbackCount}/2回目)`
+          : `⚠ 残高/課金エラーを検知したため、フォールバック(${target.provider}/${target.model})へ切り替えて続行します: ${reason}`,
       });
       // 切替でprompt cacheが無効になるため、長い履歴は先に圧縮する(M16-1と同じ閾値)
       try {
@@ -1076,8 +1138,8 @@ export class AgentService {
       } catch {
         /* 圧縮失敗でも続行 */
       }
-      conv.lastLLM = { provider: fb.provider, model: fbModel };
-      run.model = `${fb.provider}/${fbModel}`;
+      conv.lastLLM = { provider: target.provider, model: target.model };
+      run.model = `${target.provider}/${target.model}`;
       this.publishRuns();
       runProvider = next;
       return next;
@@ -1285,11 +1347,15 @@ export class AgentService {
     conv: ConvState,
     emit: (e: AgentEvent) => void,
     sessionId: string,
-  ): (reason: string) => Promise<LLMProvider | null> {
-    return async (reason) => {
+  ): (reason: string, kind?: 'billing' | 'refusal') => Promise<LLMProvider | null> {
+    return async (reason, kind) => {
       const fb = this.deps.config.get().fallback;
       if (!fb || fb.enabled !== true) return null;
-      if (conv.fallbackUsed) return null;
+      // M26-4: refusal は billing(1会話1回)と別枠で1会話2回まで。子は帯モデルが多様で
+      // 「1段下」を機械決定できないため、設定済みフォールバック先をそのまま使う
+      if (kind === 'refusal') {
+        if (conv.refusalFallbackCount >= 2) return null;
+      } else if (conv.fallbackUsed) return null;
       const fbModel = fb.model.trim() !== '' ? fb.model : DEFAULT_MODELS[fb.provider];
       let next: LLMProvider;
       if (this.deps.fallbackProviderFactory) {
@@ -1301,20 +1367,25 @@ export class AgentService {
           fb.provider === 'openai' ? new OpenAIProvider(key, fbModel) : new AnthropicProvider(key, fbModel),
           fb.provider,
           fbModel,
+          'fallback',
         );
       }
-      conv.fallbackUsed = true;
+      if (kind === 'refusal') conv.refusalFallbackCount++;
+      else conv.fallbackUsed = true;
       this.deps.audit.append({
         tool: 'provider-fallback',
         scope: 'system',
         paths: [],
         event: 'result',
-        detail: `subagent → ${fb.provider}/${fbModel}: ${reason.slice(0, 160)}`,
+        detail: `${kind === 'refusal' ? `refusal(${conv.refusalFallbackCount}/2): ` : ''}subagent → ${fb.provider}/${fbModel}: ${reason.slice(0, 160)}`,
       });
       emit({
         kind: 'info',
         sessionId,
-        message: `⚠ サブエージェントで残高/課金エラーを検知したため、フォールバック(${fb.provider}/${fbModel})へ切り替えて続行します: ${reason}`,
+        message:
+          kind === 'refusal'
+            ? `⚠ サブエージェントでセーフガード拒否を検知したため、フォールバック(${fb.provider}/${fbModel})でやり直します(${conv.refusalFallbackCount}/2回目)`
+            : `⚠ サブエージェントで残高/課金エラーを検知したため、フォールバック(${fb.provider}/${fbModel})へ切り替えて続行します: ${reason}`,
       });
       return next;
     };
