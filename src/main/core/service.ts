@@ -51,7 +51,7 @@ import {
 import { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from '../providers/anthropic';
 import { DEFAULT_OPENAI_MODEL, OpenAIProvider } from '../providers/openai';
 import type { ChatMessage, LLMProvider } from '../providers/types';
-import { buildFixTask, runReviewCycle, runReviewer, type ReviewTarget } from '../review/gate';
+import { runReviewGateStep } from '../review/gateRunner';
 import { newlyCompleted } from '../review/planDiff';
 // M26-2: コア領域(聖域)判定はA側の正本リストを共用する(進化ジョブ非波及の逆方向importなのでOK)
 import { isProtectedFile } from '../evolution/protected';
@@ -63,6 +63,7 @@ import {
   type ScopePolicy,
 } from '../tools/executor';
 import type { ToolPlugin } from '../tools/types';
+import { resolveBandLLM, type ModelBandName } from './bands';
 import type { EventBus } from './events';
 import { ProcessManager } from './processes';
 import { previewFile, resolveRevealTarget, type RevealResolveResult } from './filePreview';
@@ -169,8 +170,8 @@ export interface AgentServiceDeps {
   usage?: { record(provider: string, model: string, delta: UsageDelta, band?: string): void };
 }
 
-/** M18: モデル帯の名前(M26-2: reviewer / M26-3: midEscalation・explorer を追加) */
-export type ModelBandName = 'planner' | 'worker' | 'escalation' | 'reviewer' | 'midEscalation' | 'explorer';
+// M26-9(T9): 帯名と解決規則は bands.ts へ抽出(従来のimport元互換のため再export)
+export type { ModelBandName } from './bands';
 
 const SYSTEM_PROMPT = `あなたは AMA-teras — ユーザーのマシン上で動くコーディングエージェント。
 与えられたツールを使ってファイルの調査・編集・コマンド実行を行い、ユーザーの指示を完遂する。
@@ -570,24 +571,9 @@ export class AgentService {
     return p !== undefined && p.enabled ? p : null;
   }
 
-  /**
-   * 帯の実効 provider+model。policy 無効なら null。未指定時のフォールバック:
-   * escalation/reviewer→planner、midEscalation→escalation(→planner)、explorer→worker
-   */
+  /** 帯の実効 provider+model(解決規則は bands.ts の resolveBandLLM が正本)。policy 無効なら null */
   private bandLLM(band: ModelBandName): { provider: ProviderId; model: string } | null {
-    const p = this.modelPolicy();
-    if (!p) return null;
-    const b =
-      band === 'escalation'
-        ? (p.escalation ?? p.planner)
-        : band === 'reviewer'
-          ? (p.reviewer ?? p.planner)
-          : band === 'midEscalation'
-            ? (p.midEscalation ?? p.escalation ?? p.planner)
-            : band === 'explorer'
-              ? (p.explorer ?? p.worker)
-              : p[band];
-    return { provider: b.provider, model: b.model.trim() !== '' ? b.model : DEFAULT_MODELS[b.provider] };
+    return resolveBandLLM(this.modelPolicy(), band);
   }
 
   /**
@@ -1509,125 +1495,42 @@ export class AgentService {
     midEscalationProvider: LLMProvider;
     escalationProvider: LLMProvider;
   }): Promise<string | null> {
-    const cfg = this.deps.config.get().reviewGate;
-    if (cfg === undefined || !cfg.enabled || args.signal.aborted) return null;
-    const ws = args.run.workspace;
-    // M26-2: 日常レビューは reviewer 帯(監査役)。キー未登録は警告して planner で代行
-    let reviewProvider = args.plannerProvider;
-    if (!args.forcePlannerReview) {
-      const r = this.createBandProvider('reviewer');
-      if (typeof r === 'string') {
-        args.emit({ kind: 'info', sessionId: args.sessionId, message: `⚠ ${r} — レビューは planner 帯で代行します` });
-      } else {
-        reviewProvider = r;
-      }
-    }
-    const target: ReviewTarget = {
-      milestone: args.milestone,
-      userRequest: args.userRequest,
-      planContent: readProjectPlan(ws),
-    };
-    const emitCard = (card: ReviewCardPayload): void => {
-      args.emit({ kind: 'review', sessionId: args.sessionId, ...card });
-      this.deps.audit.append({
-        tool: 'review-gate',
-        scope: 'system',
-        paths: [],
-        event: 'result',
-        detail: `milestone="${args.milestone.slice(0, 80)}" round=${card.round} avg=${card.average} pass=${card.pass} findings=${card.findings.length}`,
-      });
-    };
-
-    const result = await runReviewCycle({
-      config: cfg,
-      review: (round) =>
-        runReviewer(
-          {
-            provider: reviewProvider,
-            tools: this.deps.registry,
-            cwd: ws,
-            axes: cfg.axes,
-            threshold: cfg.threshold,
-            passMode: cfg.passMode ?? 'severity',
-            ...(this.deps.captureUrl !== undefined ? { captureUrl: this.deps.captureUrl } : {}),
-          },
-          target,
-          round,
-          args.signal,
-        ),
-      fix: async (card, round) => {
-        // M26-3: 差し戻しfixの3段階段。round 1-2=worker → 3=midEscalation(未設定なら
-        // escalationへフォールバック済み)→ 4以降=escalation(既定planner)
-        const provider =
-          round >= 4
-            ? args.escalationProvider
-            : round === 3
-              ? args.midEscalationProvider
-              : args.workerProvider;
-        await this.runParallelSubAgents(
-          provider,
-          args.sessionId,
-          [buildFixTask(target, card, cfg.passMode ?? 'severity')],
-          'work',
-          args.signal,
-          { conv: args.conv, run: args.run, emit: args.emit },
-        );
-      },
-      onCard: emitCard,
-      signal: args.signal,
-    });
-
-    if (args.signal.aborted) return null;
-
-    if (result.reviewFailed && result.final === null) {
-      args.emit({
-        kind: 'info',
-        sessionId: args.sessionId,
-        message: '品質レビューを実行できなかった(採点出力が得られず)。今回は素通しで続行します',
-      });
-      return 'レビュー実行失敗(素通し)';
-    }
-
-    const final = result.final!;
-    if (result.resolved) {
-      return result.fixRounds > 0
-        ? `合格 平均${final.average}/5(差し戻し${result.fixRounds}回で改善)`
-        : `合格 平均${final.average}/5`;
-    }
-
-    // 上限到達でも閾値未満: 残課題を提示。自律モードOFFなら承認を仰ぐ
-    emitCard({ ...final, unresolved: true });
-    const remaining = final.findings
-      .map((f, i) => `${i + 1}. ${f.file}(${f.location}): ${f.problem} → ${f.fix}`)
-      .join('\n');
-    if (args.conv.autonomous) {
-      args.emit({
-        kind: 'info',
-        sessionId: args.sessionId,
-        message: `⚠ 品質レビュー: 差し戻し上限(${cfg.maxRoundsPerMilestone}回)でも閾値未満(平均${final.average}/5)。残課題${final.findings.length}件を許容して続行します(自律モード)`,
-      });
-    } else {
-      const decision = await this.broker.request(
-        {
-          toolName: 'review-gate',
-          risk: 'safe',
-          inputPreview: remaining.slice(0, 1500) || final.summary.slice(0, 1500),
-          warnings: [
-            `品質レビュー: 差し戻し上限(${cfg.maxRoundsPerMilestone}回)に達しても閾値未満(平均${final.average}/5)。残課題を許容して先へ進みますか?(拒否した場合は追加の修正指示をチャットで送ってください)`,
-          ],
+    // M26-9(T9): 本体は review/gateRunner.ts へ機械的に抽出(挙動変更なし)。
+    // service 依存(帯プロバイダ・fix実行・承認ブローカー・audit)をコールバックで注入する
+    return runReviewGateStep(
+      {
+        cfg: this.deps.config.get().reviewGate,
+        registry: this.deps.registry,
+        ...(this.deps.captureUrl !== undefined ? { captureUrl: this.deps.captureUrl } : {}),
+        auditAppend: (detail) =>
+          this.deps.audit.append({ tool: 'review-gate', scope: 'system', paths: [], event: 'result', detail }),
+        createReviewerProvider: () => this.createBandProvider('reviewer'),
+        runFix: async (provider, task, signal) => {
+          await this.runParallelSubAgents(provider, args.sessionId, [task], 'work', signal, {
+            conv: args.conv,
+            run: args.run,
+            emit: args.emit,
+          });
         },
-        args.signal,
-      );
-      args.emit({
-        kind: 'info',
+        requestApproval: (inputPreview, warning, signal) =>
+          this.broker.request({ toolName: 'review-gate', risk: 'safe', inputPreview, warnings: [warning] }, signal),
+        readPlan: readProjectPlan,
+      },
+      {
+        workspace: args.run.workspace,
+        emit: args.emit,
         sessionId: args.sessionId,
-        message:
-          decision === 'deny'
-            ? '品質レビューの残課題が許容されなかった。追加の修正指示をチャットで送ってください'
-            : '品質レビューの残課題を許容して続行します',
-      });
-    }
-    return `上限到達・残課題${final.findings.length}件(平均${final.average}/5)`;
+        milestone: args.milestone,
+        userRequest: args.userRequest,
+        signal: args.signal,
+        autonomous: args.conv.autonomous,
+        plannerProvider: args.plannerProvider,
+        forcePlannerReview: args.forcePlannerReview,
+        workerProvider: args.workerProvider,
+        midEscalationProvider: args.midEscalationProvider,
+        escalationProvider: args.escalationProvider,
+      },
+    );
   }
 
   /**

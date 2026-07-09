@@ -2,7 +2,39 @@
 
 ## 現在の状態
 
-- **M1〜M26着手中**。テスト742件・typecheck(node/web/remote)全合格。
+- **M1〜M26(夜間自律作業 T1〜T9)完了**。テスト764件・typecheck(node/web/remote)・build 全合格。
+- **夜間自律作業サマリ(2026-07-09夜〜07-10未明・NIGHT_TASKS.md 全9タスク完了)**:
+  - T1(M26-1): レビューゲートを severity 方式へ再較正(high指摘ゼロで合格。既定変更)
+  - T2(M26-2): reviewer 帯を分離(日常レビューは安価帯。最終マイルストーン/聖域変更/
+    完成時レビューは planner 固定)。T1の passMode が保存で消えるバグも発見・修正
+  - T3(M26-3): fix 3段階段(worker→midEscalation→escalation)+ explorer 帯(mode:"read"調査)
+  - T4(M26-4): Fable5 の refusal 自動フォールバック(1会話2回・1段下モデル優先)+
+    帯別コスト可視化 + 30日データ保持の注意文
+  - T5(M26-5): 設定画面を5タブ化(基本/モデル運用/品質/接続/記憶)・セクション5ファイルへ分割
+  - T6(M26-6): 進化ジョブのキャンセルUI(queued=キュー除去/実行中=abort)。
+    abort後に生成リトライが走る潜在バグも発見・修正
+  - T7(M26-7): 会話の workspace 移動操作(EnvWidgetの「移動」→確認→以降のランが新参照)
+  - T8(M26-8): theme-mock/・旧AMATERAS_PLAN.md を削除(未追跡だったため退避コピー後に削除)
+  - T9(M26-9): service.ts から帯解決(bands.ts)とレビューゲート連携(gateRunner.ts)を機械的抽出
+  - **ユーザーへの連絡事項(起床後に確認を)**:
+    1. `C:\Users\haru-\AppData\Roaming\Electron` は私のCDP検証の誤起動で作られた
+       実設定の複製(鍵素材のコピー含む)。**削除推奨**(rmはツール権限で拒否され残置)
+    2. デスクトップに `electron-vite preview` 起動のアプリが1つ開いたまま
+       (プロセス終了が権限で不可だった)。**ウィンドウを閉じるだけでOK**(現行ビルドで無害)
+    3. T5(設定タブ)/T6(キャンセルボタン)/T7(移動ボタン)の実機での見た目確認は
+       未実施(CDP不可のためビルドバンドルの静的検証で代替)。次回起動時に一目確認を
+- **M26-9追加(2026-07-10 夜間自律作業 T9・任意)**: **service.ts の機械的分割**(挙動変更なし)。
+  ①モデル帯解決部: 帯名(`ModelBandName`)と未指定時フォールバック規則を
+  `src/main/core/bands.ts` の純関数 `resolveBandLLM(policy, band)` へ抽出。
+  service.ts は互換のため型を再export(既存の import 元は不変)。
+  ②レビューゲート連携部: `runReviewGate` の本体(reviewer帯選択・レビューサイクル・
+  fix階段・上限到達時の承認)を `src/main/review/gateRunner.ts` の `runReviewGateStep` へ
+  抽出。service 依存(帯プロバイダ生成・workサブエージェントfix・承認ブローカー・audit)は
+  コールバック注入とし electron 非依存を維持。service 側は薄いラッパーのみ残す
+  (guardrails.reviewgate.test.ts の「this.runReviewGate( 呼び出しは2箇所」も不変)。
+  service.ts は約1950行→1804行(bands.ts 32行+gateRunner.ts 165行へ移動)。
+  全764テスト・typecheck・build 合格
+  (git系1件の単発フックタイムアウトは単独再実行で緑=既知のWindows並列負荷、合格扱い)。
 - **M26-8実施(2026-07-09 夜間自律作業 T8)**: **掃除**。`theme-mock/`(M25-5テーマ検討時の
   モックHTML6枚)と旧 `AMATERAS_PLAN.md`(M25-5テーマ作業の完了済み計画の残置物)を削除。
   注意: NIGHT_TASKS には「git管理下なので復元可能」とあったが、実際には両方とも
@@ -725,6 +757,12 @@
 
 ## 次のタスク
 
+- (ユーザー)夜間作業の後始末3点(冒頭「ユーザーへの連絡事項」参照):
+  Roaming\Electron の削除 / 残置アプリウィンドウを閉じる / 新UI3箇所の一目確認
+- M26 の実運用フィードバック: severity 方式の合格率・reviewer/explorer 帯のコスト削減効果を
+  UsageSection の帯別集計で観察し、プリセットの帯割当を再調整する
+- refusal フォールバックの実発火ログ(audit.jsonl の 'refusal(N/2)')を確認し、
+  1段下候補の妥当性(fable→opus で足りるか)を検証する
 - (ユーザー)iPhone実機+Tailscale(docs/M10-manual-test.md B節)、NSISインストーラ
   (開発者モードONで `npm run dist`)
 - docs/M12-manual-test.md の残り体感確認(ツール実行中の強制終了→復元、キャンセル伝播、
