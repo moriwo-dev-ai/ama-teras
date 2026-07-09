@@ -3,6 +3,14 @@
 ## 現在の状態
 
 - **M1〜M26着手中**。テスト742件・typecheck(node/web/remote)全合格。
+- **M26-8実施(2026-07-09 夜間自律作業 T8)**: **掃除**。`theme-mock/`(M25-5テーマ検討時の
+  モックHTML6枚)と旧 `AMATERAS_PLAN.md`(M25-5テーマ作業の完了済み計画の残置物)を削除。
+  注意: NIGHT_TASKS には「git管理下なので復元可能」とあったが、実際には両方とも
+  **未追跡ファイルで git からは復元不可能**だった。念のため削除前に全ファイルを
+  スクラッチパッド(`%TEMP%\claude\...\scratchpad\t8-backup\`)へ退避コピーしてから削除した
+  (セッション終了後に消える一時領域なので、必要なら早めに回収を)。
+  未追跡のまま残っている `NIGHT_TASKS.md`・`build/candidates/`・`build/icon.svg`・
+  `downloads/` は指示範囲外のため触っていない。
 - **M26-7追加(2026-07-09 夜間自律作業 T7)**: **会話の workspace 移動操作(evolve/8 残課題)**。
   `AgentService.conversationMoveWorkspace(newWorkspace)`: 現在表示中の会話の workspace を
   明示的に変更する。実行中(conv.run あり)は拒否(実行中ランの束縛は変えない設計)。
