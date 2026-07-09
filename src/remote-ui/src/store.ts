@@ -79,7 +79,9 @@ export function applyChatEvent(messages: UiMessage[], event: AgentEvent): UiMess
         `🧪 品質レビュー${event.round > 0 ? `(再レビュー${event.round}回目)` : ''} ${icon} ${event.average.toFixed(1)}/5 — ${event.milestone}`,
       ];
       if (event.summary) lines.push(event.summary);
-      for (const f of event.findings) lines.push(`・${f.file}(${f.location}): ${f.problem} → 修正: ${f.fix}`);
+      // M26-1: severity付き表示(旧イベントに severity が無い場合は medium 扱い)
+      for (const f of event.findings)
+        lines.push(`・[${f.severity ?? 'medium'}] ${f.file}(${f.location}): ${f.problem} → 修正: ${f.fix}`);
       return [...messages, { id: nextId(), role: 'assistant', text: lines.join('\n'), streaming: false }];
     }
     case 'tool_progress':

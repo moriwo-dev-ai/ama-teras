@@ -1349,6 +1349,7 @@ export class AgentService {
             cwd: ws,
             axes: cfg.axes,
             threshold: cfg.threshold,
+            passMode: cfg.passMode ?? 'severity',
             ...(this.deps.captureUrl !== undefined ? { captureUrl: this.deps.captureUrl } : {}),
           },
           target,
@@ -1361,7 +1362,7 @@ export class AgentService {
         await this.runParallelSubAgents(
           provider,
           args.sessionId,
-          [buildFixTask(target, card)],
+          [buildFixTask(target, card, cfg.passMode ?? 'severity')],
           'work',
           args.signal,
           { conv: args.conv, run: args.run, emit: args.emit },

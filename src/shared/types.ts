@@ -128,7 +128,13 @@ export interface ModelPolicy {
 /** M19: 品質レビュー・ゲート設定 */
 export interface ReviewGateConfig {
   enabled: boolean;
-  /** 合格閾値(1〜5)。総合平均がこれ未満なら差し戻し。既定 4.0 */
+  /**
+   * M26-1: 合格判定方式。'severity'=high指摘ゼロなら合格(スコア平均は表示用)。
+   * 'score'=従来の平均閾値方式。未指定は 'severity'(平均4.0方式は worker帯成果物が
+   * 構造的に不合格→エスカレーション多発したため既定を再較正)
+   */
+  passMode?: 'severity' | 'score';
+  /** 合格閾値(1〜5)。passMode='score' のとき平均がこれ未満なら差し戻し。既定 4.0 */
   threshold: number;
   /** 1マイルストーンあたりの差し戻し上限。既定 2(0でレビューのみ・差し戻し無し) */
   maxRoundsPerMilestone: number;
@@ -142,6 +148,12 @@ export interface ReviewFinding {
   location: string;
   problem: string;
   fix: string;
+  /**
+   * M26-1: 深刻度。high=マイルストーンの要件を満たさない/壊れている、
+   * medium=品質上望ましくないが動く、low=好みの問題。
+   * passMode='severity' では high のみが差し戻し対象になる
+   */
+  severity: 'high' | 'medium' | 'low';
 }
 
 /** M19: 採点結果(スキップされた軸は null) */

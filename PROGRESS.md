@@ -2,7 +2,27 @@
 
 ## 現在の状態
 
-- **M1〜M25まで実装**。テスト736件・typecheck(node/web/remote)全合格。
+- **M1〜M26着手中**。テスト742件・typecheck(node/web/remote)全合格。
+- **M26-1追加(2026-07-09 夜間自律作業 T1)**: **レビューゲートの合格判定を severity 方式へ再較正**。
+  背景: 「4軸平均4.0以上で合格」+辛口レビュアー指示の組み合わせでは worker帯の成果物が
+  構造的に不合格になり、エスカレーション(最上位モデル稼働)が多発していた。
+  変更: `ReviewFinding` に `severity: 'high'|'medium'|'low'` を追加
+  (high=マイルストーンの要件を満たさない/壊れている、medium=品質上望ましくないが動く、
+  low=好みの問題)。`ReviewGateConfig.passMode: 'severity'|'score'` を追加し、
+  **既定は 'severity'(high指摘ゼロなら合格。スコア平均は表示用に残す)**、'score' は従来の
+  平均閾値方式。パース時に severity が3値以外・欠落なら medium にフォールバック
+  (findings を捨てない)。`buildFixTask` は severity 方式では high のみ差し戻し対象にし、
+  medium/low はレビューカードに記録するだけ。ReviewCard に severity バッジ
+  (high=赤/medium=琥珀/low=グレー。ライトテーマ上書き済みの既存クラスのみ使用)、
+  設定画面に合格判定方式のラジオ切替を追加。remote-ui はテキスト整形に `[severity]` を追記。
+  自分で決めた判断: (a) `passMode` はオプショナルにして未指定=severity とした
+  (保存済み設定の後方互換を保ちつつ、再較正の趣旨どおり既定挙動を変えるため)。
+  (b) `ReviewFinding.severity` は必須型にした(生成箇所が parseReviewOutput のみで
+  常に値が入るため)。旧永続イベントの表示はUI側で medium にフォールバック。
+  (c) service.reviewgate.test.ts の既存配線テストは passMode:'score' に固定
+  (severity 無し findings を使うため。severity 方式のロジック自体は gate.test.ts で担保)。
+  テスト6件追加(severityパース1・severity合格判定3・buildFixTask絞り込み2)。
+  全742件・typecheck 合格。
 - **M25-8追加(2026-07-08)**: **①既存ツールの修正パイプライン ②ツールのタグ付け・絞り込み
   ③チャット送信欄の停止ボタンを枠内デザインへ ④Markdownテーブルのヘッダーが黒背景で
   読めないバグ修正**、の4件。

@@ -7,6 +7,7 @@ import type { AppConfig, ReviewGateConfig } from '../../../../shared/types';
 
 const DEFAULT_GATE: ReviewGateConfig = {
   enabled: true,
+  passMode: 'severity',
   threshold: 4.0,
   maxRoundsPerMilestone: 2,
   axes: { code: true, ux: true, requirements: true, tests: true },
@@ -66,7 +67,30 @@ export function ReviewGateSection({
             ))}
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-40 shrink-0 text-zinc-400">合格閾値(1〜5)</span>
+            <span className="w-40 shrink-0 text-zinc-400">合格判定方式</span>
+            <label className="flex items-center gap-1 text-zinc-300">
+              <input
+                type="radio"
+                name="review-pass-mode"
+                checked={(gate.passMode ?? 'severity') === 'severity'}
+                onChange={() => save({ ...gate, passMode: 'severity' })}
+              />
+              severity方式(high指摘ゼロで合格・推奨)
+            </label>
+            <label className="flex items-center gap-1 text-zinc-300">
+              <input
+                type="radio"
+                name="review-pass-mode"
+                checked={gate.passMode === 'score'}
+                onChange={() => save({ ...gate, passMode: 'score' })}
+              />
+              スコア方式(平均閾値・従来)
+            </label>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-40 shrink-0 text-zinc-400">
+              合格閾値(1〜5){(gate.passMode ?? 'severity') === 'severity' ? '※表示用' : ''}
+            </span>
             <select
               className="rounded border border-zinc-600 bg-zinc-800 px-1.5 py-1"
               value={gate.threshold}
@@ -104,7 +128,9 @@ export function ReviewGateSection({
             ))}
           </div>
           <p className="text-[11px] leading-relaxed text-zinc-500">
-            レビューは planner 帯(高モデル)で実行するためコストが増える。マイルストーン
+            severity方式では「high=要件を満たさない/壊れている」指摘がゼロなら合格
+            (medium/lowはカードに記録するだけで差し戻さない)。スコア平均は参考表示。
+            マイルストーン
             (AMATERAS_PLAN.mdの項目完了)単位に絞ってバランスを取っている。計画を使わない
             短いタスクでは完了時に1回だけ。UIが無いタスクでは「見た目/UX」軸は自動スキップ。
             上限到達で閾値未満のときは残課題を提示(自律モードOFFなら承認を求める)

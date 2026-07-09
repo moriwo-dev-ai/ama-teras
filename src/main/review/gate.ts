@@ -32,6 +32,8 @@ export interface ReviewerDeps {
   cwd: string;
   axes: ReviewGateConfig['axes'];
   threshold: number;
+  /** M26-1: 合格判定方式。未指定='severity'(high指摘ゼロで合格。scoreは従来の平均閾値) */
+  passMode?: 'severity' | 'score';
   /** M14 screenshot の注入。あれば ux 軸でUIを自己確認できる(localhost限定) */
   captureUrl?: (url: string, width?: number, height?: number) => Promise<{ data: string; mediaType: string }>;
   maxTurns?: number;
@@ -50,7 +52,12 @@ function isReviewerTool(p: ToolPlugin, allowScreenshot: boolean): boolean {
   );
 }
 
-const REVIEWER_PROMPT = (t: ReviewTarget, axes: ReviewGateConfig['axes'], threshold: number): string => {
+const REVIEWER_PROMPT = (
+  t: ReviewTarget,
+  axes: ReviewGateConfig['axes'],
+  threshold: number,
+  passMode: 'severity' | 'score',
+): string => {
   const axisLines = [
     axes.code ? '- code: コード品質(可読性・設計・重複・命名・エラー処理・エッジケース)' : null,
     axes.ux
@@ -80,11 +87,16 @@ ${axisLines.join('\n')}
 # 出力(最重要)
 確認が済んだら、最後の応答で必ず次のJSONを \`\`\`json フェンスで1つだけ出力する:
 \`\`\`json
-{"scores":{"code":4,"ux":null,"requirements":5,"tests":3},"findings":[{"file":"src/app.mjs","location":"createApp() のPUTハンドラ","problem":"存在しないidでも200を返す","fix":"db.get で存在確認し無ければ404を返す"}],"summary":"1〜2文の総評"}
+{"scores":{"code":4,"ux":null,"requirements":5,"tests":3},"findings":[{"severity":"high","file":"src/app.mjs","location":"createApp() のPUTハンドラ","problem":"存在しないidでも200を返す","fix":"db.get で存在確認し無ければ404を返す"}],"summary":"1〜2文の総評"}
 \`\`\`
 - 対象外の軸は null(勝手に軸を増やさない)
-- findings は具体的に: file(ファイルパス)/ location(関数名・行の目安)/ problem(何が問題か)/ fix(どう直すか)の4つ全部を書く。「全体的に改善」のような抽象指摘は禁止
-- 合格閾値は平均 ${threshold}。閾値未満になりそうな問題は必ず findings に挙げる`;
+- findings は具体的に: severity / file(ファイルパス)/ location(関数名・行の目安)/ problem(何が問題か)/ fix(どう直すか)の5つ全部を書く。「全体的に改善」のような抽象指摘は禁止
+- severity の定義: high=マイルストーンの要件を満たさない/壊れている、medium=品質上望ましくないが動く、low=好みの問題。この定義に厳密に従い、動作に影響しない指摘を high にしないこと
+${
+  passMode === 'score'
+    ? `- 合格閾値は平均 ${threshold}。閾値未満になりそうな問題は必ず findings に挙げる`
+    : `- 合格判定は「severity=high の指摘が0件かどうか」で決まる(スコア平均${threshold}は参考表示)。要件未達・壊れている問題は必ず severity=high で findings に挙げる`
+}`;
 };
 
 /** レビュアーの最終テキストからJSONを取り出す(フェンス優先→最後の{}) */
@@ -136,7 +148,17 @@ export function parseReviewOutput(
               ) {
                 return null;
               }
-              return { file: file.trim(), location: location.trim(), problem: problem.trim(), fix: fix.trim() };
+              // M26-1: severity は3値以外(欠落・誤記)なら medium にフォールバック(findingsを捨てない)
+              const sevRaw = r['severity'];
+              const severity: ReviewFinding['severity'] =
+                sevRaw === 'high' || sevRaw === 'medium' || sevRaw === 'low' ? sevRaw : 'medium';
+              return {
+                file: file.trim(),
+                location: location.trim(),
+                problem: problem.trim(),
+                fix: fix.trim(),
+                severity,
+              };
             })
             .filter((f): f is ReviewFinding => f !== null)
         : [];
@@ -210,7 +232,7 @@ export async function runReviewer(
         });
       },
       emit: () => {}, // レビュアーの生ログは親チャットへ流さない(結果はレビューカードで表示)
-      systemPrompt: REVIEWER_PROMPT(target, deps.axes, deps.threshold),
+      systemPrompt: REVIEWER_PROMPT(target, deps.axes, deps.threshold, deps.passMode ?? 'severity'),
       cwd: deps.cwd,
       maxTurns: deps.maxTurns ?? 15,
     },
@@ -230,23 +252,40 @@ export async function runReviewer(
   if (!parsed) return null;
   const average = averageScore(parsed.scores);
   if (average === null) return null;
+  // M26-1: 既定は severity 方式(high指摘ゼロ=合格。平均は表示用)。'score' は従来の閾値方式
+  const pass =
+    (deps.passMode ?? 'severity') === 'score'
+      ? average >= deps.threshold
+      : !parsed.findings.some((f) => f.severity === 'high');
   return {
     milestone: target.milestone,
     round,
     scores: parsed.scores,
     average,
-    pass: average >= deps.threshold,
+    pass,
     findings: parsed.findings,
     summary: parsed.summary,
   };
 }
 
-/** worker への差し戻しタスク文(指摘リストを具体的なまま渡す) */
-export function buildFixTask(target: ReviewTarget, card: ReviewCardPayload): string {
-  const list = card.findings
-    .map((f, i) => `${i + 1}. ${f.file}(${f.location}): ${f.problem} → 修正方法: ${f.fix}`)
+/**
+ * worker への差し戻しタスク文(指摘リストを具体的なまま渡す)。
+ * M26-1: severity 方式では high のみ差し戻し対象(medium/low はカード表示に留める)
+ */
+export function buildFixTask(
+  target: ReviewTarget,
+  card: ReviewCardPayload,
+  passMode: 'severity' | 'score' = 'severity',
+): string {
+  const targets = passMode === 'severity' ? card.findings.filter((f) => f.severity === 'high') : card.findings;
+  const list = targets
+    .map((f, i) => `${i + 1}. [${f.severity}] ${f.file}(${f.location}): ${f.problem} → 修正方法: ${f.fix}`)
     .join('\n');
-  return `品質レビューで不合格(平均${card.average}/5)になった。以下の指摘を全て修正せよ。指摘以外の箇所は触らないこと。修正後、関連テストがあれば実行して通ることを確認してから、修正内容を要約して報告せよ。
+  const reason =
+    passMode === 'severity'
+      ? `品質レビューで severity=high の指摘${targets.length}件により不合格になった(平均${card.average}/5)`
+      : `品質レビューで不合格(平均${card.average}/5)になった`;
+  return `${reason}。以下の指摘を全て修正せよ。指摘以外の箇所は触らないこと。修正後、関連テストがあれば実行して通ることを確認してから、修正内容を要約して報告せよ。
 
 対象マイルストーン: ${target.milestone}
 

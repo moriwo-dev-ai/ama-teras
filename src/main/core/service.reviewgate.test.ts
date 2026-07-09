@@ -15,8 +15,11 @@ import { AgentService, type AgentServiceDeps } from './service';
  * [メインturn1(plan書き込み)] → [レビュー応答…] → [メインturn2(完了)]
  */
 
+// M26-1: この配線テスト群は severity 無しの findings を使うため、従来動作の score 方式に固定する
+// (severity 方式の合否ロジック自体は gate.test.ts 側で担保)
 const REVIEW_ON: ReviewGateConfig = {
   enabled: true,
+  passMode: 'score',
   threshold: 4.0,
   maxRoundsPerMilestone: 2,
   axes: { code: true, ux: true, requirements: true, tests: true },

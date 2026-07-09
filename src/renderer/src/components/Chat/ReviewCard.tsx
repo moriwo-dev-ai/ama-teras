@@ -13,6 +13,13 @@ const AXIS_LABEL: Record<string, string> = {
   tests: 'テストの質',
 };
 
+/** M26-1: severityバッジ(high=赤/medium=琥珀/low=グレー)。ライトテーマ上書き済みのクラスのみ使用 */
+const SEVERITY_BADGE: Record<string, { label: string; cls: string }> = {
+  high: { label: 'high', cls: 'bg-red-900 text-red-200' },
+  medium: { label: 'medium', cls: 'bg-amber-900 text-amber-200' },
+  low: { label: 'low', cls: 'bg-zinc-700 text-zinc-300' },
+};
+
 export function ReviewCard({ card }: { card: ReviewCardPayload }): JSX.Element {
   const [open, setOpen] = useState(!card.pass);
   const tone = card.unresolved
@@ -55,14 +62,21 @@ export function ReviewCard({ card }: { card: ReviewCardPayload }): JSX.Element {
             {card.summary && <p className="text-zinc-300">{card.summary}</p>}
             {card.findings.length > 0 && (
               <ul className="space-y-1">
-                {card.findings.map((f, i) => (
+                {card.findings.map((f, i) => {
+                  // 旧データ(severity無し)は medium 表示に倒す
+                  const sev = SEVERITY_BADGE[f.severity] ?? SEVERITY_BADGE['medium']!;
+                  return (
                   <li key={i} className="rounded border border-zinc-700/60 bg-zinc-900/60 px-2 py-1">
+                    <span className={`mr-1.5 rounded px-1 py-0.5 text-[10px] font-semibold ${sev.cls}`}>
+                      {sev.label}
+                    </span>
                     <span className="font-mono text-blue-300">{f.file}</span>
                     <span className="text-zinc-500">({f.location})</span>
                     <div className="text-zinc-300">問題: {f.problem}</div>
                     <div className="text-emerald-300/90">修正: {f.fix}</div>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </div>

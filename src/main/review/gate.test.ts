@@ -41,6 +41,12 @@ describe('parseReviewOutput', () => {
     expect(r.summary).toBe('総評');
   });
 
+  it('M26-1: severity をパースし、3値以外・欠落は medium にフォールバック(findingsを捨てない)', () => {
+    const text = `\`\`\`json\n{"scores":{"code":3,"ux":null,"requirements":3,"tests":3},"findings":[{"severity":"high","file":"a.mjs","location":"f()","problem":"p","fix":"x"},{"severity":"low","file":"b.mjs","location":"g()","problem":"p","fix":"x"},{"severity":"critical","file":"c.mjs","location":"h()","problem":"p","fix":"x"},{"file":"d.mjs","location":"i()","problem":"p","fix":"x"}],"summary":""}\n\`\`\``;
+    const r = parseReviewOutput(text, AXES_ALL)!;
+    expect(r.findings.map((f) => f.severity)).toEqual(['high', 'low', 'medium', 'medium']);
+  });
+
   it('抽象指摘(4フィールド未満)は機械的に落とす', () => {
     const text = `\`\`\`json\n{"scores":{"code":3,"ux":null,"requirements":3,"tests":3},"findings":[{"file":"a.mjs","location":"f()","problem":"具体的","fix":"直す"},{"problem":"全体的に改善が必要"},{"file":"b.mjs","location":"","problem":"p","fix":"x"}],"summary":""}\n\`\`\``;
     const r = parseReviewOutput(text, AXES_ALL)!;
@@ -88,7 +94,7 @@ describe('runReviewCycle', () => {
   it('低スコア→fix→再レビューで合格', async () => {
     const fix = vi.fn(async (_card: ReviewCardPayload, _round: number) => {});
     const results = [
-      card({ round: 0, average: 3.0, pass: false, findings: [{ file: 'a', location: 'l', problem: 'p', fix: 'f' }] }),
+      card({ round: 0, average: 3.0, pass: false, findings: [{ file: 'a', location: 'l', problem: 'p', fix: 'f', severity: 'high' }] }),
       card({ round: 1, average: 4.3, pass: true }),
     ];
     const r = await runReviewCycle({
@@ -180,12 +186,12 @@ describe('runReviewer(モックproviderで結合)', () => {
   ];
   const registry = { list: () => TOOLS, get: (n: string) => TOOLS.find((t) => t.name === n) };
 
-  it('採点JSONをカードに変換し、閾値でpass判定する', async () => {
+  it('採点JSONをカードに変換し、閾値でpass判定する(passMode:score=従来動作)', async () => {
     const provider = reviewerProvider(
       `\`\`\`json\n{"scores":{"code":3,"ux":null,"requirements":4,"tests":3},"findings":[{"file":"a","location":"l","problem":"p","fix":"f"}],"summary":"厳しめ"}\n\`\`\``,
     );
     const cardResult = await runReviewer(
-      { provider, tools: registry, cwd: '/x', axes: AXES_ALL, threshold: 4.0 },
+      { provider, tools: registry, cwd: '/x', axes: AXES_ALL, threshold: 4.0, passMode: 'score' },
       { milestone: 'M', userRequest: 'req', planContent: '' },
       0,
       new AbortController().signal,
@@ -228,6 +234,38 @@ describe('runReviewer(モックproviderで結合)', () => {
     );
     expect(r).toBeNull();
   });
+
+  describe('M26-1: severity方式の合格判定(既定)', () => {
+    const deps = { tools: registry, cwd: '/x', axes: AXES_ALL, threshold: 4.0 };
+    const target = { milestone: 'M', userRequest: 'req', planContent: '' };
+
+    it('high指摘が1件でもあれば平均が高くても不合格', async () => {
+      const provider = reviewerProvider(
+        `\`\`\`json\n{"scores":{"code":5,"ux":null,"requirements":5,"tests":5},"findings":[{"severity":"high","file":"a","location":"l","problem":"要件未達","fix":"f"}],"summary":""}\n\`\`\``,
+      );
+      const r = await runReviewer({ ...deps, provider }, target, 0, new AbortController().signal);
+      expect(r).toMatchObject({ pass: false });
+      expect(r!.average).toBe(5);
+    });
+
+    it('medium/lowだけなら平均が閾値未満でも合格(worker帯成果物の構造的不合格を解消)', async () => {
+      const provider = reviewerProvider(
+        `\`\`\`json\n{"scores":{"code":3,"ux":null,"requirements":3,"tests":3},"findings":[{"severity":"medium","file":"a","location":"l","problem":"p","fix":"f"},{"severity":"low","file":"b","location":"l","problem":"p","fix":"f"}],"summary":""}\n\`\`\``,
+      );
+      const r = await runReviewer({ ...deps, provider }, target, 0, new AbortController().signal);
+      expect(r).toMatchObject({ pass: true });
+      expect(r!.average).toBe(3);
+      expect(r!.findings).toHaveLength(2); // カードには残る(記録用)
+    });
+
+    it('severity欠落の指摘は medium 扱い → 合格側に倒れる', async () => {
+      const provider = reviewerProvider(
+        `\`\`\`json\n{"scores":{"code":4,"ux":null,"requirements":4,"tests":4},"findings":[{"file":"a","location":"l","problem":"p","fix":"f"}],"summary":""}\n\`\`\``,
+      );
+      const r = await runReviewer({ ...deps, provider }, target, 0, new AbortController().signal);
+      expect(r).toMatchObject({ pass: true });
+    });
+  });
 });
 
 describe('buildFixTask', () => {
@@ -238,12 +276,43 @@ describe('buildFixTask', () => {
         average: 3.2,
         pass: false,
         findings: [
-          { file: 'app.mjs', location: 'PUT /todos', problem: '404を返さない', fix: '存在確認を追加' },
+          { file: 'app.mjs', location: 'PUT /todos', problem: '404を返さない', fix: '存在確認を追加', severity: 'high' },
         ],
       }),
     );
     expect(task).toContain('app.mjs(PUT /todos): 404を返さない → 修正方法: 存在確認を追加');
     expect(task).toContain('API実装');
     expect(task).toContain('3.2');
+  });
+
+  it('M26-1: severity方式では high のみ差し戻し対象(medium/lowは載せない)', () => {
+    const findings = [
+      { file: 'a.mjs', location: 'f()', problem: '壊れている', fix: '直す', severity: 'high' as const },
+      { file: 'b.mjs', location: 'g()', problem: '重複コード', fix: '共通化', severity: 'medium' as const },
+      { file: 'c.mjs', location: 'h()', problem: '命名の好み', fix: '改名', severity: 'low' as const },
+    ];
+    const task = buildFixTask(
+      { milestone: 'M', userRequest: 'r', planContent: '' },
+      card({ average: 3.0, pass: false, findings }),
+      'severity',
+    );
+    expect(task).toContain('a.mjs');
+    expect(task).not.toContain('b.mjs');
+    expect(task).not.toContain('c.mjs');
+    expect(task).toContain('severity=high の指摘1件');
+  });
+
+  it('M26-1: score方式では従来どおり全指摘を載せる', () => {
+    const findings = [
+      { file: 'a.mjs', location: 'f()', problem: 'p', fix: 'x', severity: 'high' as const },
+      { file: 'b.mjs', location: 'g()', problem: 'p', fix: 'x', severity: 'low' as const },
+    ];
+    const task = buildFixTask(
+      { milestone: 'M', userRequest: 'r', planContent: '' },
+      card({ average: 3.0, pass: false, findings }),
+      'score',
+    );
+    expect(task).toContain('a.mjs');
+    expect(task).toContain('b.mjs');
   });
 });
