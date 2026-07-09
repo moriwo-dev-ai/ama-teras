@@ -102,18 +102,30 @@ function plugins(): ToolPlugin[] {
       risk: 'write',
       execute: async () => ({ content: 'written' }),
     },
+    {
+      // M26-2: コア領域検知テスト用(pathParams宣言つき書き込みツール)
+      name: 'core_write',
+      description: 'write with path',
+      inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+      risk: 'write',
+      pathParams: ['path'],
+      execute: async () => ({ content: 'written' }),
+    },
   ];
 }
 
 function makeService(opts: {
   main: LLMProvider;
   worker?: LLMProvider;
+  /** M26-2: reviewer帯のプロバイダ。指定時は modelPolicy に reviewer 帯が入る */
+  reviewer?: LLMProvider;
   reviewGate?: ReviewGateConfig;
 }): { svc: AgentService; bus: EventBus; events: AgentEvent[]; audits: ScopeAuditEvent[] } {
   const bus = new EventBus();
   const events: AgentEvent[] = [];
   const audits: ScopeAuditEvent[] = [];
   bus.subscribe('chat:event', (e) => events.push(e));
+  const usePolicy = opts.worker !== undefined || opts.reviewer !== undefined;
   const config: AppConfig = {
     autoApprove: { safe: true, write: true, exec: true },
     provider: 'anthropic',
@@ -121,12 +133,15 @@ function makeService(opts: {
     scopeMode: 'project',
     workspace: ws,
     ...(opts.reviewGate !== undefined ? { reviewGate: opts.reviewGate } : {}),
-    ...(opts.worker
+    ...(usePolicy
       ? {
           modelPolicy: {
             enabled: true,
             planner: { provider: 'anthropic' as const, model: 'planner-m' },
             worker: { provider: 'anthropic' as const, model: 'worker-m' },
+            ...(opts.reviewer
+              ? { reviewer: { provider: 'anthropic' as const, model: 'reviewer-m' } }
+              : {}),
             maxEscalationsPerTask: 0,
           },
         }
@@ -147,10 +162,14 @@ function makeService(opts: {
     defaultWorkspace: () => ws,
     denyPaths: { userDataDir: join(ws, '..', 'x-userdata'), repoGitDir: join(ws, '..', 'x-git') },
     createEvolution: () => ({ list: () => [], enqueue: vi.fn(async () => 1) }),
-    ...(opts.worker
+    ...(usePolicy
       ? {
           bandProviderFactory: ((band: string) =>
-            band === 'worker' ? opts.worker! : opts.main) as AgentServiceDeps['bandProviderFactory'],
+            band === 'worker' && opts.worker
+              ? opts.worker
+              : band === 'reviewer' && opts.reviewer
+                ? opts.reviewer
+                : opts.main) as AgentServiceDeps['bandProviderFactory'],
         }
       : { providerFactory: () => opts.main }),
   } as AgentServiceDeps);
@@ -328,6 +347,72 @@ describe('M19: レビュー・ゲート(service配線)', () => {
       events.some((e) => e.kind === 'info' && e.message.includes('素通しで続行')),
     ).toBe(true);
     expect(JSON.stringify(main.requests[2]!.messages)).toContain('レビュー実行失敗');
+  });
+
+  it('M26-2: 途中マイルストーン(未完了項目が残る)のレビューは reviewer 帯で走る', async () => {
+    const main = queuedProvider([
+      toolUse('t1', 'plan', { action: 'write', content: '- [x] A\n- [ ] B' }),
+      text('完了'),
+    ]);
+    const reviewer = queuedProvider([text(reviewJson({ code: 5, req: 5, tests: 5 }))]);
+    const { svc, bus, events } = makeService({ main, reviewer, reviewGate: REVIEW_ON });
+    const terminal = waitForTerminal(bus);
+    svc.chatSend('やって', 'normal');
+    await terminal;
+
+    expect(events.find((e) => e.kind === 'review')).toMatchObject({ pass: true, milestone: 'A' });
+    expect(reviewer.requests).toHaveLength(1); // レビューは reviewer 帯
+    expect(main.requests).toHaveLength(2); // メインはレビューを消費しない
+  });
+
+  it('M26-2: 最終マイルストーン(未完了項目なし)のレビューは reviewer 指定があっても planner 帯', async () => {
+    const main = queuedProvider([
+      toolUse('t1', 'plan', { action: 'write', content: '- [x] A' }),
+      text(reviewJson({ code: 5, req: 5, tests: 5 })), // planner(=main)がレビューを消費
+      text('完了'),
+    ]);
+    const reviewer = queuedProvider([]);
+    const { svc, bus, events } = makeService({ main, reviewer, reviewGate: REVIEW_ON });
+    const terminal = waitForTerminal(bus);
+    svc.chatSend('やって', 'normal');
+    await terminal;
+
+    expect(events.some((e) => e.kind === 'review')).toBe(true);
+    expect(reviewer.requests).toHaveLength(0);
+    expect(main.requests).toHaveLength(3);
+  });
+
+  it('M26-2: コア領域(聖域)への書き込みがあったランは、途中マイルストーンでも planner 帯でレビュー', async () => {
+    const main = queuedProvider([
+      toolUse('t1', 'core_write', { path: 'src/main/ipc.ts' }),
+      toolUse('t2', 'plan', { action: 'write', content: '- [x] A\n- [ ] B' }),
+      text(reviewJson({ code: 5, req: 5, tests: 5 })), // planner(=main)がレビューを消費
+      text('完了'),
+    ]);
+    const reviewer = queuedProvider([]);
+    const { svc, bus, events } = makeService({ main, reviewer, reviewGate: REVIEW_ON });
+    const terminal = waitForTerminal(bus);
+    svc.chatSend('やって', 'normal');
+    await terminal;
+
+    expect(events.some((e) => e.kind === 'review')).toBe(true);
+    expect(reviewer.requests).toHaveLength(0); // コア領域に触れたので reviewer 帯は使わない
+  });
+
+  it('M26-2: 完成時レビュー(縮退モード)は planner 帯で実施する', async () => {
+    const main = queuedProvider([
+      toolUse('t1', 'fake_write', {}),
+      text('書いた'),
+      text(reviewJson({ code: 5, req: 5, tests: 5 })), // planner(=main)が完了時レビューを消費
+    ]);
+    const reviewer = queuedProvider([]);
+    const { svc, bus, events } = makeService({ main, reviewer, reviewGate: REVIEW_ON });
+    const terminal = waitForTerminal(bus);
+    svc.chatSend('やって', 'normal');
+    await terminal;
+    await new Promise((r) => setTimeout(r, 100));
+    expect(events.filter((e) => e.kind === 'review')).toHaveLength(1);
+    expect(reviewer.requests).toHaveLength(0);
   });
 
   it('計画に既存の完了項目があっても、新規完了だけがマイルストーンになる', async () => {

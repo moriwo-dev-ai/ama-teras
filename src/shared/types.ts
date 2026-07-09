@@ -121,6 +121,12 @@ export interface ModelPolicy {
   worker: ModelBand;
   /** 未指定なら planner 帯を格上げ先に使う */
   escalation?: ModelBand;
+  /**
+   * M26-2: 日常レビュー(監査役)用の帯。未指定なら従来どおり planner 帯。
+   * ただし最終マイルストーン完了時・コア領域に触れる変更・進化昇格前のレビューは
+   * reviewer 指定があっても planner 帯で実施する(service側で固定)
+   */
+  reviewer?: ModelBand;
   /** workerタスク1件あたりの最大格上げ回数。既定1(0で格上げ無効) */
   maxEscalationsPerTask?: number;
 }

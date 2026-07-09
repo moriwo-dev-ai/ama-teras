@@ -45,8 +45,12 @@ export function parseReviewGate(raw: unknown): ReviewGateConfig | null {
       ? (rec['axes'] as Record<string, unknown>)
       : {};
   const axis = (k: string): boolean => (typeof axesRec[k] === 'boolean' ? (axesRec[k] as boolean) : true);
+  // M26-1: passMode('severity'|'score')。3値以外は未指定(=severity扱い)に正規化
+  const passMode =
+    rec['passMode'] === 'severity' || rec['passMode'] === 'score' ? rec['passMode'] : undefined;
   return {
     enabled: rec['enabled'],
+    ...(passMode !== undefined ? { passMode } : {}),
     threshold,
     maxRoundsPerMilestone: rounds,
     axes: { code: axis('code'), ux: axis('ux'), requirements: axis('requirements'), tests: axis('tests') },
@@ -63,6 +67,9 @@ export function parseModelPolicy(raw: unknown): ModelPolicy | null {
   const policy: ModelPolicy = { enabled: rec['enabled'], planner, worker };
   const escalation = parseBand(rec['escalation']);
   if (escalation) policy.escalation = escalation;
+  // M26-2: reviewer 帯(壊れた形は未指定=planner代行として扱う)
+  const reviewer = parseBand(rec['reviewer']);
+  if (reviewer) policy.reviewer = reviewer;
   const max = rec['maxEscalationsPerTask'];
   if (typeof max === 'number' && Number.isFinite(max)) {
     policy.maxEscalationsPerTask = Math.min(MAX_ESCALATIONS_MAX, Math.max(0, Math.round(max)));

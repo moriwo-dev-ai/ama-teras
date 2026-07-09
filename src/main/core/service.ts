@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { relative } from 'node:path';
 import type {
   AgentEvent,
   AgentStatus,
@@ -51,7 +52,10 @@ import { DEFAULT_OPENAI_MODEL, OpenAIProvider } from '../providers/openai';
 import type { ChatMessage, LLMProvider } from '../providers/types';
 import { buildFixTask, runReviewCycle, runReviewer, type ReviewTarget } from '../review/gate';
 import { newlyCompleted } from '../review/planDiff';
+// M26-2: コア領域(聖域)判定はA側の正本リストを共用する(進化ジョブ非波及の逆方向importなのでOK)
+import { isProtectedFile } from '../evolution/protected';
 import {
+  collectDeclaredPaths,
   executeToolWithApproval,
   type ExecutorDeps,
   type ScopeAuditEvent,
@@ -159,8 +163,8 @@ export interface AgentServiceDeps {
   usage?: { record(provider: string, model: string, delta: UsageDelta): void };
 }
 
-/** M18: モデル帯の名前 */
-export type ModelBandName = 'planner' | 'worker' | 'escalation';
+/** M18: モデル帯の名前(M26-2: reviewer=日常レビューの監査役を追加) */
+export type ModelBandName = 'planner' | 'worker' | 'escalation' | 'reviewer';
 
 const SYSTEM_PROMPT = `あなたは AMA-teras — ユーザーのマシン上で動くコーディングエージェント。
 与えられたツールを使ってファイルの調査・編集・コマンド実行を行い、ユーザーの指示を完遂する。
@@ -523,12 +527,32 @@ export class AgentService {
     return p !== undefined && p.enabled ? p : null;
   }
 
-  /** 帯の実効 provider+model。escalation 未指定は planner を使う。policy 無効なら null */
+  /** 帯の実効 provider+model。escalation/reviewer 未指定は planner を使う。policy 無効なら null */
   private bandLLM(band: ModelBandName): { provider: ProviderId; model: string } | null {
     const p = this.modelPolicy();
     if (!p) return null;
-    const b = band === 'escalation' ? (p.escalation ?? p.planner) : p[band];
+    const b =
+      band === 'escalation'
+        ? (p.escalation ?? p.planner)
+        : band === 'reviewer'
+          ? (p.reviewer ?? p.planner)
+          : p[band];
     return { provider: b.provider, model: b.model.trim() !== '' ? b.model : DEFAULT_MODELS[b.provider] };
+  }
+
+  /**
+   * M26-2: 書き込みツールの宣言パス(pathParams)がコア領域(聖域=PROTECTED_PATHS)に
+   * 触れるか。触れたランのレビューは reviewer 帯ではなく planner 帯で実施する。
+   * bash等のパス無宣言ツールは検知対象外(既知の限界。exec経由のコア変更は捕捉できない)
+   */
+  private touchedCoreArea(toolName: string, input: unknown, workspace: string): boolean {
+    const plugin = this.deps.registry.get(toolName);
+    if (!plugin) return false;
+    for (const abs of collectDeclaredPaths(plugin, input, workspace)) {
+      const rel = relative(workspace, abs).replaceAll('\\', '/');
+      if (rel !== '' && !rel.startsWith('..') && isProtectedFile(rel) !== null) return true;
+    }
+    return false;
   }
 
   /**
@@ -914,6 +938,8 @@ export class AgentService {
     // M19: レビュー・ゲートの実行状況(マイルストーン発動が無かったrunは完了時に1回縮退)
     let reviewRanThisRun = false;
     let producedOutput = false;
+    // M26-2: このランでコア領域(聖域)に触れる書き込みがあったか(レビュー帯の格上げ判定)
+    let coreAreaTouched = false;
 
     const ac = new AbortController();
     // M22: ラン状態(workspace束縛・会話単位のプロセス管理・追加指示キュー)
@@ -1099,6 +1125,10 @@ export class AgentService {
             const risk = this.deps.registry.get(name)?.risk;
             if (result.isError !== true && (risk === 'write' || risk === 'exec')) {
               producedOutput = true;
+              // M26-2: 聖域(コア領域)への書き込みを検知したら以降のレビューは planner 帯へ固定
+              if (!coreAreaTouched && risk === 'write' && this.touchedCoreArea(name, input, run.workspace)) {
+                coreAreaTouched = true;
+              }
               await this.getCheckpoints(run.workspace)
                 ?.snapshot(sessionId, `${name} 実行後`)
                 .catch(() => null);
@@ -1106,9 +1136,12 @@ export class AgentService {
             // M19: マイルストーン完了(- [ ]→- [x])を検知したらレビュー・ゲートを同期実行。
             // 要約を tool_result に追記するので、メインのモデル自身も合否を認識できる
             if (planBefore !== null && result.isError !== true) {
-              const done = newlyCompleted(planBefore, readProjectPlan(run.workspace));
+              const planAfter = readProjectPlan(run.workspace);
+              const done = newlyCompleted(planBefore, planAfter);
               if (done.length > 0) {
                 reviewRanThisRun = true;
+                // M26-2: 未完了項目(- [ ])が残っていなければ最終マイルストーン → planner 帯でレビュー
+                const finalMilestone = !/- \[ \]/.test(planAfter);
                 const summary = await this.runReviewGate({
                   conv,
                   run,
@@ -1117,7 +1150,8 @@ export class AgentService {
                   milestone: done.join(' / '),
                   userRequest: text,
                   signal: ac.signal,
-                  reviewProvider: runProvider,
+                  plannerProvider: runProvider,
+                  forcePlannerReview: finalMilestone || coreAreaTouched,
                   workerProvider,
                   escalationProvider,
                 });
@@ -1185,7 +1219,9 @@ export class AgentService {
           milestone: '完成時レビュー',
           userRequest: text,
           signal: ac.signal,
-          reviewProvider: runProvider,
+          plannerProvider: runProvider,
+          // M26-2: タスク全体の完成時レビューは最終マイルストーン相当として planner 帯で実施
+          forcePlannerReview: true,
           workerProvider,
           escalationProvider,
         });
@@ -1316,13 +1352,28 @@ export class AgentService {
     milestone: string;
     userRequest: string;
     signal: AbortSignal;
-    reviewProvider: LLMProvider;
+    plannerProvider: LLMProvider;
+    /**
+     * M26-2: true=planner帯でレビュー(最終マイルストーン完了時・コア領域に触れた変更・
+     * 進化昇格前)。false=reviewer帯(未指定なら planner 代行)で日常レビュー
+     */
+    forcePlannerReview: boolean;
     workerProvider: LLMProvider;
     escalationProvider: LLMProvider;
   }): Promise<string | null> {
     const cfg = this.deps.config.get().reviewGate;
     if (cfg === undefined || !cfg.enabled || args.signal.aborted) return null;
     const ws = args.run.workspace;
+    // M26-2: 日常レビューは reviewer 帯(監査役)。キー未登録は警告して planner で代行
+    let reviewProvider = args.plannerProvider;
+    if (!args.forcePlannerReview) {
+      const r = this.createBandProvider('reviewer');
+      if (typeof r === 'string') {
+        args.emit({ kind: 'info', sessionId: args.sessionId, message: `⚠ ${r} — レビューは planner 帯で代行します` });
+      } else {
+        reviewProvider = r;
+      }
+    }
     const target: ReviewTarget = {
       milestone: args.milestone,
       userRequest: args.userRequest,
@@ -1344,7 +1395,7 @@ export class AgentService {
       review: (round) =>
         runReviewer(
           {
-            provider: args.reviewProvider,
+            provider: reviewProvider,
             tools: this.deps.registry,
             cwd: ws,
             axes: cfg.axes,

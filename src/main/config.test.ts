@@ -228,4 +228,26 @@ describe('ConfigStore', () => {
       worker: { provider: 'anthropic', model: 'claude-haiku-4-5' },
     });
   });
+
+  it('M26-2: parseModelPolicy は reviewer 帯を保持し、壊れた reviewer は未指定へ落とす', () => {
+    const base = {
+      enabled: true,
+      planner: { provider: 'anthropic', model: 'a' },
+      worker: { provider: 'anthropic', model: 'b' },
+    };
+    const p = parseModelPolicy({ ...base, reviewer: { provider: 'openai', model: 'gpt-5.1' } });
+    expect(p?.reviewer).toEqual({ provider: 'openai', model: 'gpt-5.1' });
+    // 壊れた形(provider不正)は reviewer だけ落ちて policy 自体は生きる
+    const broken = parseModelPolicy({ ...base, reviewer: { provider: 'gemini', model: 'x' } });
+    expect(broken).not.toBeNull();
+    expect(broken?.reviewer).toBeUndefined();
+  });
+
+  it('M26-1: parseReviewGate は passMode を保持し、3値以外は未指定(=severity扱い)へ正規化', () => {
+    const base = { enabled: true, threshold: 4, maxRoundsPerMilestone: 2 };
+    expect(parseReviewGate({ ...base, passMode: 'score' })?.passMode).toBe('score');
+    expect(parseReviewGate({ ...base, passMode: 'severity' })?.passMode).toBe('severity');
+    expect(parseReviewGate({ ...base, passMode: 'strict' })?.passMode).toBeUndefined();
+    expect(parseReviewGate(base)?.passMode).toBeUndefined();
+  });
 });

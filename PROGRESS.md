@@ -3,6 +3,28 @@
 ## 現在の状態
 
 - **M1〜M26着手中**。テスト742件・typecheck(node/web/remote)全合格。
+- **M26-2追加(2026-07-09 夜間自律作業 T2)**: **レビュアー帯の分離(監査役パターン)**。
+  従来レビューは常に planner 帯(最上位モデル)だったため日常レビューのコストが高かった。
+  `ModelPolicy.reviewer?: ModelBand` を追加(未指定なら従来どおり planner 代行)。
+  `runReviewGate` は通常レビューを reviewer 帯で実行し、以下の3条件では planner 帯へ固定:
+  (a) 計画の最終マイルストーン完了時(plan書き込み後に `- [ ]` が残っていない)
+  (b) そのランでコア領域(聖域=PROTECTED_PATHS)への書き込みがあった場合
+  (c) 完成時レビュー(縮退モード。タスク全体の最終確認のため planner とした)。
+  ModelPolicySection に reviewer の BandRow を追加し、プリセットを更新
+  (高品質重視: reviewer=Fable(planner同格) / コスパ重視: reviewer=Haiku(worker同格))。
+  自分で決めた判断: (a) コア領域の定義は進化サブシステムの聖域正本 `PROTECTED_PATHS`
+  (`isProtectedFile`)を service 側から共用した(重複定義を避ける。guardrailsは
+  evolution→band参照の方向を禁じており、逆方向のimportは問題ない)。
+  (b) コア領域検知は書き込みツールの pathParams 宣言ベースで、bash等のパス無宣言ツール
+  経由のコア変更は捕捉できない(既知の限界としてコメントに明記)。
+  (c) NIGHT_TASKS の「(c)進化昇格前レビュー」は現状 reviewGate が進化ジョブに適用されない
+  設計(guardrails.reviewgate.test.tsで固定)のため該当経路が存在せず、実装対象なし。
+  将来進化昇格前レビューを作る場合は forcePlannerReview:true を渡すこと。
+  (d) guardrails.modelpolicy.test.ts の banned リストは汎用識別子(bandLLM等)ベースで
+  帯名を列挙していないため、'reviewer' 追加は不要と確認。
+  (e) T1の passMode が `parseReviewGate` の正規化で落ちる取りこぼしを発見し修正
+  (保存すると passMode が消えるバグになるところだった)。
+  テスト6件追加(service配線4・config2)。全748件・typecheck 合格。
 - **M26-1追加(2026-07-09 夜間自律作業 T1)**: **レビューゲートの合格判定を severity 方式へ再較正**。
   背景: 「4軸平均4.0以上で合格」+辛口レビュアー指示の組み合わせでは worker帯の成果物が
   構造的に不合格になり、エスカレーション(最上位モデル稼働)が多発していた。

@@ -2,14 +2,15 @@ import type { AppConfig, ModelBand, ModelPolicy, ProviderId, SecretsStatus } fro
 import { DEFAULT_MODELS, KNOWN_MODELS } from '../../../../shared/models';
 
 /**
- * M18: 「モデル自動切替」節。planner(メイン会話)/ worker(実行サブ)/ escalation(格上げ先)の
- * 3帯を独立に指定する。既定は無効=従来の単一モデル。各帯のAPIキー未登録は警告表示。
+ * M18: 「モデル自動切替」節。planner(メイン会話)/ worker(実行サブ)/ reviewer(日常レビュー)/
+ * escalation(格上げ先)を独立に指定する。既定は無効=従来の単一モデル。各帯のAPIキー未登録は警告表示。
  */
 
 const DEFAULT_POLICY: ModelPolicy = {
   enabled: true,
   planner: { provider: 'anthropic', model: 'claude-fable-5' },
   worker: { provider: 'anthropic', model: 'claude-sonnet-5' },
+  reviewer: { provider: 'anthropic', model: 'claude-sonnet-5' },
   escalation: { provider: 'anthropic', model: 'claude-fable-5' },
   maxEscalationsPerTask: 1,
 };
@@ -20,6 +21,8 @@ const PRESETS: { label: string; policy: Omit<ModelPolicy, 'enabled'> }[] = [
     policy: {
       planner: { provider: 'anthropic', model: 'claude-fable-5' },
       worker: { provider: 'anthropic', model: 'claude-sonnet-5' },
+      // M26-2: 高品質重視は日常レビューも planner と同格で行う
+      reviewer: { provider: 'anthropic', model: 'claude-fable-5' },
       escalation: { provider: 'anthropic', model: 'claude-fable-5' },
       maxEscalationsPerTask: 1,
     },
@@ -29,15 +32,18 @@ const PRESETS: { label: string; policy: Omit<ModelPolicy, 'enabled'> }[] = [
     policy: {
       planner: { provider: 'anthropic', model: 'claude-sonnet-5' },
       worker: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+      // M26-2: コスパ重視は日常レビューを worker と同じ安価帯へ
+      reviewer: { provider: 'anthropic', model: 'claude-haiku-4-5' },
       escalation: { provider: 'anthropic', model: 'claude-fable-5' },
       maxEscalationsPerTask: 1,
     },
   },
 ];
 
-const BAND_LABEL: Record<'planner' | 'worker' | 'escalation', string> = {
-  planner: 'planner(計画・レビュー・最終応答)',
+const BAND_LABEL: Record<'planner' | 'worker' | 'reviewer' | 'escalation', string> = {
+  planner: 'planner(計画・重要レビュー・最終応答)',
   worker: 'worker(実行サブエージェント)',
+  reviewer: 'reviewer(日常レビューの監査役)',
   escalation: 'escalation(詰まったら格上げ)',
 };
 
@@ -47,7 +53,7 @@ function BandRow({
   keyMissing,
   onChange,
 }: {
-  name: 'planner' | 'worker' | 'escalation';
+  name: 'planner' | 'worker' | 'reviewer' | 'escalation';
   band: ModelBand;
   keyMissing: boolean;
   onChange: (next: ModelBand) => void;
@@ -150,6 +156,12 @@ export function ModelPolicySection({
             onChange={(b) => save({ ...policy, worker: b })}
           />
           <BandRow
+            name="reviewer"
+            band={policy.reviewer ?? policy.planner}
+            keyMissing={keyMissing((policy.reviewer ?? policy.planner).provider)}
+            onChange={(b) => save({ ...policy, reviewer: b })}
+          />
+          <BandRow
             name="escalation"
             band={policy.escalation ?? policy.planner}
             keyMissing={keyMissing((policy.escalation ?? policy.planner).provider)}
@@ -174,9 +186,13 @@ export function ModelPolicySection({
           <p className="text-[11px] leading-relaxed text-zinc-500">
             現在: メイン会話 = {policy.planner.provider}/{effective(policy.planner)} ・
             実行サブ = {policy.worker.provider}/{effective(policy.worker)} ・
+            日常レビュー = {(policy.reviewer ?? policy.planner).provider}/
+            {effective(policy.reviewer ?? policy.planner)} ・
             格上げ先 = {(policy.escalation ?? policy.planner).provider}/
             {effective(policy.escalation ?? policy.planner)}(worker が
-            エラー/ターン上限/失敗3連続で自動格上げ)。進化ジョブは本体設定のモデルを使う
+            エラー/ターン上限/失敗3連続で自動格上げ)。最終マイルストーン完了時・
+            コア領域に触れる変更のレビューは reviewer 指定があっても planner で実施。
+            進化ジョブは本体設定のモデルを使う
           </p>
         </div>
       )}
