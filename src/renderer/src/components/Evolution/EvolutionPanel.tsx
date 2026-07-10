@@ -81,6 +81,8 @@ export function EvolutionPanel(): JSX.Element {
   // M27-4: プラグインインポートの結果表示
   const [importMsg, setImportMsg] = useState('');
   const [importing, setImporting] = useState(false);
+  // M28-2: 配布版では進化機能が無効(理由バナーを出し、起動系ボタンを無効化)
+  const [packaged, setPackaged] = useState(false);
 
   const loadHistory = async (): Promise<void> => {
     try {
@@ -95,10 +97,22 @@ export function EvolutionPanel(): JSX.Element {
   useEffect(() => {
     void loadJobs();
     void loadHistory();
+    void window.api
+      .runtimeFlags()
+      .then((f) => setPackaged(f.packaged === true))
+      .catch(() => {});
   }, [loadJobs]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 border-t border-zinc-700 bg-zinc-950 p-3 text-sm">
+      {/* M28-2: 配布版では進化パイプライン(ソース+git前提)が動かないため明示 */}
+      {packaged && (
+        <div className="rounded border border-amber-700 bg-amber-950/60 p-2 text-xs text-amber-200">
+          ℹ 配布版ではコア自己進化(新ツールの生成・インポート)は動作しません
+          (ソースコードとgitリポジトリが必要)。プラグインはコミュニティレジストリから
+          導入できるようになる予定です(準備中)。開発版(git clone → npm start)では利用できます
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <span className="text-xs font-semibold text-zinc-400">進化ジョブ</span>
         <input
@@ -125,7 +139,8 @@ export function EvolutionPanel(): JSX.Element {
         </select>
         <button
           className="rounded bg-purple-700 px-3 py-1 text-xs hover:bg-purple-600 disabled:opacity-40"
-          disabled={!desc.trim()}
+          disabled={!desc.trim() || packaged}
+          title={packaged ? '配布版では進化機能は動作しません' : ''}
           onClick={() => {
             void window.api.evolutionEnqueue(desc, io || '(指定なし)', scope);
             setDesc('');
@@ -137,8 +152,12 @@ export function EvolutionPanel(): JSX.Element {
         {/* M27-4: 共有プラグインのインポート(検査→検証ゲート→承認→導入) */}
         <button
           className="rounded bg-emerald-800 px-3 py-1 text-xs hover:bg-emerald-700 disabled:opacity-40"
-          disabled={importing}
-          title="コミュニティ/エクスポート済みプラグインのフォルダを選んで導入する(検証ゲートと承認を必ず通る)"
+          disabled={importing || packaged}
+          title={
+            packaged
+              ? '配布版ではインポート(検証ゲートがソース+git前提)は動作しません'
+              : 'コミュニティ/エクスポート済みプラグインのフォルダを選んで導入する(検証ゲートと承認を必ず通る)'
+          }
           onClick={() => {
             setImporting(true);
             setImportMsg('');

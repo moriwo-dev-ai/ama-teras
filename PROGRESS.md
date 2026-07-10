@@ -2,6 +2,20 @@
 
 ## 現在の状態
 
+- **M28-2追加(2026-07-11 夜間自律作業その3 T2)**: **配布版(packaged)の進化機能ガード**。
+  机上トレース(詳細は `docs/packaged-evolution.md`): packaged では `app.getAppPath()`=asar
+  仮想パスのため、`enqueue` 冒頭の `nextJobId`(git tag)が最初の死点で生のgitエラーになり、
+  以降も worktree(.git)・typecheck/vitest(devDeps/npm)・スモーク(npx)・昇格先
+  (resources/plugins=読み取り専用)まで全段が前提を欠く。インポートも同経路のため不可。
+  実装: `createEvolution` が `app.isPackaged` で無効化スタブを返す(safeModeと同型・
+  safeMode判定より前。enqueue は平易な理由文で throw)。`runtimeFlags.packaged` を新設し、
+  EvolutionPanel にバナー+「ジョブ起動」「📦 インポート」ボタン無効化。
+  ソース・トリップワイヤのテスト2件で固定。
+  **プラグイン専用進化パス(リポジトリ不要)は見送り**: esbuildでは構文チェックのみで
+  型検査・vitestの代替が構造的に作れず「検証3段と同等の保証」が保てない+ローダ複数
+  ディレクトリ化・世代管理など中規模改修のため。将来はレジストリ導入(検証をCIへ移す・
+  署名+承認+キルスイッチはローカル)を配布版の本線とする設計メモを docs に記録。
+  全890テスト・typecheck 合格。
 - **M28-1追加(2026-07-11 夜間自律作業その3 T1)**: **聖域ガードを通常経路にも拡張**(セキュリティ)。
   従来、聖域トリップワイヤは進化ジョブ経路のみで、通常チャットの write は普通の承認で通っていた
   (自動承認+自律モード中にエージェントが自分のガードを書き換え得る穴)。

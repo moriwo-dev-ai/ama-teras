@@ -250,6 +250,11 @@ export interface RuntimeFlags {
   safeModeInfo?: { tag: string; prevCommit: string };
   /** この起動が進化(evolve/N)の再起動として完走した */
   restartedFrom?: string;
+  /**
+   * M28-2: 配布版(app.isPackaged)。ソース+gitリポジトリが無く進化パイプラインは
+   * 動作しないため、進化機能をきれいに無効化してUIで理由を説明する
+   */
+  packaged?: boolean;
 }
 
 /**
@@ -314,6 +319,21 @@ export async function registerIpcHandlers(
     // M14-2: URLスクリーンショット(offscreen BrowserWindow)。進化ジョブへは渡らない
     captureUrl,
     createEvolution: (hooks) => {
+      // M28-2: 配布版は進化パイプラインの前提(ソースツリー+.git+devDependencies)が
+      // 存在しない。git不在の生エラーで汚く落ちる前に、理由つきで明示的に無効化する
+      if (app.isPackaged) {
+        return {
+          list: () => [],
+          enqueue: async () => {
+            throw new Error(
+              '配布版ではコア自己進化(新ツールの生成・インポート)は動作しません' +
+                '(ソースコードとgitリポジトリが必要です)。プラグインはコミュニティ' +
+                'レジストリから導入できるようになる予定です(準備中)。' +
+                '今すぐ使うには開発版(git clone → npm install → npm start)をご利用ください',
+            );
+          },
+        };
+      }
       // M20: セーフモード中は進化機能を無効化して起動する(承認機構と復旧経路は生きたまま)
       if (runtimeFlags.safeMode) {
         return {
@@ -398,7 +418,8 @@ export async function registerIpcHandlers(
   });
 
   // ---- M20: 起動時フラグ(セーフモード/進化再起動完了のバナー用)+セーフモード解除 ----
-  ipcMain.handle(IpcChannels.runtimeFlags, () => ({ ...runtimeFlags }));
+  // M28-2: packaged はここで動的に付与(index.ts からの注入漏れに依存しない)
+  ipcMain.handle(IpcChannels.runtimeFlags, () => ({ ...runtimeFlags, packaged: app.isPackaged }));
   ipcMain.handle(IpcChannels.safeModeClear, () => {
     const cleared = clearSentinel(app.getPath('userData'));
     audit.append({

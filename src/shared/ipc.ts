@@ -225,6 +225,8 @@ export interface AmaterasApi {
     safeMode: boolean;
     safeModeInfo?: { tag: string; prevCommit: string };
     restartedFrom?: string;
+    /** M28-2: 配布版(進化機能は無効化され、UIで理由を表示する) */
+    packaged?: boolean;
   }>;
   safeModeClear(): Promise<{ cleared: boolean }>;
 

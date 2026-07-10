@@ -46,3 +46,23 @@ describe('多重起動ガード(M12-0で不変)', () => {
     expect(src.indexOf('app.whenReady()')).toBeGreaterThan(quitIdx);
   });
 });
+
+describe('M28-2: 配布版(packaged)の進化機能ガード(ソース・トリップワイヤ)', () => {
+  const ipcSource = (): string =>
+    readFileSync(fileURLToPath(new URL('./ipc.ts', import.meta.url)), 'utf8');
+
+  it('createEvolution は app.isPackaged で無効化スタブを返す(safeModeより前に判定)', () => {
+    const src = ipcSource();
+    const createIdx = src.indexOf('createEvolution: (hooks) =>');
+    const packagedIdx = src.indexOf('if (app.isPackaged)', createIdx);
+    const safeModeIdx = src.indexOf('if (runtimeFlags.safeMode)', createIdx);
+    expect(createIdx).toBeGreaterThanOrEqual(0);
+    expect(packagedIdx).toBeGreaterThan(createIdx);
+    expect(safeModeIdx).toBeGreaterThan(packagedIdx); // packaged 判定が先
+    expect(src).toContain('配布版ではコア自己進化');
+  });
+
+  it('runtimeFlags は packaged を renderer へ伝える', () => {
+    expect(ipcSource()).toContain('packaged: app.isPackaged');
+  });
+});
