@@ -113,22 +113,23 @@ export function EvolutionPanel(): JSX.Element {
           導入できるようになる予定です(準備中)。開発版(git clone → npm start)では利用できます
         </div>
       )}
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold text-zinc-400">進化ジョブ</span>
+      {/* M29-3: 狭幅では折り返す(flex-wrap)。ボタン文字の縦書き化・横スクロールを防ぐ */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="shrink-0 whitespace-nowrap text-xs font-semibold text-zinc-400">進化ジョブ</span>
         <input
-          className="flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
+          className="min-w-[10rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
           placeholder="必要な能力/変更の説明(手動起動・デバッグ用)"
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
         />
         <input
-          className="w-48 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
+          className="min-w-[8rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
           placeholder="期待する入出力/挙動"
           value={io}
           onChange={(e) => setIo(e.target.value)}
         />
         <select
-          className="rounded border border-zinc-600 bg-zinc-800 px-1 py-1 text-xs"
+          className="shrink-0 rounded border border-zinc-600 bg-zinc-800 px-1 py-1 text-xs"
           value={scope}
           title="進化スコープ(renderer/coreは常に人間承認+再起動)"
           onChange={(e) => setScope(e.target.value as EvolutionScope)}
@@ -138,7 +139,7 @@ export function EvolutionPanel(): JSX.Element {
           <option value="core">core</option>
         </select>
         <button
-          className="rounded bg-purple-700 px-3 py-1 text-xs hover:bg-purple-600 disabled:opacity-40"
+          className="shrink-0 whitespace-nowrap rounded bg-purple-700 px-3 py-1 text-xs hover:bg-purple-600 disabled:opacity-40"
           disabled={!desc.trim() || packaged}
           title={packaged ? '配布版では進化機能は動作しません' : ''}
           onClick={() => {
@@ -151,7 +152,7 @@ export function EvolutionPanel(): JSX.Element {
         </button>
         {/* M27-4: 共有プラグインのインポート(検査→検証ゲート→承認→導入) */}
         <button
-          className="rounded bg-emerald-800 px-3 py-1 text-xs hover:bg-emerald-700 disabled:opacity-40"
+          className="shrink-0 whitespace-nowrap rounded bg-emerald-800 px-3 py-1 text-xs hover:bg-emerald-700 disabled:opacity-40"
           disabled={importing || packaged}
           title={
             packaged
@@ -182,19 +183,20 @@ export function EvolutionPanel(): JSX.Element {
         {jobs.map((j) => (
           <div key={j.id} className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs">
             <div className="flex items-center gap-2">
-              <span className="font-mono text-zinc-400">#{j.id}</span>
+              <span className="shrink-0 font-mono text-zinc-400">#{j.id}</span>
               <ScopeBadge {...(j.scope !== undefined ? { scope: j.scope } : {})} />
-              <span className="truncate">{j.description}</span>
-              {j.toolName && <span className="font-mono text-blue-300">{j.toolName}</span>}
+              {/* M29-3: truncate は min-w-0 な flex 子でないと縮まない(横はみ出しの原因) */}
+              <span className="min-w-0 flex-1 truncate">{j.description}</span>
+              {j.toolName && <span className="shrink-0 font-mono text-blue-300">{j.toolName}</span>}
               {/* M20: 聖域トリップワイヤによる拒否は明示的に表示 */}
               {j.protectedReject === true && (
-                <span className="rounded bg-red-900/70 px-1 text-[10px] text-red-300">🛡 保護領域のため拒否</span>
+                <span className="shrink-0 whitespace-nowrap rounded bg-red-900/70 px-1 text-[10px] text-red-300">🛡 保護領域のため拒否</span>
               )}
-              <span className={`ml-auto ${STATUS_LABEL[j.status].cls}`}>{STATUS_LABEL[j.status].text}</span>
+              <span className={`shrink-0 whitespace-nowrap ${STATUS_LABEL[j.status].cls}`}>{STATUS_LABEL[j.status].text}</span>
               {/* M26-6: 実行中/待機中ジョブのキャンセル */}
               {CANCELLABLE.includes(j.status) && (
                 <button
-                  className="rounded border border-red-800 px-1.5 py-0.5 text-[10px] text-red-300 hover:bg-red-950"
+                  className="shrink-0 whitespace-nowrap rounded border border-red-800 px-1.5 py-0.5 text-[10px] text-red-300 hover:bg-red-950"
                   title="このジョブをキャンセルする(待機中=キューから除去/実行中=中断)"
                   onClick={() => void window.api.evolutionCancel(j.id)}
                 >
@@ -227,16 +229,16 @@ export function EvolutionPanel(): JSX.Element {
 
       {/* M20: ロールバック履歴(evolveタグ)と「1つ前へ戻す」— 右ペインの残り高さを使う */}
       <div className="flex min-h-0 flex-1 flex-col border-t border-zinc-800 pt-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-zinc-400">獲得した能力(昇格履歴)</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="whitespace-nowrap text-xs font-semibold text-zinc-400">獲得した能力(昇格履歴)</span>
           <button
-            className="rounded border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-400 hover:bg-zinc-800"
+            className="shrink-0 whitespace-nowrap rounded border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-400 hover:bg-zinc-800"
             onClick={() => void loadHistory()}
           >
             更新
           </button>
           <button
-            className="rounded border border-red-800 px-2 py-0.5 text-[11px] text-red-300 hover:bg-red-950 disabled:opacity-40"
+            className="shrink-0 whitespace-nowrap rounded border border-red-800 px-2 py-0.5 text-[11px] text-red-300 hover:bg-red-950 disabled:opacity-40"
             disabled={history.length === 0}
             title="HEADが最新evolveマージのときのみrevertする(履歴は残る)"
             onClick={() => {
@@ -258,8 +260,8 @@ export function EvolutionPanel(): JSX.Element {
               const summary = capabilitySummary(h, toolDescs);
               return (
                 <li key={h.tag} className="rounded border border-zinc-800 px-2 py-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-purple-300">{h.tag}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="shrink-0 font-mono text-purple-300">{h.tag}</span>
                     {/* M23-6: 獲得の種類(ツール追加 or 自己書き換え) */}
                     <span
                       className={`shrink-0 whitespace-nowrap rounded px-1 text-[10px] ${

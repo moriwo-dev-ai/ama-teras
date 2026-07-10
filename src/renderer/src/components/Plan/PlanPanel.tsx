@@ -30,7 +30,7 @@ export function PlanPanel(): JSX.Element {
 
   return (
     <div className="max-h-64 overflow-y-auto border-t border-zinc-700 bg-zinc-900 px-4 py-2 text-xs">
-      <div className="mb-1 flex items-center gap-2">
+      <div className="mb-1 flex flex-wrap items-center gap-2">
         <h3 className="font-semibold text-zinc-300">計画(AMATERAS_PLAN.md)</h3>
         {progress.total > 0 && (
           <span className="text-zinc-400">

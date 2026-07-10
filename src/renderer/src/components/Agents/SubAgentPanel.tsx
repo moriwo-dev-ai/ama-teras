@@ -45,7 +45,7 @@ export function SubAgentPanel(): JSX.Element {
                 <span className="rounded bg-zinc-800 px-1 text-zinc-400">{a.mode}</span>
                 {/* M23: この子が使っているモデル */}
                 {a.model !== undefined && (
-                  <span className="truncate font-mono text-[10px] text-zinc-500" title={a.model}>
+                  <span className="min-w-0 truncate font-mono text-[10px] text-zinc-500" title={a.model}>
                     {a.model}
                   </span>
                 )}

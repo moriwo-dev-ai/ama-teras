@@ -75,10 +75,11 @@ export function ToolDebugPanel(): JSX.Element {
 
   return (
     <div className="space-y-2 border-t border-zinc-700 bg-zinc-950 p-3 text-sm">
-      <div className="flex items-center gap-3">
-        <span className="text-xs font-semibold text-zinc-400">ツールデバッグ</span>
+      {/* M29-3: 狭幅では折り返す(flex-wrap)。ボタン縦書き化・横スクロールを防ぐ */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="shrink-0 whitespace-nowrap text-xs font-semibold text-zinc-400">ツールデバッグ</span>
         <select
-          className="rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
+          className="min-w-0 max-w-full flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
           value={selected}
           onChange={(e) => setSelected(e.target.value)}
         >
@@ -89,23 +90,23 @@ export function ToolDebugPanel(): JSX.Element {
           ))}
         </select>
         <button
-          className="rounded bg-blue-600 px-3 py-1 text-xs hover:bg-blue-500 disabled:opacity-40"
+          className="shrink-0 whitespace-nowrap rounded bg-blue-600 px-3 py-1 text-xs hover:bg-blue-500 disabled:opacity-40"
           disabled={running || !selected}
           onClick={() => void run()}
         >
           {running ? '実行中…' : '実行'}
         </button>
         <button
-          className="rounded border border-zinc-600 px-2 py-1 text-xs hover:bg-zinc-800"
+          className="shrink-0 whitespace-nowrap rounded border border-zinc-600 px-2 py-1 text-xs hover:bg-zinc-800"
           onClick={() => void refresh(true)}
         >
           プラグイン再読込
         </button>
         {config && (
-          <div className="ml-auto flex items-center gap-2 text-xs text-zinc-400">
-            自動承認:
+          <div className="ml-auto flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+            <span className="whitespace-nowrap">自動承認:</span>
             {(['safe', 'write', 'exec'] as const).map((k) => (
-              <label key={k} className="flex items-center gap-1">
+              <label key={k} className="flex items-center gap-1 whitespace-nowrap">
                 <input
                   type="checkbox"
                   checked={config.autoApprove[k]}
@@ -143,15 +144,15 @@ export function ToolDebugPanel(): JSX.Element {
       )}
 
       <div className="space-y-1 border-t border-zinc-800 pt-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-zinc-400">ツール一覧(タグ絞り込み)</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="whitespace-nowrap text-xs font-semibold text-zinc-400">ツール一覧(タグ絞り込み)</span>
           <input
-            className="rounded border border-zinc-600 bg-zinc-800 px-2 py-0.5 text-[11px]"
+            className="min-w-[8rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-0.5 text-[11px]"
             placeholder="名前・説明で検索…"
             value={toolSearch}
             onChange={(e) => setToolSearch(e.target.value)}
           />
-          <span className="text-[11px] text-zinc-500">{filteredTools.length}/{tools.length}件</span>
+          <span className="shrink-0 whitespace-nowrap text-[11px] text-zinc-500">{filteredTools.length}/{tools.length}件</span>
         </div>
         {exportMsg !== '' && <p className="text-[11px] text-zinc-400">{exportMsg}</p>}
         <div className="flex flex-wrap gap-1">
@@ -179,7 +180,7 @@ export function ToolDebugPanel(): JSX.Element {
           {filteredTools.length === 0 && <p className="text-zinc-500">該当なし</p>}
           {filteredTools.map((t) => (
             <li key={t.name} className="rounded border border-zinc-800 px-2 py-1">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button className="font-mono text-blue-300 hover:underline" onClick={() => setSelected(t.name)}>
                   {t.name}
                 </button>
@@ -212,10 +213,10 @@ export function ToolDebugPanel(): JSX.Element {
       </div>
 
       <div className="space-y-1 border-t border-zinc-800 pt-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-zinc-400">チェックポイント(自動スナップショット)</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="whitespace-nowrap text-xs font-semibold text-zinc-400">チェックポイント(自動スナップショット)</span>
           <button
-            className="rounded border border-zinc-600 px-2 py-1 text-xs hover:bg-zinc-800"
+            className="shrink-0 whitespace-nowrap rounded border border-zinc-600 px-2 py-1 text-xs hover:bg-zinc-800"
             onClick={() => void loadCheckpoints()}
           >
             一覧を更新
@@ -230,11 +231,11 @@ export function ToolDebugPanel(): JSX.Element {
           <ul className="max-h-40 space-y-1 overflow-auto text-xs">
             {checkpoints.map((c) => (
               <li key={c.sha} className="flex items-center gap-2">
-                <code className="text-zinc-500">{c.sha.slice(0, 8)}</code>
-                <span className="whitespace-nowrap text-zinc-400">
+                <code className="shrink-0 text-zinc-500">{c.sha.slice(0, 8)}</code>
+                <span className="shrink-0 whitespace-nowrap text-zinc-400">
                   {new Date(c.createdAt).toLocaleString()}
                 </span>
-                <span className="flex-1 truncate text-zinc-300">
+                <span className="min-w-0 flex-1 truncate text-zinc-300">
                   {c.label}
                   <span className="text-zinc-500">({c.sessionId.slice(0, 8)})</span>
                 </span>
