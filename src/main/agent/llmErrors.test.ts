@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyLLMError, isRateLimitError, shortLLMError } from './llmErrors';
+import { classifyLLMError, isModelUnavailableError, isRateLimitError, shortLLMError } from './llmErrors';
 
 describe('classifyLLMError(M16-2)', () => {
   it('課金系はステータスに関わらず billing(429より優先)', () => {
@@ -50,5 +50,34 @@ describe('M27-1: isRateLimitError', () => {
     expect(isRateLimitError(Object.assign(new Error('boom'), { status: 500 }))).toBe(false);
     expect(isRateLimitError(new Error('model_not_found 404'))).toBe(false);
     expect(isRateLimitError(new Error('value is 4290'))).toBe(false);
+  });
+});
+
+describe('M30-2: isModelUnavailableError / classify', () => {
+  it('OpenAIのモデル未開放404(message/エラーcode両方)を検出する', () => {
+    const byMessage = Object.assign(
+      new Error("404 The model 'gpt-5.6-sol' does not exist or you do not have access to it"),
+      { status: 404 },
+    );
+    expect(isModelUnavailableError(byMessage)).toBe(true);
+    expect(classifyLLMError(byMessage)).toBe('model_unavailable');
+    const byCode = Object.assign(new Error('404 status code (no body)'), {
+      status: 404,
+      error: { code: 'model_not_found', message: 'The model does not exist' },
+    });
+    expect(isModelUnavailableError(byCode)).toBe(true);
+  });
+
+  it('Anthropicの404 not_found(model: X)も検出する', () => {
+    const err = Object.assign(new Error('404 {"type":"error","error":{"type":"not_found_error","message":"model: claude-x"}}'), {
+      status: 404,
+    });
+    expect(isModelUnavailableError(err)).toBe(true);
+  });
+
+  it('モデルと無関係な404や他ステータスは検出しない(transient/fatalの分類は不変)', () => {
+    expect(isModelUnavailableError(Object.assign(new Error('404 page not found'), { status: 404 }))).toBe(false);
+    expect(isModelUnavailableError(Object.assign(new Error('model overloaded'), { status: 503 }))).toBe(false);
+    expect(classifyLLMError(Object.assign(new Error('overloaded'), { status: 503 }))).toBe('transient');
   });
 });

@@ -6,7 +6,7 @@
  * - fatal: それ以外(不正リクエスト等)→ 即時停止(従来どおり)
  */
 
-export type LLMErrorKind = 'billing' | 'transient' | 'fatal';
+export type LLMErrorKind = 'billing' | 'transient' | 'model_unavailable' | 'fatal';
 
 const BILLING_RE =
   /credit balance|insufficient_quota|exceeded your current quota|billing|payment required|plans & billing/i;
@@ -34,6 +34,9 @@ export function classifyLLMError(err: unknown): LLMErrorKind {
   if (BILLING_RE.test(message)) return 'billing';
   if (status === 402) return 'billing';
 
+  // M30-2: モデル未開放/不存在(404)。新モデルの段階開放でアカウント未開放だと発生する
+  if (isModelUnavailableError(err)) return 'model_unavailable';
+
   if (status !== null && TRANSIENT_STATUS.has(status)) return 'transient';
   // プロバイダ層がメッセージ文字列に押し込むケース(例: "429 {...}")
   if (/(^|[^0-9])(408|429|500|502|503|504|529)([^0-9]|$)/.test(message)) return 'transient';
@@ -46,6 +49,23 @@ export function classifyLLMError(err: unknown): LLMErrorKind {
 export function shortLLMError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
   return message.length > 140 ? `${message.slice(0, 140)}…` : message;
+}
+
+/**
+ * M30-2: 「モデルが存在しない/アカウントに未開放」エラーか。
+ * - OpenAI: 404 + "The model 'X' does not exist or you do not have access to it"
+ *   (error.code === 'model_not_found')
+ * - Anthropic: 404 not_found_error + "model: X"
+ * 新モデルはGA後もアカウントのティア/ロールアウト状況で段階開放のため、
+ * 既定モデルが未開放の環境がありうる(実機で確認された事象)
+ */
+export function isModelUnavailableError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  const rec = typeof err === 'object' && err !== null ? (err as Record<string, unknown>) : {};
+  const body = typeof rec['error'] === 'object' && rec['error'] !== null ? (rec['error'] as Record<string, unknown>) : {};
+  if (body['code'] === 'model_not_found') return true;
+  const is404 = statusOf(err) === 404 || /(^|[^0-9])404([^0-9]|$)/.test(message);
+  return is404 && /model/i.test(message);
 }
 
 /**

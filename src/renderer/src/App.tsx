@@ -22,6 +22,21 @@ export default function App(): JSX.Element {
   const handleEvolutionEvent = useEvolutionStore((s) => s.handleEvent);
   const handleSubAgentUpdate = useSubAgentStore((s) => s.handleUpdate);
   const [showSettings, setShowSettings] = useState(false);
+  // M30-2: エラーカード・モデルバッジ等からの「設定を開く」導線(開くタブ+再発火用nonce)
+  const [settingsTab, setSettingsTab] = useState<'basic' | 'models' | 'quality' | 'connect' | 'memory'>('basic');
+  const [settingsNonce, setSettingsNonce] = useState(0);
+  useEffect(() => {
+    const handler = (e: Event): void => {
+      const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab;
+      setSettingsTab(
+        tab === 'models' || tab === 'quality' || tab === 'connect' || tab === 'memory' ? tab : 'basic',
+      );
+      setSettingsNonce((n) => n + 1);
+      setShowSettings(true);
+    };
+    window.addEventListener('amateras:open-settings', handler);
+    return () => window.removeEventListener('amateras:open-settings', handler);
+  }, []);
   // M20: 起動時フラグ(セーフモード/進化再起動完了)のバナー
   const [flags, setFlags] = useState<{
     safeMode: boolean;
@@ -168,7 +183,16 @@ export default function App(): JSX.Element {
           <RightPane />
         </SidePane>
       </div>
-      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsPanel
+          key={settingsNonce}
+          initialTab={settingsTab}
+          onClose={() => {
+            setShowSettings(false);
+            setSettingsTab('basic'); // 手動で開いたときは従来どおり基本タブから
+          }}
+        />
+      )}
       <ApprovalDialog />
       <PromotionDialog />
       <RevealMenu />

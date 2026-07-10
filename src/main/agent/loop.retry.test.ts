@@ -210,3 +210,35 @@ describe('M27-1: describeLLMError(停止時エラーの平易化フック)', () 
     expect(errEvent?.kind === 'error' && errEvent.message).toBe('429 raw error');
   });
 });
+
+describe('M30-2: モデル未開放(404)フォールバック', () => {
+  const errModel404 = Object.assign(
+    new Error("404 The model 'gpt-5.6-sol' does not exist or you do not have access to it"),
+    { status: 404 },
+  );
+
+  it("kind='model_unavailable' で acquireFallback が呼ばれ、代替プロバイダで続行する(リトライ浪費なし)", async () => {
+    const provider = scripted([errModel404]);
+    const stable = scripted(['ok']);
+    const acquire = vi.fn(async () => stable);
+    const { d } = deps(provider, { acquireFallback: acquire });
+    const status = await runAgentLoop(d, 's1', [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], new AbortController().signal);
+    expect(status).toBe('done');
+    expect(provider.calls).toBe(1); // transientリトライを浪費しない
+    expect(acquire).toHaveBeenCalledWith(expect.stringContaining('does not exist'), 'model_unavailable');
+    expect(stable.calls).toBe(1);
+  });
+
+  it('フォールバック不発は describeLLMError のオブジェクト形式で settingsHint 付きエラーになる', async () => {
+    const provider = scripted([errModel404]);
+    const { d, events } = deps(provider, {
+      acquireFallback: async () => null,
+      describeLLMError: () => ({ message: 'モデル未開放の平易説明(テスト)', settingsHint: 'models' }),
+    });
+    const status = await runAgentLoop(d, 's1', [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], new AbortController().signal);
+    expect(status).toBe('error');
+    const errEvent = events.find((e) => e.kind === 'error');
+    expect(errEvent?.kind === 'error' && errEvent.message).toBe('モデル未開放の平易説明(テスト)');
+    expect(errEvent?.kind === 'error' && errEvent.settingsHint).toBe('models');
+  });
+});

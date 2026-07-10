@@ -46,7 +46,7 @@ import {
   effectiveReviewGate,
   evolutionDisabledReason,
 } from '../config';
-import { isRateLimitError, shortLLMError } from '../agent/llmErrors';
+import { isModelUnavailableError, isRateLimitError, shortLLMError } from '../agent/llmErrors';
 import {
   MAX_PARALLEL_SUBAGENTS,
   runSubAgent,
@@ -296,6 +296,8 @@ interface ConvState {
   fallbackUsed: boolean;
   /** M26-4: セーフガード拒否(refusal)からの復帰は billing とは別枠で1会話2回まで */
   refusalFallbackCount: number;
+  /** M30-2: モデル未開放(404)からの安定版フォールバックは別枠で1会話1回まで */
+  modelUnavailableFallbackUsed: boolean;
   /**
    * M17-2→M22: 自律モードを会話単位に。メモリ内のみ=アプリ再起動で必ずOFF。
    * 別会話への切替でこの会話のフラグは変わらない(実行中の自律ランは維持される)
@@ -344,6 +346,7 @@ export class AgentService {
       persistChain: Promise.resolve(),
       fallbackUsed: false,
       refusalFallbackCount: 0,
+      modelUnavailableFallbackUsed: false,
       autonomous: false,
       autoResumeCount: 0,
       workspace: '',
@@ -659,6 +662,26 @@ export class AgentService {
     const fbModel = fb.model.trim() !== '' ? fb.model : DEFAULT_MODELS[fb.provider];
     if (fb.provider === current.provider && fbModel === current.model) return null;
     return { provider: fb.provider, model: fbModel };
+  }
+
+  /**
+   * M30-2: モデル未開放(404)時の「同一プロバイダの既知の安定モデル」候補。
+   * 新モデルはGA後もアカウント単位で段階開放のため、未開放環境では前世代の安定版へ
+   * 自動フォールバックして続行する(gpt-5.6系 → gpt-5.5)。
+   * 対象外(安定版が定義できない・既に安定版)は null=フォールバックせずエラー表示
+   */
+  private stableFallbackLLM(current: {
+    provider: ProviderId;
+    model: string;
+  }): { provider: ProviderId; model: string } | null {
+    const STABLE: { provider: ProviderId; prefix: string; model: string }[] = [
+      // エイリアス素の 'gpt-5.6' も含め gpt-5.6* は全て前世代フラッグシップへ
+      { provider: 'openai', prefix: 'gpt-5.6', model: 'gpt-5.5' },
+    ];
+    const hit = STABLE.find(
+      (d) => d.provider === current.provider && current.model.startsWith(d.prefix) && d.model !== current.model,
+    );
+    return hit ? { provider: hit.provider, model: hit.model } : null;
   }
 
   /**
@@ -1050,10 +1073,27 @@ export class AgentService {
   }
 
   /**
-   * M27-1: 停止時LLMエラーの平易化。無料APIモード(プリセット使用中)の429だけを
-   * プリセット別の案内文へ差し替える。それ以外は null(=生のエラー表示)
+   * M27-1: 停止時LLMエラーの平易化。無料APIモード(プリセット使用中)の429を
+   * プリセット別の案内文へ差し替える。
+   * M30-2: モデル未開放(404)は段階開放の説明+設定への導線(settingsHint)を付ける。
+   * それ以外は null(=生のエラー表示)
    */
-  private friendlyLLMError(err: unknown): string | null {
+  private friendlyLLMError(
+    err: unknown,
+  ): string | { message: string; settingsHint: 'models' | 'basic' } | null {
+    // M30-2: モデル未開放/不存在(フォールバック不発でここへ来たケース)
+    if (isModelUnavailableError(err)) {
+      const policyOn = this.modelPolicy() !== null;
+      const llm = this.currentLLM();
+      return {
+        message:
+          `モデル「${llm.model}」はあなたのアカウントにまだ開放されていない可能性があります` +
+          `(新モデルはGA後も段階開放されます)。設定→「${policyOn ? 'モデル運用' : '基本'}」タブで` +
+          `利用可能なモデル(例: gpt-5.5)へ切り替えてください。開放され次第、元の設定で使えます。` +
+          `(元エラー: ${shortLLMError(err)})`,
+        settingsHint: policyOn ? 'models' : 'basic',
+      };
+    }
     const cfg = this.deps.config.get();
     if (cfg.freeMode !== true || cfg.provider !== 'openai' || cfg.providerPreset === undefined) return null;
     if (!isRateLimitError(err)) return null;
@@ -1317,6 +1357,7 @@ export class AgentService {
       persistChain: Promise.resolve(),
       fallbackUsed: false,
       refusalFallbackCount: 0,
+      modelUnavailableFallbackUsed: false,
       // M17-2: ディスクから開いた会話の自律モードは必ずOFF(会話単位・再起動/開き直しでOFF)
       autonomous: false,
       autoResumeCount: 0,
@@ -1509,14 +1550,22 @@ export class AgentService {
      */
     const acquireFallback = async (
       reason: string,
-      kind?: 'billing' | 'refusal',
+      kind?: 'billing' | 'refusal' | 'model_unavailable',
     ): Promise<LLMProvider | null> => {
       const isRefusal = kind === 'refusal';
+      const isModelUnavailable = kind === 'model_unavailable';
       const current = this.currentLLM();
       let target: { provider: ProviderId; model: string };
       if (isRefusal) {
         if (conv.refusalFallbackCount >= 2) return null;
         const resolved = this.refusalFallbackLLM(conv.lastLLM ?? current);
+        if (!resolved) return null;
+        target = resolved;
+      } else if (isModelUnavailable) {
+        // M30-2: モデル未開放(404)→ 同一プロバイダの既知の安定モデルへ(1会話1回)。
+        // ModelPolicy有効時も差し替わるのはこのループのプロバイダ(該当帯)だけで、帯構成は維持される
+        if (conv.modelUnavailableFallbackUsed) return null;
+        const resolved = this.stableFallbackLLM(conv.lastLLM ?? current);
         if (!resolved) return null;
         target = resolved;
       } else {
@@ -1552,20 +1601,31 @@ export class AgentService {
       }
 
       if (isRefusal) conv.refusalFallbackCount++;
+      else if (isModelUnavailable) conv.modelUnavailableFallbackUsed = true;
       else conv.fallbackUsed = true;
       this.deps.audit.append({
         tool: 'provider-fallback',
         scope: 'system',
         paths: [],
         event: 'result',
-        detail: `${isRefusal ? `refusal(${conv.refusalFallbackCount}/2): ` : ''}${current.provider}/${current.model} → ${target.provider}/${target.model}: ${reason.slice(0, 160)}`,
+        detail: `${
+          isRefusal
+            ? `refusal(${conv.refusalFallbackCount}/2): `
+            : isModelUnavailable
+              ? 'model-unavailable(1/1): '
+              : ''
+        }${current.provider}/${current.model} → ${target.provider}/${target.model}: ${reason.slice(0, 160)}`,
       });
       emit({
         kind: 'info',
         sessionId,
         message: isRefusal
           ? `⚠ セーフガードによる応答拒否を検知したため、代替モデル(${target.provider}/${target.model})で同一ターンをやり直します(${conv.refusalFallbackCount}/2回目)`
-          : `⚠ 残高/課金エラーを検知したため、フォールバック(${target.provider}/${target.model})へ切り替えて続行します: ${reason}`,
+          : isModelUnavailable
+            ? `⚠ モデル「${(conv.lastLLM ?? current).model}」が未開放/存在しない(404)ため、安定版(${target.provider}/${target.model})へ切り替えて続行します` +
+              (this.modelPolicy() !== null ? '(該当帯のみ差し替え・帯構成は維持)' : '') +
+              '。新モデルは段階開放のため、開放され次第元の設定で使えます'
+            : `⚠ 残高/課金エラーを検知したため、フォールバック(${target.provider}/${target.model})へ切り替えて続行します: ${reason}`,
       });
       // 切替でprompt cacheが無効になるため、長い履歴は先に圧縮する(M16-1と同じ閾値)
       try {
@@ -1792,14 +1852,17 @@ export class AgentService {
     conv: ConvState,
     emit: (e: AgentEvent) => void,
     sessionId: string,
-  ): (reason: string, kind?: 'billing' | 'refusal') => Promise<LLMProvider | null> {
+  ): (reason: string, kind?: 'billing' | 'refusal' | 'model_unavailable') => Promise<LLMProvider | null> {
     return async (reason, kind) => {
       const fb = this.deps.config.get().fallback;
       if (!fb || fb.enabled !== true) return null;
       // M26-4: refusal は billing(1会話1回)と別枠で1会話2回まで。子は帯モデルが多様で
-      // 「1段下」を機械決定できないため、設定済みフォールバック先をそのまま使う
+      // 「1段下」を機械決定できないため、設定済みフォールバック先をそのまま使う。
+      // M30-2: model_unavailable も同様(別枠1会話1回・設定済みフォールバック先へ)
       if (kind === 'refusal') {
         if (conv.refusalFallbackCount >= 2) return null;
+      } else if (kind === 'model_unavailable') {
+        if (conv.modelUnavailableFallbackUsed) return null;
       } else if (conv.fallbackUsed) return null;
       const fbModel = fb.model.trim() !== '' ? fb.model : DEFAULT_MODELS[fb.provider];
       let next: LLMProvider;
@@ -1816,13 +1879,20 @@ export class AgentService {
         );
       }
       if (kind === 'refusal') conv.refusalFallbackCount++;
+      else if (kind === 'model_unavailable') conv.modelUnavailableFallbackUsed = true;
       else conv.fallbackUsed = true;
       this.deps.audit.append({
         tool: 'provider-fallback',
         scope: 'system',
         paths: [],
         event: 'result',
-        detail: `${kind === 'refusal' ? `refusal(${conv.refusalFallbackCount}/2): ` : ''}subagent → ${fb.provider}/${fbModel}: ${reason.slice(0, 160)}`,
+        detail: `${
+          kind === 'refusal'
+            ? `refusal(${conv.refusalFallbackCount}/2): `
+            : kind === 'model_unavailable'
+              ? 'model-unavailable(1/1): '
+              : ''
+        }subagent → ${fb.provider}/${fbModel}: ${reason.slice(0, 160)}`,
       });
       emit({
         kind: 'info',

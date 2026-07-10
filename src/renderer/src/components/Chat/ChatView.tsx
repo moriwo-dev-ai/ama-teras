@@ -280,14 +280,38 @@ export function ChatView(): JSX.Element {
                 {m.role === 'user' && m.queued && (
                   <div className="mb-0.5 text-[10px] text-blue-200/80">↩ 追加指示(次のターンで反映)</div>
                 )}
-                {/* M18/M23: メイン応答が使うモデルを明示(policy有効ならplanner帯) */}
+                {/* M18/M23: メイン応答が使うモデルを明示(policy有効ならplanner帯)。
+                    M30-2: クリックでモデル設定を開く(policy有効=モデル運用タブ/無効=基本タブ) */}
                 {m.role === 'assistant' && mainModel !== '' && (
-                  <div className="mb-0.5 text-[9px] tracking-wider text-zinc-500">
+                  <button
+                    className="mb-0.5 block text-[9px] tracking-wider text-zinc-500 hover:text-zinc-300 hover:underline"
+                    title={policyOn ? 'クリックでモデル運用(帯設定)を開く' : 'クリックでモデル設定を開く'}
+                    onClick={() =>
+                      window.dispatchEvent(
+                        new CustomEvent('amateras:open-settings', {
+                          detail: { tab: policyOn ? 'models' : 'basic' },
+                        }),
+                      )
+                    }
+                  >
                     {policyOn ? 'PLANNER・' : ''}
                     {mainModel}
-                  </div>
+                  </button>
                 )}
                 {m.role === 'assistant' ? <MarkdownMessage text={m.text} /> : m.text}
+                {/* M30-2: モデル未開放エラー等は設定への導線ボタンを付ける */}
+                {m.role === 'assistant' && m.settingsHint !== undefined && (
+                  <button
+                    className="mt-1.5 block rounded border border-amber-700 bg-amber-950/60 px-2 py-1 text-[11px] text-amber-200 hover:bg-amber-950"
+                    onClick={() =>
+                      window.dispatchEvent(
+                        new CustomEvent('amateras:open-settings', { detail: { tab: m.settingsHint } }),
+                      )
+                    }
+                  >
+                    ⚙ 設定を開く({m.settingsHint === 'models' ? 'モデル運用' : '基本'}タブ)
+                  </button>
+                )}
                 {m.streaming && <span className="anim-pulse ml-1">▍</span>}
               </div>
             </div>

@@ -26,7 +26,7 @@ export interface SubAgentDeps {
   cwd: string;
   maxTurns?: number;
   /** M18: 課金エラー時のフォールバック(M16-2を子ループにも適用。制限は親が共有管理) */
-  acquireFallback?: (reason: string, kind?: 'billing' | 'refusal') => Promise<LLMProvider | null>;
+  acquireFallback?: (reason: string, kind?: 'billing' | 'refusal' | 'model_unavailable') => Promise<LLMProvider | null>;
 }
 
 const SUBAGENT_PROMPT = `あなたは調査専門のサブエージェント。与えられた調査タスクを、
@@ -144,7 +144,7 @@ export interface WorkSubAgentDeps {
   /** 並列実行時の write 衝突テーブル(fan-out 側で生成して全子に共有) */
   locks?: WriteLockTable;
   /** M18: 課金エラー時のフォールバック(M16-2を子ループにも適用) */
-  acquireFallback?: (reason: string, kind?: 'billing' | 'refusal') => Promise<LLMProvider | null>;
+  acquireFallback?: (reason: string, kind?: 'billing' | 'refusal' | 'model_unavailable') => Promise<LLMProvider | null>;
   /**
    * M18: 格上げ(エスカレーション)。子が (a)status error (b)maxTurns到達
    * (c)ツール失敗3連続 で終わったら、履歴を compaction 経由で escalation 帯プロバイダに

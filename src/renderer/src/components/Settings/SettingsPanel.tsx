@@ -25,7 +25,14 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'memory', label: '記憶' },
 ];
 
-export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element {
+export function SettingsPanel({
+  onClose,
+  initialTab,
+}: {
+  onClose: () => void;
+  /** M30-2: エラーカード等の導線から特定タブで開く(未指定=基本) */
+  initialTab?: SettingsTab;
+}): JSX.Element {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [status, setStatus] = useState<SecretsStatus | null>(null);
   const [notice, setNotice] = useState('');
@@ -33,7 +40,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
   const [userMemory, setUserMemory] = useState('');
   const [animOn, setAnimOn] = useState(animEnabled());
   const [theme, setTheme] = useState(currentTheme());
-  const [tab, setTab] = useState<SettingsTab>('basic');
+  const [tab, setTab] = useState<SettingsTab>(initialTab ?? 'basic');
 
   useEffect(() => {
     void window.api.settingsGet().then(setConfig);
@@ -129,6 +136,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
               saveConfig={saveConfig}
               secrets={status}
               onSaveKey={saveKey}
+              onOpenModels={() => setTab('models')}
             />
           )}
           {tab === 'models' && (

@@ -21,6 +21,8 @@ export type UiMessage =
       images?: string[];
       /** M21-1: 実行中に送られた追加指示(↩バッジ表示) */
       queued?: boolean;
+      /** M30-2: エラー由来のメッセージに付く「設定を開く」導線(開くタブ) */
+      settingsHint?: 'models' | 'basic';
     }
   /** M16-1: 中立の情報カード(モデル切替・フォールバック等のシステム通知) */
   | { id: string; role: 'info'; text: string }
@@ -308,6 +310,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
               role: 'assistant',
               text: `[エラー] ${event.message}`,
               streaming: false,
+              // M30-2: モデル未開放等は設定への導線ボタンを付ける
+              ...(event.settingsHint !== undefined ? { settingsHint: event.settingsHint } : {}),
             },
           ],
         }));

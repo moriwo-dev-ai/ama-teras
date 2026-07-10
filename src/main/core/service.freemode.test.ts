@@ -47,6 +47,7 @@ function makeService(opts: {
   registry?: AgentServiceDeps['registry'];
   enqueue?: () => Promise<number>;
   fetchFn?: typeof fetch;
+  fallbackProviderFactory?: AgentServiceDeps['fallbackProviderFactory'];
 }): {
   svc: AgentService;
   bus: EventBus;
@@ -83,6 +84,9 @@ function makeService(opts: {
     ...(opts.bandProviderFactory !== undefined ? { bandProviderFactory: opts.bandProviderFactory } : {}),
     ...(opts.providerFactory !== undefined ? { providerFactory: opts.providerFactory } : {}),
     ...(opts.fetchFn !== undefined ? { fetchFn: opts.fetchFn } : {}),
+    ...(opts.fallbackProviderFactory !== undefined
+      ? { fallbackProviderFactory: opts.fallbackProviderFactory }
+      : {}),
   });
   return { svc, bus, events, secretCalls, enqueue };
 }
@@ -434,5 +438,68 @@ describe('M29-4: registryUrl 空文字=検索無効', () => {
     const r = await evolutionCtxOf(s.svc).searchRegistryAndImport('文字数を数えたい', 'x', new AbortController().signal);
     expect(r.outcome).toBe('none');
     expect(requested).toHaveLength(0);
+  });
+});
+
+describe('M30-2: モデル未開放(404)の安定版フォールバック', () => {
+  const errModel404 = (): Error =>
+    Object.assign(new Error("404 The model 'gpt-5.6-sol' does not exist or you do not have access to it"), {
+      status: 404,
+    });
+
+  function throwingProvider(): LLMProvider {
+    return {
+      id: 'openai',
+      // eslint-disable-next-line require-yield
+      async *complete(): AsyncGenerator<ProviderEvent> {
+        throw errModel404();
+      },
+    };
+  }
+
+  it('stableFallbackLLM: gpt-5.6系→gpt-5.5、対象外は null', () => {
+    const { svc } = makeService({});
+    const stable = (
+      svc as unknown as {
+        stableFallbackLLM: (c: { provider: string; model: string }) => { provider: string; model: string } | null;
+      }
+    ).stableFallbackLLM.bind(svc);
+    expect(stable({ provider: 'openai', model: 'gpt-5.6-sol' })).toEqual({ provider: 'openai', model: 'gpt-5.5' });
+    expect(stable({ provider: 'openai', model: 'gpt-5.6-terra' })).toEqual({ provider: 'openai', model: 'gpt-5.5' });
+    expect(stable({ provider: 'openai', model: 'gpt-5.5' })).toBeNull();
+    expect(stable({ provider: 'anthropic', model: 'claude-fable-5' })).toBeNull();
+  });
+
+  it('main 404 → gpt-5.5 で同一ターン続行(警告カード付き)。フォールバック設定は不要', async () => {
+    const stableProvider = textProvider('openai', '安定版で応答');
+    const factory = vi.fn(() => stableProvider);
+    const { svc, bus, events } = makeService({
+      config: { provider: 'openai' }, // model空=既定 gpt-5.6-sol
+      providerFactory: () => throwingProvider(),
+      fallbackProviderFactory: factory,
+    });
+    const terminal = waitForTerminal(bus);
+    svc.chatSend('やって', 'normal');
+    await terminal;
+    expect(factory).toHaveBeenCalledWith('openai', 'gpt-5.5');
+    expect(stableProvider.requests).toHaveLength(1);
+    const infos = events.filter((e) => e.kind === 'info').map((e) => (e as { message: string }).message);
+    expect(infos.some((m) => m.includes('未開放') && m.includes('gpt-5.5'))).toBe(true);
+    const last = events.at(-1);
+    expect(last?.kind === 'status' && last.status).toBe('done');
+  });
+
+  it('1会話1回まで: 安定版でも404なら平易説明+設定導線つきエラーで停止', async () => {
+    const { svc, bus, events } = makeService({
+      config: { provider: 'openai' },
+      providerFactory: () => throwingProvider(),
+      fallbackProviderFactory: () => throwingProvider(), // 安定版側も404
+    });
+    const terminal = waitForTerminal(bus);
+    svc.chatSend('やって', 'normal');
+    await terminal;
+    const err = events.find((e) => e.kind === 'error');
+    expect(err?.kind === 'error' && err.message).toContain('まだ開放されていない可能性');
+    expect(err?.kind === 'error' && err.settingsHint).toBe('basic');
   });
 });

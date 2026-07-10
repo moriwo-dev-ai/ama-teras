@@ -29,6 +29,7 @@ export function BasicSection({
   saveConfig,
   secrets,
   onSaveKey,
+  onOpenModels,
 }: {
   config: AppConfig;
   /** ローカルのみの更新(カスタムモデル入力中など、保存前の編集) */
@@ -38,6 +39,8 @@ export function BasicSection({
   saveConfig: (next: AppConfig) => void;
   secrets: SecretsStatus | null;
   onSaveKey: (slot: SecretSlot, key: string) => Promise<void>;
+  /** M30-2: モデル運用タブへの導線(ModelPolicy有効時の注意表示から使う) */
+  onOpenModels: () => void;
 }): JSX.Element {
   const [apiKey, setApiKey] = useState('');
   // fullPc 有効化は影響が大きいため確認モーダルを挟む(M9-4)
@@ -195,6 +198,21 @@ export function BasicSection({
 
       <div className="space-y-1">
         <label className="text-xs text-zinc-400">モデル</label>
+        {/* M30-2: ModelPolicy有効時はこの欄ではなく帯設定が使われることを明示 */}
+        {config.modelPolicy?.enabled === true && (
+          <div className="flex flex-wrap items-center gap-2 rounded border border-amber-700 bg-amber-950/50 p-2 text-xs text-amber-200">
+            <span className="min-w-0 flex-1">
+              ⚠ モデル自動切替が有効のため、この欄ではなく「モデル運用」タブの帯設定
+              (planner/worker等)が使われます
+            </span>
+            <button
+              className="shrink-0 whitespace-nowrap rounded border border-amber-600 px-2 py-0.5 hover:bg-amber-950"
+              onClick={onOpenModels}
+            >
+              モデル運用タブを開く
+            </button>
+          </div>
+        )}
         {(() => {
           // 空欄=既定。候補外の値は「カスタム」として自由入力欄を出す(誤入力事故の防止)。
           // M27-1: プリセット使用中は候補・既定ともプリセット側(モデルIDは提供元都合で
@@ -263,7 +281,7 @@ export function BasicSection({
             onChange={(e) => setApiKey(e.target.value)}
           />
           <button
-            className="rounded bg-blue-600 px-3 py-1.5 text-xs hover:bg-blue-500 disabled:opacity-40"
+            className="shrink-0 whitespace-nowrap rounded bg-blue-600 px-3 py-1.5 text-xs hover:bg-blue-500 disabled:opacity-40"
             disabled={!apiKey.trim()}
             onClick={() => {
               void onSaveKey(keySlot, apiKey).then(() => setApiKey(''));
@@ -271,7 +289,22 @@ export function BasicSection({
           >
             保存
           </button>
+          {/* M30-2: 有料プロバイダ(Anthropic/OpenAI)でも接続テスト(無料プリセットと同じ診断表示) */}
+          <button
+            className="shrink-0 whitespace-nowrap rounded bg-emerald-700 px-3 py-1.5 text-xs hover:bg-emerald-600 disabled:opacity-40"
+            disabled={testing || !keySet}
+            title={keySet ? '現在の設定で1リクエスト送って疎通確認する' : '先にAPIキーを保存してください'}
+            onClick={runConnectionTest}
+          >
+            {testing ? 'テスト中…' : '接続テスト'}
+          </button>
         </div>
+        {testResult !== null && (
+          <p className={`whitespace-pre-wrap text-xs ${testResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+            {testResult.ok ? '✓ ' : '✗ '}
+            {testResult.message}
+          </p>
+        )}
       </div>
 
       <div className="space-y-1">

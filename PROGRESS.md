@@ -2,6 +2,37 @@
 
 ## 現在の状態
 
+- **M30-2追加(2026-07-11)**: **モデル未開放エラーの優雅な処理+ModelPolicyのUX改善**。
+  背景: GPT-5.6系はGA後もアカウント単位の段階開放で404
+  (model_not_found)が返り、既定モデル未開放の新規ユーザーは1通目で即死していた。
+  ①検知: `isModelUnavailableError`(OpenAIの message/`error.code==='model_not_found'`・
+  Anthropicの404 not_found を判定)。分類に `model_unavailable` を追加
+  (404+model言及。transientリトライを浪費しない)。
+  ②自動フォールバック: refusal段下と同じ既存機構(acquireFallback)に
+  kind='model_unavailable' を追加。`stableFallbackLLM`= **gpt-5.6系→gpt-5.5**
+  (同一プロバイダの既知の安定版。フォールバック設定不要)。**1会話1回**
+  (専用フラグ modelUnavailableFallbackUsed)・警告カード
+  「未開放/存在しない(404)のため安定版へ切り替え…開放され次第元の設定で使えます」・
+  audit記録 `model-unavailable(1/1):`。ModelPolicy有効時は該当帯(そのループの
+  プロバイダ)のみ差し替えで帯構成は維持。子(サブエージェント)は refusal と同様に
+  設定済みフォールバック先へ。
+  ③平易なエラー表示+導線: フォールバック不発時は「このモデルはあなたのアカウントに
+  まだ開放されていない可能性があります(新モデルは段階開放)」+**エラーカードに
+  「⚙ 設定を開く」ボタン**(AgentEvent error に settingsHint を追加。policy有効=
+  モデル運用タブ/無効=基本タブ)。describeLLMError フックをオブジェクト形式対応に拡張。
+  ④接続テストの有料プロバイダ対応: 設定→基本のAPIキー欄横に「接続テスト」ボタン
+  (main側は元からプロバイダ非依存。UIの導線を追加。無料プリセットと同じ診断表示)。
+  ⑤ModelPolicy UX: policy有効時に基本タブのモデル欄へ
+  「⚠ モデル自動切替が有効のため、この欄ではなくモデル運用タブの帯設定が使われます」
+  +「モデル運用タブを開く」ボタン。チャットの「PLANNER・モデル名」バッジをクリック可能に
+  (CustomEvent 'amateras:open-settings' → App が SettingsPanel を指定タブで開く。
+  initialTab prop + nonce再マウント)。
+  自分で決めた判断: (a) 安定版マッピングは現時点で必要な gpt-5.6→gpt-5.5 のみ定義
+  (Anthropic等は事象未発生のため追加しない=推測で書かない)。(b) ライトテーマの
+  hover回帰テストが新ボタンの hover:bg-amber-900/60 を検出 → 上書き定義済みの
+  hover:bg-amber-950 へ変更(M25-6の仕組みが機能)。
+  テスト8件追加(検知3態・分類不変・loop分岐とヒント伝搬・stable写像・e2e成功/上限停止)。
+  全941テスト・typecheck 3構成・build 合格。
 - **M30-1追加(2026-07-11)**: **GPT-5.6 対応**(2026-07-09 GA の OpenAI 新世代)。
   モデルIDは推測せず公式で確認(**2026-07-11 確認**:
   https://developers.openai.com/api/docs/models/gpt-5.6-sol /

@@ -36,13 +36,17 @@ export interface AgentLoopDeps {
    * M26-4: kind='refusal' はセーフガード拒否(stop_reason='refusal')からの復帰要求。
    * billing の「1会話1回」とは別枠のカウンタ(1会話2回まで)を呼び出し側が管理する
    */
-  acquireFallback?: (reason: string, kind?: 'billing' | 'refusal') => Promise<LLMProvider | null>;
+  acquireFallback?: (
+    reason: string,
+    kind?: 'billing' | 'refusal' | 'model_unavailable',
+  ) => Promise<LLMProvider | null>;
   /**
    * M27-1: 停止時のLLMエラーをユーザー向けの平易な文言へ差し替えるフック。
    * null を返せば従来どおり生のエラーメッセージを表示する
-   * (無料APIモードの429を「無料枠の上限に達しました…」等にするために使う)
+   * (無料APIモードの429を「無料枠の上限に達しました…」等にするために使う)。
+   * M30-2: オブジェクト形式なら settingsHint(エラーカードから設定を開く導線)も渡せる
    */
-  describeLLMError?: (err: unknown) => string | null;
+  describeLLMError?: (err: unknown) => string | { message: string; settingsHint?: 'models' | 'basic' } | null;
   /**
    * M21-1: 実行中に積まれた追加指示のdrain。各ターンのLLM呼び出し前に呼ばれ、
    * 返った指示は直前の user メッセージ(tool_result群)の末尾へ text/image ブロックとして
@@ -214,11 +218,33 @@ export async function runAgentLoop(
           }
         }
 
+        // M30-2: モデル未開放/不存在(404)。同一プロバイダの既知の安定モデルへ
+        // 切り替えて続行を試みる(1会話1回・呼び出し側が警告カード+audit記録)
+        if (kind === 'model_unavailable' && deps.acquireFallback) {
+          const fallback = await deps.acquireFallback(shortLLMError(err), 'model_unavailable');
+          if (signal.aborted) return finish('cancelled');
+          if (fallback) {
+            provider = fallback;
+            retriesUsed = 0;
+            continue;
+          }
+        }
+
+        const described = deps.describeLLMError?.(err) ?? null;
         deps.emit({
           kind: 'error',
           sessionId,
           message:
-            deps.describeLLMError?.(err) ?? (err instanceof Error ? err.message : String(err)),
+            described === null
+              ? err instanceof Error
+                ? err.message
+                : String(err)
+              : typeof described === 'string'
+                ? described
+                : described.message,
+          ...(typeof described === 'object' && described !== null && described.settingsHint !== undefined
+            ? { settingsHint: described.settingsHint }
+            : {}),
         });
         return finish('error');
       }
