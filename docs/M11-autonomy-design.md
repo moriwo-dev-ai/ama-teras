@@ -22,10 +22,10 @@
 ## M11-3: 自動チェックポイント
 
 - 新規 `src/main/core/checkpoints.ts`: workspace が git リポジトリの場合のみ有効
-- 方式: HEAD・indexを汚さない。`GIT_INDEX_FILE=<一時index>` で `git add -A` → `write-tree` → `commit-tree`(parent=前チェックポイント or HEAD)→ `update-ref refs/mycodex/checkpoints/<sessionId>`
+- 方式: HEAD・indexを汚さない。`GIT_INDEX_FILE=<一時index>` で `git add -A` → `write-tree` → `commit-tree`(parent=前チェックポイント or HEAD)→ `update-ref refs/amateras/checkpoints/<sessionId>`
 - タイミング: write/exec リスクのツール実行が成功するたび(直近スナップショットから変更がなければskip)。エージェントループ完了時にも1回
 - 復元: IPC `checkpoint:list` / `checkpoint:restore`(`git restore --source=<sha> --worktree -- .` 相当。復元前に現状態も自動スナップショット)。UI は Debugパネルに一覧+復元ボタン(最小限)
-- workspace が MyCodex リポジトリ自身でも安全(refs以外触らない)。git が無い workspace では無効(ログのみ)
+- workspace が AMA-teras リポジトリ自身でも安全(refs以外触らない)。git が無い workspace では無効(ログのみ)
 - テスト: 実git(一時リポジトリ)でスナップショット→改変→復元、HEAD/index不変の検証、非gitでのnoop
 
 ## M11-4: 編集後フック(自動検証ループ)

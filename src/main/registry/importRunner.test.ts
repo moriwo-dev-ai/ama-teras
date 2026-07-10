@@ -9,7 +9,7 @@ import { composeRunners, ImportJobRunner } from './importRunner';
 let base: string;
 
 beforeEach(async () => {
-  base = await mkdtemp(join(tmpdir(), 'mycodex-imprun-'));
+  base = await mkdtemp(join(tmpdir(), 'amateras-imprun-'));
 });
 afterEach(async () => {
   await rm(base, { recursive: true, force: true }).catch(() => {});

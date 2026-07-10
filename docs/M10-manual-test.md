@@ -49,7 +49,7 @@
 
 1. PC と iPhone に Tailscale をインストールし、同一アカウントでログイン
 2. PC の Tailscale 管理画面(またはトレイ)で MagicDNS 名を確認(例 `mypc.tailxxxx.ts.net`)
-3. MyCodex 設定 → リモートアクセス有効化 → ホスト名欄に MagicDNS 名を入力 →
+3. AMA-teras 設定 → リモートアクセス有効化 → ホスト名欄に MagicDNS 名を入力 →
    接続URL(`http://mypc.tailxxxx.ts.net:8787/#t=<トークン>`)をコピー
 4. URL を iPhone へ渡す(AirDrop / 自分宛メモ等。**QRコードは後続タスク**)
 5. iPhone の Safari で開く → `#t=` からトークンが自動読込されて接続されること

@@ -41,14 +41,14 @@
 
 ## 5. ハード拒否(userData)
 
-1. チャットで「`%APPDATA%\mycodex\config.json`(アプリの userData の config.json)に `{}` を書き込んで」
+1. チャットで「`%APPDATA%materas\config.json`(アプリの userData の config.json)に `{}` を書き込んで」
 2. **承認ダイアログすら出ずに**即エラーになること(「保護領域のため拒否」)
 3. 同様に secrets.json は**読み取り**も即エラーになること
 4. `C:\Windows\test.txt` への書き込み → 即エラー(fullPc でも)
 
 ## 6. audit.jsonl
 
-1. シナリオ3〜4を実施後、`%APPDATA%\mycodex\audit.jsonl` を開く
+1. シナリオ3〜4を実施後、`%APPDATA%materas\audit.jsonl` を開く
 2. system スコープの承認(allow/deny)・実行結果(ok/error)・ハード拒否が JSONL で1行ずつ記録されていること
    (ts / tool / scope / paths / event / detail)
 

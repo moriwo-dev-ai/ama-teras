@@ -2,7 +2,7 @@
  * M16-4: アニメーション設定(renderer限定のUI好みなので localStorage 保存)。
  * <html data-anim="on|off"> を styles.css のセレクタが参照する。
  */
-const ANIM_KEY = 'mycodex-anim';
+const ANIM_KEY = 'amateras-anim';
 
 export function animEnabled(): boolean {
   try {

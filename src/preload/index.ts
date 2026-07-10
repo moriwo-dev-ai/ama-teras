@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IpcChannels, type MyCodexApi } from '../shared/ipc';
+import { IpcChannels, type AmaterasApi } from '../shared/ipc';
 import type {
   AgentEvent,
   ApprovalRequestPayload,
@@ -16,7 +16,7 @@ function subscribe<T>(channel: string, listener: (payload: T) => void): () => vo
   return () => ipcRenderer.removeListener(channel, wrapped);
 }
 
-const api: MyCodexApi = {
+const api: AmaterasApi = {
   chatSend: (text, mode, images) => ipcRenderer.invoke(IpcChannels.chatSend, text, mode, images),
   chatCancel: (sessionId) => ipcRenderer.invoke(IpcChannels.chatCancel, sessionId),
   onChatEvent: (listener) => subscribe<AgentEvent>(IpcChannels.chatEvent, listener),

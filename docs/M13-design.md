@@ -18,10 +18,10 @@
 ### 記憶ツール
 
 - 新規ツール `memory`(planツールと同型):
-  - `{ action: 'read' }` → MYCODEX.md の内容
+  - `{ action: 'read' }` → AMATERAS.md の内容
   - `{ action: 'append', content }` → 「## 学習メモ」節へ追記(タイムスタンプ付き)
   - `{ action: 'rewrite', content }` → 全置換(整理用)
-  - risk: 'safe'(書き込み先が MYCODEX.md 固定・ユーザーが目視可能)。進化ジョブでは使用不可(guardrails)
+  - risk: 'safe'(書き込み先が AMATERAS.md 固定・ユーザーが目視可能)。進化ジョブでは使用不可(guardrails)
 - system prompt に運用指示を追加: 「今後も使う知見(ビルド方法、規約、ハマりどころ)を発見したら
   memory に短く追記すること。会話固有の内容は書かないこと」
 - 既存の memoryGet/Set IPC・Settings の編集UIはそのまま(人間とエージェントの共同編集になる)
@@ -37,7 +37,7 @@
   2. 第2段(従来の要約): それでも閾値超過なら実施
 - **構造化要約**: 要約プロンプトを自由文から固定セクションへ:
   `## 依頼の目的 / ## 完了したこと / ## 触ったファイル / ## 決定事項と理由 / ## 未解決・次にやること`
-  (計画=MYCODEX_PLAN.md と記憶=MYCODEX.md は system prompt 側にあるため要約対象から除外のまま)
+  (計画=AMATERAS_PLAN.md と記憶=AMATERAS.md は system prompt 側にあるため要約対象から除外のまま)
 - **compaction直前フック**: 要約で消える範囲に重要な決定があれば memory へ退避するよう
   要約プロンプトに指示(1回のLLM呼び出しで要約+退避メモ抽出を同時に)
 - テスト: トークン閾値トリガー、切詰めのペア構造保持、構造化要約のセクション検証(モックprovider)、
@@ -47,7 +47,7 @@
 
 ### 概要
 
-MyCodex を MCP ホスト/クライアントにし、外部MCPサーバーのツールを組み込みツールと同列に使えるようにする。
+AMA-teras を MCP ホスト/クライアントにし、外部MCPサーバーのツールを組み込みツールと同列に使えるようにする。
 
 - 依存追加: `@modelcontextprotocol/sdk`(公式SDK)
 - 対応transport: **stdio のみ**(v1。ローカルでコマンド起動型。HTTP/SSEリモートサーバーはv2へ)
@@ -92,6 +92,6 @@ MyCodex を MCP ホスト/クライアントにし、外部MCPサーバーのツ
 
 - 既存339+新規テスト全合格 / typecheck 3構成
 - QR: スマホカメラで読んで接続できる
-- 記憶: 長い作業後に MYCODEX.md に有用なメモが増えており、compaction後も文脈が保たれる
+- 記憶: 長い作業後に AMATERAS.md に有用なメモが増えており、compaction後も文脈が保たれる
 - MCP: filesystem サーバーを設定→チャットからそのツールが使え、承認に出所が表示される
 - guardrails: memory/MCPが進化ジョブから見えないことがテストで固定されている

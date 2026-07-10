@@ -38,7 +38,7 @@ function ctx(): { cwd: string; signal: AbortSignal; log: () => void } {
 }
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'mycodex-exec-'));
+  dir = await mkdtemp(join(tmpdir(), 'amateras-exec-'));
   await writeFile(join(dir, 'fake_write.ts'), WRITE_PLUGIN);
   registry = new ToolRegistry(dir, join(dir, '.cache'));
   await registry.reload();

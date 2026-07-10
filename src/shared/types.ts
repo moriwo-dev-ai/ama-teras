@@ -587,7 +587,7 @@ export interface SessionLoadResult {
 
 // ---- M11-3: 自動チェックポイント ----
 
-/** refs/mycodex/checkpoints/ 配下に積まれる作業ツリースナップショット(HEAD/indexは汚さない) */
+/** refs/amateras/checkpoints/ 配下に積まれる作業ツリースナップショット(HEAD/indexは汚さない) */
 export interface CheckpointInfo {
   sha: string;
   sessionId: string;

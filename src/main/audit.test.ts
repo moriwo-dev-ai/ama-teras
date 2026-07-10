@@ -7,7 +7,7 @@ import { AuditLog } from './audit';
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'mycodex-audit-'));
+  dir = await mkdtemp(join(tmpdir(), 'amateras-audit-'));
 });
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true }).catch(() => {});

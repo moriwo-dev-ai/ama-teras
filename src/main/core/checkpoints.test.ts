@@ -17,7 +17,7 @@ function git(args: string[], cwd: string): Promise<string> {
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'mycodex-ckpt-repo-'));
+  dir = await mkdtemp(join(tmpdir(), 'amateras-ckpt-repo-'));
   await git(['init', '-q'], dir);
   await git(['config', 'user.name', 'test'], dir);
   await git(['config', 'user.email', 'test@example.com'], dir);
@@ -50,11 +50,36 @@ describe('CheckpointManager(M11-3・実git)', { timeout: 45_000 }, () => {
     expect(await git(['rev-parse', 'HEAD'], dir)).toBe(headBefore);
     // index(ステージ)は汚れていない
     expect(await git(['diff', '--cached', '--name-only'], dir)).toBe('');
-    // refs/mycodex/ 以外の ref は増えていない(ブランチ・タグを作らない)
+    // refs/amateras/ 以外の ref は増えていない(ブランチ・タグを作らない)
     const refs = (await git(['for-each-ref', '--format=%(refname)'], dir)).split('\n');
-    for (const ref of refs.filter((x) => !x.startsWith('refs/mycodex/'))) {
+    for (const ref of refs.filter((x) => !x.startsWith('refs/amateras/'))) {
       expect(ref.startsWith('refs/heads/')).toBe(true);
     }
+  });
+
+  it('M27-7: 旧称 ref(refs/mycodex/)と旧接頭辞のチェックポイントが自動移行・読取できる', async () => {
+    // 旧実装相当のチェックポイントを手作りする(旧接頭辞メッセージ+旧ref)
+    await writeFile(join(dir, 'a.txt'), 'legacy-v2');
+    await git(['add', '-A'], dir);
+    const tree = await git(['write-tree'], dir);
+    const head = await git(['rev-parse', 'HEAD'], dir);
+    const legacySha = await git(
+      ['commit-tree', tree, '-p', head, '-m', '[mycodex-checkpoint] s-old 旧チェックポイント'],
+      dir,
+    );
+    await git(['update-ref', 'refs/mycodex/checkpoints/s-old', legacySha], dir);
+    await git(['reset', '-q', '--hard'], dir); // フィクスチャ作成で汚したindex・作業ツリーを戻す
+
+    const cm = new CheckpointManager(dir);
+    const list = await cm.list();
+    // 旧refは新名へ移行され、旧接頭辞でも一覧に出る
+    expect(list.some((c) => c.sha === legacySha && c.sessionId === 's-old')).toBe(true);
+    expect(await git(['rev-parse', 'refs/amateras/checkpoints/s-old'], dir)).toBe(legacySha);
+    await expect(git(['rev-parse', '--verify', 'refs/mycodex/checkpoints/s-old'], dir)).rejects.toThrow();
+    // 移行後も復元できる
+    const r = await cm.restore(legacySha);
+    expect(r.ok).toBe(true);
+    expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('legacy-v2');
   });
 
   it('変更なしは skip(null)。変更があれば同一セッションのチェーンに積まれる', async () => {
@@ -111,7 +136,7 @@ describe('CheckpointManager(M11-3・実git)', { timeout: 45_000 }, () => {
   });
 
   it('非gitディレクトリでは完全noop(snapshot=null / list=[] / restore=失敗メッセージ)', async () => {
-    const plain = await mkdtemp(join(tmpdir(), 'mycodex-ckpt-plain-'));
+    const plain = await mkdtemp(join(tmpdir(), 'amateras-ckpt-plain-'));
     try {
       const logs: string[] = [];
       const cm = new CheckpointManager(plain, (l) => logs.push(l));
@@ -126,7 +151,7 @@ describe('CheckpointManager(M11-3・実git)', { timeout: 45_000 }, () => {
   });
 
   it('コミットの無い初期化直後のリポジトリでも動く(親なしコミット)', async () => {
-    const fresh = await mkdtemp(join(tmpdir(), 'mycodex-ckpt-fresh-'));
+    const fresh = await mkdtemp(join(tmpdir(), 'amateras-ckpt-fresh-'));
     try {
       await git(['init', '-q'], fresh);
       await git(['config', 'user.name', 'test'], fresh);

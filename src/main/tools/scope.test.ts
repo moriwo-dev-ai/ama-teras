@@ -38,7 +38,7 @@ describe('classifyPath(シンボリックリンク)', () => {
   let base: string;
 
   beforeEach(async () => {
-    base = await mkdtemp(join(tmpdir(), 'mycodex-scope-'));
+    base = await mkdtemp(join(tmpdir(), 'amateras-scope-'));
   });
   afterEach(async () => {
     await rm(base, { recursive: true, force: true }).catch(() => {});

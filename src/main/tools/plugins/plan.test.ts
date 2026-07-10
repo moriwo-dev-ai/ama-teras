@@ -13,7 +13,7 @@ function ctx(overrides?: Partial<ToolContext>): ToolContext {
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'mycodex-plan-'));
+  dir = await mkdtemp(join(tmpdir(), 'amateras-plan-'));
 });
 
 afterEach(async () => {

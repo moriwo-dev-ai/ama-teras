@@ -32,11 +32,11 @@
       一切動いていない** こと、ブランチ・タグが増えていないことを確認
 - [ ] 復元時に `pre-restore` への自動退避が作られ、そこから復元し直すと元に戻る(往復)
 - [ ] 非gitフォルダを workspace にした場合、エラーなく無効(コンソールに `[checkpoint] ... 無効` ログのみ)
-- [ ] MyCodex リポジトリ自身を workspace にしても `refs/mycodex/` 以外に痕跡が無い
+- [ ] AMA-teras リポジトリ自身を workspace にしても `refs/amateras/` 以外に痕跡が無い
 - 既知の制約(仕様):
   - 復元は「上書き」。チェックポイント作成後に **新規作成されたファイルは削除されない**
-  - `refs/mycodex/checkpoints/*` は自動掃除しない。不要になったら
-    `git for-each-ref refs/mycodex/ --format='%(refname)' | ForEach-Object { git update-ref -d $_ }`
+  - `refs/amateras/checkpoints/*` は自動掃除しない。不要になったら
+    `git for-each-ref refs/amateras/ --format='%(refname)' | ForEach-Object { git update-ref -d $_ }`
 
 ## M11-4: 編集後フック(postEditHook)
 
@@ -63,5 +63,5 @@
   bash 通常実行の timeout も同条件では `close` 待ちになり得る — 気になる場合は要観察)
 - Windows の ProcessManager は `detached: false`(taskkill /T が子孫を辿るため)。
   コンソールウィンドウがちらつく場合は windowsHide の効きを確認
-- チェックポイントの committer は `mycodex-checkpoint <checkpoint@mycodex.local>` に固定
+- チェックポイントの committer は `amateras-checkpoint <checkpoint@amateras.local>` に固定
   (ユーザーの git identity 未設定でも動く)

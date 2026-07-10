@@ -49,7 +49,7 @@ function summaryProvider(summary: string): LLMProvider {
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'mycodex-sessions-'));
+  dir = await mkdtemp(join(tmpdir(), 'amateras-sessions-'));
 });
 
 afterEach(async () => {

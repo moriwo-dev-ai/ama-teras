@@ -2,6 +2,40 @@
 
 ## 現在の状態
 
+- **M27-7追加(2026-07-10 公開前の最終整理)**: **git修復+Author書き換え+旧称MyCodexの一掃**。
+  ①git修復: 報告のあった index/commit-graph エラーは実施時点で再現しなかったが、指示どおり
+  `.git/index` 再生成+`commit-graphs` 削除を実施(どちらも非破壊の派生キャッシュ)。
+  `git fsck --full` クリーン=**コミット本体に損傷なし**。
+  ②全249コミットの Author/Committer を **moriwo-dev-ai \<yuta@users.noreply.github.com\>** へ
+  書き換え(filter-branch env-filter・全ブランチ+全14タグ)。refs/original・reflog を掃除し
+  `git gc --prune=now` で旧名義のオブジェクトを完全除去(`git log --all` の名義は1種のみを確認)。
+  リポジトリローカルの git config(user.name/email)も同名義に設定。
+  **注**: アプリが刻んだ commit(旧 MyCodex Evolution / mycodex-checkpoint 名義)も一律で
+  新名義になった(env-filter は全コミット強制のため。「全コミット書き換え」の指示どおり)。
+  ③旧称一掃(コード): `MYCODEX_SMOKE`→`AMATERAS_SMOKE` / `refs/mycodex/`→`refs/amateras/` /
+  localStorage `mycodex-*`→`amateras-*` / `../mycodex-evolve`→`../amateras-evolve` /
+  `MyCodexApi`→`AmaterasApi` / `MYCODEX_PLUGINS_DIR`→`AMATERAS_PLUGINS_DIR` /
+  MCPクライアント名・checkpoint committer・一時ディレクトリ接頭辞・テストフィクスチャも統一。
+  ④既存環境(この1台)への影響の吸収:
+  - チェックポイント: `CheckpointManager.migrateLegacyRefs()` が初回アクセス時に旧refを
+    新名へ自動移行(+旧メッセージ接頭辞 `[mycodex-checkpoint]` は読み取り互換を維持)
+  - デスクトップUI設定(ペイン幅・アニメ): `lib/legacyStorage.ts` が起動時に一回きり移行
+  - リモートUIトークン: `api.ts` loadToken が旧キーから一回きり移行(**再ログイン不要**。
+    万一移行に失敗した場合のみ接続QRの再読取りで復帰)
+  - 旧worktree残骸 `C:\dev\mycodex-evolve\job-2`(空・git未登録)と、対応する未昇格の
+    残骸ブランチ `evolve/job-2`(text_stats生成の失敗ジョブ。後に別ジョブで昇格済みの機能)は
+    削除済み(ブランチのコミットは次回gcまで `git fsck --lost-found` で回収可能)
+  - **手順書(残る旧名)**: リポジトリのフォルダ名 `C:\dev\mycodex` と旧userData
+    `%APPDATA%\mycodex`(M17ロールバック用に温存)、デスクトップの `MyCodex.lnk` は
+    本整理の対象外(実パス・移行元・ユーザー所有物)。任意でリネーム/削除可。
+    手動スモーク実行の環境変数は今後 `AMATERAS_SMOKE=1` を使うこと
+  - 移行元として意図的に残した旧名参照: userDataMigration.ts・memory/plan の
+    MYCODEX(_PLAN).md 後方互換・RemoteAccessSection の LEGACY_HOST_KEY・
+    legacyStorage/api.ts の旧キー定数・checkpoints の旧接頭辞/旧refベース
+  ⑤ドキュメント統一: ARCHITECTURE/PLAN/docs配下の製品名と現行動作の記述
+  (SMOKE環境変数・refs・%APPDATA%\amateras 等)を統一。実在パス(C:\dev\mycodex)・
+  リネーム自体を記録した歴史文書(M17系・PROGRESS過去項・VERIFICATION_REPORT)は不変更。
+  テスト4件追加(旧ref移行・localStorage移行3態)。
 - **M27(夜間自律作業その2・NIGHT_TASKS2.md 全6タスク完了)**。テスト866件・
   typecheck(node/web/remote)・build 全合格。コミット6件(M27-1〜M27-6)+本ドキュメント更新。
   - **実施サマリ**:

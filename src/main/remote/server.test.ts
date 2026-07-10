@@ -139,7 +139,7 @@ async function startServer(opts?: { maxFailures?: number }): Promise<void> {
 }
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'mycodex-remote-'));
+  dir = await mkdtemp(join(tmpdir(), 'amateras-remote-'));
   staticDir = join(dir, 'remote-ui');
   await mkdir(join(staticDir, 'assets'), { recursive: true });
   await writeFile(join(staticDir, 'index.html'), '<html>REMOTE_UI_OK</html>');

@@ -213,7 +213,7 @@ describe('M27-1: connectionTest', () => {
 
 describe('M27-4: pluginImportStart の enqueue 配線', () => {
   function makeImportDir(name: string): { dir: string; cleanup: () => void } {
-    const base = mkdtempSync(join(tmpdir(), 'mycodex-svc-imp-'));
+    const base = mkdtempSync(join(tmpdir(), 'amateras-svc-imp-'));
     const dir = join(base, name);
     mkdirSync(dir, { recursive: true });
     writeFileSync(

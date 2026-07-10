@@ -17,7 +17,7 @@ import {
 
 let dir: string;
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'mycodex-mem-'));
+  dir = await mkdtemp(join(tmpdir(), 'amateras-mem-'));
 });
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true }).catch(() => {});
@@ -34,7 +34,7 @@ describe('project memory(M8-2)', () => {
   });
 
   it('composeSystemPrompt は記憶を system へ注入する', () => {
-    const base = 'あなたはMyCodex';
+    const base = 'あなたはAMA-teras';
     const composed = composeSystemPrompt(base, '- 返答は必ず箇条書き');
     expect(composed).toContain(base);
     expect(composed).toContain('返答は必ず箇条書き');

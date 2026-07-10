@@ -1,8 +1,8 @@
-import type { MyCodexApi } from '../shared/ipc';
+import type { AmaterasApi } from '../shared/ipc';
 
 declare global {
   interface Window {
-    api: MyCodexApi;
+    api: AmaterasApi;
   }
 }
 

@@ -53,7 +53,7 @@ robocopy C:\dev\mycodex D:\transfer\amateras /E /XD node_modules out release
 ```
 
 - `/E` = サブフォルダごと、`/XD` = 除外フォルダ。`.git` は除外していないのでちゃんと入ります。
-- 進化用の作業フォルダ `C:\dev\mycodex-evolve`(もしあれば)は**コピー不要**(使い捨てのため)。
+- 進化用の作業フォルダ `C:\dev\amateras-evolve`(もしあれば)は**コピー不要**(使い捨てのため)。
 
 ### 新PCへ — 置き場所を作って展開
 

@@ -128,7 +128,9 @@ export class RemoteApi {
   }
 }
 
-const TOKEN_KEY = 'mycodex-remote-token';
+const TOKEN_KEY = 'amateras-remote-token';
+/** M27-7: 旧称キー(移行元としてのみ参照。loadToken が一回きりで新キーへ移す) */
+const LEGACY_TOKEN_KEY = 'mycodex-remote-token';
 
 /**
  * M15.1: フラグメントからのトークン抽出(純関数・テスト可能)。
@@ -151,7 +153,15 @@ export function loadToken(): string | null {
     // トークンはURLフラグメントのままサーバへは送信されず、端末内(Tailscale内)に留まる
     return fromHash;
   }
-  return window.localStorage.getItem(TOKEN_KEY);
+  const current = window.localStorage.getItem(TOKEN_KEY);
+  if (current !== null) return current;
+  // M27-7: 旧称キーからの一回きり移行(再ログイン不要にする)
+  const legacy = window.localStorage.getItem(LEGACY_TOKEN_KEY);
+  if (legacy !== null) {
+    window.localStorage.setItem(TOKEN_KEY, legacy);
+    window.localStorage.removeItem(LEGACY_TOKEN_KEY);
+  }
+  return legacy;
 }
 
 export function saveToken(token: string): void {

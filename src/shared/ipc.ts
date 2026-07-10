@@ -117,7 +117,7 @@ export const IpcChannels = {
 } as const;
 
 /** preload が window.api として公開するAPIの型。renderer はこれ経由でしか main と話せない */
-export interface MyCodexApi {
+export interface AmaterasApi {
   /** M14-2: images は任意(後方互換)。D&D/ペーストで添付した画像を渡す */
   chatSend(
     text: string,

@@ -8,7 +8,7 @@ import { workspaceGitStatus } from './gitStatus';
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'mycodex-gitstat-'));
+  dir = await mkdtemp(join(tmpdir(), 'amateras-gitstat-'));
 });
 
 afterEach(async () => {

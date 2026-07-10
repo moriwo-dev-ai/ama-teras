@@ -17,7 +17,7 @@ let dir: string;
 let file: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'mycodex-config-'));
+  dir = await mkdtemp(join(tmpdir(), 'amateras-config-'));
   file = join(dir, 'config.json');
 });
 afterEach(async () => {

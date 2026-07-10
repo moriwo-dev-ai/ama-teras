@@ -41,7 +41,7 @@ let broker: ApprovalBroker;
 let audits: ScopeAuditEvent[];
 
 beforeEach(async () => {
-  base = await mkdtemp(join(tmpdir(), 'mycodex-fullpc-'));
+  base = await mkdtemp(join(tmpdir(), 'amateras-fullpc-'));
   ws = join(base, 'ws');
   outsideA = join(base, 'outside-a');
   outsideB = join(base, 'outside-b');

@@ -151,16 +151,16 @@ export async function runGates(opts: GateOptions): Promise<GatesOutcome> {
       command: `npm run build && npx electron . --tool ${opts.toolName}${
         opts.smokeInputPath ? ` --input "${opts.smokeInputPath}"` : ''
       }`,
-      env: { MYCODEX_SMOKE: '1' },
+      env: { AMATERAS_SMOKE: '1' },
     });
   } else {
     // renderer/core: build を独立ゲート化し、フルアプリ・スモーク起動で「起動不能」を昇格前に落とす。
-    // --smoke-boot は単一インスタンスロック非取得(MYCODEX_SMOKE配下)+userData隔離(index.ts側)
+    // --smoke-boot は単一インスタンスロック非取得(AMATERAS_SMOKE配下)+userData隔離(index.ts側)
     commands.push({ name: 'build', command: 'npm run build' });
     commands.push({
       name: 'smoke',
       command: 'npx electron . --smoke-boot',
-      env: { MYCODEX_SMOKE: '1' },
+      env: { AMATERAS_SMOKE: '1' },
     });
   }
 

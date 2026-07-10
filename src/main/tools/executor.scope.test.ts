@@ -83,7 +83,7 @@ async function respondNext(decision: 'allow' | 'allow-session' | 'deny'): Promis
 }
 
 beforeEach(async () => {
-  base = await mkdtemp(join(tmpdir(), 'mycodex-scope-exec-'));
+  base = await mkdtemp(join(tmpdir(), 'amateras-scope-exec-'));
   ws = join(base, 'ws');
   outside = join(base, 'outside');
   userData = join(base, 'userdata');

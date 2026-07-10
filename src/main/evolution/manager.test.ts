@@ -24,7 +24,7 @@ let base: string;
 let repoDir: string;
 
 async function initRepo(): Promise<void> {
-  base = await mkdtemp(join(tmpdir(), 'mycodex-evo-'));
+  base = await mkdtemp(join(tmpdir(), 'amateras-evo-'));
   repoDir = join(base, 'repo');
   await mkdir(repoDir, { recursive: true });
   await runGit(['init', '-b', 'main'], repoDir);

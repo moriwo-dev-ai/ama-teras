@@ -17,7 +17,7 @@ function ctx(overrides: Partial<ToolContext> = {}): ToolContext {
 }
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'mycodex-tools-'));
+  dir = await mkdtemp(join(tmpdir(), 'amateras-tools-'));
 });
 
 afterEach(async () => {

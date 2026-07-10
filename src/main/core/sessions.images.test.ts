@@ -30,7 +30,7 @@ function dataOf(overrides: Partial<SessionData>): SessionData {
 
 let dir: string;
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'mycodex-img-'));
+  dir = await mkdtemp(join(tmpdir(), 'amateras-img-'));
 });
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true }).catch(() => {});

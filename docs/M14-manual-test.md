@@ -11,7 +11,7 @@
 - [ ] 「このモックどおりに作って」で画像+指示が通る(モックのUI再現)
 - [ ] スマホ(remote-ui)の📷ボタンから写真を添付して送信できる
 - [ ] セッションを閉じて復元しても画像付き履歴が壊れない
-      (`%APPDATA%\mycodex\sessions\blobs\` に画像本体が外出しされている)
+      (`%APPDATA%materas\sessions\blobs\` に画像本体が外出しされている)
 
 ## M14-2: screenshot ツール
 
@@ -30,7 +30,7 @@
       workspace外への write_file 承認に「このセッションでは常に許可(このフォルダ: …)」が出る
 - [ ] 許可したフォルダへの2回目は自動通過し、`audit.jsonl` に allow(session-auto) が残る
 - [ ] 別フォルダ・別ツール・bash(exec)は従来どおり毎回承認
-- [ ] `%APPDATA%\mycodex\` 等の保護領域はONでも即拒否のまま
+- [ ] `%APPDATA%materas\` 等の保護領域はONでも即拒否のまま
 
 ## M14-4: ベンチ④
 

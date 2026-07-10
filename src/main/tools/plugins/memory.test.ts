@@ -13,7 +13,7 @@ function ctx(overrides?: Partial<ToolContext>): ToolContext {
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'mycodex-memory-'));
+  dir = await mkdtemp(join(tmpdir(), 'amateras-memory-'));
 });
 
 afterEach(async () => {
@@ -105,7 +105,7 @@ describe('memory ツール(M13-1)', () => {
 describe('memory scope:"user"(M25: ユーザー方針)', () => {
   let userDir: string;
   beforeEach(async () => {
-    userDir = await mkdtemp(join(tmpdir(), 'mycodex-usermem-'));
+    userDir = await mkdtemp(join(tmpdir(), 'amateras-usermem-'));
   });
   afterEach(async () => {
     await rm(userDir, { recursive: true, force: true }).catch(() => {});

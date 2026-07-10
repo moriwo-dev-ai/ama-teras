@@ -23,7 +23,7 @@ async function makePluginBranch(branch: string, content: string): Promise<void> 
 }
 
 beforeEach(async () => {
-  base = await mkdtemp(join(tmpdir(), 'mycodex-promote-'));
+  base = await mkdtemp(join(tmpdir(), 'amateras-promote-'));
   repo = join(base, 'repo');
   await mkdir(join(repo, 'src/main/tools/plugins'), { recursive: true });
   await runGit(['init', '-b', 'main'], repo);

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 /**
  * M12-0 回帰ガード: 多重起動ガード(requestSingleInstanceLock)がスモークモード
- * (MYCODEX_SMOKE=1)ではロックを取らないことを固定する。
+ * (AMATERAS_SMOKE=1)ではロックを取らないことを固定する。
  * 進化ゲートのスモークテストは稼働中のAと並行してheadless起動するため、
  * スモークがロックを取ると進化パイプラインが壊れる。
  * これらのテストが落ちる変更は、理由の提示とユーザー承認なしに入れてはならない。
@@ -18,7 +18,7 @@ describe('多重起動ガード(M12-0で不変)', () => {
     const src = source();
     // smokeMode のときは requestSingleInstanceLock 自体を評価しない式を固定
     expect(src).toContain("smokeMode ? true : app.requestSingleInstanceLock()");
-    expect(src).toContain("process.env['MYCODEX_SMOKE'] === '1'");
+    expect(src).toContain("process.env['AMATERAS_SMOKE'] === '1'");
   });
 
   it('requestSingleInstanceLock の呼び出し箇所は1箇所だけ', () => {

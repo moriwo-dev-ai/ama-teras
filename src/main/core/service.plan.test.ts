@@ -19,7 +19,7 @@ const BASE_CONFIG: AppConfig = {
 
 let ws: string;
 beforeEach(async () => {
-  ws = await mkdtemp(join(tmpdir(), 'mycodex-planws-'));
+  ws = await mkdtemp(join(tmpdir(), 'amateras-planws-'));
 });
 afterEach(async () => {
   await rm(ws, { recursive: true, force: true }).catch(() => {});

@@ -16,13 +16,13 @@ export async function healthCheckAfterPromotion(
   runCommand: CommandRunner = defaultRunCommand,
 ): Promise<boolean> {
   assertSafeToolName(toolName); // shell 補間前の防御(gates と同じ理由)
-  const dir = await mkdtemp(join(tmpdir(), 'mycodex-health-'));
+  const dir = await mkdtemp(join(tmpdir(), 'amateras-health-'));
   const inputPath = join(dir, 'input.json');
   await writeFile(inputPath, JSON.stringify(smokeInput ?? {}), 'utf8');
   const { code } = await runCommand(
     `npx electron . --tool ${toolName} --input "${inputPath}"`,
     repoDir,
-    { MYCODEX_SMOKE: '1' },
+    { AMATERAS_SMOKE: '1' },
   );
   return code === 0;
 }
@@ -39,7 +39,7 @@ export async function rebuildAndHealthBoot(
 ): Promise<{ ok: boolean; output: string }> {
   const build = await runCommand('npm run build', repoDir);
   if (build.code !== 0) return { ok: false, output: `再ビルド失敗: ${build.output.slice(-2000)}` };
-  const boot = await runCommand('npx electron . --smoke-boot', repoDir, { MYCODEX_SMOKE: '1' });
+  const boot = await runCommand('npx electron . --smoke-boot', repoDir, { AMATERAS_SMOKE: '1' });
   if (boot.code !== 0) {
     return { ok: false, output: `フルアプリ健全性チェック失敗: ${boot.output.slice(-2000)}` };
   }

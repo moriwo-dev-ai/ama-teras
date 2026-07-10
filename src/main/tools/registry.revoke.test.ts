@@ -19,7 +19,7 @@ const PLUGIN = `export default {
 let base: string;
 
 beforeEach(async () => {
-  base = await mkdtemp(join(tmpdir(), 'mycodex-revoke-'));
+  base = await mkdtemp(join(tmpdir(), 'amateras-revoke-'));
 });
 afterEach(async () => {
   await rm(base, { recursive: true, force: true }).catch(() => {});

@@ -16,7 +16,7 @@ function fakeCipher(available = true): SecretCipher {
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'mycodex-secrets-'));
+  dir = await mkdtemp(join(tmpdir(), 'amateras-secrets-'));
 });
 
 afterEach(async () => {

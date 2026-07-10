@@ -11,7 +11,7 @@ function ctx(): ToolContext {
 }
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'mycodex-grep-'));
+  dir = await mkdtemp(join(tmpdir(), 'amateras-grep-'));
 });
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true }).catch(() => {});

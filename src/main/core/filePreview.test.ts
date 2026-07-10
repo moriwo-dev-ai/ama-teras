@@ -12,7 +12,7 @@ let outside: string;
 let userData: string;
 
 beforeEach(async () => {
-  base = await mkdtemp(join(tmpdir(), 'mycodex-preview-'));
+  base = await mkdtemp(join(tmpdir(), 'amateras-preview-'));
   ws = join(base, 'ws');
   outside = join(base, 'outside');
   userData = join(base, 'userdata');

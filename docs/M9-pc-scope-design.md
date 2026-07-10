@@ -13,7 +13,7 @@
 
 - アプリ自身の userData ディレクトリ(config.json / secrets.json / plugin-cache)
 - `C:\Windows`, `C:\Program Files`, `C:\Program Files (x86)` への書き込み
-- MyCodex リポジトリ自身の `.git` への書き込み(進化パイプライン以外から)
+- AMA-teras リポジトリ自身の `.git` への書き込み(進化パイプライン以外から)
 
 ## 設定
 

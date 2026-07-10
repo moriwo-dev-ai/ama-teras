@@ -206,7 +206,7 @@ function assertMcpConfig(value: unknown): asserts value is import('../shared/typ
  * ※進化(worktree/git/昇格)はソースツリー前提のため、パッケージ版では基本ツールのみ。
  */
 export function getPluginsDir(): string {
-  if (process.env['MYCODEX_PLUGINS_DIR']) return process.env['MYCODEX_PLUGINS_DIR'];
+  if (process.env['AMATERAS_PLUGINS_DIR']) return process.env['AMATERAS_PLUGINS_DIR'];
   if (app.isPackaged) return join(process.resourcesPath, 'plugins');
   return join(app.getAppPath(), 'src/main/tools/plugins');
 }
@@ -330,7 +330,7 @@ export async function registerIpcHandlers(
       // クロージャなので実際に呼ばれるのは new EvolutionManager(...) 完了後(=manager代入後)。
       const manager: EvolutionManager = new EvolutionManager({
         repoDir,
-        worktreeBase: join(repoDir, '..', 'mycodex-evolve'),
+        worktreeBase: join(repoDir, '..', 'amateras-evolve'),
         // M27-4: importFrom 付きの依頼はLLM生成の代わりにファイルコピー(以降のゲートは同一)
         runner: composeRunners(
           new AgentJobRunner(() => service.createProviderOrThrow()),

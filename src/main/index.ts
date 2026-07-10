@@ -28,7 +28,7 @@ if (app.isPackaged && !process.env['ESBUILD_BINARY_PATH']) {
 
 /**
  * スモークモード: ウィンドウを開かずツールを1回実行して終了する。
- * 進化の検証ゲートが `MYCODEX_SMOKE=1 electron . --tool <name> --input <sample.json>` で使う。
+ * 進化の検証ゲートが `AMATERAS_SMOKE=1 electron . --tool <name> --input <sample.json>` で使う。
  * ゲート内の実行はジョブ承認フローの一部なので、ここでは承認ダイアログを通さない。
  */
 async function runSmokeMode(): Promise<void> {
@@ -69,10 +69,10 @@ async function runSmokeMode(): Promise<void> {
 }
 
 /**
- * M20: フルアプリ・スモーク起動(`MYCODEX_SMOKE=1 electron . --smoke-boot`)。
+ * M20: フルアプリ・スモーク起動(`AMATERAS_SMOKE=1 electron . --smoke-boot`)。
  * renderer/core 進化のゲート7(B worktree内)と昇格後の健全性チェック(A内)が使う。
  * 不変条件(ユーザー確定・2026-07-06):
- * - 単一インスタンスロックを取得しない(MYCODEX_SMOKE 配下の既存スキップに乗る。
+ * - 単一インスタンスロックを取得しない(AMATERAS_SMOKE 配下の既存スキップに乗る。
  *   取得すると稼働中Aと衝突し、2つ目のインスタンスが即quitして偽の合否になる)
  * - userData は mkdtemp で隔離(下の smokeBoot 分岐で setPath 済み)。
  *   稼働中Aの config/secrets/リモートポートと一切衝突しない(新規configはremote無効が既定)
@@ -148,11 +148,11 @@ function createWindow(): void {
 }
 
 // M12-0: 多重起動ガード。同一userDataの多重起動はdisk cache競合を起こす。
-// スモークモード(MYCODEX_SMOKE=1)では絶対にロックを取らない: 進化ゲートのスモークは
+// スモークモード(AMATERAS_SMOKE=1)では絶対にロックを取らない: 進化ゲートのスモークは
 // 稼働中のAと並行してheadless起動するため、ロックすると進化パイプラインが壊れる
 // (この不変条件は index.guard.test.ts で固定。変更時はそちらも見ること)。
-const smokeMode = process.env['MYCODEX_SMOKE'] === '1';
-// M20: フルアプリ・スモーク起動。MYCODEX_SMOKE 配下なので単一インスタンスロックは取得しない
+const smokeMode = process.env['AMATERAS_SMOKE'] === '1';
+// M20: フルアプリ・スモーク起動。AMATERAS_SMOKE 配下なので単一インスタンスロックは取得しない
 const smokeBoot = smokeMode && process.argv.includes('--smoke-boot');
 
 // M20: --smoke-boot は userData を一時ディレクトリへ隔離する(config/secrets/lock/ポート非干渉)。

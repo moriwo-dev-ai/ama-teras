@@ -22,7 +22,7 @@ let dir: string;
 let cacheDir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'mycodex-plugins-'));
+  dir = await mkdtemp(join(tmpdir(), 'amateras-plugins-'));
   cacheDir = join(dir, '.cache');
 });
 
@@ -120,7 +120,7 @@ describe('M27-5: pluginApiVersion によるロード時の無効化', () => {
     JSON.stringify({ name: 'versioned_tool', pluginApiVersion: range });
 
   it('範囲内(^1)のマニフェスト付きプラグインは普通にロードされる', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'mycodex-apiver-'));
+    const dir = await mkdtemp(join(tmpdir(), 'amateras-apiver-'));
     try {
       await writeFile(join(dir, 'versioned_tool.ts'), PLUGIN);
       await writeFile(join(dir, 'versioned_tool.manifest.json'), manifest('^1'));
@@ -133,7 +133,7 @@ describe('M27-5: pluginApiVersion によるロード時の無効化', () => {
   });
 
   it('範囲外(^2)はクラッシュではなく無効化+理由が errors に載る', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'mycodex-apiver-'));
+    const dir = await mkdtemp(join(tmpdir(), 'amateras-apiver-'));
     try {
       await writeFile(join(dir, 'versioned_tool.ts'), PLUGIN);
       await writeFile(join(dir, 'versioned_tool.manifest.json'), manifest('^2'));
@@ -146,7 +146,7 @@ describe('M27-5: pluginApiVersion によるロード時の無効化', () => {
   });
 
   it('マニフェスト無し・破損マニフェストは従来どおりロードされる(後方互換)', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'mycodex-apiver-'));
+    const dir = await mkdtemp(join(tmpdir(), 'amateras-apiver-'));
     try {
       await writeFile(join(dir, 'versioned_tool.ts'), PLUGIN);
       await writeFile(join(dir, 'versioned_tool.manifest.json'), '{broken');

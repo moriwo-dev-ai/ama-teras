@@ -20,7 +20,7 @@ export default {
 let base: string;
 
 beforeEach(async () => {
-  base = await mkdtemp(join(tmpdir(), 'mycodex-pack-'));
+  base = await mkdtemp(join(tmpdir(), 'amateras-pack-'));
 });
 afterEach(async () => {
   await rm(base, { recursive: true, force: true }).catch(() => {});

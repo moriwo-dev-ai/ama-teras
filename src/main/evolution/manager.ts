@@ -260,7 +260,7 @@ export class EvolutionManager {
         this.update(job, { status: 'verifying' });
         let smokeInputPath: string | undefined;
         if (scope === 'tool') {
-          const smokeDir = await mkdtemp(join(tmpdir(), 'mycodex-smoke-'));
+          const smokeDir = await mkdtemp(join(tmpdir(), 'amateras-smoke-'));
           smokeInputPath = join(smokeDir, 'input.json');
           await writeFile(smokeInputPath, JSON.stringify(artifacts.smokeInput ?? {}), 'utf8');
         }

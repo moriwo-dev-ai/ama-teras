@@ -38,8 +38,8 @@ export default function App(): JSX.Element {
   }, []);
   // M15-1: 3ペイン(狭幅ではオーバーレイ)
   const narrow = useIsNarrow();
-  const left = usePaneState('mycodex-pane-left', 240);
-  const right = usePaneState('mycodex-pane-right', 320);
+  const left = usePaneState('amateras-pane-left', 240);
+  const right = usePaneState('amateras-pane-right', 320);
   const openRequestCount = useRightPaneStore((s) => s.openRequestCount);
   // M15-3/4: プレビューを開く・タブを開く要求で右ペインの折りたたみを解除
   const previewOpen = usePreviewStore((s) => s.result !== null);

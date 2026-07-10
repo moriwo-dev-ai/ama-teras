@@ -171,7 +171,7 @@ export class McpManager {
     }
     this.states.set(name, { state: 'connecting', toolCount: 0 });
     try {
-      const client = new Client({ name: 'mycodex', version: '0.1.0' });
+      const client = new Client({ name: 'amateras', version: '0.1.0' });
       const transport =
         this.deps.createTransport?.(name, sc) ??
         new StdioClientTransport({

@@ -66,7 +66,7 @@ function mockRegistry(preexisting: string[] = []): McpRegistryLike & { tools: Ma
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'mycodex-mcp-'));
+  dir = await mkdtemp(join(tmpdir(), 'amateras-mcp-'));
 });
 
 afterEach(async () => {
