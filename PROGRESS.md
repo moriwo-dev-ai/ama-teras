@@ -2,6 +2,14 @@
 
 ## 現在の状態
 
+- **M30-4(2026-07-11)**: **公開**。GitHubへ moriwo-dev-ai/ama-teras(本体)と
+  moriwo-dev-ai/amateras-registry(レジストリ)を public で公開。main+全タグをpush
+  (注釈付きタグ5個の tagger に旧個人メールが残っておりGH007で正しくブロックされたため、
+  メッセージ・日付保持で新名義に再作成してから再push=秘密情報ガードの実動確認)。
+  検証: コミット名義の moriwo-dev-ai 紐づきOK・既定レジストリURLの index.json 実疎通OK。
+  About/Topics設定、Release v1.0.0 作成(インストーラは後日添付)、
+  docs/social-preview.png(1280x640)生成。gh CLI / ffmpeg は winget 導入。
+
 - **M30-3追加(2026-07-11)**: **READMEデモGIF(docs/demo.gif)の作成**+検証起動用の
   userData明示指定。
   ①`AMATERAS_USER_DATA` 環境変数を index.ts に追加(検証・デモ用に一時userDataで
