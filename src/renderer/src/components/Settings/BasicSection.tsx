@@ -13,6 +13,7 @@ import {
   PROVIDER_PRESETS,
   isKnownModel,
 } from '../../../../shared/models';
+import { applyCustomThemeJson, clearCustomTheme, storedCustomThemeJson } from '../../lib/customTheme';
 
 const CUSTOM = '__custom__';
 
@@ -44,6 +45,9 @@ export function BasicSection({
   // M27-1: 接続テストの状態(実行中/結果)
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  // M27-6: カスタムテーマ(JSON)の編集・結果表示
+  const [themeJson, setThemeJson] = useState(() => storedCustomThemeJson() ?? '');
+  const [themeMsg, setThemeMsg] = useState('');
 
   // M27-1: プリセット(無料APIモード)使用中はキーの保存先スロットもプリセット側
   const preset =
@@ -348,6 +352,43 @@ export function BasicSection({
           </p>
         )}
       </div>
+
+      {/* M27-6(土台): カスタムテーマ(JSON)。将来「見た目の共有=データ流通」の受け口 */}
+      <details className="rounded border border-zinc-700 p-2">
+        <summary className="cursor-pointer text-xs text-zinc-400">カスタムテーマ(JSON・実験的)</summary>
+        <div className="mt-2 space-y-2">
+          <textarea
+            className="h-28 w-full resize-none rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono text-[11px]"
+            value={themeJson}
+            onChange={(e) => setThemeJson(e.target.value)}
+            placeholder={`{\n  "name": "my-theme",\n  "base": "dark",\n  "colors": { "bgDeep": "#101418", "accent": "#0f766e" }\n}`}
+          />
+          <div className="flex items-center gap-2">
+            <button
+              className="rounded bg-zinc-700 px-3 py-1 text-xs hover:bg-zinc-600 disabled:opacity-40"
+              disabled={themeJson.trim() === ''}
+              onClick={() => setThemeMsg(applyCustomThemeJson(themeJson).message)}
+            >
+              適用
+            </button>
+            <button
+              className="rounded border border-zinc-600 px-3 py-1 text-xs hover:bg-zinc-800"
+              onClick={() => {
+                clearCustomTheme();
+                setThemeMsg('標準テーマに戻した');
+              }}
+            >
+              標準に戻す
+            </button>
+            {themeMsg !== '' && <span className="text-xs text-zinc-400">{themeMsg}</span>}
+          </div>
+          <p className="text-[11px] text-zinc-500">
+            配色をJSONデータとして定義する(スロット: bgDeep / bgPanel / bgRaised / bgHover /
+            border / textMain / textSub / accent / accentText。値は16進カラーのみ)。
+            未指定スロットは base(dark/light)の標準値が使われる
+          </p>
+        </div>
+      </details>
 
       {confirmFullPc && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">

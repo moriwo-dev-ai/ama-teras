@@ -2,6 +2,21 @@
 
 ## 現在の状態
 
+- **M27-6追加(2026-07-10 夜間自律作業その2 T6・任意)**: **UIテーマの宣言的データ化(土台のみ)**。
+  REGISTRY_DESIGN.md 3層モデル「見た目の共有=宣言的データ(実行リスクゼロ)」の布石。
+  `src/shared/uiTheme.ts`: テーマJSONのスキーマ(name / base: dark|light / colors=9スロット:
+  bgDeep・bgPanel・bgRaised・bgHover・border・textMain・textSub・accent・accentText)、
+  検証 `parseUiTheme`(**値は16進カラーのみ=データ由来のCSSインジェクション不可**。
+  テーマ名の `*/` もコメント脱出できないよう除去)、CSS生成 `uiThemeCss`
+  ([data-theme='custom'] スコープでライトテーマ(M25-5)と同じ「ユーティリティクラス上書き」
+  方式。未指定スロットは base 側標準値で補完)。renderer `lib/customTheme.ts`: 適用・解除・
+  localStorage永続・起動時復元。UI: 設定「基本」タブに折りたたみの
+  「カスタムテーマ(JSON・実験的)」(貼り付け→適用/標準に戻す)。
+  土台の範囲(記録): 透明度サフィックス等の細部エイリアス網羅・テーマファイルの
+  流通(ファイル選択/共有)はフェーズ3の本実装で拡充。ヘッダーのテーマ選択(ダーク/ライト)
+  とは独立に上書きする(解除で標準設定へ戻る)。テスト7件追加(検証・注入防止・補完・CSS生成)。
+  全866テスト・typecheck 合格(フル実行の processes.test 1件は今夜の変更と無関係の
+  プロセスkillタイミング系で、単独再実行で緑=既知のWindows並列負荷扱い)。
 - **M27-5追加(2026-07-10 夜間自律作業その2 T5)**: **pluginApiVersion(互換性契約)**。
   ①現行 `ToolPlugin` インターフェースを **v1 として凍結**(正本
   `src/main/tools/versioning.ts` の `PLUGIN_API_VERSION='1.0.0'`。types.ts に凍結コメント。
