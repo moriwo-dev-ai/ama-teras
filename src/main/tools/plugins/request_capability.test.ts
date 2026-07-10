@@ -81,3 +81,17 @@ describe('request_capability(指摘#10 の契約)', () => {
     });
   });
 });
+
+describe('M27-1: 無料モードでの新規生成無効化', () => {
+  it('ctx.evolutionDisabled があるとジョブを起動せず理由文を返す', async () => {
+    const requestCapabilityFn = vi.fn(async () => ({ jobId: 99 }));
+    const reason = '無料モードでは新規生成は行えません(テスト理由文)';
+    const r = await requestCapability.execute(
+      input,
+      ctx({ evolution: { requestCapability: requestCapabilityFn }, evolutionDisabled: reason }),
+    );
+    expect(r.isError).toBe(true);
+    expect(r.content).toBe(reason);
+    expect(requestCapabilityFn).not.toHaveBeenCalled();
+  });
+});

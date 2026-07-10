@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contextLimitFor, DEFAULT_MODELS, isKnownModel, KNOWN_MODELS } from './models';
+import { contextLimitFor, DEFAULT_MODELS, FREE_API_TRAINING_NOTICE, isKnownModel, KNOWN_MODELS, PROVIDER_PRESETS } from './models';
 
 describe('models', () => {
   it('既定モデルは各プロバイダの候補に含まれる', () => {
@@ -34,5 +34,33 @@ describe('models', () => {
     expect(contextLimitFor('gpt-5.3-codex')).toBe(400_000);
     // 旧世代(gpt-5.1等)は汎用 'gpt-5' 受け皿
     expect(contextLimitFor('gpt-5.1')).toBe(200_000);
+  });
+});
+
+describe('M27-1: PROVIDER_PRESETS(無料APIモード)', () => {
+  it('全プリセットが https の baseUrl / keyPageUrl と3ステップ案内を持つ', () => {
+    for (const p of Object.values(PROVIDER_PRESETS)) {
+      expect(p.baseUrl).toMatch(/^https:\/\//);
+      expect(p.keyPageUrl).toMatch(/^https:\/\//);
+      expect(p.steps).toHaveLength(3);
+      expect(p.rateLimitNotice).toContain('無料枠');
+    }
+  });
+
+  it('既定モデルは候補一覧に含まれる', () => {
+    for (const p of Object.values(PROVIDER_PRESETS)) {
+      expect(p.models.some((m) => m.id === p.defaultModel)).toBe(true);
+    }
+  });
+
+  it('学習利用の注意文が定義されている', () => {
+    expect(FREE_API_TRAINING_NOTICE).toContain('学習');
+  });
+
+  it('contextLimitFor がプリセット系モデルを解決する', () => {
+    expect(contextLimitFor('gemini-2.5-flash')).toBe(1_000_000);
+    expect(contextLimitFor('llama-3.3-70b-versatile')).toBe(128_000);
+    expect(contextLimitFor('meta-llama/llama-3.3-70b-instruct:free')).toBe(128_000);
+    expect(contextLimitFor('deepseek/deepseek-r1:free')).toBe(64_000);
   });
 });

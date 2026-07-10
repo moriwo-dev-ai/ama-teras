@@ -24,6 +24,14 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 export function buildOpenAIParams(
   req: CompletionRequest,
   model: string,
+  opts?: {
+    /**
+     * M27-1: 出力上限のパラメータ名。OpenAI本家は max_completion_tokens 必須だが、
+     * OpenAI互換エンドポイント(Gemini/Groq/OpenRouter等)は従来の max_tokens が確実。
+     * 互換モード(baseURL指定時)は 'max_tokens' を使う
+     */
+    maxTokensParam?: 'max_completion_tokens' | 'max_tokens';
+  },
 ): OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming {
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: 'system', content: req.system },
@@ -85,7 +93,9 @@ export function buildOpenAIParams(
     model,
     stream: true,
     stream_options: { include_usage: true },
-    max_completion_tokens: req.maxTokens,
+    ...((opts?.maxTokensParam ?? 'max_completion_tokens') === 'max_tokens'
+      ? { max_tokens: req.maxTokens }
+      : { max_completion_tokens: req.maxTokens }),
     messages,
     ...(req.tools.length > 0
       ? {
@@ -197,17 +207,21 @@ export async function* normalizeOpenAIStream(
 export class OpenAIProvider implements LLMProvider {
   readonly id = 'openai' as const;
   private readonly client: OpenAI;
+  /** M27-1: baseURL指定=OpenAI互換エンドポイント。max_tokens 系のパラメータ名を切り替える */
+  private readonly compat: boolean;
 
   constructor(
     apiKey: string,
     private readonly model: string = DEFAULT_OPENAI_MODEL,
+    baseURL?: string,
   ) {
-    this.client = new OpenAI({ apiKey });
+    this.client = new OpenAI({ apiKey, ...(baseURL !== undefined ? { baseURL } : {}) });
+    this.compat = baseURL !== undefined;
   }
 
   async *complete(req: CompletionRequest): AsyncIterable<ProviderEvent> {
     const stream = await this.client.chat.completions.create(
-      buildOpenAIParams(req, this.model),
+      buildOpenAIParams(req, this.model, this.compat ? { maxTokensParam: 'max_tokens' } : undefined),
       { signal: req.signal },
     );
     yield* normalizeOpenAIStream(stream);

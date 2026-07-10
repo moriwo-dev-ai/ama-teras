@@ -20,6 +20,7 @@ import type {
   ModelPolicy,
   PluginErrorInfo,
   ProviderId,
+  SecretSlot,
   ReviewCardPayload,
   RunInfo,
   SessionLoadResult,
@@ -32,7 +33,15 @@ import type {
 import { ApprovalBroker } from '../agent/approval';
 import { compactHistory, DEFAULT_COMPACTION_THRESHOLD, estimateTokens } from '../agent/compaction';
 import { runAgentLoop } from '../agent/loop';
-import { contextLimitFor, DEFAULT_MODELS } from '../../shared/models';
+import { contextLimitFor, DEFAULT_MODELS, PROVIDER_PRESETS } from '../../shared/models';
+// M27-1: freeMode の実効値制御(maxTurns/レビューゲート/ModelPolicy/進化無効)は config.ts の純関数が正本
+import {
+  effectiveMaxTurns,
+  effectiveModelPolicy,
+  effectiveReviewGate,
+  evolutionDisabledReason,
+} from '../config';
+import { isRateLimitError, shortLLMError } from '../agent/llmErrors';
 import {
   MAX_PARALLEL_SUBAGENTS,
   runSubAgent,
@@ -134,7 +143,7 @@ export interface AgentServiceDeps {
   registry: RegistryLike;
   /** set は M15.1 の sessionOpen(workspace追従)にだけ使う。未指定なら追従しない */
   config: { get(): AppConfig; set?(next: AppConfig): unknown };
-  secrets: { get(provider: ProviderId): string | null };
+  secrets: { get(provider: SecretSlot): string | null };
   audit: { append(e: ScopeAuditEvent): void };
   /** config.workspace 未設定時の既定作業ディレクトリ(electron の app.getAppPath() 相当) */
   defaultWorkspace: () => string;
@@ -552,6 +561,14 @@ export class AgentService {
     if (this.deps.providerFactory) return this.deps.providerFactory();
     const cfg = this.deps.config.get();
     if (cfg.provider === 'openai') {
+      // M27-1: プリセット(無料APIモード)= OpenAI互換エンドポイント+専用キースロット
+      const preset = cfg.providerPreset !== undefined ? PROVIDER_PRESETS[cfg.providerPreset] : undefined;
+      if (preset !== undefined) {
+        const key = this.deps.secrets.get(preset.id);
+        if (!key) return `${preset.label.split('(')[0]} のAPIキーが未設定(設定画面の「無料で始める」から登録)`;
+        const model = cfg.model || preset.defaultModel;
+        return this.track(new OpenAIProvider(key, model, preset.baseUrl), 'openai', model, 'main');
+      }
       const key = this.deps.secrets.get('openai');
       if (!key) return 'OpenAI APIキーが未設定(設定画面から登録)';
       const model = cfg.model || DEFAULT_OPENAI_MODEL;
@@ -565,9 +582,12 @@ export class AgentService {
 
   // ---- M18: モデル自動切替(役割ベース割当) ----
 
-  /** 有効な modelPolicy(enabled=true)。無効・未設定なら null(=従来の単一モデル挙動) */
+  /**
+   * 有効な modelPolicy(enabled=true)。無効・未設定なら null(=従来の単一モデル挙動)。
+   * M27-1: freeMode 中は常に null(帯別モデルは有料キー前提の機構のため)
+   */
   private modelPolicy(): ModelPolicy | null {
-    const p = this.deps.config.get().modelPolicy;
+    const p = effectiveModelPolicy(this.deps.config.get());
     return p !== undefined && p.enabled ? p : null;
   }
 
@@ -717,6 +737,54 @@ export class AgentService {
     };
   }
 
+  /** M27-1: freeMode 中は request_capability の新規生成を止める(ToolContext へ理由を注入) */
+  private evolutionDisabledCtx(): { evolutionDisabled: string } | Record<string, never> {
+    const reason = evolutionDisabledReason(this.deps.config.get());
+    return reason !== null ? { evolutionDisabled: reason } : {};
+  }
+
+  /**
+   * M27-1: 停止時LLMエラーの平易化。無料APIモード(プリセット使用中)の429だけを
+   * プリセット別の案内文へ差し替える。それ以外は null(=生のエラー表示)
+   */
+  private friendlyLLMError(err: unknown): string | null {
+    const cfg = this.deps.config.get();
+    if (cfg.freeMode !== true || cfg.provider !== 'openai' || cfg.providerPreset === undefined) return null;
+    if (!isRateLimitError(err)) return null;
+    return `${PROVIDER_PRESETS[cfg.providerPreset].rateLimitNotice}(元エラー: ${shortLLMError(err)})`;
+  }
+
+  /**
+   * M27-1: 接続テスト(設定画面用)。現在の設定でプロバイダを生成し、
+   * 最小の1リクエスト(数トークン)を送って成否を返す。30秒でタイムアウト
+   */
+  async connectionTest(): Promise<{ ok: boolean; message: string }> {
+    const provider = this.createProvider();
+    if (typeof provider === 'string') return { ok: false, message: provider };
+    const llm = this.currentLLM();
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 30_000);
+    try {
+      let gotDone = false;
+      for await (const ev of provider.complete({
+        system: '接続テスト。「OK」とだけ返答せよ。',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'OK' }] }],
+        tools: [],
+        maxTokens: 16,
+        signal: ac.signal,
+      })) {
+        if (ev.type === 'message_done') gotDone = true;
+      }
+      if (!gotDone) return { ok: false, message: '応答が完了しなかった(message_doneなし)' };
+      return { ok: true, message: `接続OK(${llm.provider}/${llm.model})` };
+    } catch (err) {
+      if (ac.signal.aborted) return { ok: false, message: '接続テストがタイムアウトした(30秒)' };
+      return { ok: false, message: `接続失敗: ${shortLLMError(err)}` };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   // ---- chat ----
 
   /**
@@ -727,7 +795,12 @@ export class AgentService {
     const planner = this.bandLLM('planner');
     if (planner) return planner;
     const cfg = this.deps.config.get();
-    return { provider: cfg.provider, model: cfg.model || DEFAULT_MODELS[cfg.provider] };
+    // M27-1: プリセット使用中の既定モデルはプリセット側の既定
+    const fallbackModel =
+      cfg.provider === 'openai' && cfg.providerPreset !== undefined
+        ? PROVIDER_PRESETS[cfg.providerPreset].defaultModel
+        : DEFAULT_MODELS[cfg.provider];
+    return { provider: cfg.provider, model: cfg.model || fallbackModel };
   }
 
   /**
@@ -1090,8 +1163,9 @@ export class AgentService {
       emit(event);
       if (event.kind === 'message_done') this.persistSession(conv, runProvider);
     };
-    // M11-1: 設定された maxTurns をループへ配線(未設定ならループ既定の30)
-    const maxTurns = this.deps.config.get().maxTurns;
+    // M11-1: 設定された maxTurns をループへ配線(未設定ならループ既定の30)。
+    // M27-1: freeMode 中の既定は15(明示設定があればそちらを優先)
+    const maxTurns = effectiveMaxTurns(this.deps.config.get());
 
     /**
      * M16-2: 課金系エラー時のフォールバック。1会話1回・同一先への切替禁止。
@@ -1201,7 +1275,7 @@ export class AgentService {
           executeTool: async (name, input, ctx) => {
             // M19: plan 書き込み前の計画内容(マイルストーン完了検出用)
             const planBefore =
-              name === 'plan' && this.deps.config.get().reviewGate?.enabled === true
+              name === 'plan' && effectiveReviewGate(this.deps.config.get())?.enabled === true
                 ? readProjectPlan(run.workspace)
                 : null;
             const result = await executeToolWithApproval(
@@ -1211,6 +1285,7 @@ export class AgentService {
               {
               ...ctx,
               evolution: this.evolutionContext(conv),
+              ...this.evolutionDisabledCtx(),
               processes: run.processes,
               userMemoryDir: this.deps.denyPaths.userDataDir,
               ...this.screenshotContext(),
@@ -1319,6 +1394,8 @@ export class AgentService {
           },
           // M16-2: 課金系エラー時のフォールバック(transientリトライはloop内蔵)
           acquireFallback,
+          // M27-1: 無料APIモードの429はプリセット別の平易な文言で表示する
+          describeLLMError: (err) => this.friendlyLLMError(err),
           // M21-1: 実行中に積まれた追加指示をターン境界で注入する
           drainInstructions: () => run.pendingInstructions.splice(0),
         },
@@ -1332,7 +1409,7 @@ export class AgentService {
         status === 'done' &&
         !reviewRanThisRun &&
         producedOutput &&
-        this.deps.config.get().reviewGate?.enabled === true
+        effectiveReviewGate(this.deps.config.get())?.enabled === true
       ) {
         await this.runReviewGate({
           conv,
@@ -1499,7 +1576,7 @@ export class AgentService {
     // service 依存(帯プロバイダ・fix実行・承認ブローカー・audit)をコールバックで注入する
     return runReviewGateStep(
       {
-        cfg: this.deps.config.get().reviewGate,
+        cfg: effectiveReviewGate(this.deps.config.get()),
         registry: this.deps.registry,
         ...(this.deps.captureUrl !== undefined ? { captureUrl: this.deps.captureUrl } : {}),
         auditAppend: (detail) =>
@@ -1699,6 +1776,7 @@ export class AgentService {
         signal: ac.signal,
         log: () => {},
         evolution: this.evolutionContext(),
+        ...this.evolutionDisabledCtx(),
         processes: this.processes,
         userMemoryDir: this.deps.denyPaths.userDataDir,
         ...this.screenshotContext(),

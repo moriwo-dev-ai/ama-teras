@@ -1,6 +1,12 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { AppConfig, ModelBand, ModelPolicy, ReviewGateConfig } from '../shared/types';
+import type {
+  AppConfig,
+  ModelBand,
+  ModelPolicy,
+  ProviderPresetId,
+  ReviewGateConfig,
+} from '../shared/types';
 
 /** M11-1: maxTurns のクランプ範囲。未設定はループ側の既定(30)に委ねる */
 export const MAX_TURNS_MIN = 1;
@@ -12,6 +18,49 @@ export function clampMaxTurns(value: number): number {
 
 /** M18: 格上げ回数のクランプ(0=格上げ無効〜3) */
 export const MAX_ESCALATIONS_MAX = 3;
+
+// ---- M27-1: 無料APIモード ----
+
+/** freeMode時の maxTurns 既定(明示設定があればそちらを優先) */
+export const FREE_MODE_DEFAULT_MAX_TURNS = 15;
+
+export function parseProviderPreset(raw: unknown): ProviderPresetId | undefined {
+  return raw === 'gemini' || raw === 'groq' || raw === 'openrouter' ? raw : undefined;
+}
+
+/**
+ * freeMode の実効 maxTurns。明示設定 > freeMode既定(15) > 未設定(ループ既定30)。
+ * service はこの関数経由で読むこと(gating の正本をここに置く)
+ */
+export function effectiveMaxTurns(cfg: AppConfig): number | undefined {
+  if (cfg.maxTurns !== undefined) return cfg.maxTurns;
+  return cfg.freeMode === true ? FREE_MODE_DEFAULT_MAX_TURNS : undefined;
+}
+
+/** freeMode ではレビューゲートを常に無効化(無料モデルは通過率が低く枠を溶かすだけになる) */
+export function effectiveReviewGate(cfg: AppConfig): ReviewGateConfig | undefined {
+  return cfg.freeMode === true ? undefined : cfg.reviewGate;
+}
+
+/** freeMode では ModelPolicy(帯別モデル)を常に無効化(帯ごとの有料キー前提の機構のため) */
+export function effectiveModelPolicy(cfg: AppConfig): ModelPolicy | undefined {
+  return cfg.freeMode === true ? undefined : cfg.modelPolicy;
+}
+
+/**
+ * freeMode で自己進化(request_capability の新規生成)を止める理由文。
+ * null = 制限なし。freeModeAllowEvolution=true でオプトイン解除できる
+ */
+export function evolutionDisabledReason(cfg: AppConfig): string | null {
+  if (cfg.freeMode === true && cfg.freeModeAllowEvolution !== true) {
+    return (
+      '無料モードでは新規生成は行えません(無料枠を消費しやすいため)。' +
+      '将来はコミュニティの共有プラグインを検索できるようになります。' +
+      '今すぐ生成したい場合は、設定の「基本」タブ →「無料モードでも自己進化を許可」をONにしてください'
+    );
+  }
+  return null;
+}
 
 function parseBand(raw: unknown): ModelBand | null {
   const rec = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : null;
@@ -117,6 +166,13 @@ export class ConfigStore {
         merged.provider = rec['provider'];
       }
       if (typeof rec['model'] === 'string') merged.model = rec['model'];
+      // M27-1: 無料APIモード(不正値は未設定として扱う)
+      const preset = parseProviderPreset(rec['providerPreset']);
+      if (preset !== undefined) merged.providerPreset = preset;
+      if (typeof rec['freeMode'] === 'boolean') merged.freeMode = rec['freeMode'];
+      if (typeof rec['freeModeAllowEvolution'] === 'boolean') {
+        merged.freeModeAllowEvolution = rec['freeModeAllowEvolution'];
+      }
       if (typeof rec['workspace'] === 'string' && rec['workspace'] !== '') merged.workspace = rec['workspace'];
       if (rec['scopeMode'] === 'project' || rec['scopeMode'] === 'fullPc') merged.scopeMode = rec['scopeMode'];
       // M11-1: 数値でない・非有限の maxTurns は未設定として扱う(後方互換)
@@ -165,6 +221,10 @@ export class ConfigStore {
     // M11-4: 空文字は「無効化」= 未設定に正規化する
     if (clone.postEditHook !== undefined && clone.postEditHook.trim() === '') {
       delete clone.postEditHook;
+    }
+    // M27-1: 不正なプリセットIDは未設定へ正規化(IPC経由の範囲外値を防ぐ)
+    if (clone.providerPreset !== undefined && parseProviderPreset(clone.providerPreset) === undefined) {
+      delete clone.providerPreset;
     }
     // M18: 保存時にも正規化(不正形は未設定へ、格上げ回数はクランプ)
     if (clone.modelPolicy !== undefined) {

@@ -38,6 +38,12 @@ export interface AgentLoopDeps {
    */
   acquireFallback?: (reason: string, kind?: 'billing' | 'refusal') => Promise<LLMProvider | null>;
   /**
+   * M27-1: 停止時のLLMエラーをユーザー向けの平易な文言へ差し替えるフック。
+   * null を返せば従来どおり生のエラーメッセージを表示する
+   * (無料APIモードの429を「無料枠の上限に達しました…」等にするために使う)
+   */
+  describeLLMError?: (err: unknown) => string | null;
+  /**
    * M21-1: 実行中に積まれた追加指示のdrain。各ターンのLLM呼び出し前に呼ばれ、
    * 返った指示は直前の user メッセージ(tool_result群)の末尾へ text/image ブロックとして
    * 追記される(tool_use/tool_result の対を壊さない)。モデルが応答を完了した時点で
@@ -211,7 +217,8 @@ export async function runAgentLoop(
         deps.emit({
           kind: 'error',
           sessionId,
-          message: err instanceof Error ? err.message : String(err),
+          message:
+            deps.describeLLMError?.(err) ?? (err instanceof Error ? err.message : String(err)),
         });
         return finish('error');
       }

@@ -41,6 +41,7 @@ const api: MyCodexApi = {
 
   secretsSet: (provider, apiKey) => ipcRenderer.invoke(IpcChannels.secretsSet, provider, apiKey),
   secretsStatus: () => ipcRenderer.invoke(IpcChannels.secretsStatus),
+  connectionTest: () => ipcRenderer.invoke(IpcChannels.connectionTest),
 
   onEvolutionEvent: (listener) => subscribe<EvolutionEvent>(IpcChannels.evolutionEvent, listener),
   evolutionPromoteRespond: (jobId, approved) =>

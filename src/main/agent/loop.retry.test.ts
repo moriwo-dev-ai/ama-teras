@@ -187,3 +187,26 @@ describe('M26-4: セーフガード拒否(refusal)フォールバック', () => 
     expect(events.some((e) => e.kind === 'error')).toBe(true);
   });
 });
+
+describe('M27-1: describeLLMError(停止時エラーの平易化フック)', () => {
+  it('フックが文字列を返せば error イベントの文言が差し替わる', async () => {
+    const err429 = Object.assign(new Error('429 Too Many Requests'), { status: 429 });
+    const provider = scripted([err429]);
+    const { d, events } = deps(provider, {
+      describeLLMError: () => '無料枠の上限に達しました(テスト文言)',
+    });
+    const status = await runAgentLoop(d, 's1', [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], new AbortController().signal);
+    expect(status).toBe('error');
+    const errEvent = events.find((e) => e.kind === 'error');
+    expect(errEvent?.kind === 'error' && errEvent.message).toBe('無料枠の上限に達しました(テスト文言)');
+  });
+
+  it('フックが null を返せば従来どおり生のエラーメッセージ', async () => {
+    const err429 = Object.assign(new Error('429 raw error'), { status: 429 });
+    const provider = scripted([err429]);
+    const { d, events } = deps(provider, { describeLLMError: () => null });
+    await runAgentLoop(d, 's1', [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], new AbortController().signal);
+    const errEvent = events.find((e) => e.kind === 'error');
+    expect(errEvent?.kind === 'error' && errEvent.message).toBe('429 raw error');
+  });
+});

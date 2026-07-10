@@ -44,12 +44,31 @@ export type AgentEventBody =
 
 export type ProviderId = 'anthropic' | 'openai';
 
+/**
+ * M27-1: 無料APIモードのプロバイダプリセット。OpenAI互換エンドポイント
+ * (openai SDK + baseURL差し替え)として動くため ProviderId は 'openai' のまま。
+ * プリセットの実体(baseUrl・既定モデル・案内文)は shared/models.ts の PROVIDER_PRESETS
+ */
+export type ProviderPresetId = 'gemini' | 'groq' | 'openrouter';
+
+/** APIキーの保存スロット。プリセットはOpenAIと別のキーを持つため独立スロット */
+export type SecretSlot = ProviderId | ProviderPresetId;
+
 /** 送信モード。plan は実装前に計画を提示し、ツールを実行しない(承認後に通常モードで実行) */
 export type ChatMode = 'normal' | 'plan';
 
 export interface SecretsStatus {
   anthropic: boolean;
   openai: boolean;
+  gemini: boolean;
+  groq: boolean;
+  openrouter: boolean;
+}
+
+/** M27-1: 接続テスト(設定画面の「無料で始める」等)の結果 */
+export interface ConnectionTestResult {
+  ok: boolean;
+  message: string;
 }
 
 export type ToolRisk = 'safe' | 'write' | 'exec';
@@ -200,6 +219,21 @@ export interface AppConfig {
   provider: ProviderId;
   /** 空文字ならプロバイダ既定モデル */
   model: string;
+  /**
+   * M27-1: 無料APIモードのプリセット(Gemini/Groq/OpenRouter)。provider='openai' の
+   * ときだけ意味を持ち、OpenAI互換エンドポイント(baseURL差し替え)+専用キー
+   * スロットで動く。未設定=従来どおり
+   */
+  providerPreset?: ProviderPresetId;
+  /**
+   * M27-1: 無料APIモード。true のとき既定を軽量化する(maxTurns既定15・
+   * レビューゲートOFF・ModelPolicy無効)+ request_capability による新規生成を
+   * 無効化(freeModeAllowEvolution=true でオプトイン解除可)。
+   * プリセット選択時に自動ONになるが手動で切替可能
+   */
+  freeMode?: boolean;
+  /** M27-1: 無料モードでも自己進化(新規プラグイン生成)を許可するオプトイン */
+  freeModeAllowEvolution?: boolean;
   /** エージェントの作業ディレクトリ。空/未設定なら既定(アプリのルート) */
   workspace?: string;
   /** M9: 操作範囲。既定 'project'(後方互換) */

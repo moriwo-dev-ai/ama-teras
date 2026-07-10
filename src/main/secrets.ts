@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { ProviderId } from '../shared/types';
+import type { SecretSlot } from '../shared/types';
 
 /** OS暗号化の抽象(テストではフェイクを注入)。実体は Electron safeStorage(WindowsはDPAPI) */
 export interface SecretCipher {
@@ -14,7 +14,7 @@ export interface SecretCipher {
  * ファイルには base64(暗号化バイト列) のみを書く。
  */
 export class SecretStore {
-  private cache = new Map<ProviderId, string>();
+  private cache = new Map<SecretSlot, string>();
 
   constructor(
     private readonly filePath: string,
@@ -35,7 +35,7 @@ export class SecretStore {
     }
   }
 
-  set(provider: ProviderId, apiKey: string): void {
+  set(provider: SecretSlot, apiKey: string): void {
     if (!this.cipher.isAvailable()) {
       throw new Error('OSの暗号化ストレージが利用できないため、APIキーを保存できない');
     }
@@ -46,7 +46,7 @@ export class SecretStore {
     this.cache.set(provider, apiKey);
   }
 
-  get(provider: ProviderId): string | null {
+  get(provider: SecretSlot): string | null {
     const cached = this.cache.get(provider);
     if (cached !== undefined) return cached;
     const data = this.read();
@@ -61,7 +61,7 @@ export class SecretStore {
     }
   }
 
-  has(provider: ProviderId): boolean {
+  has(provider: SecretSlot): boolean {
     return this.get(provider) !== null;
   }
 }

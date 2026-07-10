@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildOpenAIParams, normalizeOpenAIStream } from './openai';
+import { buildOpenAIParams, normalizeOpenAIStream, OpenAIProvider } from './openai';
 import type { CompletionRequest, ProviderEvent } from './types';
 
 function req(overrides: Partial<CompletionRequest> = {}): CompletionRequest {
@@ -135,5 +135,29 @@ describe('normalizeOpenAIStream', () => {
       );
     expect(((await mk('length')).at(-1) as { stopReason: string }).stopReason).toBe('max_tokens');
     expect(((await mk('content_filter')).at(-1) as { stopReason: string }).stopReason).toBe('refusal');
+  });
+});
+
+describe('M27-1: OpenAI互換エンドポイント(baseURL/max_tokensパラメータ)', () => {
+  it('maxTokensParam=max_tokens 指定で max_completion_tokens の代わりに max_tokens を使う', () => {
+    const params = buildOpenAIParams(req(), 'gemini-2.5-flash', { maxTokensParam: 'max_tokens' });
+    expect(params.max_tokens).toBe(1000);
+    expect(params.max_completion_tokens).toBeUndefined();
+  });
+
+  it('opts省略時は従来どおり max_completion_tokens(後方互換)', () => {
+    const params = buildOpenAIParams(req(), 'gpt-5.5');
+    expect(params.max_completion_tokens).toBe(1000);
+    expect(params.max_tokens).toBeUndefined();
+  });
+
+  it('OpenAIProvider は baseURL を SDK クライアントへ注入する(未指定なら本家URL)', () => {
+    const compat = new OpenAIProvider('key', 'gemini-2.5-flash', 'https://example.com/v1');
+    const compatClient = (compat as unknown as { client: { baseURL: string } }).client;
+    expect(compatClient.baseURL).toBe('https://example.com/v1');
+
+    const vanilla = new OpenAIProvider('key', 'gpt-5.5');
+    const vanillaClient = (vanilla as unknown as { client: { baseURL: string } }).client;
+    expect(vanillaClient.baseURL).toContain('api.openai.com');
   });
 });

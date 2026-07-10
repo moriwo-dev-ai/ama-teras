@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AppConfig, SecretsStatus } from '../../../../shared/types';
+import type { AppConfig, SecretSlot, SecretsStatus } from '../../../../shared/types';
 import { animEnabled, setAnimEnabled } from '../../lib/animPref';
 import { currentTheme, setTheme as persistTheme } from '../../lib/themePref';
 import { BasicSection } from './BasicSection';
@@ -54,17 +54,16 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
     void window.api.settingsSet(next).then(setConfig);
   };
 
-  const saveKey = async (key: string): Promise<void> => {
+  // M27-1: 保存先スロット(プロバイダ or 無料APIプリセット)は BasicSection 側が決める
+  const saveKey = async (slot: SecretSlot, key: string): Promise<void> => {
     if (!key.trim()) return;
     try {
-      setStatus(await window.api.secretsSet(config.provider, key));
+      setStatus(await window.api.secretsSet(slot, key));
       setNotice('APIキーを保存した(OS暗号化ストレージ)');
     } catch (err) {
       setNotice(`保存失敗: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
-
-  const keySet = config.provider === 'anthropic' ? status?.anthropic : status?.openai;
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60">
@@ -127,7 +126,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
               setConfig={setConfig}
               updateConfig={updateConfig}
               saveConfig={saveConfig}
-              keySet={keySet === true}
+              secrets={status}
               onSaveKey={saveKey}
             />
           )}

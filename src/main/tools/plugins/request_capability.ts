@@ -57,6 +57,10 @@ export default {
     if (target_tool !== undefined && resolvedScope !== 'tool') {
       return { content: 'target_tool は scope="tool" のときだけ指定できる', isError: true };
     }
+    // M27-1: 無料APIモード等で新規生成が方針無効のときはジョブを起動しない
+    if (ctx.evolutionDisabled !== undefined) {
+      return { content: ctx.evolutionDisabled, isError: true };
+    }
     if (!ctx.evolution) {
       return { content: 'この実行コンテキストでは進化ジョブを起動できない', isError: true };
     }

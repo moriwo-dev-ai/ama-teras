@@ -5,6 +5,7 @@ import type {
   AppConfig,
   ApprovalDecision,
   ProviderId,
+  SecretSlot,
   RemoteConfig,
   RemoteStatusPayload,
   SecretsStatus,
@@ -47,6 +48,19 @@ function assertDecision(value: unknown): asserts value is ApprovalDecision {
 
 function assertProvider(value: unknown): asserts value is ProviderId {
   if (value !== 'anthropic' && value !== 'openai') throw new Error('IPC payload provider が不正');
+}
+
+/** M27-1: APIキー保存スロット(プロバイダ+無料APIプリセット) */
+function assertSecretSlot(value: unknown): asserts value is SecretSlot {
+  if (
+    value !== 'anthropic' &&
+    value !== 'openai' &&
+    value !== 'gemini' &&
+    value !== 'groq' &&
+    value !== 'openrouter'
+  ) {
+    throw new Error('IPC payload slot が不正');
+  }
 }
 
 function isBandLike(v: unknown): boolean {
@@ -430,14 +444,19 @@ export async function registerIpcHandlers(
   const secretsStatus = (): SecretsStatus => ({
     anthropic: secrets.has('anthropic'),
     openai: secrets.has('openai'),
+    gemini: secrets.has('gemini'),
+    groq: secrets.has('groq'),
+    openrouter: secrets.has('openrouter'),
   });
   ipcMain.handle(IpcChannels.secretsStatus, () => secretsStatus());
-  ipcMain.handle(IpcChannels.secretsSet, (_e, provider: unknown, apiKey: unknown) => {
-    assertProvider(provider);
+  ipcMain.handle(IpcChannels.secretsSet, (_e, slot: unknown, apiKey: unknown) => {
+    assertSecretSlot(slot);
     assertString(apiKey, 'apiKey');
-    secrets.set(provider, apiKey.trim());
+    secrets.set(slot, apiKey.trim());
     return secretsStatus();
   });
+  // M27-1: 接続テスト(現在の設定で最小1リクエスト)
+  ipcMain.handle(IpcChannels.connectionTest, () => service.connectionTest());
 
   // ---- 進化 ----
   ipcMain.handle(IpcChannels.evolutionPromoteRespond, (_e, jobId: unknown, approved: unknown) => {
@@ -518,6 +537,10 @@ export async function registerIpcHandlers(
     const urls: Record<string, string> = {
       anthropic: 'https://console.anthropic.com/settings/billing',
       openai: 'https://platform.openai.com/settings/organization/billing/overview',
+      // M27-1: 無料APIプリセットはAPIキー取得ページ(「無料で始める」導線)
+      gemini: 'https://aistudio.google.com/apikey',
+      groq: 'https://console.groq.com/keys',
+      openrouter: 'https://openrouter.ai/settings/keys',
     };
     const url = typeof provider === 'string' ? urls[provider] : undefined;
     if (!url) throw new Error('不明なプロバイダ');

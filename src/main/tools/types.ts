@@ -46,6 +46,11 @@ export interface ToolContext {
   signal: AbortSignal;
   log: (line: string) => void;
   /**
+   * M27-1: 自己進化の新規生成が方針で無効なとき、その理由文(request_capability が
+   * ジョブを起動せずにこの文言を返す)。無料APIモード(freeMode)で設定される
+   */
+  evolutionDisabled?: string;
+  /**
    * 自己進化への入口。request_capability プラグインだけが使う。
    * (プラグインは evolution モジュールを import できないため、コンテキスト経由で注入する)
    */

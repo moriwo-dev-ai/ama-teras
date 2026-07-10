@@ -1,11 +1,24 @@
 import { useState } from 'react';
-import type { AppConfig, ProviderId } from '../../../../shared/types';
-import { DEFAULT_MODELS, KNOWN_MODELS, isKnownModel } from '../../../../shared/models';
+import type {
+  AppConfig,
+  ProviderId,
+  ProviderPresetId,
+  SecretSlot,
+  SecretsStatus,
+} from '../../../../shared/types';
+import {
+  DEFAULT_MODELS,
+  FREE_API_TRAINING_NOTICE,
+  KNOWN_MODELS,
+  PROVIDER_PRESETS,
+  isKnownModel,
+} from '../../../../shared/models';
 
 const CUSTOM = '__custom__';
 
 /**
  * M26-5: 設定「基本」タブ — プロバイダ / モデル / APIキー / 作業ディレクトリ / 操作範囲。
+ * M27-1: 「無料で始める」(プリセット+かんたんセットアップ+接続テスト)を追加。
  * 状態は SettingsPanel に集約し props で受ける(このファイルはUI-局所状態のみ持つ)
  */
 export function BasicSection({
@@ -13,7 +26,7 @@ export function BasicSection({
   setConfig,
   updateConfig,
   saveConfig,
-  keySet,
+  secrets,
   onSaveKey,
 }: {
   config: AppConfig;
@@ -22,12 +35,51 @@ export function BasicSection({
   updateConfig: (patch: Partial<AppConfig>) => Promise<void>;
   /** キー削除を伴う保存(delete したフィールドを反映するため全量で保存) */
   saveConfig: (next: AppConfig) => void;
-  keySet: boolean;
-  onSaveKey: (key: string) => Promise<void>;
+  secrets: SecretsStatus | null;
+  onSaveKey: (slot: SecretSlot, key: string) => Promise<void>;
 }): JSX.Element {
   const [apiKey, setApiKey] = useState('');
   // fullPc 有効化は影響が大きいため確認モーダルを挟む(M9-4)
   const [confirmFullPc, setConfirmFullPc] = useState(false);
+  // M27-1: 接続テストの状態(実行中/結果)
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  // M27-1: プリセット(無料APIモード)使用中はキーの保存先スロットもプリセット側
+  const preset =
+    config.provider === 'openai' && config.providerPreset !== undefined
+      ? PROVIDER_PRESETS[config.providerPreset]
+      : undefined;
+  const keySlot: SecretSlot = preset !== undefined ? preset.id : config.provider;
+  const keySet = secrets !== null && secrets[keySlot];
+
+  const selectPreset = (id: ProviderPresetId | ''): void => {
+    setTestResult(null);
+    const next: AppConfig = { ...config };
+    if (id === '') {
+      delete next.providerPreset;
+      delete next.freeMode;
+      delete next.freeModeAllowEvolution;
+    } else {
+      next.provider = 'openai';
+      next.providerPreset = id;
+      next.model = '';
+      next.freeMode = true; // プリセット選択で自動ON(手動で切替可)
+    }
+    saveConfig(next);
+  };
+
+  const runConnectionTest = (): void => {
+    setTesting(true);
+    setTestResult(null);
+    void window.api
+      .connectionTest()
+      .then(setTestResult)
+      .catch((err: unknown) =>
+        setTestResult({ ok: false, message: err instanceof Error ? err.message : String(err) }),
+      )
+      .finally(() => setTesting(false));
+  };
 
   return (
     <div className="space-y-4">
@@ -36,18 +88,120 @@ export function BasicSection({
         <select
           className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5"
           value={config.provider}
-          onChange={(e) => void updateConfig({ provider: e.target.value as ProviderId })}
+          onChange={(e) => {
+            // プロバイダを手動変更したらプリセット(無料APIモード)は解除する
+            const next: AppConfig = { ...config, provider: e.target.value as ProviderId };
+            delete next.providerPreset;
+            delete next.freeMode;
+            delete next.freeModeAllowEvolution;
+            saveConfig(next);
+          }}
         >
           <option value="anthropic">Anthropic</option>
           <option value="openai">OpenAI</option>
         </select>
+        {preset !== undefined && (
+          <p className="text-xs text-zinc-500">
+            プリセット使用中: OpenAI互換エンドポイント({preset.baseUrl})で動作
+          </p>
+        )}
+      </div>
+
+      {/* M27-1: 無料で始める(カード登録なしの無料APIプリセット) */}
+      <div className="space-y-2 rounded border border-emerald-800 bg-emerald-950/30 p-3">
+        <p className="text-xs font-semibold text-emerald-300">
+          無料で始める(カード登録なし・無料枠APIで即開始)
+        </p>
+        <select
+          className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 text-xs"
+          value={config.providerPreset ?? ''}
+          onChange={(e) => selectPreset(e.target.value as ProviderPresetId | '')}
+        >
+          <option value="">使わない(Anthropic / OpenAI の有料APIを使う)</option>
+          {Object.values(PROVIDER_PRESETS).map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        {preset !== undefined && (
+          <>
+            <ol className="list-decimal space-y-0.5 pl-5 text-xs text-zinc-300">
+              {preset.steps.map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ol>
+            <div className="flex items-center gap-2">
+              <button
+                className="rounded bg-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-600"
+                onClick={() => void window.api.openBillingPage(preset.id)}
+              >
+                APIキー取得ページを開く ↗
+              </button>
+              <button
+                className="rounded bg-emerald-700 px-3 py-1.5 text-xs hover:bg-emerald-600 disabled:opacity-40"
+                disabled={testing || !keySet}
+                title={keySet ? '' : '先に下の欄でAPIキーを保存してください'}
+                onClick={runConnectionTest}
+              >
+                {testing ? '接続テスト中…' : '接続テスト'}
+              </button>
+            </div>
+            {testResult !== null && (
+              <p className={`text-xs ${testResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                {testResult.ok ? '✓ ' : '✗ '}
+                {testResult.message}
+              </p>
+            )}
+            <p className="text-xs text-amber-400">ℹ {FREE_API_TRAINING_NOTICE}</p>
+            <label className="flex items-center gap-2 text-xs text-zinc-300">
+              <input
+                type="checkbox"
+                checked={config.freeMode === true}
+                onChange={(e) => {
+                  const next: AppConfig = { ...config };
+                  if (e.target.checked) next.freeMode = true;
+                  else {
+                    delete next.freeMode;
+                    delete next.freeModeAllowEvolution;
+                  }
+                  saveConfig(next);
+                }}
+              />
+              無料モード(既定を軽量化: maxTurns 15・レビューゲートOFF・ModelPolicy無効)
+            </label>
+            {config.freeMode === true && (
+              <label className="flex items-center gap-2 text-xs text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={config.freeModeAllowEvolution === true}
+                  onChange={(e) => {
+                    const next: AppConfig = { ...config };
+                    if (e.target.checked) next.freeModeAllowEvolution = true;
+                    else delete next.freeModeAllowEvolution;
+                    saveConfig(next);
+                  }}
+                />
+                無料モードでも自己進化(新規プラグイン生成)を許可(無料枠を消費しやすい)
+              </label>
+            )}
+          </>
+        )}
       </div>
 
       <div className="space-y-1">
         <label className="text-xs text-zinc-400">モデル</label>
         {(() => {
           // 空欄=既定。候補外の値は「カスタム」として自由入力欄を出す(誤入力事故の防止)。
-          const isCustom = config.model !== '' && !isKnownModel(config.provider, config.model);
+          // M27-1: プリセット使用中は候補・既定ともプリセット側(モデルIDは提供元都合で
+          // 変わりうるためカスタム入力は必ず残す)
+          const choices = preset !== undefined ? preset.models : KNOWN_MODELS[config.provider];
+          const defaultModel = preset !== undefined ? preset.defaultModel : DEFAULT_MODELS[config.provider];
+          const isCustom =
+            config.model !== '' &&
+            (preset !== undefined
+              ? !preset.models.some((m) => m.id === config.model)
+              : !isKnownModel(config.provider, config.model));
           const selectValue = config.model === '' ? '' : isCustom ? CUSTOM : config.model;
           return (
             <>
@@ -60,8 +214,8 @@ export function BasicSection({
                   else void updateConfig({ model: v });
                 }}
               >
-                <option value="">既定({DEFAULT_MODELS[config.provider]})</option>
-                {KNOWN_MODELS[config.provider].map((m) => (
+                <option value="">既定({defaultModel})</option>
+                {choices.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.label}
                   </option>
@@ -93,21 +247,22 @@ export function BasicSection({
 
       <div className="space-y-1">
         <label className="text-xs text-zinc-400">
-          APIキー {keySet ? '(設定済み。再入力で上書き)' : '(未設定)'}
+          APIキー{preset !== undefined ? `(${keySlot} 用)` : ''}{' '}
+          {keySet ? '(設定済み。再入力で上書き)' : '(未設定)'}
         </label>
         <div className="flex gap-2">
           <input
             type="password"
             className="flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
             value={apiKey}
-            placeholder="sk-ant-…"
+            placeholder={preset !== undefined ? 'APIキーを貼り付け' : 'sk-ant-…'}
             onChange={(e) => setApiKey(e.target.value)}
           />
           <button
             className="rounded bg-blue-600 px-3 py-1.5 text-xs hover:bg-blue-500 disabled:opacity-40"
             disabled={!apiKey.trim()}
             onClick={() => {
-              void onSaveKey(apiKey).then(() => setApiKey(''));
+              void onSaveKey(keySlot, apiKey).then(() => setApiKey(''));
             }}
           >
             保存

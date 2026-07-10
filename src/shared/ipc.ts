@@ -16,9 +16,11 @@ import type {
   McpConfig,
   McpServerStatus,
   PluginErrorInfo,
+  ConnectionTestResult,
   ProviderId,
   RemoteStatusPayload,
   RunInfo,
+  SecretSlot,
   SecretsStatus,
   SessionLoadResult,
   SessionMeta,
@@ -50,6 +52,8 @@ export const IpcChannels = {
   userMemorySet: 'memory:user-set',
   secretsSet: 'secrets:set',
   secretsStatus: 'secrets:status',
+  /** M27-1: 現在の設定で最小1リクエストを送る接続テスト(無料で始める導線用) */
+  connectionTest: 'connection:test',
   evolutionEvent: 'evolution:event',
   evolutionPromoteRespond: 'evolution:promote-respond',
   evolutionEnqueue: 'evolution:enqueue',
@@ -141,8 +145,10 @@ export interface MyCodexApi {
   userMemorySet(content: string): Promise<void>;
 
   /** APIキーは書き込みのみ。読み出しは有無のbooleanだけ */
-  secretsSet(provider: ProviderId, apiKey: string): Promise<SecretsStatus>;
+  secretsSet(slot: SecretSlot, apiKey: string): Promise<SecretsStatus>;
   secretsStatus(): Promise<SecretsStatus>;
+  /** M27-1: 現在の設定で1リクエスト送る接続テスト */
+  connectionTest(): Promise<ConnectionTestResult>;
 
   onEvolutionEvent(listener: (event: EvolutionEvent) => void): () => void;
   evolutionPromoteRespond(jobId: number, approved: boolean): Promise<void>;
@@ -201,7 +207,8 @@ export interface MyCodexApi {
 
   /** M23-2: 使用量(トークン・概算コスト)サマリ / プロバイダの残高ダッシュボードを開く */
   usageGet(): Promise<UsageSummary>;
-  openBillingPage(provider: ProviderId): Promise<void>;
+  /** M27-1: プリセット(gemini等)はAPIキー取得ページを開く(URLはmain側の固定allowlist) */
+  openBillingPage(provider: SecretSlot): Promise<void>;
 
   /** M20: 起動時フラグ(セーフモード/進化再起動完了のバナー用)とセーフモード解除 */
   runtimeFlags(): Promise<{

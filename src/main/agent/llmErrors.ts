@@ -47,3 +47,13 @@ export function shortLLMError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
   return message.length > 140 ? `${message.slice(0, 140)}…` : message;
 }
+
+/**
+ * M27-1: レート制限(429)か。無料APIモードのプリセット別の平易な文言に
+ * 差し替える判定に使う(billing優先の分類とは独立に「429らしさ」だけを見る)
+ */
+export function isRateLimitError(err: unknown): boolean {
+  if (statusOf(err) === 429) return true;
+  const message = err instanceof Error ? err.message : String(err);
+  return /(^|[^0-9])429([^0-9]|$)/.test(message) || /rate.?limit/i.test(message);
+}

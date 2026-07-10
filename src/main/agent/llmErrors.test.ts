@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyLLMError, shortLLMError } from './llmErrors';
+import { classifyLLMError, isRateLimitError, shortLLMError } from './llmErrors';
 
 describe('classifyLLMError(M16-2)', () => {
   it('課金系はステータスに関わらず billing(429より優先)', () => {
@@ -36,5 +36,19 @@ describe('classifyLLMError(M16-2)', () => {
 
   it('shortLLMError は140文字に切り詰める', () => {
     expect(shortLLMError(new Error('x'.repeat(300))).length).toBeLessThanOrEqual(141);
+  });
+});
+
+describe('M27-1: isRateLimitError', () => {
+  it('status 429・メッセージ内の429・rate limit 文言を検出する', () => {
+    expect(isRateLimitError(Object.assign(new Error('x'), { status: 429 }))).toBe(true);
+    expect(isRateLimitError(new Error('429 {"error":...}'))).toBe(true);
+    expect(isRateLimitError(new Error('Rate limit reached for model'))).toBe(true);
+  });
+
+  it('無関係なエラーや別ステータスは検出しない', () => {
+    expect(isRateLimitError(Object.assign(new Error('boom'), { status: 500 }))).toBe(false);
+    expect(isRateLimitError(new Error('model_not_found 404'))).toBe(false);
+    expect(isRateLimitError(new Error('value is 4290'))).toBe(false);
   });
 });

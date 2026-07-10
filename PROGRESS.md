@@ -2,6 +2,36 @@
 
 ## 現在の状態
 
+- **M27-1追加(2026-07-10 夜間自律作業その2 T1)**: **無料APIモード**(カード登録なしで即開始する入口)。
+  ①OpenAI互換カスタムエンドポイント: `OpenAIProvider` に baseURL 注入(第3引数)。
+  互換モード(baseURL指定時)では `max_completion_tokens` の代わりに従来の `max_tokens` を
+  送る(Gemini/Groq/OpenRouter の互換レイヤで確実なのは max_tokens のため。パラメータ名は
+  `buildOpenAIParams` の opts で切替)。プリセットは `shared/models.ts` の `PROVIDER_PRESETS`
+  (gemini=既定推奨/groq/openrouter。baseUrl・既定モデル・候補・キー取得ページ・3ステップ案内・
+  429文言)。コンテキスト上限も gemini-/llama- 等の prefix を追加。
+  ②型構成: **ProviderId は拡張せず「openai + providerPreset + 専用キースロット」構成**
+  (NIGHT_TASKS2 の許容案。ProviderId 拡張は fallback/帯/usage 等へ波及が大きすぎるため)。
+  `SecretSlot = ProviderId | ProviderPresetId` で SecretStore/IPC のキー保存を5スロット化。
+  ③かんたんセットアップ: 設定「基本」タブに「無料で始める」枠(プリセット選択→3ステップ
+  案内+キー取得ページを開く(main側固定allowlist=openBillingPage 流用)→キー貼付(OS
+  キーチェーン経路)→接続テスト)。接続テストは新IPC `connection:test` →
+  `AgentService.connectionTest()`(最小1リクエスト・30秒タイムアウト)。
+  ④freeMode制限: プリセット選択で自動ON(手動切替可)。実効値制御は config.ts の純関数に
+  集約(`effectiveMaxTurns`=既定15/`effectiveReviewGate`=常にOFF/`effectiveModelPolicy`=
+  常に無効/`evolutionDisabledReason`)。request_capability は ToolContext.evolutionDisabled
+  経由で案内文を返しジョブを起動しない(`freeModeAllowEvolution` でオプトイン解除)。
+  無料枠の学習利用注意文(FREE_API_TRAINING_NOTICE)を「無料で始める」枠に常時表示。
+  429はループの新フック `describeLLMError` でプリセット別の平易文言に差し替え
+  (メイン会話のみ。サブエージェントは従来表示)。
+  自分で決めた判断: (a) freeMode の reviewGate/ModelPolicy は「既定OFF」ではなく**強制OFF**
+  とした(指示文の「既定」解釈。無料枠でのゲート往復は枠を溶かす+設定保存値は壊さず
+  freeMode解除で即復元されるため安全側)。(b) maxTurns だけは明示設定があれば尊重
+  (ヘビーユーザーの意図を潰さない)。(c) プリセットの既定モデルは2026-07時点で無料枠が
+  確実な保守的ID(gemini-2.5-flash 等)にし、変動リスクはUIのカスタム入力で吸収。
+  (d) 互換エンドポイントの実疎通(実キーなし)は未検証 — 接続テストUIをユーザーの
+  初回確認手段として用意した。テスト28件追加(baseURL/max_tokens切替・プリセット整合・
+  config正規化・実効値純関数・キースロット・request_capability無効化・connectionTest・
+  describeLLMError・isRateLimitError)。全792テスト・typecheck 合格。
 - **M1〜M26(夜間自律作業 T1〜T9)完了**。テスト764件・typecheck(node/web/remote)・build 全合格。
 - **夜間自律作業サマリ(2026-07-09夜〜07-10未明・NIGHT_TASKS.md 全9タスク完了)**:
   - T1(M26-1): レビューゲートを severity 方式へ再較正(high指摘ゼロで合格。既定変更)

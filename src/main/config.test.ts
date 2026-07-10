@@ -2,7 +2,16 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ConfigStore, parseModelPolicy, parseReviewGate } from './config';
+import {
+  ConfigStore,
+  effectiveMaxTurns,
+  effectiveModelPolicy,
+  effectiveReviewGate,
+  evolutionDisabledReason,
+  parseModelPolicy,
+  parseReviewGate,
+} from './config';
+import type { AppConfig } from '../shared/types';
 
 let dir: string;
 let file: string;
@@ -261,5 +270,62 @@ describe('ConfigStore', () => {
     expect(parseReviewGate({ ...base, passMode: 'severity' })?.passMode).toBe('severity');
     expect(parseReviewGate({ ...base, passMode: 'strict' })?.passMode).toBeUndefined();
     expect(parseReviewGate(base)?.passMode).toBeUndefined();
+  });
+});
+
+describe('M27-1: 無料APIモード(providerPreset / freeMode)', () => {
+  const base: AppConfig = {
+    autoApprove: { safe: true, write: false, exec: false },
+    provider: 'openai',
+    model: '',
+    scopeMode: 'project',
+  };
+
+  it('ConfigStore が providerPreset / freeMode / freeModeAllowEvolution を永続化・復元する', () => {
+    const store = new ConfigStore(file);
+    store.set({ ...base, providerPreset: 'gemini', freeMode: true, freeModeAllowEvolution: true });
+    const again = new ConfigStore(file).get();
+    expect(again.providerPreset).toBe('gemini');
+    expect(again.freeMode).toBe(true);
+    expect(again.freeModeAllowEvolution).toBe(true);
+  });
+
+  it('不正な providerPreset は読み込み・保存の両方で未設定へ正規化される', async () => {
+    await writeFile(file, JSON.stringify({ ...base, providerPreset: 'llamacpp', freeMode: 'yes' }), 'utf8');
+    const store = new ConfigStore(file);
+    expect(store.get().providerPreset).toBeUndefined();
+    expect(store.get().freeMode).toBeUndefined(); // boolean以外は取り込まない
+
+    const saved = store.set({ ...base, providerPreset: 'groq' });
+    expect(saved.providerPreset).toBe('groq');
+    const forced = store.set({ ...base, providerPreset: 'bad' as never });
+    expect(forced.providerPreset).toBeUndefined();
+  });
+
+  it('effectiveMaxTurns: freeMode の既定は15、明示設定があればそちらを優先', () => {
+    expect(effectiveMaxTurns(base)).toBeUndefined();
+    expect(effectiveMaxTurns({ ...base, freeMode: true })).toBe(15);
+    expect(effectiveMaxTurns({ ...base, freeMode: true, maxTurns: 40 })).toBe(40);
+  });
+
+  it('effectiveReviewGate / effectiveModelPolicy: freeMode 中は常に無効', () => {
+    const review = { enabled: true, threshold: 4, maxRoundsPerMilestone: 2, axes: { code: true, ux: true, requirements: true, tests: true } };
+    const policy = {
+      enabled: true,
+      planner: { provider: 'anthropic', model: 'a' },
+      worker: { provider: 'anthropic', model: 'b' },
+    } as const;
+    const cfg: AppConfig = { ...base, reviewGate: review, modelPolicy: policy as never };
+    expect(effectiveReviewGate(cfg)).toEqual(review);
+    expect(effectiveModelPolicy(cfg)).toEqual(policy);
+    const free: AppConfig = { ...cfg, freeMode: true };
+    expect(effectiveReviewGate(free)).toBeUndefined();
+    expect(effectiveModelPolicy(free)).toBeUndefined();
+  });
+
+  it('evolutionDisabledReason: freeMode 中のみ理由文、オプトインで解除', () => {
+    expect(evolutionDisabledReason(base)).toBeNull();
+    expect(evolutionDisabledReason({ ...base, freeMode: true })).toContain('無料モードでは新規生成は行えません');
+    expect(evolutionDisabledReason({ ...base, freeMode: true, freeModeAllowEvolution: true })).toBeNull();
   });
 });
