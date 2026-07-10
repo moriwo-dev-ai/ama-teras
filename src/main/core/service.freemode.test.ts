@@ -46,6 +46,7 @@ function makeService(opts: {
   providerFactory?: () => LLMProvider | string;
   registry?: AgentServiceDeps['registry'];
   enqueue?: () => Promise<number>;
+  fetchFn?: typeof fetch;
 }): {
   svc: AgentService;
   bus: EventBus;
@@ -81,8 +82,22 @@ function makeService(opts: {
     createEvolution: () => ({ list: () => [], enqueue }),
     ...(opts.bandProviderFactory !== undefined ? { bandProviderFactory: opts.bandProviderFactory } : {}),
     ...(opts.providerFactory !== undefined ? { providerFactory: opts.providerFactory } : {}),
+    ...(opts.fetchFn !== undefined ? { fetchFn: opts.fetchFn } : {}),
   });
   return { svc, bus, events, secretCalls, enqueue };
+}
+
+/** M28-3: private の evolutionContext を型を絞って呼ぶ(テスト専用の覗き穴) */
+function evolutionCtxOf(svc: AgentService): {
+  searchRegistryAndImport: (
+    d: string,
+    e: string,
+    sig: AbortSignal,
+  ) => Promise<{ outcome: string; jobId?: number; name?: string }>;
+} {
+  return (
+    svc as unknown as { evolutionContext: () => ReturnType<typeof evolutionCtxOf> }
+  ).evolutionContext();
 }
 
 function waitForTerminal(bus: EventBus): Promise<void> {
@@ -274,5 +289,114 @@ describe('M27-4: pluginImportStart の enqueue 配線', () => {
     expect(r.ok).toBe(false);
     expect(r.message).toContain('検査に失敗');
     expect(enqueue).not.toHaveBeenCalled();
+  });
+});
+
+describe('M28-3: searchRegistryAndImport(service統合)', () => {
+  const INDEX = {
+    registryVersion: 1,
+    plugins: [
+      {
+        name: 'word_count',
+        description: '文字数を数えるツール',
+        version: '1.0.0',
+        author: 'someone',
+        verified: true,
+        path: 'plugins/word_count',
+        files: ['word_count.ts', 'manifest.json'],
+      },
+    ],
+  };
+  const MANIFEST = JSON.stringify({
+    name: 'word_count',
+    version: '1.0.0',
+    pluginApiVersion: '^1',
+    description: '文字数を数えるツール',
+    author: 'someone',
+    license: 'MIT',
+    permissions: { network: false, childProcess: false, fsScope: 'none' },
+    dependencies: [],
+  });
+
+  function registryFetch(routes: Record<string, string | object>): typeof fetch {
+    return (async (url: unknown) => {
+      const body = routes[String(url)];
+      if (body === undefined) return { ok: false, status: 404 };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => (typeof body === 'string' ? JSON.parse(body) : body),
+        arrayBuffer: async () => Buffer.from(typeof body === 'string' ? body : JSON.stringify(body)),
+      };
+    }) as unknown as typeof fetch;
+  }
+
+  /** 承認カードへ自動応答するリスナーを張る */
+  function autoRespond(s: ReturnType<typeof makeService>, decision: 'allow' | 'deny'): string[] {
+    const requested: string[] = [];
+    s.bus.subscribe('approval:request', (req) => {
+      requested.push(req.toolName);
+      s.svc.approvalRespond(req.id, decision);
+    });
+    return requested;
+  }
+
+  it('候補あり+承諾 → ダウンロード → importFrom付きで enqueue される', async () => {
+    const s = makeService({
+      config: { registryUrl: 'https://reg.example' },
+      fetchFn: registryFetch({
+        'https://reg.example/index.json': INDEX,
+        'https://reg.example/plugins/word_count/word_count.ts': `export default { name: 'word_count' };`,
+        'https://reg.example/plugins/word_count/manifest.json': MANIFEST,
+      }),
+    });
+    const requested = autoRespond(s, 'allow');
+    const r = await evolutionCtxOf(s.svc).searchRegistryAndImport(
+      '文字数を数えたい',
+      'テキスト→数',
+      new AbortController().signal,
+    );
+    expect(requested).toEqual(['registry-search']);
+    expect(r.outcome).toBe('imported');
+    expect(r.jobId).toBe(1);
+    expect(s.enqueue).toHaveBeenCalledTimes(1);
+    const req = s.enqueue.mock.calls[0]![0] as { importFrom?: string; scope?: string; targetTool?: string };
+    expect(req.scope).toBe('tool');
+    expect(req.importFrom).toContain('word_count');
+  });
+
+  it('拒否(=新規生成を選択)は declined を返し enqueue しない', async () => {
+    const s = makeService({
+      config: { registryUrl: 'https://reg.example' },
+      fetchFn: registryFetch({ 'https://reg.example/index.json': INDEX }),
+    });
+    autoRespond(s, 'deny');
+    const r = await evolutionCtxOf(s.svc).searchRegistryAndImport('文字数を数えたい', 'x', new AbortController().signal);
+    expect(r.outcome).toBe('declined');
+    expect(s.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('registryUrl 未設定・不達・マッチなしは none(カードも出さない)', async () => {
+    const cases: ReturnType<typeof makeService>[] = [
+      makeService({}), // 未設定
+      makeService({
+        config: { registryUrl: 'https://reg.example' },
+        fetchFn: (async () => {
+          throw new Error('ECONNREFUSED');
+        }) as unknown as typeof fetch, // 不達
+      }),
+      makeService({
+        config: { registryUrl: 'https://reg.example' },
+        fetchFn: registryFetch({ 'https://reg.example/index.json': INDEX }), // マッチなし
+      }),
+    ];
+    const queries = ['文字数を数えたい', '文字数を数えたい', 'zzz qqq'] as const;
+    for (const [i, s] of cases.entries()) {
+      const requested = autoRespond(s, 'allow');
+      const r = await evolutionCtxOf(s.svc).searchRegistryAndImport(queries[i]!, 'vvv', new AbortController().signal);
+      expect(r.outcome, `case ${i}`).toBe('none');
+      expect(requested, `case ${i}`).toHaveLength(0);
+      expect(s.enqueue).not.toHaveBeenCalled();
+    }
   });
 });

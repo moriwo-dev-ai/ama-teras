@@ -72,6 +72,22 @@ export interface ToolContext {
      * 再起動で揮発する(過去に昇格した能力は listEvolvedCapabilities / EvolutionPanel を参照)。
      */
     list?(): EvolutionJobSummary[];
+    /**
+     * M28-3: 「作る前に探す」。レジストリ(設定 registryUrl)を検索し、候補があれば
+     * ユーザー承諾カード → ダウンロード → 既存インポートパイプライン(検証ゲート付き)へ。
+     * imported=導入ジョブ開始 / declined=ユーザーが新規生成を選択 / none=候補なし・
+     * レジストリ未設定・ネット不達(静かに生成へフォールバック)。
+     * freeMode でも利用できる(無効なのは生成のみ=「無料ユーザーは消費者」の設計)
+     */
+    searchRegistryAndImport?(
+      description: string,
+      expectedIO: string,
+      signal: AbortSignal,
+    ): Promise<
+      | { outcome: 'imported'; jobId: number; name: string }
+      | { outcome: 'declined'; name: string }
+      | { outcome: 'none' }
+    >;
   };
   /**
    * M25: ユーザー方針(AMATERAS-USER.md・全プロジェクト共通)の保存先ディレクトリ(userData)。

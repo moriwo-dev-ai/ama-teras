@@ -136,7 +136,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
           {tab === 'quality' && (
             <QualitySection config={config} saveConfig={saveConfig} updateConfig={updateConfig} />
           )}
-          {tab === 'connect' && <ConnectionsSection />}
+          {tab === 'connect' && <ConnectionsSection config={config} saveConfig={saveConfig} />}
           {tab === 'memory' && (
             <MemorySection
               userMemory={userMemory}

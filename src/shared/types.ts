@@ -244,6 +244,12 @@ export interface AppConfig {
    * 起動時にフェッチし、一致する導入済みプラグインを自動無効化する。不達は静かにスキップ
    */
   pluginRevocationUrl?: string;
+  /**
+   * M28-3: コミュニティレジストリのベースURL(「作る前に探す」)。既定は未設定=検索スキップ。
+   * request_capability の生成前に <registryUrl>/index.json を検索し、既存プラグインが
+   * あれば承諾のうえ既存インポートパイプライン(検証ゲート付き)で導入する
+   */
+  registryUrl?: string;
   /** エージェントの作業ディレクトリ。空/未設定なら既定(アプリのルート) */
   workspace?: string;
   /** M9: 操作範囲。既定 'project'(後方互換) */

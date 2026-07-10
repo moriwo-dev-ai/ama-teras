@@ -2,6 +2,26 @@
 
 ## 現在の状態
 
+- **M28-3追加(2026-07-11 夜間自律作業その3 T3)**: **「作る前に探す」レジストリ検索の本体側**。
+  `AppConfig.registryUrl`(設定「接続」タブ・既定空=検索スキップ)。新モジュール
+  `registry/search.ts`: `<registryUrl>/index.json` の取得・検証(ツール名規則・パス
+  トラバーサル防止=ファイル名は単純名のみ)、依頼文とのマッチング(**英数語+CJK文字
+  バイグラム**の素性重なり。日本語は空白区切りが無いため単純トークン化では機能しない
+  ことがテストで判明し、バイグラム方式に変更)、候補ファイルのダウンロード。
+  フロー: request_capability(scope=tool・新規のみ)が生成の前に
+  `evolution.searchRegistryAndImport` を呼ぶ → 候補があれば承認カード
+  「コミュニティに既存の進化があります」(名前/説明/作者/検証済みバッジ・未検証は追加警告)
+  → 承諾でダウンロード → **M27-4のインポートパイプライン(B環境検証→昇格承認→導入)に
+  接続**(ゲート省略なし)。拒否(declined)・候補なし・レジストリ未設定・ネット不達は
+  静かに従来の生成フローへ。**freeMode でも検索・導入は許可**(「無料ユーザーは消費者」。
+  生成のみ従来どおり無効 — plugin側で 検索→evolutionDisabled判定 の順に変更)。
+  自分で決めた判断: (a) **自律モード中は検索をスキップ**(承諾カードを見る人間がおらず
+  brokerが応答待ちでハングするため。生成へ直行し、昇格承認は従来どおり必ず人間)。
+  (b) ダウンロード失敗・検査不合格は依頼元会話へ情報カードを流して生成へフォールバック。
+  (c) index.json スキーマは T4 のレジストリ雛形と整合(registryVersion/plugins[name,
+  description,version,author,verified,path,files])。
+  テスト17件追加(index検証・マッチング・DL・plugin分岐5態・service統合3態・config)。
+  全905テスト・typecheck 合格。
 - **M28-2追加(2026-07-11 夜間自律作業その3 T2)**: **配布版(packaged)の進化機能ガード**。
   机上トレース(詳細は `docs/packaged-evolution.md`): packaged では `app.getAppPath()`=asar
   仮想パスのため、`enqueue` 冒頭の `nextJobId`(git tag)が最初の死点で生のgitエラーになり、

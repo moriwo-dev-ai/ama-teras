@@ -181,6 +181,10 @@ export class ConfigStore {
       ) {
         merged.pluginRevocationUrl = rec['pluginRevocationUrl'];
       }
+      // M28-3: レジストリURL(作る前に探す)。同上
+      if (typeof rec['registryUrl'] === 'string' && /^https?:\/\//.test(rec['registryUrl'])) {
+        merged.registryUrl = rec['registryUrl'];
+      }
       if (rec['scopeMode'] === 'project' || rec['scopeMode'] === 'fullPc') merged.scopeMode = rec['scopeMode'];
       // M11-1: 数値でない・非有限の maxTurns は未設定として扱う(後方互換)
       if (typeof rec['maxTurns'] === 'number' && Number.isFinite(rec['maxTurns'])) {
@@ -236,6 +240,10 @@ export class ConfigStore {
     // M27-4: 失効リストURLは http(s) のみ。空文字・不正形式は未設定へ
     if (clone.pluginRevocationUrl !== undefined && !/^https?:\/\//.test(clone.pluginRevocationUrl)) {
       delete clone.pluginRevocationUrl;
+    }
+    // M28-3: レジストリURLも同様に正規化
+    if (clone.registryUrl !== undefined && !/^https?:\/\//.test(clone.registryUrl)) {
+      delete clone.registryUrl;
     }
     // M18: 保存時にも正規化(不正形は未設定へ、格上げ回数はクランプ)
     if (clone.modelPolicy !== undefined) {

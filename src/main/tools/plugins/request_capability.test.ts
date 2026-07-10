@@ -95,3 +95,82 @@ describe('M27-1: 無料モードでの新規生成無効化', () => {
     expect(requestCapabilityFn).not.toHaveBeenCalled();
   });
 });
+
+describe('M28-3: 「作る前に探す」(searchRegistryAndImport)', () => {
+  const search = (outcome: 'imported' | 'declined' | 'none') =>
+    vi.fn(async () =>
+      outcome === 'imported'
+        ? ({ outcome: 'imported', jobId: 42, name: 'text_stats' } as const)
+        : outcome === 'declined'
+          ? ({ outcome: 'declined', name: 'text_stats' } as const)
+          : ({ outcome: 'none' } as const),
+    );
+
+  it('候補が導入されたら生成ジョブは起動せず、インポートジョブ番号を返す', async () => {
+    const requestCapabilityFn = vi.fn(async () => ({ jobId: 7 }));
+    const searchFn = search('imported');
+    const r = await requestCapability.execute(
+      input,
+      ctx({ evolution: { requestCapability: requestCapabilityFn, searchRegistryAndImport: searchFn } }),
+    );
+    expect(searchFn).toHaveBeenCalledWith(input.description, input.expected_io, expect.anything());
+    expect(requestCapabilityFn).not.toHaveBeenCalled();
+    expect(r.isError).toBeUndefined();
+    expect(r.content).toContain('#42');
+    expect(r.content).toContain('text_stats');
+  });
+
+  it('declined / none は従来どおり生成ジョブへフォールバックする', async () => {
+    for (const outcome of ['declined', 'none'] as const) {
+      const requestCapabilityFn = vi.fn(async () => ({ jobId: 8 }));
+      const r = await requestCapability.execute(
+        input,
+        ctx({ evolution: { requestCapability: requestCapabilityFn, searchRegistryAndImport: search(outcome) } }),
+      );
+      expect(requestCapabilityFn).toHaveBeenCalledTimes(1);
+      expect(r.content).toContain('#8');
+    }
+  });
+
+  it('freeMode(evolutionDisabled)でも検索・導入はでき、生成のみ止まる', async () => {
+    const requestCapabilityFn = vi.fn(async () => ({ jobId: 9 }));
+    // 導入成功 → 無効文言ではなく導入メッセージ
+    const ok = await requestCapability.execute(
+      input,
+      ctx({
+        evolution: { requestCapability: requestCapabilityFn, searchRegistryAndImport: search('imported') },
+        evolutionDisabled: '無料モードでは新規生成は行えません(テスト)',
+      }),
+    );
+    expect(ok.isError).toBeUndefined();
+    expect(ok.content).toContain('#42');
+    // 候補なし → 生成は無効文言で止まる(enqueueは呼ばれない)
+    const blocked = await requestCapability.execute(
+      input,
+      ctx({
+        evolution: { requestCapability: requestCapabilityFn, searchRegistryAndImport: search('none') },
+        evolutionDisabled: '無料モードでは新規生成は行えません(テスト)',
+      }),
+    );
+    expect(blocked.isError).toBe(true);
+    expect(blocked.content).toContain('無料モード');
+    expect(requestCapabilityFn).not.toHaveBeenCalled();
+  });
+
+  it('target_tool 指定(既存修正)ではレジストリ検索しない', async () => {
+    const requestCapabilityFn = vi.fn(async () => ({ jobId: 10 }));
+    const searchFn = search('imported');
+    await requestCapability.execute(
+      { ...input, target_tool: 'web_search' },
+      ctx({ evolution: { requestCapability: requestCapabilityFn, searchRegistryAndImport: searchFn } }),
+    );
+    expect(searchFn).not.toHaveBeenCalled();
+    expect(requestCapabilityFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('searchRegistryAndImport 未注入(従来構成)は従来どおり', async () => {
+    const requestCapabilityFn = vi.fn(async () => ({ jobId: 11 }));
+    const r = await requestCapability.execute(input, ctx({ evolution: { requestCapability: requestCapabilityFn } }));
+    expect(r.content).toContain('#11');
+  });
+});

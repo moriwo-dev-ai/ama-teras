@@ -57,6 +57,24 @@ export default {
     if (target_tool !== undefined && resolvedScope !== 'tool') {
       return { content: 'target_tool は scope="tool" のときだけ指定できる', isError: true };
     }
+    // M28-3: 「作る前に探す」。新規ツール依頼(scope=tool・修正対象なし)は生成の前に
+    // コミュニティレジストリを検索する。freeMode でも検索・導入は許可される
+    // (無効なのは生成のみ)。候補なし・不達・辞退は静かに下の生成フローへ
+    if (resolvedScope === 'tool' && target_tool === undefined && ctx.evolution?.searchRegistryAndImport) {
+      const found = await ctx.evolution.searchRegistryAndImport(description, expected_io, ctx.signal);
+      if (found.outcome === 'imported') {
+        return {
+          content:
+            `コミュニティの既存プラグイン「${found.name}」が見つかり、インポートを開始した(ジョブ#${found.jobId})。` +
+            `B環境の検証ゲート(typecheck→テスト→スモーク)に合格するとユーザー承認のうえで利用可能になる。` +
+            `ジョブが完了/失敗すると自動通知でこの会話が再開されるので、結果を待って停止する必要はない。` +
+            `ユーザーには「コミュニティの既存プラグインを導入中(ジョブ#${found.jobId})」と伝え、` +
+            `待っている間に既存ツールで進められる作業があれば続行せよ。`,
+        };
+      }
+      // declined(ユーザーが新規生成を選択)/ none(候補なし)→ 生成フローへ続行
+    }
+
     // M27-1: 無料APIモード等で新規生成が方針無効のときはジョブを起動しない
     if (ctx.evolutionDisabled !== undefined) {
       return { content: ctx.evolutionDisabled, isError: true };

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
-import { isAbsolute, relative } from 'node:path';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join, relative } from 'node:path';
 import type {
   AgentEvent,
   AgentStatus,
@@ -62,6 +63,7 @@ import { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from '../providers/anthrop
 import { DEFAULT_OPENAI_MODEL, OpenAIProvider } from '../providers/openai';
 import type { ChatMessage, LLMProvider } from '../providers/types';
 import { inspectImportDir } from '../registry/packager';
+import { downloadRegistryPlugin, fetchRegistryIndex, matchRegistryEntries } from '../registry/search';
 import { runReviewGateStep } from '../review/gateRunner';
 import { newlyCompleted } from '../review/planDiff';
 // M26-2: コア領域(聖域)判定はA側の正本リストを共用する(進化ジョブ非波及の逆方向importなのでOK)
@@ -171,6 +173,8 @@ export interface AgentServiceDeps {
   captureUrl?: (url: string, width?: number, height?: number) => Promise<{ data: string; mediaType: string }>;
   /** M16-2 テスト用: フォールバックプロバイダ生成の差し替え(未指定なら secrets から実プロバイダ) */
   fallbackProviderFactory?: (provider: ProviderId, model: string) => LLMProvider;
+  /** M28-3: レジストリ検索のHTTP実体(テスト用注入。既定 globalThis.fetch) */
+  fetchFn?: typeof fetch;
   /**
    * M18 テスト用: 帯プロバイダ生成の差し替え。キー有無の判定(secrets)は差し替えの
    * 前に行われる(キー未登録の警告経路もテスト可能にするため)
@@ -738,7 +742,83 @@ export class AgentService {
       }),
       // M24: evolution_jobs ツールがパイプラインの内部ログを読むための入口
       list: () => this.evolution.list(),
+      // M28-3: 「作る前に探す」(request_capability が生成の前に呼ぶ)
+      searchRegistryAndImport: (description: string, expectedIO: string, signal: AbortSignal) =>
+        this.searchRegistryAndImport(description, expectedIO, signal, origin),
     };
+  }
+
+  /**
+   * M28-3: レジストリ検索 → 候補カード(承認ダイアログ)→ ダウンロード →
+   * M27-4 のインポートパイプライン(B環境検証→承認→導入)へ接続する。
+   * レジストリ未設定・ネット不達・マッチなしは 'none'(静かに生成へフォールバック)。
+   * 自律モード中は承諾カードを見る人間がいないため検索をスキップする(安全側)
+   */
+  private async searchRegistryAndImport(
+    description: string,
+    expectedIO: string,
+    signal: AbortSignal,
+    origin?: ConvState,
+  ): Promise<
+    | { outcome: 'imported'; jobId: number; name: string }
+    | { outcome: 'declined'; name: string }
+    | { outcome: 'none' }
+  > {
+    const registryUrl = this.deps.config.get().registryUrl;
+    if (registryUrl === undefined || origin?.autonomous === true) return { outcome: 'none' };
+    const fetchFn = this.deps.fetchFn ?? fetch;
+    const entries = await fetchRegistryIndex(registryUrl, fetchFn);
+    if (entries === null || entries.length === 0) return { outcome: 'none' };
+    const matches = matchRegistryEntries(entries, `${description} ${expectedIO}`);
+    const best = matches[0]?.entry;
+    if (best === undefined) return { outcome: 'none' };
+
+    const others = matches
+      .slice(1, 3)
+      .map((m) => `- ${m.entry.name}@${m.entry.version}: ${m.entry.description.slice(0, 80)}`)
+      .join('\n');
+    const decision = await this.broker.request(
+      {
+        toolName: 'registry-search',
+        risk: 'safe',
+        inputPreview:
+          `候補: ${best.name}@${best.version}\n説明: ${best.description}\n` +
+          `作者: ${best.author || '不明'} / ${best.verified ? '✅ 検証済み(レジストリCI+人間承認)' : '⚠ 未検証'}` +
+          (others !== '' ? `\n\n他の候補:\n${others}` : ''),
+        warnings: [
+          `コミュニティに既存の進化があります。「許可」でダウンロードして検証ゲート(B環境: typecheck→テスト→スモーク)へ進みます(導入前に必ず昇格承認があります)。「拒否」で従来どおり新規生成します`,
+          ...(best.verified ? [] : ['この候補は未検証です(レジストリの人間承認を通っていません)']),
+        ],
+      },
+      signal,
+    );
+    if (decision === 'deny') return { outcome: 'declined', name: best.name };
+
+    const destDir = join(tmpdir(), `amateras-registry-${randomUUID()}`, best.name);
+    const dl = await downloadRegistryPlugin(registryUrl, best, destDir, fetchFn);
+    if (!dl.ok) {
+      // ダウンロード失敗は生成へフォールバック(理由は依頼元会話に情報カードで残す)
+      this.emitInfoTo(origin, `レジストリ候補「${best.name}」の${dl.message} — 従来の生成フローへ進みます`);
+      return { outcome: 'none' };
+    }
+    const started = await this.pluginImportStart(destDir);
+    if (!started.ok || started.jobId === undefined) {
+      this.emitInfoTo(origin, `レジストリ候補「${best.name}」の検査に失敗: ${started.message} — 従来の生成フローへ進みます`);
+      return { outcome: 'none' };
+    }
+    return { outcome: 'imported', jobId: started.jobId, name: best.name };
+  }
+
+  /** 依頼元会話へ情報カードを流す(会話が無ければ捨てる) */
+  private emitInfoTo(origin: ConvState | undefined, message: string): void {
+    const run = origin?.run;
+    if (run == null) return;
+    this.deps.bus.publish('chat:event', {
+      kind: 'info',
+      sessionId: run.sessionId,
+      message,
+      conversationId: origin!.id,
+    });
   }
 
   /** M27-1: freeMode 中は request_capability の新規生成を止める(ToolContext へ理由を注入) */
