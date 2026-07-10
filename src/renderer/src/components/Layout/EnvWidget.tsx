@@ -47,7 +47,7 @@ export function EnvWidget(): JSX.Element {
   return (
     <div className="space-y-0.5 border-b border-zinc-800 px-3 py-2 text-[11px] text-zinc-400">
       <div className="flex items-center gap-1">
-        <span className="truncate font-mono text-zinc-300" title={ws || '(既定workspace)'}>
+        <span className="min-w-0 flex-1 truncate font-mono text-zinc-300" title={ws || '(既定workspace)'}>
           📁 {wsName}
         </span>
         {/* M26-7: 表示中の会話のworkspaceを移動(実行中はmain側でも拒否されるがUIでも防ぐ) */}

@@ -31,10 +31,10 @@ export function ApprovalDialog(): JSX.Element | null {
         {req.origin !== undefined && (
           <div className="mb-2 flex items-baseline gap-2 rounded-md border border-zinc-700 bg-zinc-950 p-2 text-xs">
             <span className="shrink-0 text-zinc-500">出所:</span>
-            <span className="truncate font-semibold text-zinc-200" title={req.origin.workspace}>
+            <span className="min-w-0 shrink-0 truncate font-semibold text-zinc-200" title={req.origin.workspace}>
               📁 {req.origin.workspace.split(/[\\/]/).filter(Boolean).pop() ?? req.origin.workspace}
             </span>
-            <span className="truncate text-zinc-400">{req.origin.title}</span>
+            <span className="min-w-0 truncate text-zinc-400">{req.origin.title}</span>
           </div>
         )}
 

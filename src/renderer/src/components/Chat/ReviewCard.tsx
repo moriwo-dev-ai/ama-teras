@@ -42,7 +42,7 @@ export function ReviewCard({ card }: { card: ReviewCardPayload }): JSX.Element {
           </span>
           <span>{badge}</span>
           <span className="font-mono text-zinc-300">{card.average.toFixed(1)}/5</span>
-          <span className="ml-auto truncate text-zinc-500" title={card.milestone}>
+          <span className="ml-auto min-w-0 truncate text-zinc-500" title={card.milestone}>
             {card.milestone}
           </span>
           <span className="text-zinc-500">{open ? '▲' : '▼'}</span>
