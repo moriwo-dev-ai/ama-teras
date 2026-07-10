@@ -1,4 +1,3 @@
-import { transform } from 'esbuild';
 import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
@@ -11,6 +10,18 @@ import { PLUGIN_API_VERSION, satisfiesApiRange } from './versioning';
 // 変更が無いのに動的import が増え続けESMモジュールキャッシュが肥大していた。
 // 変更が無いファイルはキャッシュ済みプラグインを返し、再importを避ける。
 const transpileCache = new Map<string, { sourceHash: string; compiledPath: string; plugin: ToolPlugin }>();
+
+// esbuild は「モジュール読込時」に ESBUILD_BINARY_PATH を変数へ固定する。
+// 静的importだとESMのホイストで index.ts の環境変数設定(パッケージ版の
+// asar外バイナリ指定)より先に評価され、asar内パスをspawnしてENOENTになる。
+// 初回使用時の動的importにして、環境変数設定後に読み込まれることを保証する。
+let cachedTransform: typeof import('esbuild').transform | undefined;
+async function esbuildTransform(): Promise<typeof import('esbuild').transform> {
+  if (!cachedTransform) {
+    cachedTransform = (await import('esbuild')).transform;
+  }
+  return cachedTransform;
+}
 
 export interface LoadedPlugin {
   plugin: ToolPlugin;
@@ -71,6 +82,7 @@ export async function loadPluginFile(filePath: string, cacheDir: string): Promis
   const cached = transpileCache.get(filePath);
   if (cached && cached.sourceHash === sourceHash) return cached.plugin;
 
+  const transform = await esbuildTransform();
   const { code } = await transform(source, { loader: 'ts', format: 'esm', target: 'es2022' });
   const name = basename(filePath, '.ts');
   const compiledPath = join(cacheDir, `${name}.${sourceHash}.mjs`);
