@@ -12,6 +12,8 @@ for itself — which only ships after passing verification gates and your explic
 
 ![Demo: "I want a YAML-to-JSON tool" → approval → self-generation → verification gates → promotion approval → usable immediately](docs/demo.gif)
 
+📝 Behind the scenes (Japanese article): [Fable 5にアプリを自分自身ごと進化させたら、6夜でOSS公開まで走れた](https://zenn.dev/moriwo_dev_ai/articles/ama-teras-self-evolving-agent)
+
 ## Features
 
 ### 🛡 Safe self-evolution
