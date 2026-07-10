@@ -1,5 +1,47 @@
 # PROGRESS
 
+## ⚠ 朝にユーザーとやること(NIGHT_TASKS5 = M31)
+
+**最重要: T2(Electron 43)は未着手のまま保留中。理由は下記「M31の状態」参照。**
+
+1. **実アプリを閉じてから** 私に「T2から再開して」と指示
+   (稼働中のAMA-teras本体が node_modules/electron/dist/electron.exe をロックしており、
+   npm install が EBUSY で失敗。私からのアプリ終了はツール権限で拒否されたため保留した)
+2. T2〜T4完了後: `git push`(`!` プレフィックスで実行)
+3. インストーラができていれば: `gh release upload v1.0.0 <installer.exe>` で添付
+   → README「準備中」を配布リンクに差し替え → 再push
+4. https://github.com/moriwo-dev-ai/ama-teras/security/dependabot で
+   アラート23件が解消されたか確認(Electron 43 + electron-builder 26 で全解消の想定)
+
+## M31(NIGHT_TASKS5)の状態
+
+- **M31-1 完了**: `npm audit fix`(forceなし)。実質的な更新は既にlock内で済んでおり
+  差分はlicenseフィールド1行のみ。**残10件(high)は全てメジャー更新が必要**:
+  Electron本体の6件(→43.1.0、実行時に影響)+ tar系7件(devDepsのみ、
+  electron-builder/@electron/rebuild/node-gyp経由 →electron-builder 26で解消)。
+  typecheck 3構成+vitest 961件全緑。
+- **M31-2(Electron 43)保留**: 破壊的変更の事前調査は完了(下記)。
+  npm install 実行時に稼働中の実アプリがバイナリをロックしており EBUSY。
+  穏当な終了(taskkill、/Fなし)を試みたが自動モードの権限ガードが
+  「ユーザーが起動したプロセスの停止」を拒否(妥当なガードなので回避しない)。
+  **コードやlockは無傷に復旧済み**(electron 37.10.3 のまま全緑)。
+  - 調査済みの影響(37→43): ①**42でelectronパッケージのpostinstall自動DL廃止**
+    → B環境はnode_modulesジャンクション共有・スモークは `npx electron .` のため
+    影響なし。開発機のinstall手順のみ注意。②40でrendererのclipboardモジュール
+    非推奨(44で削除)→ 本アプリは全箇所 navigator.clipboard のため影響なし。
+    ③43でdialogのdefaultPath既定がDownloadsに変更 → ipc.tsの showOpenDialog 3箇所、
+    実害なし。④39でwindow.openポップアップ常時リサイズ可 → 影響なし。
+    ⑤Node 22→24.17 / Chromium 150 / V8 15。
+  - 再開手順: アプリ終了 → `npm i -D electron@43.1.0` → typecheck →
+    vitest → 一時userDataでスモーク(AMATERAS_SMOKE + フルUI)→ コミット
+- **M31-3(electron-builder 26)未着手**: T2完了後。既知の注意点(Web調査済み):
+  26.0.4以降 node-module-collector がパッケージマネージャをシェル実行するため、
+  **PowerShellプロファイルが標準出力に何か出すとJSONパース失敗**する事例あり。
+  失敗時はプロファイル出力を疑う。
+- **M31-4 一部完了**: README(日英)にSmartScreen注意書きの下書きを追加済み。
+  NSISビルド試行はT3後。
+- **M31-5 完了**: このチェックリスト。
+
 ## 現在の状態
 
 - **M30-4(2026-07-11)**: **公開**。GitHubへ moriwo-dev-ai/ama-teras(本体)と

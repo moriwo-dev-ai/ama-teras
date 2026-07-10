@@ -74,6 +74,12 @@ Register your API key in the in-app Settings (stored via OS encryption; never in
 
 A Windows installer is in preparation.
 
+> **Note on SmartScreen**: The upcoming installer is not code-signed, so Windows
+> SmartScreen will show a "Windows protected your PC" warning on first run.
+> Click **"More info" → "Run anyway"** to proceed. A signing certificate is
+> prohibitively expensive for an individual project; if in doubt, build from
+> source instead (see "For developers" above).
+
 See [docs/USER-GUIDE.md](docs/USER-GUIDE.md) for usage (Japanese), and
 [docs/REMOTE-SECURITY.md](docs/REMOTE-SECURITY.md) for the security model of remote
 (phone) access via Tailscale.
