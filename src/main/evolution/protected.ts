@@ -35,6 +35,18 @@ export const PROTECTED_PATHS: readonly string[] = [
   'CLAUDE.md',
   /** 聖域リストの文書(正本の写し) */
   'docs/PROTECTED.md',
+  /**
+   * M28-1: 通常経路(チャット)側のガード自身も聖域に含める。
+   * これらを書き換えられると聖域ガード・スコープ制御・自律モードのトリップワイヤが無効化できてしまう
+   */
+  /** スコープ制御(deny判定・workspace境界) */
+  'src/main/tools/scope.ts',
+  /** 承認フロー込みのツール実行(聖域ガードの通常経路側の入口) */
+  'src/main/tools/executor.ts',
+  /** 自律モードの破壊的コマンド・トリップワイヤ */
+  'src/main/tools/autonomy.ts',
+  /** 通常経路の聖域判定ロジック(このリストの利用側) */
+  'src/main/tools/sanctuary.ts',
 ];
 
 /**

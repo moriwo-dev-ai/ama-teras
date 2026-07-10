@@ -38,6 +38,17 @@ export function ApprovalDialog(): JSX.Element | null {
           </div>
         )}
 
+        {/* M28-1: 保護領域(聖域)への変更は最上位の赤バナーで明示(手動承認のみ到達する) */}
+        {req.sanctuary === true && (
+          <div className="mb-2 rounded-md border-2 border-red-500 bg-red-950 p-2 text-xs text-red-200">
+            <div className="mb-1 font-semibold">🛡 保護領域(聖域)への変更</div>
+            <div className="text-red-300/90">
+              承認機構・進化ガード・鍵素材など、本体の安全機構に関わるファイルへの書き込みです。
+              diffを必ず確認してください(セッション許可・自動承認では通りません)
+            </div>
+          </div>
+        )}
+
         {req.subAgentId !== undefined && (
           <div className="mb-2 rounded-md border border-sky-700 bg-sky-950 p-2 text-xs text-sky-200">
             🤖 サブエージェント #{req.subAgentId} からの要求(dispatch_agent 経由の並列作業)

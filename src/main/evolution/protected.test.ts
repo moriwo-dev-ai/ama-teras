@@ -34,6 +34,11 @@ describe('isProtectedFile(パス判定)', () => {
       ['src/main/userDataMigration.ts', 'src/main/userDataMigration.ts'],
       ['CLAUDE.md', 'CLAUDE.md'],
       ['docs/PROTECTED.md', 'docs/PROTECTED.md'],
+      // M28-1: 通常経路のガード自身
+      ['src/main/tools/scope.ts', 'src/main/tools/scope.ts'],
+      ['src/main/tools/executor.ts', 'src/main/tools/executor.ts'],
+      ['src/main/tools/autonomy.ts', 'src/main/tools/autonomy.ts'],
+      ['src/main/tools/sanctuary.ts', 'src/main/tools/sanctuary.ts'],
     ];
     for (const [file, expected] of cases) {
       expect(isProtectedFile(file), file).toBe(expected);
@@ -85,6 +90,11 @@ describe('自己参照ガード', () => {
       'src/main/userDataMigration.ts',
       'CLAUDE.md',
       'docs/PROTECTED.md',
+      // M28-1: 通常経路のガード自身(scope/executor/autonomy/sanctuary)
+      'src/main/tools/scope.ts',
+      'src/main/tools/executor.ts',
+      'src/main/tools/autonomy.ts',
+      'src/main/tools/sanctuary.ts',
     ]) {
       expect(PROTECTED_PATHS).toContain(required);
     }

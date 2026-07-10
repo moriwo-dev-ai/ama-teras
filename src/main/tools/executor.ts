@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type { AutoApproveSettings, DiffLine, OperationScope, ScopeMode } from '../../shared/types';
 import type { ApprovalBroker } from '../agent/approval';
 import { lineDiff } from '../util/diff';
 import { catastrophicCommandReason, collectStringValues } from './autonomy';
+import { execSanctuaryMention, execWriteIndicator, sanctuaryHitsFor, type SanctuaryHit } from './sanctuary';
 import { classifyPath, isDenied, type DenyPaths } from './scope';
 import type { ToolContext, ToolPlugin, ToolResult } from './types';
 
@@ -198,6 +199,10 @@ export async function executeToolWithApproval(
   let scope: OperationScope | undefined;
   let resolvedPaths: string[] | undefined;
   const scopeWarnings: string[] = [];
+  // M28-1: 聖域(AMA-terasリポジトリ自身の保護領域)への書き込み検出
+  let sanctuaryHits: SanctuaryHit[] = [];
+  // リポジトリルート = 注入済みの .git ディレクトリの親(未注入なら聖域判定なし=進化ジョブ等)
+  const appRepoRoot = policy?.deny.repoGitDir !== undefined ? dirname(policy.deny.repoGitDir) : null;
 
   if (policy) {
     const kind = plugin.risk === 'write' ? 'write' : 'read';
@@ -215,6 +220,70 @@ export async function executeToolWithApproval(
           ...(autonomous ? { autonomous: true } : {}),
         });
         return { content: `保護領域のため拒否: ${reason}(${abs})`, isError: true };
+      }
+    }
+
+    // M28-1: 聖域ガード(通常経路)。進化ジョブの聖域トリップワイヤと同じ正本リストで、
+    // 書き込み系ツールの宣言パスがアプリ自身の聖域に触れるかを判定する。
+    // 自律モード or 書き込み自動承認ON = ハード拒否(無人での自己ガード書き換えの穴を塞ぐ)。
+    // 手動 = 警告を付けて必ず個別承認(セッション許可でもスキップさせない)
+    if (appRepoRoot !== null && plugin.risk === 'write') {
+      sanctuaryHits = sanctuaryHitsFor(paths, appRepoRoot);
+      if (sanctuaryHits.length > 0) {
+        const detail = sanctuaryHits.map((h) => `${h.file} [${h.entry}]`).join(', ');
+        if (autonomous || deps.getAutoApprove().write === true) {
+          deps.audit?.({
+            tool: plugin.name,
+            scope: 'system',
+            paths: sanctuaryHits.map((h) => h.file),
+            event: 'hard-deny',
+            detail: `聖域への書き込み(自動承認経路)を拒否: ${detail}`,
+            ...(autonomous ? { autonomous: true } : {}),
+          });
+          return {
+            content:
+              `保護領域(聖域)への書き込みは自動承認では実行できない: ${detail}。` +
+              `本体の安全機構(承認・進化ガード・鍵)に関わるファイルのため、` +
+              `自律モード/書き込み自動承認をOFFにして、ユーザーの個別承認を得て実行すること`,
+            isError: true,
+          };
+        }
+        scopeWarnings.push(
+          `🛡 保護領域(聖域)への変更: ${detail} — 本体の安全機構(承認・進化ガード・鍵素材)に関わるファイルです。内容を必ず確認してください`,
+        );
+      }
+    }
+
+    // M28-1: exec系(bash等)はパスを静的に特定できないため簡易パターン検出。
+    // workspace がアプリ自身のリポジトリ内のときだけ判定する(他プロジェクトでの誤検出防止)
+    if (
+      appRepoRoot !== null &&
+      plugin.risk === 'exec' &&
+      !relative(appRepoRoot, policy.workspaceRoot).startsWith('..')
+    ) {
+      for (const value of collectStringValues(input)) {
+        const mention = execSanctuaryMention(value);
+        if (mention === null) continue;
+        if (autonomous && execWriteIndicator(value)) {
+          deps.audit?.({
+            tool: plugin.name,
+            scope: 'system',
+            paths: [mention],
+            event: 'hard-deny',
+            detail: `自律モードの聖域言及+書き込み指標コマンドを拒否: ${value.slice(0, 200)}`,
+            autonomous: true,
+          });
+          return {
+            content:
+              `自律モードでは、保護領域(聖域: ${mention})に言及する書き込み系コマンドは拒否される。` +
+              `必要なら自律モードを切って通常の承認で実行すること`,
+            isError: true,
+          };
+        }
+        scopeWarnings.push(
+          `⚠ コマンドが保護領域(聖域: ${mention})のパスに言及しています。bash経由の書き換えは機械的に完全検出できないため、内容を確認して承認してください`,
+        );
+        break; // 警告は1件で十分(同種の重複を避ける)
       }
     }
     scope = paths.some((p) => classifyPath(p, policy.workspaceRoot) === 'system') ? 'system' : 'workspace';
@@ -279,9 +348,12 @@ export async function executeToolWithApproval(
     dyn?.sessionKey !== undefined && deps.broker.isSessionAllowed(dyn.sessionKey);
   const dynNeedsApproval = dyn?.required === true && !dynSessionAllowed;
   // M17-2: 自律モードは承認を一切要求しない(ここより前のハード拒否・denylist が唯一の防壁)
+  // M28-1: 聖域書き込みはセッション許可・自動承認に関係なく必ず個別承認
+  // (自動承認ONのケースはこの手前でハード拒否済み。ここに来るのは手動モードのみ)
   const needsApproval =
     !autonomous &&
-    ((forced && !fullPcSessionAllowed) ||
+    (sanctuaryHits.length > 0 ||
+      (forced && !fullPcSessionAllowed) ||
       dynNeedsApproval ||
       (!auto[plugin.risk] && !deps.broker.isSessionAllowed(name)));
 
@@ -306,6 +378,8 @@ export async function executeToolWithApproval(
         warnings: [...(plugin.warnings ?? []), ...scopeWarnings, ...(dyn?.warnings ?? [])],
         ...(scope !== undefined ? { scope } : {}),
         ...(resolvedPaths !== undefined ? { resolvedPaths } : {}),
+        // M28-1: 聖域書き込みは承認UIで赤バナー表示(warnings と別に構造化フラグで渡す)
+        ...(sanctuaryHits.length > 0 ? { sanctuary: true } : {}),
         // M14-2: 「セッション中許可」の粒度をUIに明示(例: ドメイン単位)
         ...(dyn?.sessionKey !== undefined && dyn.sessionLabel !== undefined
           ? { allowSessionLabel: dyn.sessionLabel }

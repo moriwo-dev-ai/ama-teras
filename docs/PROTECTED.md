@@ -17,6 +17,8 @@
 4. **secrets(鍵素材)**: `src/main/secrets.ts`、safeStorage / Local State 移行に関わるコード
 5. **CLAUDE.md**: プロジェクト規約
 6. **このファイル自身**: `docs/PROTECTED.md` と `src/main/evolution/protected.ts`
+7. **通常経路のガード(M28-1追加)**: スコープ制御・ツール実行の承認フロー・
+   自律モードのトリップワイヤ・聖域判定ロジック(ガード自身を守る)
 
 ## 実装パス一覧(PROTECTED_PATHS の写し。同期テストで機械照合される)
 
@@ -32,6 +34,10 @@
 | `src/main/userDataMigration.ts` | 4. secrets(Local State=safeStorage鍵素材の移行) |
 | `CLAUDE.md` | 5. プロジェクト規約 |
 | `docs/PROTECTED.md` | 6. このファイル自身 |
+| `src/main/tools/scope.ts` | 7. スコープ制御(deny判定・workspace境界) |
+| `src/main/tools/executor.ts` | 7. 承認フロー込みのツール実行(通常経路ガードの入口) |
+| `src/main/tools/autonomy.ts` | 7. 自律モードの破壊的コマンド・トリップワイヤ |
+| `src/main/tools/sanctuary.ts` | 7. 通常経路の聖域判定ロジック |
 
 ## 不変条件
 
@@ -43,3 +49,28 @@
   Bの protected.ts を空にする改竄も、A側リストの `src/main/evolution` エントリで捕捉される
 - 進化diffでのシンボリックリンク新規追加/変更(mode 120000)は、聖域外であっても無条件 reject
   (リンク経由でビルド時に聖域実体へ到達する迂回の禁止)
+
+## 通常経路(チャット)側のガード(M28-1)
+
+進化ジョブだけでなく、通常のチャット経路(write_file / edit_file 等の書き込みツール)でも
+workspace がAMA-terasリポジトリ自身のとき、上記リストへの書き込みを検出する
+(実装: `src/main/tools/sanctuary.ts` + `executor.ts`。判定リストは
+`src/main/evolution/protected.ts` の PROTECTED_PATHS を単一ソースとして共用):
+
+- **自律モード or 書き込み自動承認(autoApprove.write)ON**: ハード拒否
+  (エージェントが無人で自分のガードを書き換える経路を塞ぐ)
+- **手動モード**: 承認ダイアログに赤バナー「🛡 保護領域(聖域)への変更」を表示し、
+  セッション許可(allow-session)に関係なく必ず個別承認
+
+### 既知の制約(bash 等の exec 系)
+
+bash はどのパスに触るか静的に特定できないため、**リダイレクト等による聖域の書き換えを
+機械的に完全には防げない**。緩和策として:
+
+- bash は元々すべて承認制(自動承認でも fullPc では毎回承認)
+- コマンド文字列が聖域パスに言及している場合、承認ダイアログに警告を表示
+- 自律モードでは「聖域パス言及+書き込み指標(リダイレクト・rm/mv/sed -i 等)」の
+  組み合わせをハード拒否(パターンは簡易検出であり迂回可能 — 最終防壁は承認制と
+  workspace外実行の遮断)
+
+読み取り系コマンド(grep・vitest 等)が聖域パスに触れるのは正常であり、拒否しない。

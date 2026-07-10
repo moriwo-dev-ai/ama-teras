@@ -106,6 +106,11 @@ export interface ApprovalRequestPayload {
   allowSessionLabel?: string;
   /** M22: どの会話(プロジェクト)からの承認要求か。複数同時実行時の取り違え防止表示 */
   origin?: { conversationId: string; title: string; workspace: string };
+  /**
+   * M28-1: 保護領域(聖域)への書き込み要求。UIは赤バナーで明示する。
+   * 自律モード・自動承認では手前でハード拒否されるため、これが立つのは手動承認のみ
+   */
+  sanctuary?: boolean;
 }
 
 /** M14-2: チャット送信に添付する画像(renderer → main) */

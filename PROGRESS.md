@@ -2,6 +2,33 @@
 
 ## 現在の状態
 
+- **M28-1追加(2026-07-11 夜間自律作業その3 T1)**: **聖域ガードを通常経路にも拡張**(セキュリティ)。
+  従来、聖域トリップワイヤは進化ジョブ経路のみで、通常チャットの write は普通の承認で通っていた
+  (自動承認+自律モード中にエージェントが自分のガードを書き換え得る穴)。
+  新モジュール `src/main/tools/sanctuary.ts`: 判定リストは進化ゲートと同じ
+  `evolution/protected.ts` の PROTECTED_PATHS を**単一ソースで共用**(二重定義なし。
+  guardrailsテストで自前リスト定義が無いことを機械固定)。executor.ts に組み込み:
+  - 書き込み系ツール(pathParams宣言)の解決パスがアプリ自身のリポジトリ
+    (deny.repoGitDir の親で判定)の聖域に触れるとき —
+    **自律モード or autoApprove.write ON: ハード拒否**(監査 hard-deny)/
+    **手動: 赤バナー「🛡 保護領域(聖域)への変更」+警告付きで、セッション許可に
+    関係なく必ず個別承認**(ApprovalRequestPayload.sanctuary を追加)
+  - exec系(bash等)は簡易パターン検出: workspace がアプリリポジトリ内のときのみ、
+    聖域パス言及で手動=警告表示、**自律モード=書き込み指標(リダイレクト・rm/mv/sed -i・
+    PowerShell書込・git checkout/reset等)との組み合わせでハード拒否**。
+    完全には防げない制約は docs/PROTECTED.md「通常経路(チャット)側のガード」に文書化
+  - PROTECTED_PATHS に**ガード自身を追加**: tools/scope.ts・executor.ts・autonomy.ts・
+    sanctuary.ts(sentinel/supervisorは既存の src/main/evolution に内包。docs/PROTECTED.md
+    同期・protected.test 期待値も更新)
+  自分で決めた判断: (a) 指示の「bashは警告表示まででよい」に対し、自律モードは警告を
+  見る人間がいないため**言及+書き込み指標の組はハード拒否**に倒した(安全側)。
+  読み取り系(grep/vitest等)や fd複製(2>&1)は指標に含めず誤検出を回避。
+  (b) exec の言及判定は workspace がアプリリポジトリ内のときに限定(他プロジェクトで
+  CLAUDE.md 等に触れるコマンドの誤検出防止)。(c) 聖域writeで allow-session を選んでも
+  次回また必ずダイアログ(記憶自体は非聖域writeに有効)。
+  テスト22件追加(sanctuary判定・exec検出・executor統合8態・単一ソースguardrail・
+  protected拡張)。全888テスト・typecheck 合格。
+
 - **M27-7追加(2026-07-10 公開前の最終整理)**: **git修復+Author書き換え+旧称MyCodexの一掃**。
   ①git修復: 報告のあった index/commit-graph エラーは実施時点で再現しなかったが、指示どおり
   `.git/index` 再生成+`commit-graphs` 削除を実施(どちらも非破壊の派生キャッシュ)。
