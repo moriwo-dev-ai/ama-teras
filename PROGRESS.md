@@ -2,6 +2,15 @@
 
 ## 現在の状態
 
+- **M27-2追加(2026-07-10 夜間自律作業その2 T2)**: **AGPL-3.0適用+README刷新**。
+  `LICENSE` に AGPL-3.0 全文(gnu.org 正本から取得。sha256=0d96a4ff…canonical一致を確認)、
+  `package.json` に `"license": "AGPL-3.0-only"`。`NOTICE.md` 新設(商標方針=フォークは別名/
+  DCO方式/公開範囲の方針)。`README.md` を指示の構成順序どおり全面刷新
+  (1行価値提案→デモGIFプレースホルダ docs/demo.gif→特徴3本[安全な自己進化・6帯・無料API]→
+  インストール→Mermaidアーキ図→ライセンス+コントリビューション)。
+  自分で決めた判断: 旧READMEのリモートアクセスのセキュリティ前提(0.0.0.0 listen・
+  tailnet境界・リモートAPI非公開範囲)は消さずに `docs/REMOTE-SECURITY.md` へ移設して
+  READMEからリンク(T3のセキュリティ監査でも参照する内容のため)。
 - **M27-1追加(2026-07-10 夜間自律作業その2 T1)**: **無料APIモード**(カード登録なしで即開始する入口)。
   ①OpenAI互換カスタムエンドポイント: `OpenAIProvider` に baseURL 注入(第3引数)。
   互換モード(baseURL指定時)では `max_completion_tokens` の代わりに従来の `max_tokens` を

@@ -1,59 +1,111 @@
-# AMA-teras(旧称 MyCodex)
+# AMA-teras
+
+**欲しい機能を言うと、アプリが自分で作る。ただし暴走はしない。**
 
 自己進化型デスクトップAIエージェント(Electron + React + TypeScript)。
-ユーザーと対話しながら 計画→実装→デバッグ→テスト をほぼ自動で行い、
-足りない機能は自分でツールプラグインを生成して取り込む(自己進化)。
+対話しながら 計画 → 実装 → デバッグ → テスト をほぼ自動で進め、足りない機能に出会うと
+**自分で新しいツールを生成し、検証ゲートとあなたの承認を通ってから**自分に組み込みます。
 
-## セットアップ
+## デモ
 
-```bash
-npm install
-npm run dev        # 開発起動
-npm run typecheck  # tsc(node / web / remote-ui)
-npm run test       # vitest
-npm run build      # 本体 + remote-ui(スマホUI)のビルド
+![デモ: 会話から自己進化まで30秒](docs/demo.gif)
+
+*(デモGIFは準備中)*
+
+## 特徴
+
+### 🛡 安全な自己進化
+
+自分のコードも、他人のコードも、無審査では動きません。すべての進化が同じゲートを通ります。
+
+```
+要求 → B環境(git worktree)で生成 → 検証3段(typecheck → テスト → スモーク)
+     → ユーザー承認 → 昇格(gitタグ) → 失敗時は自動ロールバック
 ```
 
-- APIキーはアプリの「設定」から登録する(OS暗号化ストレージに保存。平文保存なし)
-- 詳細な設計は `ARCHITECTURE.md` / `docs/`、進捗と判断記録は `PROGRESS.md`
+- 稼働中のアプリ(A)には触れず、隔離された作業コピー(B)で生成・検証
+- 承認機構・進化エンジン自体などの**保護領域**は進化ジョブから変更不可
+- `child_process` やネットワークを使う生成ツールは承認ダイアログで明示警告
 
-## スマホ(iPhone)からのリモートアクセス(M10)
+### 🎛 6帯モデルオーケストレーション
 
-main プロセス内蔵のHTTPサーバ(REST + SSE)がモバイルSPAを配信する。
-**ネットワーク境界は Tailscale に任せる**(tailnet 内のみ到達可能)。その上で
-アプリ側のペアリングトークン認証(sha256ハッシュ保存・timingSafeEqual・失敗バン)を重ねる。
+役割ごとに最適なモデルを割り当てて、最上位モデルを「ここぞ」だけに使います。
 
-### 手順
+| 帯 | 役割 |
+|---|---|
+| planner | 計画・最終応答(最上位モデル) |
+| worker | 実装の手数(中位) |
+| explorer | 調査・読み取り(軽量) |
+| reviewer | 品質レビュー(監査役) |
+| midEscalation / escalation | 詰まったときの段階的格上げ |
 
-1. **ビルド**: `npm run build` を一度実行(`out/remote-ui` にスマホUIが出力される)
-2. **Tailscale**: PC と iPhone に [Tailscale](https://tailscale.com/) をインストールし、
-   同一アカウントでログイン(MagicDNS を有効にしておくとホスト名でアクセスできる)
-3. **有効化**: AMA-teras → 設定 → 「リモートアクセス(スマホ・Tailscale経由)」→ 有効にする
-   - 初回有効化時に**ペアリングトークン**(64文字)が一度だけ表示される
-   - ホスト名欄に PC の MagicDNS 名(例 `mypc.tailxxxx.ts.net`)を入力すると
-     接続URL `http://mypc.tailxxxx.ts.net:8787/#t=<トークン>` が表示される
-4. **iPhoneで開く**: 接続URLを AirDrop / メモ等で iPhone に渡し、Safari で開く
-   (QRコード表示は後続タスク。現状はURL手渡し)
-   - `#t=` 付きURLならトークンは自動設定される。手入力の場合はトークンだけ貼り付け
-5. **ホーム画面に追加**: Safari の共有メニューから追加すると全画面アプリとして使える
-6. スマホからできること: チャット送受信・キャンセル・プランモード、ツール承認
-   (diff・警告表示つき)、自己進化ジョブの投入と昇格承認、監査ログ閲覧。
-   デスクトップと**同一セッションを共有**し、承認はどちらが先に応答しても両画面が閉じる
+品質レビュー・ゲート(severity方式)が各マイルストーンを採点し、
+重大指摘が残る成果物は自動で差し戻されます。
 
-### セキュリティの前提と注意
+### 🆓 無料APIモード
 
-- サーバは `0.0.0.0:8787` で listen する。**tailnet 外からの到達は Tailscale /
-  OSファイアウォールが遮断する前提**。ポート開放やインターネット公開はしないこと
-- トークンは平文保存されない(configには sha256 ハッシュのみ)。忘れたら「トークン再生成」
-  (旧トークンは即失効)
-- リモートAPIには **secrets / settings変更 / workspace変更 / scopeMode変更 を公開していない**。
-  これらはデスクトップUI専用
-- リモートからの承認は「このセッションでは常に許可」が使えない(自動的に単発の許可に降格)
-- 認証失敗が続いた接続元は60秒ブロックされる
-- `remote.enabled` の既定は false(無効時は一切 listen しない)
+カード登録なしで今すぐ試せます。設定の「無料で始める」から
+Google Gemini / Groq / OpenRouter の無料枠APIキーを3ステップで接続
+(OpenAI互換エンドポイント経由)。無料モードでは消費の激しい機能を自動で軽量化します。
 
-## テスト・検証
+## インストール
 
-- `npm run test`(vitest)— エージェントループ / プロバイダ層 / 進化マネージャ /
-  スコープ制御 / リモートサーバ(認証・SSE・パストラバーサル)をカバー
-- 手動確認手順: `docs/M9-manual-test.md`(PC全体スコープ)、`docs/M10-manual-test.md`(スマホ)
+### 開発者向け(ソースから)
+
+```bash
+git clone <このリポジトリ>
+cd amateras
+npm install
+npm run build      # 初回ビルド(本体 + スマホUI)
+npm start          # 起動
+npm run dev        # 開発起動(HMR)
+npm run typecheck  # tsc(node / web / remote-ui)
+npm test           # vitest
+```
+
+APIキーはアプリ内の「設定」から登録します(OS暗号化ストレージ保存。平文保存なし)。
+
+### 一般向け
+
+Windows インストーラは準備中です。
+
+使い方の詳細は [docs/USER-GUIDE.md](docs/USER-GUIDE.md)、スマホからのリモート操作
+(Tailscale経由)のセキュリティ前提は [docs/REMOTE-SECURITY.md](docs/REMOTE-SECURITY.md)
+を参照してください。
+
+## アーキテクチャ概要
+
+```mermaid
+flowchart LR
+  subgraph Renderer["renderer(React UI)"]
+    UI[チャット / diff / 承認 / 進化パネル]
+  end
+  subgraph Main["main プロセス"]
+    Loop[エージェントループ]
+    Tools[ツールプラグイン<br>read/write/edit/grep/bash…]
+    Prov[プロバイダ抽象層<br>Anthropic / OpenAI / OpenAI互換]
+    Evo[進化マネージャ]
+  end
+  subgraph B["B環境(git worktree)"]
+    Job[進化ジョブ(子エージェント)]
+    Gate[検証ゲート<br>typecheck→test→smoke]
+  end
+  UI <-->|型付きIPC| Loop
+  Loop --> Tools
+  Loop --> Prov
+  Tools -->|request_capability| Evo
+  Evo --> Job --> Gate -->|ユーザー承認で昇格| Tools
+```
+
+- **main**: エージェントループ・ツール実行・APIクライアント・進化マネージャ
+- **renderer**: チャット、diffビュー、承認ダイアログ、進化ジョブの状態表示
+- **ツール = プラグイン**: 1ツール=1モジュール(`ToolPlugin` インターフェース)。起動時+実行中に動的ロード
+- 設計の詳細は `ARCHITECTURE.md` と `docs/`、開発の進捗・判断記録は `PROGRESS.md`
+
+## ライセンスとコントリビューション
+
+- 本体は **AGPL-3.0**([LICENSE](LICENSE))。改変版をネットワークサービスとして提供する場合も
+  ソース公開義務が生じます。
+- 「AMA-teras」の名称はフォークでは使用できません(商標方針は [NOTICE.md](NOTICE.md))。
+- コントリビューションは DCO 方式(AGPL互換ライセンスでの提供に同意)。
+  プラグイン共有・レジストリ構想は `REGISTRY_DESIGN.md` を参照してください。
