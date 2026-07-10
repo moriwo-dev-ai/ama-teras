@@ -97,7 +97,7 @@ flowchart LR
     Evo[進化マネージャ]
   end
   subgraph B["B環境(git worktree)"]
-    Job[進化ジョブ(子エージェント)]
+    Job["進化ジョブ(子エージェント)"]
     Gate[検証ゲート<br>typecheck→test→smoke]
   end
   UI <-->|型付きIPC| Loop

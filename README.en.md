@@ -100,7 +100,7 @@ flowchart LR
     Evo[evolution manager]
   end
   subgraph B["B environment (git worktree)"]
-    Job[evolution job(child agent)]
+    Job["evolution job (child agent)"]
     Gate[verification gates<br>typecheck→test→smoke]
   end
   UI <-->|typed IPC| Loop
