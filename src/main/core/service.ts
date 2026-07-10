@@ -765,7 +765,10 @@ export class AgentService {
     | { outcome: 'none' }
   > {
     const registryUrl = this.deps.config.get().registryUrl;
-    if (registryUrl === undefined || origin?.autonomous === true) return { outcome: 'none' };
+    // M29-4: 空文字=明示的な検索無効(既定は公式レジストリURL)
+    if (registryUrl === undefined || registryUrl === '' || origin?.autonomous === true) {
+      return { outcome: 'none' };
+    }
     const fetchFn = this.deps.fetchFn ?? fetch;
     const entries = await fetchRegistryIndex(registryUrl, fetchFn);
     if (entries === null || entries.length === 0) return { outcome: 'none' };

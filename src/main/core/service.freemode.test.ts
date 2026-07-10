@@ -425,3 +425,14 @@ describe('M29-1: connectionTest の診断表示', () => {
     expect(r.message).toContain('gemini-3.5-flash'); // プリセット既定モデル
   });
 });
+
+describe('M29-4: registryUrl 空文字=検索無効', () => {
+  it("registryUrl='' のときは検索せず none(カードなし)", async () => {
+    const s = makeService({ config: { registryUrl: '' } });
+    const requested: string[] = [];
+    s.bus.subscribe('approval:request', (req) => requested.push(req.toolName));
+    const r = await evolutionCtxOf(s.svc).searchRegistryAndImport('文字数を数えたい', 'x', new AbortController().signal);
+    expect(r.outcome).toBe('none');
+    expect(requested).toHaveLength(0);
+  });
+});

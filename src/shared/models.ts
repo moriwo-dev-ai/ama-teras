@@ -90,6 +90,13 @@ export const PROVIDER_PRESETS: Record<ProviderPresetId, ProviderPreset> = {
 };
 
 /**
+ * M29-4: 公式コミュニティレジストリのベースURL(registryUrl の既定値)。
+ * 未公開の間は不達だが、検索側が静かにスキップするため無害(公開と同時に有効化される)。
+ * 空文字に設定すると検索無効。社内レジストリ等への差し替えも可
+ */
+export const DEFAULT_REGISTRY_URL = 'https://raw.githubusercontent.com/moriwo-dev-ai/amateras-registry/main';
+
+/**
  * 無料枠APIの学習利用に関する注意文(プリセット共通)。
  * 提供元・プランにより扱いが異なるため断定せず、機密は有料APIへ誘導する
  */

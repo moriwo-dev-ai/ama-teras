@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { DEFAULT_REGISTRY_URL } from '../shared/models';
 import type {
   AppConfig,
   ModelBand,
@@ -137,6 +138,8 @@ const DEFAULTS: AppConfig = {
   model: '',
   // 後方互換: 既存ユーザーの設定ファイルに scopeMode が無くても従来挙動(project)になる
   scopeMode: 'project',
+  // M29-4: 「作る前に探す」の既定は公式レジストリ(未公開の間は不達=静かにスキップ)
+  registryUrl: DEFAULT_REGISTRY_URL,
   // M10: リモートアクセスは既定で無効(有効化はデスクトップの設定UIからのみ)
   remote: { enabled: false, port: 8787 },
 };
@@ -181,9 +184,12 @@ export class ConfigStore {
       ) {
         merged.pluginRevocationUrl = rec['pluginRevocationUrl'];
       }
-      // M28-3: レジストリURL(作る前に探す)。同上
-      if (typeof rec['registryUrl'] === 'string' && /^https?:\/\//.test(rec['registryUrl'])) {
-        merged.registryUrl = rec['registryUrl'];
+      // M28-3/M29-4: レジストリURL(作る前に探す)。既定=公式レジストリ。
+      // 空文字=検索無効(明示的なオプトアウト)。不正形式は既定へフォールバック
+      if (typeof rec['registryUrl'] === 'string') {
+        if (rec['registryUrl'] === '' || /^https?:\/\//.test(rec['registryUrl'])) {
+          merged.registryUrl = rec['registryUrl'];
+        }
       }
       if (rec['scopeMode'] === 'project' || rec['scopeMode'] === 'fullPc') merged.scopeMode = rec['scopeMode'];
       // M11-1: 数値でない・非有限の maxTurns は未設定として扱う(後方互換)
@@ -241,9 +247,9 @@ export class ConfigStore {
     if (clone.pluginRevocationUrl !== undefined && !/^https?:\/\//.test(clone.pluginRevocationUrl)) {
       delete clone.pluginRevocationUrl;
     }
-    // M28-3: レジストリURLも同様に正規化
-    if (clone.registryUrl !== undefined && !/^https?:\/\//.test(clone.registryUrl)) {
-      delete clone.registryUrl;
+    // M28-3/M29-4: レジストリURLの正規化。空文字=無効は保持、不正形式・未設定は既定へ
+    if (clone.registryUrl === undefined || (clone.registryUrl !== '' && !/^https?:\/\//.test(clone.registryUrl))) {
+      clone.registryUrl = DEFAULT_REGISTRY_URL;
     }
     // M18: 保存時にも正規化(不正形は未設定へ、格上げ回数はクランプ)
     if (clone.modelPolicy !== undefined) {

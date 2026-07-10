@@ -12,6 +12,7 @@ import {
   parseReviewGate,
 } from './config';
 import type { AppConfig } from '../shared/types';
+import { DEFAULT_REGISTRY_URL } from '../shared/models';
 
 let dir: string;
 let file: string;
@@ -327,5 +328,37 @@ describe('M27-1: 無料APIモード(providerPreset / freeMode)', () => {
     expect(evolutionDisabledReason(base)).toBeNull();
     expect(evolutionDisabledReason({ ...base, freeMode: true })).toContain('無料モードでは新規生成は行えません');
     expect(evolutionDisabledReason({ ...base, freeMode: true, freeModeAllowEvolution: true })).toBeNull();
+  });
+});
+
+describe('M29-4: registryUrl の既定値と正規化', () => {
+  const base: AppConfig = {
+    autoApprove: { safe: true, write: false, exec: false },
+    provider: 'anthropic',
+    model: '',
+    scopeMode: 'project',
+  };
+
+  it('未設定なら既定=公式レジストリURLが入る(新規・既存設定ファイル両方)', async () => {
+    expect(new ConfigStore(file).get().registryUrl).toBe(DEFAULT_REGISTRY_URL);
+    await writeFile(file, JSON.stringify({ ...base }), 'utf8');
+    expect(new ConfigStore(file).get().registryUrl).toBe(DEFAULT_REGISTRY_URL);
+  });
+
+  it('空文字=検索無効は保持され、不正形式は既定へフォールバック', async () => {
+    await writeFile(file, JSON.stringify({ ...base, registryUrl: '' }), 'utf8');
+    expect(new ConfigStore(file).get().registryUrl).toBe('');
+    await writeFile(file, JSON.stringify({ ...base, registryUrl: 'ftp://bad' }), 'utf8');
+    expect(new ConfigStore(file).get().registryUrl).toBe(DEFAULT_REGISTRY_URL);
+  });
+
+  it('set() でも同じ正規化(カスタムURL保持・空文字保持・未設定/不正は既定へ)', () => {
+    const store = new ConfigStore(file);
+    expect(store.set({ ...base, registryUrl: 'https://internal.example/reg' }).registryUrl).toBe(
+      'https://internal.example/reg',
+    );
+    expect(store.set({ ...base, registryUrl: '' }).registryUrl).toBe('');
+    expect(store.set({ ...base }).registryUrl).toBe(DEFAULT_REGISTRY_URL);
+    expect(store.set({ ...base, registryUrl: 'not-a-url' }).registryUrl).toBe(DEFAULT_REGISTRY_URL);
   });
 });
