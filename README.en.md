@@ -72,7 +72,9 @@ Register your API key in the in-app Settings (stored via OS encryption; never in
 
 ### For everyone else
 
-A Windows installer is in preparation.
+**[📥 Download AMA-teras Setup 1.0.0.exe](https://github.com/moriwo-dev-ai/ama-teras/releases/download/v1.0.0/AMA-teras.Setup.1.0.0.exe)** (Windows, ~102MB, no admin rights required)
+
+Latest versions are on the [Releases](https://github.com/moriwo-dev-ai/ama-teras/releases) page.
 
 > **Note on SmartScreen**: The upcoming installer is not code-signed, so Windows
 > SmartScreen will show a "Windows protected your PC" warning on first run.
