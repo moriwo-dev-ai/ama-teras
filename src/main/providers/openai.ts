@@ -215,7 +215,11 @@ export class OpenAIProvider implements LLMProvider {
     private readonly model: string = DEFAULT_OPENAI_MODEL,
     baseURL?: string,
   ) {
-    this.client = new OpenAI({ apiKey, ...(baseURL !== undefined ? { baseURL } : {}) });
+    // M29-1: 末尾スラッシュを正規化する。SDKはパスを "/chat/completions" の形で連結するため、
+    // 末尾スラッシュ付きのbaseURL(例: Gemini公式ドキュメントの表記)だと "//" になり
+    // 404 (no body) を返すエンドポイントがある(実機で確認されたバグの原因)
+    const normalized = baseURL?.replace(/\/+$/, '');
+    this.client = new OpenAI({ apiKey, ...(normalized !== undefined ? { baseURL: normalized } : {}) });
     this.compat = baseURL !== undefined;
   }
 

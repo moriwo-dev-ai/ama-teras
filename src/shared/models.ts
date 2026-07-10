@@ -31,12 +31,16 @@ export const PROVIDER_PRESETS: Record<ProviderPresetId, ProviderPreset> = {
   gemini: {
     id: 'gemini',
     label: 'Google Gemini(無料枠が最も太い・推奨)',
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-    defaultModel: 'gemini-2.5-flash',
+    // 末尾スラッシュなし(OpenAI SDKのパス連結で "//" → 404 になるため。M29-1)
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    // M29-1: 現行世代へ更新(2026-07-11 に https://ai.google.dev/gemini-api/docs/models で確認。
+    // gemini-3.5-flash=最新Flash(安定)、gemini-3.1-flash-lite=軽量(安定)。
+    // 2.5系も提供継続中のため旧世代として1つ残す)
+    defaultModel: 'gemini-3.5-flash',
     models: [
-      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash(既定・無料枠向け)' },
-      { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite(最軽量・上限が緩い)' },
-      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro(高性能・無料枠は少なめ)' },
+      { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash(既定・最新・無料枠向け)' },
+      { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite(最軽量・上限が緩い)' },
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash(旧世代・安定)' },
     ],
     keyPageUrl: 'https://aistudio.google.com/apikey',
     steps: [

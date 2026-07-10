@@ -2,6 +2,23 @@
 
 ## 現在の状態
 
+- **M29-1追加(2026-07-11 夜間自律作業その4 T1)**: **無料APIモードの接続修正**(実機404バグ)。
+  ①原因: Gemini プリセットの baseUrl だけ末尾スラッシュ付きで、OpenAI SDK のパス連結
+  (baseURL + "/chat/completions")が "//" になり 404 (no body)。**OpenAIProvider の
+  コンストラクタで末尾スラッシュを正規化**(全プリセット共通の防御)+プリセット定義側も
+  スラッシュなしに統一し、両表記で同一URLになる単体テストとプリセット全件の
+  末尾スラッシュ禁止テストを追加。
+  ②Gemini 既定モデルを現行世代へ刷新: **gemini-3.5-flash(既定・最新Flash・安定)/
+  gemini-3.1-flash-lite(最軽量)/ gemini-2.5-flash(旧世代・継続提供)**。
+  根拠: 2026-07-11 に https://ai.google.dev/gemini-api/docs/models で実IDを確認
+  (3.5-flash と 3.1-flash-lite は stable 表記。無料枠提供は
+  https://www.aifreeapi.com/en/posts/gemini-api-free-tier-complete-guide 等の情報)。
+  コード内コメントにも確認日とURLを記録。
+  ③接続テストの診断力強化: 失敗時に**実際に叩くURL(connectionEndpoint)・model・
+  HTTPステータス・レスポンスbody(SDKエラーの error フィールド)**を表示。
+  テスト4件追加。全909テスト・typecheck 合格(フル実行のmanager 1件は既知の
+  worktree掃除タイミング系フレークで単独再実行にて緑=合格扱い)。
+
 - **M28(夜間自律作業その3・NIGHT_TASKS3.md 全6タスク完了)**。テスト905件・
   typecheck(node/web/remote)全合格。本体コミット6件(M28-1〜M28-6)+
   別リポジトリ `C:\dev\amateras-registry` にローカルコミット1件(push無し)。

@@ -64,3 +64,17 @@ describe('M27-1: PROVIDER_PRESETS(無料APIモード)', () => {
     expect(contextLimitFor('deepseek/deepseek-r1:free')).toBe(64_000);
   });
 });
+
+describe('M29-1: プリセットのbaseUrlとGemini現行モデル', () => {
+  it('全プリセットの baseUrl は末尾スラッシュなし(SDK連結で "//"→404 になるため)', () => {
+    for (const p of Object.values(PROVIDER_PRESETS)) {
+      expect(p.baseUrl.endsWith('/'), p.id).toBe(false);
+    }
+  });
+
+  it('Gemini の既定は現行世代 gemini-3.5-flash(2026-07-11 公式docs確認)', () => {
+    expect(PROVIDER_PRESETS.gemini.defaultModel).toBe('gemini-3.5-flash');
+    expect(contextLimitFor('gemini-3.5-flash')).toBe(1_000_000);
+    expect(contextLimitFor('gemini-3.1-flash-lite')).toBe(1_000_000);
+  });
+});

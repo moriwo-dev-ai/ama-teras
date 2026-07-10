@@ -400,3 +400,28 @@ describe('M28-3: searchRegistryAndImport(service統合)', () => {
     }
   });
 });
+
+describe('M29-1: connectionTest の診断表示', () => {
+  it('失敗時に 実URL・model・HTTPステータス・レスポンスbody を含める', async () => {
+    const boom: LLMProvider = {
+      id: 'openai',
+      // eslint-disable-next-line require-yield
+      async *complete(): AsyncGenerator<ProviderEvent> {
+        throw Object.assign(new Error('404 status code (no body)'), {
+          status: 404,
+          error: { message: 'model not found' },
+        });
+      },
+    };
+    const { svc } = makeService({
+      config: { provider: 'openai', providerPreset: 'gemini', freeMode: true },
+      providerFactory: () => boom,
+    });
+    const r = await svc.connectionTest();
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('generativelanguage.googleapis.com/v1beta/openai/chat/completions');
+    expect(r.message).toContain('HTTP 404');
+    expect(r.message).toContain('model not found');
+    expect(r.message).toContain('gemini-3.5-flash'); // プリセット既定モデル
+  });
+});

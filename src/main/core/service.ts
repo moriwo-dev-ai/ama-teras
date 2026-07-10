@@ -839,6 +839,21 @@ export class AgentService {
   }
 
   /**
+   * M29-1: 接続テストが実際に叩くエンドポイント(診断表示用)。
+   * OpenAI SDK は baseURL に "/chat/completions" を連結する(末尾スラッシュは
+   * プロバイダ側で正規化済み)
+   */
+  private connectionEndpoint(): string {
+    const cfg = this.deps.config.get();
+    if (cfg.provider === 'openai') {
+      const preset = cfg.providerPreset !== undefined ? PROVIDER_PRESETS[cfg.providerPreset] : undefined;
+      const base = (preset?.baseUrl ?? 'https://api.openai.com/v1').replace(/\/+$/, '');
+      return `${base}/chat/completions`;
+    }
+    return 'https://api.anthropic.com/v1/messages';
+  }
+
+  /**
    * M27-1: 接続テスト(設定画面用)。現在の設定でプロバイダを生成し、
    * 最小の1リクエスト(数トークン)を送って成否を返す。30秒でタイムアウト
    */
@@ -863,7 +878,19 @@ export class AgentService {
       return { ok: true, message: `接続OK(${llm.provider}/${llm.model})` };
     } catch (err) {
       if (ac.signal.aborted) return { ok: false, message: '接続テストがタイムアウトした(30秒)' };
-      return { ok: false, message: `接続失敗: ${shortLLMError(err)}` };
+      // M29-1: 診断力強化 — 実際に叩いたURL・HTTPステータス・レスポンスbody(あれば)を出す
+      const rec = typeof err === 'object' && err !== null ? (err as Record<string, unknown>) : {};
+      const status = typeof rec['status'] === 'number' ? rec['status'] : undefined;
+      const body =
+        rec['error'] !== undefined ? JSON.stringify(rec['error']).slice(0, 300) : undefined;
+      return {
+        ok: false,
+        message:
+          `接続失敗: ${shortLLMError(err)}\n` +
+          `診断: URL=${this.connectionEndpoint()} / model=${llm.model}` +
+          (status !== undefined ? ` / HTTP ${status}` : '') +
+          (body !== undefined ? `\nレスポンスbody: ${body}` : ''),
+      };
     } finally {
       clearTimeout(timer);
     }
