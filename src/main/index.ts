@@ -161,9 +161,18 @@ if (smokeBoot) {
   app.setPath('userData', mkdtempSync(join(tmpdir(), 'amateras-smokeboot-')));
 }
 
+// M30-3: 検証・デモ用の userData 明示指定(env AMATERAS_USER_DATA=絶対パス)。
+// 実設定(%APPDATA%\amateras)を触らずにフルUIを起動するための開発者向け入口。
+// リネーム移行(M17-1)は実設定専用のためこのモードでは実行しない
+const explicitUserData = process.env['AMATERAS_USER_DATA'];
+if (!smokeBoot && explicitUserData !== undefined && explicitUserData.trim() !== '') {
+  app.setPath('userData', explicitUserData);
+}
+
 // M17-1: リネーム(mycodex → amateras)の userData 移行。config/secrets/sessions を読む
-// あらゆる処理より前に、同期で1回だけ実行する(スモークは userData を使わないため対象外)
-if (!smokeMode) {
+// あらゆる処理より前に、同期で1回だけ実行する(スモークは userData を使わないため対象外。
+// M30-3: userData 明示指定時も対象外=実設定の複製を絶対にしない)
+if (!smokeMode && explicitUserData === undefined) {
   const newUserData = app.getPath('userData');
   const oldUserData = join(pathDirname(newUserData), 'mycodex');
   const result = migrateUserData(oldUserData, newUserData);

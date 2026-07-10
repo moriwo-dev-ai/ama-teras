@@ -10,9 +10,7 @@ for itself — which only ships after passing verification gates and your explic
 
 ## Demo
 
-![Demo: from conversation to self-evolution in 30 seconds](docs/demo.gif)
-
-*(demo GIF coming soon)*
+![Demo: "I want a YAML-to-JSON tool" → approval → self-generation → verification gates → promotion approval → usable immediately](docs/demo.gif)
 
 ## Features
 

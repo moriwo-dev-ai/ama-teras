@@ -10,9 +10,7 @@ English version → [README.en.md](README.en.md)
 
 ## デモ
 
-![デモ: 会話から自己進化まで30秒](docs/demo.gif)
-
-*(デモGIFは準備中)*
+![デモ: 「YAMLをJSONに変換するツールが欲しい」→ 承認 → 自己生成 → 検証ゲート → 昇格承認 → その場で使える](docs/demo.gif)
 
 ## 特徴
 
