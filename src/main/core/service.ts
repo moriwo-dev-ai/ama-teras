@@ -642,6 +642,11 @@ export class AgentService {
       { provider: 'anthropic', prefix: 'claude-fable-5', model: 'claude-opus-4-8' },
       { provider: 'anthropic', prefix: 'claude-opus', model: 'claude-sonnet-5' },
       { provider: 'anthropic', prefix: 'claude-sonnet', model: 'claude-haiku-4-5' },
+      // M30-1: GPT-5.6 世代の段下(Sol→Terra→Luna)。luna・エイリアス素の 'gpt-5.6' は
+      // 段下なし=設定済みフォールバックへ(prefix 'gpt-5.6' を置くと luna が terra へ
+      // 「格上げ」されてしまうため意図的に置かない)
+      { provider: 'openai', prefix: 'gpt-5.6-sol', model: 'gpt-5.6-terra' },
+      { provider: 'openai', prefix: 'gpt-5.6-terra', model: 'gpt-5.6-luna' },
       { provider: 'openai', prefix: 'gpt-5.5', model: 'gpt-5.4' },
     ];
     const down = DOWNGRADES.find(

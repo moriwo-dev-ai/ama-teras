@@ -44,6 +44,19 @@ const PRESETS: { label: string; policy: Omit<ModelPolicy, 'enabled'> }[] = [
       maxEscalationsPerTask: 1,
     },
   },
+  {
+    // M30-1: GPT-5.6 世代(Sol/Terra/Luna)のOpenAI構成。
+    // 指示された4帯(planner/escalation=Sol・worker=Terra・explorer=Luna)のみ指定し、
+    // reviewer は planner 代行・midEscalation は escalation フォールバックの既定規則に委ねる
+    label: 'OpenAI構成(Sol/Terra/Luna)',
+    policy: {
+      planner: { provider: 'openai', model: 'gpt-5.6-sol' },
+      worker: { provider: 'openai', model: 'gpt-5.6-terra' },
+      explorer: { provider: 'openai', model: 'gpt-5.6-luna' },
+      escalation: { provider: 'openai', model: 'gpt-5.6-sol' },
+      maxEscalationsPerTask: 1,
+    },
+  },
 ];
 
 type BandName = 'planner' | 'worker' | 'explorer' | 'reviewer' | 'midEscalation' | 'escalation';

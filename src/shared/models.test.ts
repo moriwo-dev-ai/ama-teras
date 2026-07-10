@@ -11,8 +11,20 @@ describe('models', () => {
     expect(DEFAULT_MODELS.anthropic).toBe('claude-fable-5');
   });
 
-  it('M25-4: OpenAI の既定は gpt-5.5(旧世代の gpt-5.1 からの更新)', () => {
-    expect(DEFAULT_MODELS.openai).toBe('gpt-5.5');
+  it('M30-1: OpenAI の既定は GPT-5.6 Sol(2026-07-09 GA世代のフラッグシップ)', () => {
+    expect(DEFAULT_MODELS.openai).toBe('gpt-5.6-sol');
+  });
+
+  it('M30-1: GPT-5.6 の3層が候補にあり、旧 gpt-5.5系も後方互換で残る', () => {
+    for (const id of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.1']) {
+      expect(isKnownModel('openai', id), id).toBe(true);
+    }
+  });
+
+  it('M30-1: GPT-5.6 世代のコンテキスト上限は 1,050,000(3層共通)', () => {
+    expect(contextLimitFor('gpt-5.6-sol')).toBe(1_050_000);
+    expect(contextLimitFor('gpt-5.6-terra')).toBe(1_050_000);
+    expect(contextLimitFor('gpt-5.6-luna')).toBe(1_050_000);
   });
 
   it('候補外のIDはカスタム扱い(false)', () => {

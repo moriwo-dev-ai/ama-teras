@@ -9,8 +9,9 @@ import type {
   StopReason,
 } from './types';
 
-// M25-4: gpt-5.1 は旧世代のため gpt-5.5(現行フラッグシップ)へ更新
-export const DEFAULT_OPENAI_MODEL = 'gpt-5.5';
+// M30-1: 2026-07-09 GA の GPT-5.6 世代フラッグシップ(Sol)へ更新
+// (shared/models.ts の DEFAULT_MODELS.openai と一致させること)
+export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;

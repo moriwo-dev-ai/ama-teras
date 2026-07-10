@@ -2,6 +2,27 @@
 
 ## 現在の状態
 
+- **M30-1追加(2026-07-11)**: **GPT-5.6 対応**(2026-07-09 GA の OpenAI 新世代)。
+  モデルIDは推測せず公式で確認(**2026-07-11 確認**:
+  https://developers.openai.com/api/docs/models/gpt-5.6-sol /
+  https://openai.com/index/gpt-5-6/ )— **gpt-5.6-sol**(フラッグシップ・エイリアス
+  `gpt-5.6` はSolに解決)/ **gpt-5.6-terra**(中位)/ **gpt-5.6-luna**(最安)。
+  ①KNOWN_MODELS に3層追加・**DEFAULT_MODELS.openai と DEFAULT_OPENAI_MODEL を
+  gpt-5.6-sol へ**(両定数の一致を維持)・コンテキスト上限は3層とも公式値 **1,050,000**
+  (出力128K)。旧 gpt-5.5系候補は後方互換で残置。
+  ②usage.ts 価格表: Sol $5/$30・Terra $2.5/$15・Luna $1/$6(公式で再確認済み)。
+  terra/luna を汎用 gpt-5.6(=Sol同額で受けるエイリアス用)より先に置き前方一致の
+  誤照合を防止。
+  ③ModelPolicy プリセットに「OpenAI構成(Sol/Terra/Luna)」を追加
+  (planner/escalation=Sol・worker=Terra・explorer=Luna。既存のAnthropic系2種は不変更。
+  reviewer/midEscalation は未指定=既定のフォールバック規則に委ねる判断)。
+  ④自分の判断で追加: refusal時の同一プロバイダ段下(REFUSAL_DOWNGRADES)に
+  Sol→Terra→Luna を追加(新既定モデルの突然死回避。汎用 'gpt-5.6' prefix は
+  luna を terra へ「格上げ」してしまうため意図的に置かず、luna・素のエイリアスは
+  設定済みフォールバックへ委ねる)。
+  テスト5件追加・2件更新(既定・3層候補・上限・3層単価と照合順・キャッシュ率)。
+  全933テスト・typecheck 3構成合格。
+
 - **M29(夜間自律作業その4・NIGHT_TASKS4.md 全6タスク完了)**。テスト930件・
   typecheck(node/web/remote)・build 全合格。コミット6件(M29-1〜M29-6)。
   - **実施サマリ**:

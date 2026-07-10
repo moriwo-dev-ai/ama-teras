@@ -107,9 +107,9 @@ export const FREE_API_TRAINING_NOTICE =
 export const DEFAULT_MODELS: Record<ProviderId, string> = {
   // M11-5: 自律開発向けの既定を Fable 5 へ(長時間の自走・エージェント動作に最適化されたモデル)
   anthropic: 'claude-fable-5',
-  // M25-4: gpt-5.1 は旧世代(2026-07時点でOpenAI公式カタログから既に外れている)。
-  // 現行フラッグシップの gpt-5.5 を既定に(フォールバック時の実力不足対策)
-  openai: 'gpt-5.5',
+  // M30-1: 2026-07-09 GA の GPT-5.6 世代へ更新。フラッグシップは Sol
+  // (2026-07-11 確認: https://developers.openai.com/api/docs/models/gpt-5.6-sol )
+  openai: 'gpt-5.6-sol',
 };
 
 export const KNOWN_MODELS: Record<ProviderId, ModelChoice[]> = {
@@ -120,11 +120,17 @@ export const KNOWN_MODELS: Record<ProviderId, ModelChoice[]> = {
     { id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
     { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
   ],
-  // M25-4: 2026-07時点の現行ラインナップへ更新。旧 gpt-5/gpt-4.1/gpt-4o はOpenAI側で
-  // 既にカタログ落ちしているため候補から除外(gpt-5.1のみ移行期間の互換で残す)
+  // M30-1: GPT-5.6 世代(Sol=フラッグシップ/Terra=中位/Luna=最安)を追加。
+  // IDと段構成は 2026-07-11 に公式ドキュメントで確認:
+  // https://developers.openai.com/api/docs/models/gpt-5.6-sol
+  // https://openai.com/index/gpt-5-6/ (2026-07-09 GA。エイリアス gpt-5.6 は Sol に解決)
+  // 旧 gpt-5.5系は後方互換のため候補に残す(M25-4の方針を継続)
   openai: [
-    { id: 'gpt-5.5', label: 'GPT-5.5(既定・最上位)' },
-    { id: 'gpt-5.4', label: 'GPT-5.4(廉価版フラッグシップ)' },
+    { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol(既定・フラッグシップ)' },
+    { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra(中位・バランス型)' },
+    { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna(最安・高速)' },
+    { id: 'gpt-5.5', label: 'GPT-5.5(旧フラッグシップ)' },
+    { id: 'gpt-5.4', label: 'GPT-5.4(旧世代・廉価版フラッグシップ)' },
     { id: 'gpt-5.3-codex', label: 'GPT-5.3-Codex(エージェント型コーディング特化)' },
     { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini(軽量・サブエージェント向け)' },
     { id: 'gpt-5.1', label: 'GPT-5.1(旧世代・非推奨)' },
@@ -150,6 +156,8 @@ const CONTEXT_LIMITS: [prefix: string, limit: number][] = [
   // M27-1: 無料APIモードのプリセット系(値は保守的に)
   ['gemini-2.5-flash-lite', 1_000_000],
   ['gemini-', 1_000_000],
+  // M30-1: GPT-5.6 世代は3層とも 1,050,000(2026-07-11 公式モデルページで確認)
+  ['gpt-5.6', 1_050_000],
   ['llama-3.3-70b', 128_000],
   ['llama-3.1-8b', 128_000],
   ['meta-llama/', 128_000],

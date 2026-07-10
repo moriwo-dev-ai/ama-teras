@@ -110,3 +110,18 @@ describe('UsageMeter', () => {
     expect(reloaded.summary().totalCostUsd).toBeNull();
   });
 });
+
+describe('M30-1: GPT-5.6 世代の概算コスト', () => {
+  it('Sol/Terra/Luna の3層単価と、terra/luna が汎用 gpt-5.6 に埋もれない照合順', () => {
+    const oneM = { input: 1_000_000, output: 1_000_000, cacheRead: 0 };
+    expect(estimateCostUsd('openai/gpt-5.6-sol', oneM)).toBeCloseTo(5 + 30);
+    expect(estimateCostUsd('openai/gpt-5.6-terra', oneM)).toBeCloseTo(2.5 + 15);
+    expect(estimateCostUsd('openai/gpt-5.6-luna', oneM)).toBeCloseTo(1 + 6);
+    // 素の 'gpt-5.6'(エイリアス=Sol解決)は Sol と同額
+    expect(estimateCostUsd('openai/gpt-5.6', oneM)).toBeCloseTo(35);
+    // キャッシュ読取は input の 0.1 倍
+    expect(
+      estimateCostUsd('openai/gpt-5.6-sol', { input: 0, output: 0, cacheRead: 1_000_000 }),
+    ).toBeCloseTo(0.5);
+  });
+});
