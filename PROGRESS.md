@@ -2,6 +2,16 @@
 
 ## 現在の状態
 
+- **M27-3追加(2026-07-10 夜間自律作業その2 T3)**: **公開前セキュリティ総点検**
+  (結果の正本は `SECURITY_AUDIT.md`)。git全履歴(249コミット)へのキー/シークレット/
+  個人パス走査=検出なし。キー経路=SecretStore+safeStorage(DPAPI)のみ・renderer/リモート/
+  ログ/セッションへの漏えい経路なし。リモートトークン=256bit+sha256保存+timingSafeEqual+バン。
+  .gitignore へ `.claude/settings.local.json`・`downloads/`・`build/candidates/`・
+  `NIGHT_TASKS*.md` を追加し、`build/icon.svg`(採用アイコン)と
+  `BRAND_STRATEGY.md`/`REGISTRY_DESIGN.md`(README/NOTICEが参照する恒久文書)をコミット。
+  未解決(ユーザー判断待ち): コミットAuthorの個人メール(公開前に許容or書き換えの判断)、
+  Roaming\Electron の削除(再掲)、戦略文書の公開可否の最終目視、CI でのシークレット
+  スキャン導入(フェーズ1残課題)。履歴書き換えは指示どおり未実施。
 - **M27-2追加(2026-07-10 夜間自律作業その2 T2)**: **AGPL-3.0適用+README刷新**。
   `LICENSE` に AGPL-3.0 全文(gnu.org 正本から取得。sha256=0d96a4ff…canonical一致を確認)、
   `package.json` に `"license": "AGPL-3.0-only"`。`NOTICE.md` 新設(商標方針=フォークは別名/

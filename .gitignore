@@ -7,3 +7,13 @@ release/
 .env
 .env.*
 *.tsbuildinfo
+
+# M27-3: 公開前点検で決定(SECURITY_AUDIT.md 参照)
+# Claude Code のローカル権限設定(個人パス・ローカル運用の詳細を含む)
+.claude/settings.local.json
+# エージェントのダウンロード作業領域(成果物はworkspaceへ移す運用)
+downloads/
+# アイコン検討時の生成候補(採用分は build/icon.svg 等としてコミット)
+build/candidates/
+# 夜間作業の個人向け指示書(公開リポジトリに含めない)
+NIGHT_TASKS*.md
