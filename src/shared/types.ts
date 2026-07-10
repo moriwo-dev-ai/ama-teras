@@ -40,7 +40,9 @@ export type AgentEventBody =
   /** M21-1: 実行中に送られた追加指示がキューへ積まれた(次ターン境界で履歴へ注入される) */
   | { kind: 'instruction_queued'; sessionId: string; text: string }
   /** M21-4: 実行中ツールのライブ出力(bash等のstdout末尾。ctx.log経由・APIコストなし) */
-  | { kind: 'tool_progress'; sessionId: string; toolUseId: string; name: string; outputTail: string };
+  | { kind: 'tool_progress'; sessionId: string; toolUseId: string; name: string; outputTail: string }
+  /** M29-5: 自律実行の終了時に出す仮導入の棚卸しカード(残す/削除は inventoryResolve IPC) */
+  | { kind: 'inventory'; sessionId: string; items: ProvisionalInstall[] };
 
 export type ProviderId = 'anthropic' | 'openai';
 
@@ -245,11 +247,18 @@ export interface AppConfig {
    */
   pluginRevocationUrl?: string;
   /**
-   * M28-3: コミュニティレジストリのベースURL(「作る前に探す」)。既定は未設定=検索スキップ。
-   * request_capability の生成前に <registryUrl>/index.json を検索し、既存プラグインが
-   * あれば承諾のうえ既存インポートパイプライン(検証ゲート付き)で導入する
+   * M28-3: コミュニティレジストリのベースURL(「作る前に探す」)。既定=公式レジストリ
+   * (M29-4)。空文字=検索無効。request_capability の生成前に <registryUrl>/index.json を
+   * 検索し、既存プラグインがあれば承諾のうえ既存インポートパイプライン(検証ゲート付き)で導入する
    */
   registryUrl?: string;
+  /**
+   * M29-5: 自律モード(連続作業)開始時の包括承認の既定値。実行開始UIで上書き可能。
+   * none=自動導入なし(既定)/ verified=検証済み+危険権限なしのみ仮導入 /
+   * verified-generate=上記+新規生成プラグインも仮導入。
+   * 仮導入は終了後の棚卸しカードで人間が最終判断する(残す/削除)
+   */
+  autonomousRegistryScope?: AutonomousRegistryScope;
   /** エージェントの作業ディレクトリ。空/未設定なら既定(アプリのルート) */
   workspace?: string;
   /** M9: 操作範囲。既定 'project'(後方互換) */
@@ -312,6 +321,8 @@ export interface ToolInfo {
   warnings: string[];
   /** M25-8: 分類タグ(絞り込み・検索用) */
   tags: string[];
+  /** M29-5: 仮導入(棚卸し未確定)のプラグイン。UIで「仮」マークを付ける */
+  provisional?: boolean;
 }
 
 export interface ToolExecResultPayload {
@@ -422,8 +433,26 @@ export interface AgentStatusView {
 }
 
 /** M17-2: 自律モードの状態変更通知(main → renderer/remote) */
+/**
+ * M29-5: 自律モードの包括承認範囲(NIGHT_TASKS4 T5)。
+ * 「承認を消すのではなく、承認のタイミングを作業の前後(開始時の包括承認+終了後の棚卸し)へ移す」
+ */
+export type AutonomousRegistryScope = 'none' | 'verified' | 'verified-generate';
+
+/** M29-5: 仮導入されたプラグイン(棚卸しの対象)。userData に永続化され未応答なら再提示 */
+export interface ProvisionalInstall {
+  jobId: number;
+  toolName: string;
+  origin: 'registry' | 'generated';
+  /** 昇格タグ(evolve/N)。削除=このマージをrevertする */
+  tag: string;
+  installedAt: string;
+}
+
 export interface AutonomousStatePayload {
   on: boolean;
+  /** M29-5: この実行の包括承認範囲(offのときは省略) */
+  registryScope?: AutonomousRegistryScope;
 }
 
 /** SSE 接続直後に送る現在状態(スマホUIの再接続時の状態回復用) */

@@ -185,6 +185,12 @@ export function ToolDebugPanel(): JSX.Element {
                   {t.name}
                 </button>
                 <span className="text-[10px] text-zinc-500">({t.risk})</span>
+                {/* M29-5: 仮導入(棚卸し未確定)マーク */}
+                {t.provisional === true && (
+                  <span className="shrink-0 rounded bg-emerald-900/60 px-1 text-[10px] text-emerald-300" title="仮導入(棚卸し未確定)。進化タブの棚卸しで残す/削除を確定できます">
+                    仮
+                  </span>
+                )}
                 {t.tags.map((tag) => (
                   <span key={tag} className="rounded bg-zinc-800 px-1 text-[10px] text-zinc-400">
                     {tag}

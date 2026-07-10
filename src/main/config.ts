@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { DEFAULT_REGISTRY_URL } from '../shared/models';
 import type {
   AppConfig,
+  AutonomousRegistryScope,
   ModelBand,
   ModelPolicy,
   ProviderPresetId,
@@ -27,6 +28,11 @@ export const FREE_MODE_DEFAULT_MAX_TURNS = 15;
 
 export function parseProviderPreset(raw: unknown): ProviderPresetId | undefined {
   return raw === 'gemini' || raw === 'groq' || raw === 'openrouter' ? raw : undefined;
+}
+
+/** M29-5: 自律モードの包括承認範囲(不正値は未設定=none扱い) */
+export function parseAutonomousRegistryScope(raw: unknown): AutonomousRegistryScope | undefined {
+  return raw === 'none' || raw === 'verified' || raw === 'verified-generate' ? raw : undefined;
 }
 
 /**
@@ -176,6 +182,9 @@ export class ConfigStore {
       if (typeof rec['freeModeAllowEvolution'] === 'boolean') {
         merged.freeModeAllowEvolution = rec['freeModeAllowEvolution'];
       }
+      // M29-5: 自律モードの包括承認範囲の既定値
+      const regScope = parseAutonomousRegistryScope(rec['autonomousRegistryScope']);
+      if (regScope !== undefined) merged.autonomousRegistryScope = regScope;
       if (typeof rec['workspace'] === 'string' && rec['workspace'] !== '') merged.workspace = rec['workspace'];
       // M27-4: 失効リストURL(キルスイッチ)。http(s) のみ受け入れる
       if (
@@ -246,6 +255,13 @@ export class ConfigStore {
     // M27-4: 失効リストURLは http(s) のみ。空文字・不正形式は未設定へ
     if (clone.pluginRevocationUrl !== undefined && !/^https?:\/\//.test(clone.pluginRevocationUrl)) {
       delete clone.pluginRevocationUrl;
+    }
+    // M29-5: 包括承認範囲の不正値は未設定へ
+    if (
+      clone.autonomousRegistryScope !== undefined &&
+      parseAutonomousRegistryScope(clone.autonomousRegistryScope) === undefined
+    ) {
+      delete clone.autonomousRegistryScope;
     }
     // M28-3/M29-4: レジストリURLの正規化。空文字=無効は保持、不正形式・未設定は既定へ
     if (clone.registryUrl === undefined || (clone.registryUrl !== '' && !/^https?:\/\//.test(clone.registryUrl))) {

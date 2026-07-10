@@ -5,6 +5,7 @@ import { usePreviewStore } from '../../stores/preview';
 import { revealContextMenuHandler } from '../../stores/revealMenu';
 import { AutonomousModal } from './AutonomousModal';
 import { MarkdownMessage } from './MarkdownMessage';
+import { InventoryCard } from './InventoryCard';
 import { ReviewCard } from './ReviewCard';
 import { formatElapsed, useNowTick } from './useElapsed';
 import { DEFAULT_MODELS } from '../../../../shared/models';
@@ -244,6 +245,8 @@ export function ChatView(): JSX.Element {
             <ToolCard key={m.id} msg={m} />
           ) : m.role === 'review' ? (
             <ReviewCard key={m.id} card={m} />
+          ) : m.role === 'inventory' ? (
+            <InventoryCard key={m.id} items={m.items} />
           ) : m.role === 'info' ? (
             <div key={m.id} className="anim-appear flex justify-center">
               <div className="max-w-[85%] rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-center text-[11px] text-zinc-400">
@@ -390,9 +393,9 @@ export function ChatView(): JSX.Element {
       </div>
       {autoModal && (
         <AutonomousModal
-          onConfirm={() => {
+          onConfirm={(registryScope) => {
             setAutoModal(false);
-            void window.api.autonomousSet(true);
+            void window.api.autonomousSet(true, registryScope);
           }}
           onCancel={() => setAutoModal(false)}
         />

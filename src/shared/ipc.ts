@@ -4,6 +4,7 @@ import type {
   ApprovalRequestPayload,
   ApprovalResolvedPayload,
   AppConfig,
+  AutonomousRegistryScope,
   AutonomousStatePayload,
   ChatImageInput,
   ChatMode,
@@ -20,6 +21,7 @@ import type {
   PluginExportResult,
   PluginImportStartResult,
   ProviderId,
+  ProvisionalInstall,
   RemoteStatusPayload,
   RunInfo,
   SecretSlot,
@@ -100,6 +102,9 @@ export const IpcChannels = {
   autonomousGet: 'autonomous:get',
   autonomousSet: 'autonomous:set',
   autonomousChanged: 'autonomous:changed',
+  /** M29-5: 仮導入(包括承認)の棚卸し */
+  inventoryList: 'inventory:list',
+  inventoryResolve: 'inventory:resolve',
   /** M22: 実行中ラン一覧(複数プロジェクト同時実行の状態) */
   runsList: 'runs:list',
   runsChanged: 'runs:changed',
@@ -208,7 +213,11 @@ export interface AmaterasApi {
 
   /** M17-2: 自律モード(承認なし自動実行)。状態はセッション単位・再起動でOFF */
   autonomousGet(): Promise<{ on: boolean }>;
-  autonomousSet(on: boolean): Promise<{ on: boolean }>;
+  /** M29-5: ON時に包括承認範囲を指定できる(省略=設定の既定値、それも無ければ none) */
+  autonomousSet(on: boolean, registryScope?: AutonomousRegistryScope): Promise<{ on: boolean }>;
+  /** M29-5: 仮導入(棚卸し待ち)の一覧と応答(keep=残す / false=完全アンインストール) */
+  inventoryList(): Promise<ProvisionalInstall[]>;
+  inventoryResolve(jobId: number, keep: boolean): Promise<{ ok: boolean; message: string }>;
   onAutonomousChanged(listener: (payload: AutonomousStatePayload) => void): () => void;
 
   /** M22: 実行中ラン一覧(初期取得+変更購読)。複数プロジェクト同時実行の左ペイン表示用 */

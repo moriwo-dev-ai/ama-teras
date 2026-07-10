@@ -4,6 +4,7 @@ import type {
   AgentStatus,
   ChatImageInput,
   ChatMode,
+  ProvisionalInstall,
   ReviewCardPayload,
   SessionMeta,
 } from '../../../shared/types';
@@ -25,6 +26,8 @@ export type UiMessage =
   | { id: string; role: 'info'; text: string }
   /** M19: 品質レビューの採点カード */
   | ({ id: string; role: 'review' } & ReviewCardPayload)
+  /** M29-5: 自律実行終了時の仮導入の棚卸しカード */
+  | { id: string; role: 'inventory'; items: ProvisionalInstall[] }
   | {
       id: string;
       role: 'tool';
@@ -321,6 +324,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }));
         break;
       }
+      case 'inventory':
+        set((s) => ({
+          messages: [...s.messages, { id: crypto.randomUUID(), role: 'inventory', items: event.items }],
+        }));
+        break;
       case 'instruction_queued':
         set((s) => ({
           messages: [

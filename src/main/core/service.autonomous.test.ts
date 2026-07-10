@@ -56,9 +56,10 @@ describe('自律モード(M17-2)', () => {
     expect(svc.getStatus().autonomous).toBe(true);
     expect(svc.setAutonomous(false)).toEqual({ on: false });
 
-    expect(events).toEqual([{ on: true }, { on: false }]);
+    // M29-5: ON時は包括承認範囲(未指定=既定 none)がペイロード・監査に含まれる
+    expect(events).toEqual([{ on: true, registryScope: 'none' }, { on: false }]);
     const toggles = audits.filter((a) => a.tool === 'autonomous-mode');
-    expect(toggles.map((a) => a.detail)).toEqual(['on', 'off']);
+    expect(toggles.map((a) => a.detail)).toEqual(['on(registry: none)', 'off']);
     for (const t of toggles) expect(t.autonomous).toBe(true);
   });
 

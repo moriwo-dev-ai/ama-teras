@@ -76,6 +76,10 @@ describe('【不変条件3】自律モードでも昇格承認は自動化され
   });
 
   it('ソース・トリップワイヤ: 昇格承認フローは autonomousMode を参照しない', () => {
+    // M29-5(NIGHT_TASKS4 T5・ユーザー指示)で契約を更新: 唯一の無人承認は
+    // 「実行開始時の包括承認で事前登録された仮導入」のみ(scope=tool+危険警告ゼロ)。
+    // それでも autonomousMode / getAutonomous をこのブロックが直接参照しないことは不変
+    // (自律モードそのものを理由に承認を自動化する経路の禁止)
     const src = readFileSync(fileURLToPath(new URL('../core/service.ts', import.meta.url)), 'utf8');
     const start = src.indexOf('requestPromotionApproval: (job, diff, warnings)');
     const end = src.indexOf('onEvent: (e) =>', start);
@@ -83,8 +87,12 @@ describe('【不変条件3】自律モードでも昇格承認は自動化され
     const block = src.slice(start, end);
     expect(block).not.toContain('autonomousMode');
     expect(block).not.toContain('getAutonomous');
-    // 不変条件のコメントが明記されている
-    expect(src).toContain('自律モード(autonomousMode)に関わらず');
+    // 契約更新の経緯と条件がコメントに明記されている
+    expect(src).toContain('自律モード(autonomousMode)そのものでは絶対に自動化しない');
+    expect(src).toContain('M29-5');
+    // 仮導入の全条件ガード(登録済み+tool+危険警告ゼロ+toolName確定)がソースに存在する
+    expect(block).toContain("(job.scope ?? 'tool') === 'tool'");
+    expect(block).toContain('warnings.length === 0');
   });
 
   it('ソース・トリップワイヤ: executor の自律モード自動承認は broker 経由の承認のみで、昇格(pendingPromotions)には触れない', () => {

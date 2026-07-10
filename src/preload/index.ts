@@ -83,7 +83,9 @@ const api: AmaterasApi = {
   remoteRegenerateToken: () => ipcRenderer.invoke(IpcChannels.remoteRegenerateToken),
 
   autonomousGet: () => ipcRenderer.invoke(IpcChannels.autonomousGet),
-  autonomousSet: (on) => ipcRenderer.invoke(IpcChannels.autonomousSet, on),
+  autonomousSet: (on, registryScope) => ipcRenderer.invoke(IpcChannels.autonomousSet, on, registryScope),
+  inventoryList: () => ipcRenderer.invoke(IpcChannels.inventoryList),
+  inventoryResolve: (jobId, keep) => ipcRenderer.invoke(IpcChannels.inventoryResolve, jobId, keep),
   onAutonomousChanged: (listener) =>
     subscribe<AutonomousStatePayload>(IpcChannels.autonomousChanged, listener),
 

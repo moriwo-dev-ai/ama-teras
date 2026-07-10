@@ -110,6 +110,29 @@ export class EvolutionManager {
     return false;
   }
 
+  /**
+   * M29-5: 仮導入の棚卸しで「削除」されたプラグインの完全アンインストール。
+   * evolve/N タグのマージコミットを revert し、プラグインをホットリロードで外す。
+   * 後続変更との競合で revert できない場合は失敗を返す(ユーザーへ手動対応を案内)
+   */
+  async uninstallPromotion(jobId: number): Promise<{ ok: boolean; message: string }> {
+    const tag = `evolve/${jobId}`;
+    try {
+      const commit = await runGit(['rev-list', '-n', '1', tag], this.deps.repoDir);
+      if (commit === '') return { ok: false, message: `タグ ${tag} が見つからない` };
+      await rollbackMerge(this.deps.repoDir, commit);
+      await this.deps.reloadPlugins();
+      return { ok: true, message: `${tag} を revert してアンインストールした` };
+    } catch (err) {
+      return {
+        ok: false,
+        message:
+          `アンインストール失敗(後続変更との競合の可能性): ${err instanceof Error ? err.message : String(err)}。` +
+          `手動で \`git revert -m 1 ${tag}\` を実行してください`,
+      };
+    }
+  }
+
   async enqueue(req: EvolutionRequest): Promise<number> {
     if (this.lastId === 0) this.lastId = (await nextJobId(this.deps.repoDir)) - 1;
     const id = ++this.lastId;

@@ -1,10 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, type WebContents } from 'electron';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { IpcChannels } from '../shared/ipc';
 import type {
   AppConfig,
   ApprovalDecision,
   ProviderId,
+  ProvisionalInstall,
   SecretSlot,
   RemoteConfig,
   RemoteStatusPayload,
@@ -316,6 +318,37 @@ export async function registerIpcHandlers(
       new CheckpointManager(workspace, (line) => console.log(`[checkpoint] ${line}`)),
     // M12-1: セッション永続化(userData/sessions/)
     sessions: new SessionStore(join(app.getPath('userData'), 'sessions')),
+    // M29-5: 仮導入(棚卸し待ち)の永続化。未応答なら次回起動時に再提示するため
+    provisionalStore: {
+      load: () => {
+        try {
+          const raw: unknown = JSON.parse(
+            readFileSync(join(app.getPath('userData'), 'provisional.json'), 'utf8'),
+          );
+          if (!Array.isArray(raw)) return [];
+          return raw.filter(
+            (p): p is ProvisionalInstall =>
+              typeof p === 'object' && p !== null &&
+              typeof (p as Record<string, unknown>)['jobId'] === 'number' &&
+              typeof (p as Record<string, unknown>)['toolName'] === 'string' &&
+              typeof (p as Record<string, unknown>)['tag'] === 'string',
+          );
+        } catch {
+          return [];
+        }
+      },
+      save: (items) => {
+        try {
+          writeFileSync(
+            join(app.getPath('userData'), 'provisional.json'),
+            JSON.stringify(items, null, 2),
+            'utf8',
+          );
+        } catch {
+          /* 保存失敗で機能を止めない(次回起動での再提示が失われるだけ) */
+        }
+      },
+    },
     // M14-2: URLスクリーンショット(offscreen BrowserWindow)。進化ジョブへは渡らない
     captureUrl,
     createEvolution: (hooks) => {
@@ -434,9 +467,23 @@ export async function registerIpcHandlers(
 
   // ---- 自律モード(M17-2。状態はセッション単位・再起動でOFF) ----
   ipcMain.handle(IpcChannels.autonomousGet, () => ({ on: service.getAutonomous() }));
-  ipcMain.handle(IpcChannels.autonomousSet, (_e, on: unknown) => {
+  ipcMain.handle(IpcChannels.autonomousSet, (_e, on: unknown, registryScope: unknown) => {
     if (typeof on !== 'boolean') throw new Error('IPC payload autonomous:set が不正');
-    return service.setAutonomous(on);
+    // M29-5: 包括承認範囲(省略可・不正値は未指定扱い=設定の既定値)
+    const scope =
+      registryScope === 'none' || registryScope === 'verified' || registryScope === 'verified-generate'
+        ? registryScope
+        : undefined;
+    return service.setAutonomous(on, scope);
+  });
+
+  // ---- M29-5: 仮導入の棚卸し ----
+  ipcMain.handle(IpcChannels.inventoryList, () => service.inventoryList());
+  ipcMain.handle(IpcChannels.inventoryResolve, (_e, jobId: unknown, keep: unknown) => {
+    if (typeof jobId !== 'number' || !Number.isInteger(jobId) || typeof keep !== 'boolean') {
+      throw new Error('IPC payload inventory:resolve が不正');
+    }
+    return service.inventoryResolve(jobId, keep);
   });
 
   // ---- 承認 ----

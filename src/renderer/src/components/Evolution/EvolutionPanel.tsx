@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { EvolutionJobStatus, EvolutionScope } from '../../../../shared/types';
+import type { EvolutionJobStatus, EvolutionScope, ProvisionalInstall } from '../../../../shared/types';
 import { useEvolutionStore } from '../../stores/evolution';
 
 const STATUS_LABEL: Record<EvolutionJobStatus, { text: string; cls: string }> = {
@@ -83,6 +83,27 @@ export function EvolutionPanel(): JSX.Element {
   const [importing, setImporting] = useState(false);
   // M28-2: 配布版では進化機能が無効(理由バナーを出し、起動系ボタンを無効化)
   const [packaged, setPackaged] = useState(false);
+  // M29-5: 仮導入(棚卸し待ち)。未応答のものは次回起動時もここに再提示される
+  const [provisional, setProvisional] = useState<ProvisionalInstall[]>([]);
+  const [inventoryMsg, setInventoryMsg] = useState('');
+
+  const loadInventory = async (): Promise<void> => {
+    try {
+      setProvisional(await window.api.inventoryList());
+    } catch {
+      /* 表示のみの情報 */
+    }
+  };
+
+  const resolveInventory = (jobId: number, keep: boolean): void => {
+    void window.api
+      .inventoryResolve(jobId, keep)
+      .then((r) => {
+        setInventoryMsg(`${r.ok ? '✓' : '✗'} ${r.message}`);
+        void loadInventory();
+      })
+      .catch((err: unknown) => setInventoryMsg(`✗ ${err instanceof Error ? err.message : String(err)}`));
+  };
 
   const loadHistory = async (): Promise<void> => {
     try {
@@ -97,6 +118,7 @@ export function EvolutionPanel(): JSX.Element {
   useEffect(() => {
     void loadJobs();
     void loadHistory();
+    void loadInventory();
     void window.api
       .runtimeFlags()
       .then((f) => setPackaged(f.packaged === true))
@@ -226,6 +248,37 @@ export function EvolutionPanel(): JSX.Element {
           </div>
         ))}
       </div>
+
+      {/* M29-5: 仮導入の棚卸し(未応答分。自律実行終了時のカードと同じ操作) */}
+      {provisional.length > 0 && (
+        <div className="space-y-1 rounded border border-emerald-800 bg-emerald-950/30 p-2">
+          <p className="text-xs font-semibold text-emerald-300">📦 仮導入の棚卸し({provisional.length}件)</p>
+          {provisional.map((p) => (
+            <div key={p.jobId} className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-mono text-emerald-300">{p.toolName}</span>
+              <span className="shrink-0 rounded bg-zinc-800 px-1 text-[10px] text-zinc-400">
+                {p.origin === 'registry' ? 'コミュニティ' : '自己生成'}
+              </span>
+              <span className="ml-auto flex shrink-0 gap-1.5">
+                <button
+                  className="whitespace-nowrap rounded bg-emerald-700 px-2 py-0.5 text-[11px] hover:bg-emerald-600"
+                  onClick={() => resolveInventory(p.jobId, true)}
+                >
+                  残す
+                </button>
+                <button
+                  className="whitespace-nowrap rounded border border-red-800 px-2 py-0.5 text-[11px] text-red-300 hover:bg-red-950"
+                  title="完全アンインストール(昇格をrevertする)"
+                  onClick={() => resolveInventory(p.jobId, false)}
+                >
+                  削除
+                </button>
+              </span>
+            </div>
+          ))}
+          {inventoryMsg !== '' && <p className="text-[11px] text-zinc-400">{inventoryMsg}</p>}
+        </div>
+      )}
 
       {/* M20: ロールバック履歴(evolveタグ)と「1つ前へ戻す」— 右ペインの残り高さを使う */}
       <div className="flex min-h-0 flex-1 flex-col border-t border-zinc-800 pt-2">

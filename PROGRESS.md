@@ -2,6 +2,33 @@
 
 ## 現在の状態
 
+- **M29-5追加(2026-07-11 夜間自律作業その4 T5)**: **仮導入+事後棚卸し**(自律モードの
+  レジストリ活用・機能追加の本命)。「承認を消すのではなく、承認のタイミングを作業の前後
+  (開始時の包括承認+終了後の棚卸し)へ移す」。
+  ①包括承認範囲 `AutonomousRegistryScope`('none'=自動導入なし・既定/'verified'=検証済み+
+  危険権限なしのみ仮導入/'verified-generate'=+生成も仮導入)。AppConfig の既定値+
+  自律モードON時のモーダル(AutonomousModal)でこの実行の範囲を選択(audit記録)。
+  ②自律実行中: verified系なら 検索→ダウンロード→検査→**B環境検証3段(省略なし)**→仮導入を
+  無人実施。範囲外(未検証 or 危険権限)は**個別承認カード+タイムアウト既定10分**
+  (AbortSignal.any でタイムアウト=辞退→従来の生成へ続行。ハング防止)。
+  none は現行どおり検索スキップ。
+  ③**昇格承認の契約更新(M20不変条件3・ユーザー指示 NIGHT_TASKS4 T5 による)**:
+  無人昇格は「事前登録済み(provisionalCandidates)×scope='tool'×危険警告ゼロ×
+  toolName確定」の仮導入のみ。**autonomousMode そのものを理由とする自動化は引き続き禁止**
+  (昇格フックは autonomousMode/getAutonomous を参照しない — guardrails.m20 を新契約で
+  更新し、条件ガードの存在もソース固定)。renderer/core・危険権限は常に人間承認。
+  ④棚卸し: 実行終了(done)時にチャットへ棚卸しカード(InventoryCard・残す/削除)。
+  削除=`EvolutionManager.uninstallPromotion`(evolve/N のマージrevert+ホットリロード。
+  競合時は失敗を返し手動手順を案内)。未応答は `userData/provisional.json` に永続化し、
+  進化タブの「仮導入の棚卸し」セクションで次回起動時も再提示。ツール一覧に「仮」マーク
+  (ToolInfo.provisional)。ジョブが rolled_back/failed になったら自動で棚卸しから除去。
+  自分で決めた判断: (a) '+generate' の意味は「生成ジョブの昇格を仮導入として自動承認」と
+  解釈(enqueue自体は従来から自律中も可能で、人間ゲートは昇格にあるため)。
+  (b) 個別承認カードは登録なし=通常インポート扱い(承認済みでも昇格は人間承認のまま)。
+  (c) 棚卸しの「削除」失敗(後続変更との競合revert)はリストに残して手動手順を案内。
+  テスト9件+既存2件更新(範囲別挙動・危険権限除外・タイムアウト・昇格ガード・
+  generate登録・棚卸しkeep/delete/失敗・rolled_back除去・永続化)。
+  全930テスト・typecheck・build 合格。
 - **M29-4追加(2026-07-11 夜間自律作業その4 T4)**: **レジストリ既定値とUX**。
   `registryUrl` の既定を公式レジストリ
   `https://raw.githubusercontent.com/moriwo-dev-ai/amateras-registry/main`

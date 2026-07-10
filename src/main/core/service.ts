@@ -19,9 +19,12 @@ import type {
   FilePreviewResult,
   HistoryMessageView,
   ModelPolicy,
+  AutonomousRegistryScope,
   PluginErrorInfo,
   PluginImportStartResult,
+  PluginManifest,
   ProviderId,
+  ProvisionalInstall,
   SecretSlot,
   ReviewCardPayload,
   RunInfo,
@@ -63,7 +66,12 @@ import { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from '../providers/anthrop
 import { DEFAULT_OPENAI_MODEL, OpenAIProvider } from '../providers/openai';
 import type { ChatMessage, LLMProvider } from '../providers/types';
 import { inspectImportDir } from '../registry/packager';
-import { downloadRegistryPlugin, fetchRegistryIndex, matchRegistryEntries } from '../registry/search';
+import {
+  downloadRegistryPlugin,
+  fetchRegistryIndex,
+  matchRegistryEntries,
+  type RegistryIndexEntry,
+} from '../registry/search';
 import { runReviewGateStep } from '../review/gateRunner';
 import { newlyCompleted } from '../review/planDiff';
 // M26-2: コア領域(聖域)判定はA側の正本リストを共用する(進化ジョブ非波及の逆方向importなのでOK)
@@ -111,6 +119,8 @@ export interface EvolutionLike {
   }): Promise<number>;
   /** M26-6: ジョブのキャンセル(queued=キュー除去/実行中=abort)。未実装(セーフモード等)なら省略可 */
   cancel?(id: number): boolean;
+  /** M29-5: 仮導入の棚卸し「削除」= evolve/N のマージrevert+ホットリロード */
+  uninstallPromotion?(jobId: number): Promise<{ ok: boolean; message: string }>;
 }
 
 /** EvolutionManager 生成時にサービス側が渡すフック(昇格承認の待ち合わせとイベント中継) */
@@ -175,6 +185,16 @@ export interface AgentServiceDeps {
   fallbackProviderFactory?: (provider: ProviderId, model: string) => LLMProvider;
   /** M28-3: レジストリ検索のHTTP実体(テスト用注入。既定 globalThis.fetch) */
   fetchFn?: typeof fetch;
+  /**
+   * M29-5: 仮導入(棚卸し待ち)の永続化。未応答のまま終了しても次回起動時に再提示するため
+   * userData の JSON へ保存する(ipc.ts が注入。テストではメモリ実装)
+   */
+  provisionalStore?: { load(): ProvisionalInstall[]; save(items: ProvisionalInstall[]): void };
+  /**
+   * M29-5: 包括承認の範囲外候補に出す個別承認カードの応答タイムアウト(既定10分)。
+   * タイムアウト=辞退扱いで従来の生成フローへ続行する(自律実行のハング防止)
+   */
+  individualApprovalTimeoutMs?: number;
   /**
    * M18 テスト用: 帯プロバイダ生成の差し替え。キー有無の判定(secrets)は差し替えの
    * 前に行われる(キー未登録の警告経路もテスト可能にするため)
@@ -282,6 +302,12 @@ interface ConvState {
    */
   autonomous: boolean;
   /**
+   * M29-5: この自律実行の包括承認範囲(ON時に開始UIで選択。OFFで undefined)。
+   * none=自動導入なし / verified=検証済み+危険権限なしのみ仮導入 /
+   * verified-generate=上記+生成プラグインも仮導入
+   */
+  registryScope?: AutonomousRegistryScope;
+  /**
    * M25-2: 進化結果による自動再開の回数(人間の送信でリセット)。
    * 進化失敗→自動再開→再申請→失敗…の無限連鎖でトークンを浪費しないための上限カウンター
    */
@@ -360,11 +386,26 @@ export class AgentService {
       },
     );
     this.evolution = deps.createEvolution({
-      // M20【不変条件3・ユーザー確定】: 進化の昇格承認は自律モード(autonomousMode)に関わらず
-      // 絶対に自動化しない。このPromiseは evolutionPromoteRespond(人間のUI操作)でのみ解決される。
-      // ここに autonomousMode を参照する分岐を入れてはならない(guardrailsテストで固定)
-      requestPromotionApproval: (job, diff, warnings) =>
-        new Promise<boolean>((resolve) => {
+      // M20【不変条件3・ユーザー確定】→ M29-5(NIGHT_TASKS4 T5)でユーザー指示により契約更新:
+      // 昇格承認は自律モード(autonomousMode)そのものでは絶対に自動化しない
+      // (このブロックは autonomousMode / getAutonomous を参照しない — guardrailsテストで固定)。
+      // 唯一の例外は「実行開始時に人間が明示した包括承認」による**仮導入**で、
+      // 事前登録済みジョブ(provisionalCandidates)+scope='tool'+危険警告ゼロの全条件を
+      // 満たす場合のみ自動承認し、終了後の棚卸しカードで人間が最終判断する(残す/削除)。
+      // renderer / core の昇格はいかなる場合も人間のUI操作でのみ解決される
+      requestPromotionApproval: (job, diff, warnings) => {
+        const candidate = this.provisionalCandidates.get(job.id);
+        if (candidate !== undefined) this.provisionalCandidates.delete(job.id);
+        if (
+          candidate !== undefined &&
+          (job.scope ?? 'tool') === 'tool' &&
+          warnings.length === 0 &&
+          job.toolName !== undefined
+        ) {
+          this.recordProvisionalInstall(job.id, job.toolName, candidate.origin);
+          return Promise.resolve(true);
+        }
+        return new Promise<boolean>((resolve) => {
           this.pendingPromotions.set(job.id, resolve);
           const event: PromotionRequestEvent = {
             kind: 'promotion_request',
@@ -377,12 +418,95 @@ export class AgentService {
           };
           this.pendingPromotionEvents.set(job.id, event);
           deps.bus.publish('evolution:event', event);
-        }),
+        });
+      },
       onEvent: (e) => {
         deps.bus.publish('evolution:event', e);
+        this.trackProvisionalOutcome(e);
         this.notifyEvolutionToChat(e);
       },
     });
+    this.provisionalInstalls = deps.provisionalStore?.load() ?? [];
+  }
+
+  // ---- M29-5: 仮導入(包括承認)と棚卸し ----
+
+  /** 包括承認の範囲内として enqueue されたジョブ(昇格フックが自動承認してよい候補) */
+  private readonly provisionalCandidates = new Map<number, { origin: 'registry' | 'generated' }>();
+  /** 仮導入済み=棚卸し待ちの一覧(userDataへ永続化。未応答なら次回起動時に再提示) */
+  private provisionalInstalls: ProvisionalInstall[] = [];
+
+  private persistProvisional(): void {
+    this.deps.provisionalStore?.save(this.provisionalInstalls);
+  }
+
+  private recordProvisionalInstall(jobId: number, toolName: string, origin: 'registry' | 'generated'): void {
+    this.provisionalInstalls.push({
+      jobId,
+      toolName,
+      origin,
+      tag: `evolve/${jobId}`,
+      installedAt: new Date().toISOString(),
+    });
+    this.persistProvisional();
+    this.deps.audit.append({
+      tool: 'provisional-install',
+      scope: 'system',
+      paths: [],
+      event: 'result',
+      detail: `仮導入(包括承認・棚卸し待ち): #${jobId} ${toolName} (${origin})`,
+      autonomous: true,
+    });
+  }
+
+  /** 仮導入したジョブが失敗/ロールバックしたら棚卸しリストから外す */
+  private trackProvisionalOutcome(e: EvolutionEvent): void {
+    if (e.kind !== 'job_update') return;
+    if (e.job.status !== 'rolled_back' && e.job.status !== 'failed') return;
+    const before = this.provisionalInstalls.length;
+    this.provisionalInstalls = this.provisionalInstalls.filter((p) => p.jobId !== e.job.id);
+    if (this.provisionalInstalls.length !== before) this.persistProvisional();
+  }
+
+  /** 棚卸し対象(仮導入済み)の一覧 */
+  inventoryList(): ProvisionalInstall[] {
+    return [...this.provisionalInstalls];
+  }
+
+  /**
+   * 棚卸しの応答。keep=残す(仮マーク解除)/ keep=false=完全アンインストール
+   * (evolve/N のマージrevert+ホットリロード)。失敗時はリストに残す
+   */
+  async inventoryResolve(jobId: number, keep: boolean): Promise<{ ok: boolean; message: string }> {
+    const item = this.provisionalInstalls.find((p) => p.jobId === jobId);
+    if (item === undefined) return { ok: false, message: `棚卸し対象 #${jobId} が見つからない` };
+    if (keep) {
+      this.provisionalInstalls = this.provisionalInstalls.filter((p) => p.jobId !== jobId);
+      this.persistProvisional();
+      this.deps.audit.append({
+        tool: 'provisional-install',
+        scope: 'system',
+        paths: [],
+        event: 'result',
+        detail: `棚卸し: #${jobId} ${item.toolName} を残す(確定)`,
+      });
+      return { ok: true, message: `「${item.toolName}」を残しました` };
+    }
+    if (this.evolution.uninstallPromotion === undefined) {
+      return { ok: false, message: 'この構成ではアンインストールできない(進化機能が無効)' };
+    }
+    const r = await this.evolution.uninstallPromotion(jobId);
+    this.deps.audit.append({
+      tool: 'provisional-install',
+      scope: 'system',
+      paths: [],
+      event: 'result',
+      detail: `棚卸し: #${jobId} ${item.toolName} を削除 → ${r.ok ? 'OK' : `失敗: ${r.message}`}`,
+    });
+    if (!r.ok) return r;
+    this.provisionalInstalls = this.provisionalInstalls.filter((p) => p.jobId !== jobId);
+    this.persistProvisional();
+    return { ok: true, message: `「${item.toolName}」をアンインストールしました(${r.message})` };
   }
 
   /** 進化ジョブごとの通知済み状態(同じ状態のjob_updateが複数回来ても1回だけ通知) */
@@ -697,18 +821,26 @@ export class AgentService {
   }
 
   /** ON/OFF の切替(現在の会話に対して)。全切替を監査に記録し、全画面へ通知する */
-  setAutonomous(on: boolean): { on: boolean } {
-    if (this.current.autonomous === on) return { on };
+  setAutonomous(on: boolean, registryScope?: AutonomousRegistryScope): { on: boolean } {
+    // M29-5: ONのたびに包括承認範囲を確定する(未指定は設定の既定値、それも無ければ none)
+    const scope: AutonomousRegistryScope = on
+      ? (registryScope ?? this.deps.config.get().autonomousRegistryScope ?? 'none')
+      : 'none';
+    if (this.current.autonomous === on && (this.current.registryScope ?? 'none') === scope) {
+      return { on };
+    }
     this.current.autonomous = on;
+    if (on) this.current.registryScope = scope;
+    else delete this.current.registryScope;
     this.deps.audit.append({
       tool: 'autonomous-mode',
       scope: 'system',
       paths: [],
       event: 'result',
-      detail: on ? 'on' : 'off',
+      detail: on ? `on(registry: ${scope})` : 'off',
       autonomous: true,
     });
-    this.deps.bus.publish('autonomous:changed', { on });
+    this.deps.bus.publish('autonomous:changed', { on, ...(on ? { registryScope: scope } : {}) });
     return { on };
   }
 
@@ -730,16 +862,26 @@ export class AgentService {
         expectedIO: string,
         scope?: EvolutionScope,
         targetTool?: string,
-      ) => ({
-        jobId: await this.evolution.enqueue({
+      ) => {
+        const jobId = await this.evolution.enqueue({
           description,
           expectedIO,
           ...(scope !== undefined ? { scope } : {}),
           ...(targetTool !== undefined ? { targetTool } : {}),
           // M23-7: 結果をモデルへ自動フィードバックする宛先(依頼元の会話)
           ...(origin !== undefined ? { originConversationId: origin.id } : {}),
-        }),
-      }),
+        });
+        // M29-5: 包括承認 verified-generate の自律実行では、生成ツール(scope=tool)の
+        // 昇格を仮導入として自動承認してよい候補に登録する(危険警告があれば昇格フックが弾く)
+        if (
+          origin?.autonomous === true &&
+          origin.registryScope === 'verified-generate' &&
+          (scope ?? 'tool') === 'tool'
+        ) {
+          this.provisionalCandidates.set(jobId, { origin: 'generated' });
+        }
+        return { jobId };
+      },
       // M24: evolution_jobs ツールがパイプラインの内部ログを読むための入口
       list: () => this.evolution.list(),
       // M28-3: 「作る前に探す」(request_capability が生成の前に呼ぶ)
@@ -766,9 +908,11 @@ export class AgentService {
   > {
     const registryUrl = this.deps.config.get().registryUrl;
     // M29-4: 空文字=明示的な検索無効(既定は公式レジストリURL)
-    if (registryUrl === undefined || registryUrl === '' || origin?.autonomous === true) {
-      return { outcome: 'none' };
-    }
+    if (registryUrl === undefined || registryUrl === '') return { outcome: 'none' };
+    const autonomous = origin?.autonomous === true;
+    const runScope: AutonomousRegistryScope = origin?.registryScope ?? 'none';
+    // M29-5: 自律モードで包括承認 none は現行どおり検索スキップ(生成へ直行)
+    if (autonomous && runScope === 'none') return { outcome: 'none' };
     const fetchFn = this.deps.fetchFn ?? fetch;
     const entries = await fetchRegistryIndex(registryUrl, fetchFn);
     if (entries === null || entries.length === 0) return { outcome: 'none' };
@@ -780,36 +924,106 @@ export class AgentService {
       .slice(1, 3)
       .map((m) => `- ${m.entry.name}@${m.entry.version}: ${m.entry.description.slice(0, 80)}`)
       .join('\n');
+    const candidateCard = (extraWarnings: string[]): Omit<ApprovalRequestPayload, 'id'> => ({
+      toolName: 'registry-search',
+      risk: 'safe',
+      inputPreview:
+        `候補: ${best.name}@${best.version}\n説明: ${best.description}\n` +
+        `作者: ${best.author || '不明'} / ${best.verified ? '✅ 検証済み(レジストリCI+人間承認)' : '⚠ 未検証'}` +
+        (others !== '' ? `\n\n他の候補:\n${others}` : ''),
+      warnings: [
+        `コミュニティに既存の進化があります。「許可」でダウンロードして検証ゲート(B環境: typecheck→テスト→スモーク)へ進みます(導入前に必ず昇格承認があります)。「拒否」で従来どおり新規生成します`,
+        ...(best.verified ? [] : ['この候補は未検証です(レジストリの人間承認を通っていません)']),
+        ...extraWarnings,
+      ],
+    });
+
+    if (!autonomous) {
+      // 対話モード: 従来どおり承諾カード → ダウンロード → インポート(昇格は人間承認)
+      const decision = await this.broker.request(candidateCard([]), signal);
+      if (decision === 'deny') return { outcome: 'declined', name: best.name };
+      return this.downloadAndStartImport(registryUrl, best, fetchFn, origin);
+    }
+
+    // M29-5: 自律モード(包括承認 verified / verified-generate)。
+    // 危険権限は manifest を見ないと判定できないため、先にダウンロード+検査する
+    const dl = await this.downloadCandidate(registryUrl, best, fetchFn, origin);
+    if (dl === null) return { outcome: 'none' };
+    const perms = dl.manifest.permissions;
+    const dangerous = perms.network || perms.childProcess;
+    if (best.verified && !dangerous) {
+      // 包括承認の範囲内 → 無人で検証ゲートへ。昇格は仮導入として自動承認され、終了後に棚卸し
+      const started = await this.pluginImportStart(dl.dir);
+      if (!started.ok || started.jobId === undefined) {
+        this.emitInfoTo(origin, `レジストリ候補「${best.name}」の検査に失敗: ${started.message} — 従来の生成フローへ進みます`);
+        return { outcome: 'none' };
+      }
+      this.provisionalCandidates.set(started.jobId, { origin: 'registry' });
+      this.emitInfoTo(
+        origin,
+        `📦 包括承認(${runScope})によりコミュニティプラグイン「${best.name}」を仮導入します(B環境検証3段の通過後に有効化。作業終了時の棚卸しで残す/削除を確認します)`,
+      );
+      return { outcome: 'imported', jobId: started.jobId, name: best.name };
+    }
+
+    // 範囲外(未検証 or 危険権限)→ 個別承認カードで一時停止。タイムアウトで生成へ続行
+    const timeoutMs = this.deps.individualApprovalTimeoutMs ?? 600_000;
+    const reason = dangerous
+      ? `⚠ この候補は危険権限(network=${perms.network} / childProcess=${perms.childProcess})を宣言しており、包括承認の範囲外です`
+      : '⚠ この候補は未検証のため、包括承認の範囲外です';
     const decision = await this.broker.request(
-      {
-        toolName: 'registry-search',
-        risk: 'safe',
-        inputPreview:
-          `候補: ${best.name}@${best.version}\n説明: ${best.description}\n` +
-          `作者: ${best.author || '不明'} / ${best.verified ? '✅ 検証済み(レジストリCI+人間承認)' : '⚠ 未検証'}` +
-          (others !== '' ? `\n\n他の候補:\n${others}` : ''),
-        warnings: [
-          `コミュニティに既存の進化があります。「許可」でダウンロードして検証ゲート(B環境: typecheck→テスト→スモーク)へ進みます(導入前に必ず昇格承認があります)。「拒否」で従来どおり新規生成します`,
-          ...(best.verified ? [] : ['この候補は未検証です(レジストリの人間承認を通っていません)']),
-        ],
-      },
-      signal,
+      candidateCard([reason, `${Math.round(timeoutMs / 60_000)}分以内に応答がなければ辞退して新規生成に進みます`]),
+      AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
     );
     if (decision === 'deny') return { outcome: 'declined', name: best.name };
-
-    const destDir = join(tmpdir(), `amateras-registry-${randomUUID()}`, best.name);
-    const dl = await downloadRegistryPlugin(registryUrl, best, destDir, fetchFn);
-    if (!dl.ok) {
-      // ダウンロード失敗は生成へフォールバック(理由は依頼元会話に情報カードで残す)
-      this.emitInfoTo(origin, `レジストリ候補「${best.name}」の${dl.message} — 従来の生成フローへ進みます`);
-      return { outcome: 'none' };
-    }
-    const started = await this.pluginImportStart(destDir);
+    // 個別承認あり → 通常インポート(仮導入ではない=昇格は従来どおり人間承認)
+    const started = await this.pluginImportStart(dl.dir);
     if (!started.ok || started.jobId === undefined) {
       this.emitInfoTo(origin, `レジストリ候補「${best.name}」の検査に失敗: ${started.message} — 従来の生成フローへ進みます`);
       return { outcome: 'none' };
     }
     return { outcome: 'imported', jobId: started.jobId, name: best.name };
+  }
+
+  /** 候補一式をダウンロードして検査まで行う。失敗は情報カード+null(生成へフォールバック) */
+  private async downloadCandidate(
+    registryUrl: string,
+    entry: RegistryIndexEntry,
+    fetchFn: typeof fetch,
+    origin?: ConvState,
+  ): Promise<{ dir: string; manifest: PluginManifest } | null> {
+    const destDir = join(tmpdir(), `amateras-registry-${randomUUID()}`, entry.name);
+    const dl = await downloadRegistryPlugin(registryUrl, entry, destDir, fetchFn);
+    if (!dl.ok) {
+      this.emitInfoTo(origin, `レジストリ候補「${entry.name}」の${dl.message} — 従来の生成フローへ進みます`);
+      return null;
+    }
+    const inspection = await inspectImportDir(destDir);
+    if (!inspection.ok || inspection.manifest === undefined) {
+      this.emitInfoTo(
+        origin,
+        `レジストリ候補「${entry.name}」の検査に失敗: ${inspection.errors.join(' / ')} — 従来の生成フローへ進みます`,
+      );
+      return null;
+    }
+    return { dir: destDir, manifest: inspection.manifest };
+  }
+
+  /** 対話モード用: ダウンロード→インポート開始(旧フローの共通化) */
+  private async downloadAndStartImport(
+    registryUrl: string,
+    entry: RegistryIndexEntry,
+    fetchFn: typeof fetch,
+    origin?: ConvState,
+  ): Promise<{ outcome: 'imported'; jobId: number; name: string } | { outcome: 'none' }> {
+    const dl = await this.downloadCandidate(registryUrl, entry, fetchFn, origin);
+    if (dl === null) return { outcome: 'none' };
+    const started = await this.pluginImportStart(dl.dir);
+    if (!started.ok || started.jobId === undefined) {
+      this.emitInfoTo(origin, `レジストリ候補「${entry.name}」の検査に失敗: ${started.message} — 従来の生成フローへ進みます`);
+      return { outcome: 'none' };
+    }
+    return { outcome: 'imported', jobId: started.jobId, name: entry.name };
   }
 
   /** 依頼元会話へ情報カードを流す(会話が無ければ捨てる) */
@@ -1541,6 +1755,10 @@ export class AgentService {
           escalationProvider,
         });
       }
+      // M29-5: 自律実行の終了時、仮導入(棚卸し待ち)があれば棚卸しカードを出す
+      if (status === 'done' && conv.autonomous && this.provisionalInstalls.length > 0) {
+        emit({ kind: 'inventory', sessionId, items: this.inventoryList() });
+      }
       // M11-3: ループ完了時にも1回スナップショット(直近ツール以降の変更を確定)
       await this.getCheckpoints(run.workspace)
         ?.snapshot(sessionId, `セッション終了(${status})`)
@@ -1855,6 +2073,8 @@ export class AgentService {
   // ---- ツール ----
 
   toolsList(): { tools: ToolInfo[]; errors: PluginErrorInfo[] } {
+    // M29-5: 仮導入(棚卸し未確定)のツールに「仮」マークを付ける
+    const provisionalNames = new Set(this.provisionalInstalls.map((p) => p.toolName));
     return {
       tools: this.deps.registry.list().map((p) => ({
         name: p.name,
@@ -1862,6 +2082,7 @@ export class AgentService {
         risk: p.risk,
         warnings: p.warnings ?? [],
         tags: p.tags ?? [],
+        ...(provisionalNames.has(p.name) ? { provisional: true } : {}),
       })),
       errors: this.deps.registry.errors,
     };
