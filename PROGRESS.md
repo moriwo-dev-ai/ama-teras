@@ -2,6 +2,33 @@
 
 ## 現在の状態
 
+- **M27(夜間自律作業その2・NIGHT_TASKS2.md 全6タスク完了)**。テスト866件・
+  typecheck(node/web/remote)・build 全合格。コミット6件(M27-1〜M27-6)+本ドキュメント更新。
+  - **実施サマリ**:
+    - T1(M27-1): 無料APIモード — OpenAI互換プリセット(Gemini/Groq/OpenRouter)+
+      「無料で始める」導線(3ステップ案内・接続テスト)+ freeMode制限(生成無効・既定軽量化)
+    - T2(M27-2): AGPL-3.0 全文適用+NOTICE.md(商標方針)+README全面刷新(Mermaid図つき)
+    - T3(M27-3): 公開前セキュリティ総点検 — 履歴走査=秘密情報の検出なし。正本 SECURITY_AUDIT.md
+    - T4(M27-4): プラグインのエクスポート/インポート — manifest検証・権限の静的解析
+      (宣言外API=自動拒否)・既存進化ゲートの完全再利用・キルスイッチ土台
+    - T5(M27-5): pluginApiVersion 互換性契約 — ToolPlugin v1凍結・範囲外は無効化+理由表示・
+      プラグインの src/main 内部import禁止を機械検出
+    - T6(M27-6): UIテーマの宣言的データ化の土台(JSON定義・検証・カスタムテーマ適用)
+  - **自分で決めた主要判断**(詳細は各 M27-x 項): ProviderId非拡張(openai+baseUrl+プリセット構成)/
+    freeMode の reviewGate・ModelPolicy は強制OFF(設定値は保存のまま)/ zip見送り
+    (ディレクトリ形式。レジストリもgit方式のため)/ 組み込みへの静的manifest付与は
+    エクスポート時自動生成で充足と解釈 / 失効通知はツール一覧のエラー欄
+  - **未解決・ユーザーへの連絡事項**:
+    1. **コミットAuthorが個人メールのまま**(全履歴)。公開前に許容か書き換えかの判断を
+       (SECURITY_AUDIT.md 参照。pushしていない今なら書き換え可能)
+    2. 無料APIモードの**実疎通は未検証**(実キーがないため)。設定→基本→無料で始める→
+       接続テストで初回確認を。互換レイヤ相性(stream_options等)が出たらエラー文言がそのまま出ます
+    3. BRAND_STRATEGY.md / REGISTRY_DESIGN.md をコミット済み(README/NOTICEが参照)。
+       **公開前に内容の最終目視を**
+    4. 前夜からの持ち越し: `C:\Users\haru-\AppData\Roaming\Electron` の削除(未対応のままです)
+    5. 新UIの一目確認: 設定「基本」の無料で始める枠/カスタムテーマ欄、「品質」の失効リストURL、
+       ツール一覧の「📦 エクスポート」、進化パネルの「📦 インポート」(今夜も実機起動は
+       行っていません。typecheck・テスト・buildでの検証のみ)
 - **M27-6追加(2026-07-10 夜間自律作業その2 T6・任意)**: **UIテーマの宣言的データ化(土台のみ)**。
   REGISTRY_DESIGN.md 3層モデル「見た目の共有=宣言的データ(実行リスクゼロ)」の布石。
   `src/shared/uiTheme.ts`: テーマJSONのスキーマ(name / base: dark|light / colors=9スロット:
@@ -867,8 +894,14 @@
 
 ## 次のタスク
 
-- (ユーザー)夜間作業の後始末3点(冒頭「ユーザーへの連絡事項」参照):
-  Roaming\Electron の削除 / 残置アプリウィンドウを閉じる / 新UI3箇所の一目確認
+- (ユーザー)M27の確認事項5点(冒頭「未解決・ユーザーへの連絡事項」参照):
+  Author判断 / 無料API実疎通 / 戦略文書の目視 / Roaming\Electron削除 / 新UI一目確認
+- フェーズ1残(BRAND_STRATEGY.md): デモGIF録画(docs/demo.gif)、公開後CIへの
+  シークレットスキャン(gitleaks等)+npm audit 組み込み
+- フェーズ3布石の続き: レジストリ実体(GitHubリポジトリ方式)の別リポジトリ設計、
+  テーマの流通(ファイル選択/共有UI)と細部エイリアスの網羅、検証済みプラグインの署名
+- 無料APIモードの実測調整: 各プリセットの互換レイヤ相性(stream_options/usage)と
+  レート制限文言の実地確認、必要ならモデル候補の更新
 - M26 の実運用フィードバック: severity 方式の合格率・reviewer/explorer 帯のコスト削減効果を
   UsageSection の帯別集計で観察し、プリセットの帯割当を再調整する
 - refusal フォールバックの実発火ログ(audit.jsonl の 'refusal(N/2)')を確認し、
