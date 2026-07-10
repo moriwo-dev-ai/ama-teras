@@ -20,6 +20,11 @@ export interface EvolutionRequest {
    * toolName がこの名前と一致することを manager.ts が検証する)
    */
   targetTool?: string;
+  /**
+   * M27-4: プラグインインポート元のディレクトリ(検査済み)。指定するとLLM生成の
+   * 代わりに ImportJobRunner がファイルコピーを行う(検証ゲート以降は完全に同一経路)
+   */
+  importFrom?: string;
 }
 
 export interface JobArtifacts {

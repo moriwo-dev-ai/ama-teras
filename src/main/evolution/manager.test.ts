@@ -434,3 +434,80 @@ describe('detectDangerWarnings', () => {
     expect(detectDangerWarnings(`+const a = 1;`)).toHaveLength(0);
   });
 });
+
+describe('M27-4: プラグインインポート(importFrom)の統合', () => {
+  const MANIFEST = {
+    name: 'hello_import',
+    version: '1.0.0',
+    pluginApiVersion: '^1',
+    description: '挨拶する',
+    author: 'someone',
+    license: 'MIT',
+    permissions: { network: false, childProcess: false, fsScope: 'none' },
+    dependencies: [],
+    smoke: { input: {} },
+  };
+  const IMPORT_PLUGIN = `import type { ToolPlugin } from '../types';
+export default {
+  name: 'hello_import',
+  description: '挨拶する',
+  inputSchema: { type: 'object', properties: {} },
+  risk: 'safe',
+  async execute() { return { content: 'hello' }; },
+} satisfies ToolPlugin;
+`;
+
+  async function makeImportDir(): Promise<string> {
+    const dir = join(base, 'import-pkg');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'manifest.json'), JSON.stringify(MANIFEST));
+    await writeFile(join(dir, 'hello_import.ts'), IMPORT_PLUGIN);
+    await writeFile(join(dir, 'hello_import.test.ts'), '// test');
+    return dir;
+  }
+
+  it('検査→コピー→ゲート→承認→昇格まで既存パイプラインで完走する', async () => {
+    const dir = await makeImportDir();
+    const { composeRunners, ImportJobRunner } = await import('../registry/importRunner');
+    const dummyGenerator = {
+      generate: async () => {
+        throw new Error('generatorは呼ばれないはず');
+      },
+    };
+    const { manager, events, reloads } = makeManager({
+      runner: composeRunners(dummyGenerator, new ImportJobRunner()),
+    });
+    await manager.enqueue({
+      description: 'コミュニティプラグイン「hello_import」のインポート',
+      expectedIO: '挨拶する',
+      scope: 'tool',
+      importFrom: dir,
+    });
+    const status = await waitForTerminal(events);
+    expect(status).toBe('done');
+    expect(reloads.count).toBeGreaterThan(0); // 昇格後のホットリロードが走った
+    // インポートしたファイルが main ブランチへ昇格している
+    const show = await runGit(['show', 'main:src/main/tools/plugins/hello_import.ts'], repoDir);
+    expect(show).toContain('hello_import');
+  });
+
+  it('ゲート不合格のインポートは再生成せず failed になる(再コピーは無意味)', async () => {
+    const dir = await makeImportDir();
+    const { composeRunners, ImportJobRunner } = await import('../registry/importRunner');
+    const dummyGenerator = { generate: async () => ({ toolName: 'x' }) };
+    const { manager, events } = makeManager({
+      runner: composeRunners(dummyGenerator, new ImportJobRunner()),
+      // typecheck を落とす(検証ゲート不合格)
+      runCommand: async (cmd) =>
+        cmd.includes('typecheck') ? { code: 1, output: 'TS2304' } : { code: 0, output: 'ok' },
+    });
+    await manager.enqueue({
+      description: 'インポート',
+      expectedIO: 'x',
+      scope: 'tool',
+      importFrom: dir,
+    });
+    const status = await waitForTerminal(events);
+    expect(status).toBe('failed');
+  });
+});

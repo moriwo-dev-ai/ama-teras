@@ -50,6 +50,8 @@ const api: MyCodexApi = {
     ipcRenderer.invoke(IpcChannels.evolutionEnqueue, description, expectedIo, scope),
   evolutionList: () => ipcRenderer.invoke(IpcChannels.evolutionList),
   evolutionCancel: (jobId) => ipcRenderer.invoke(IpcChannels.evolutionCancel, jobId),
+  pluginsExport: (toolName) => ipcRenderer.invoke(IpcChannels.pluginsExport, toolName),
+  pluginsImport: () => ipcRenderer.invoke(IpcChannels.pluginsImport),
   conversationMoveWorkspace: (newWorkspace) =>
     ipcRenderer.invoke(IpcChannels.conversationMoveWorkspace, newWorkspace),
 

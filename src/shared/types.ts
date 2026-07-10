@@ -234,6 +234,11 @@ export interface AppConfig {
   freeMode?: boolean;
   /** M27-1: 無料モードでも自己進化(新規プラグイン生成)を許可するオプトイン */
   freeModeAllowEvolution?: boolean;
+  /**
+   * M27-4: プラグイン失効リスト(キルスイッチ)のURL。既定は未設定=チェックしない。
+   * 起動時にフェッチし、一致する導入済みプラグインを自動無効化する。不達は静かにスキップ
+   */
+  pluginRevocationUrl?: string;
   /** エージェントの作業ディレクトリ。空/未設定なら既定(アプリのルート) */
   workspace?: string;
   /** M9: 操作範囲。既定 'project'(後方互換) */
@@ -307,6 +312,50 @@ export interface ToolExecResultPayload {
 export interface PluginErrorInfo {
   filePath: string;
   message: string;
+}
+
+// ---- M27-4: プラグインのエクスポート/インポート(REGISTRY_DESIGN.md マニフェスト仕様) ----
+
+/** 権限宣言。実装コードの静的解析で自動抽出し、宣言との不一致は検出される */
+export interface PluginPermissions {
+  network: boolean;
+  childProcess: boolean;
+  /** 'none'=ファイル未使用 / 'workspace'=fs使用(実行時スコープはexecutorが強制) */
+  fsScope: 'none' | 'workspace';
+}
+
+/** プラグイン1つ=1ディレクトリ(<name>.ts + <name>.test.ts + manifest.json)の manifest */
+export interface PluginManifest {
+  name: string;
+  /** semver */
+  version: string;
+  /** 本体プラグインAPIとの互換範囲(例 "^1") */
+  pluginApiVersion: string;
+  description: string;
+  author: string;
+  /** AGPL互換ライセンスのみ受け入れる(投稿時DCO同意の前提) */
+  license: string;
+  permissions: PluginPermissions;
+  /** フェーズ1は外部依存ゼロをルール化(空配列のみ有効) */
+  dependencies: string[];
+  /** スモークテスト(検証ゲート3段目)に使う入力。未指定は {} */
+  smoke?: { input: unknown };
+}
+
+export interface PluginExportResult {
+  ok: boolean;
+  message: string;
+  /** 書き出したディレクトリ(成功時) */
+  path?: string;
+}
+
+export interface PluginImportStartResult {
+  ok: boolean;
+  message: string;
+  /** 検証ゲートへ進んだ進化ジョブID(成功時。以降は進化パネルで追跡) */
+  jobId?: number;
+  manifest?: PluginManifest;
+  warnings?: string[];
 }
 
 // ---- M10: リモートアクセス(スマホWeb) ----

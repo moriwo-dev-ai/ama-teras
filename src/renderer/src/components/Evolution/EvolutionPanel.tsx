@@ -78,6 +78,9 @@ export function EvolutionPanel(): JSX.Element {
   // ツール名→説明。kind=tool の履歴に「どういう能力か」の要約を出すために使う
   const [toolDescs, setToolDescs] = useState<Record<string, string>>({});
   const [rollbackMsg, setRollbackMsg] = useState('');
+  // M27-4: プラグインインポートの結果表示
+  const [importMsg, setImportMsg] = useState('');
+  const [importing, setImporting] = useState(false);
 
   const loadHistory = async (): Promise<void> => {
     try {
@@ -131,7 +134,30 @@ export function EvolutionPanel(): JSX.Element {
         >
           ジョブ起動
         </button>
+        {/* M27-4: 共有プラグインのインポート(検査→検証ゲート→承認→導入) */}
+        <button
+          className="rounded bg-emerald-800 px-3 py-1 text-xs hover:bg-emerald-700 disabled:opacity-40"
+          disabled={importing}
+          title="コミュニティ/エクスポート済みプラグインのフォルダを選んで導入する(検証ゲートと承認を必ず通る)"
+          onClick={() => {
+            setImporting(true);
+            setImportMsg('');
+            void window.api
+              .pluginsImport()
+              .then((r) => {
+                const warn = r.warnings !== undefined && r.warnings.length > 0 ? `\n⚠ ${r.warnings.join('\n⚠ ')}` : '';
+                setImportMsg(`${r.ok ? '✓' : '✗'} ${r.message}${warn}`);
+              })
+              .catch((err: unknown) => setImportMsg(`✗ ${err instanceof Error ? err.message : String(err)}`))
+              .finally(() => setImporting(false));
+          }}
+        >
+          📦 インポート
+        </button>
       </div>
+      {importMsg !== '' && (
+        <p className="whitespace-pre-wrap text-xs text-zinc-300">{importMsg}</p>
+      )}
       {jobs.length === 0 && <p className="text-xs text-zinc-500">ジョブはまだない</p>}
       <div className="max-h-56 space-y-1 overflow-y-auto">
         {jobs.map((j) => (

@@ -28,6 +28,9 @@ import { readAndClearPendingQueue, writePendingQueue } from './evolution/pending
 import { clearSentinel, writeSentinel } from './evolution/sentinel';
 import { healthCheckAfterPromotion, rebuildAndHealthBoot } from './evolution/supervisor';
 import { defaultRunCommand } from './evolution/gates';
+import { composeRunners, ImportJobRunner } from './registry/importRunner';
+import { fetchRevocationList } from './registry/killswitch';
+import { exportPlugin } from './registry/packager';
 import { generateToken, RemoteAuth } from './remote/auth';
 import { RemoteServer } from './remote/server';
 import { SecretStore, type SecretCipher } from './secrets';
@@ -271,6 +274,21 @@ export async function registerIpcHandlers(
     electronSafeStorageCipher(),
   );
   const audit = new AuditLog(join(app.getPath('userData'), 'audit.jsonl'));
+
+  // M27-4: キルスイッチ(プラグイン失効リスト)。起動時に1回フェッチし、一致する
+  // 導入済みプラグインを自動無効化する(理由はツール一覧のエラー表示でユーザーに見える)。
+  // ネットワーク不達・不正応答は静かにスキップ(キルスイッチ不達でアプリを止めない)
+  const revocationUrl = config.get().pluginRevocationUrl;
+  if (revocationUrl !== undefined) {
+    void fetchRevocationList(revocationUrl).then((entries) => {
+      if (entries === null) return;
+      for (const e of entries) {
+        if (registry.revoke(e.name, e.reason)) {
+          console.log(`[killswitch] プラグイン ${e.name} を無効化: ${e.reason}`);
+        }
+      }
+    });
+  }
   // M23-2: 使用量メーター(userData/usage.json)
   const usageMeter = new UsageMeter(join(app.getPath('userData'), 'usage.json'));
   const bus = new EventBus();
@@ -313,7 +331,11 @@ export async function registerIpcHandlers(
       const manager: EvolutionManager = new EvolutionManager({
         repoDir,
         worktreeBase: join(repoDir, '..', 'mycodex-evolve'),
-        runner: new AgentJobRunner(() => service.createProviderOrThrow()),
+        // M27-4: importFrom 付きの依頼はLLM生成の代わりにファイルコピー(以降のゲートは同一)
+        runner: composeRunners(
+          new AgentJobRunner(() => service.createProviderOrThrow()),
+          new ImportJobRunner(),
+        ),
         requestPromotionApproval: hooks.requestPromotionApproval,
         reloadPlugins: () => registry.reload(),
         // M25-8: 新規作成時の既存ツール名衝突チェック/既存修正時の実在確認に使う
@@ -487,6 +509,37 @@ export async function registerIpcHandlers(
       throw new Error('IPC payload jobId が不正');
     }
     return service.evolutionCancel(jobId);
+  });
+
+  // ---- M27-4: プラグインのエクスポート/インポート ----
+  ipcMain.handle(IpcChannels.pluginsExport, async (_e, toolName: unknown) => {
+    assertString(toolName, 'toolName');
+    const plugin = registry.get(toolName);
+    if (!plugin) return { ok: false, message: `ツール「${toolName}」が見つからない` };
+    const result = await dialog.showOpenDialog({
+      title: 'エクスポート先の親フォルダを選択',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { ok: false, message: 'キャンセルされた' };
+    }
+    return exportPlugin({
+      pluginsDir: getPluginsDir(),
+      toolName,
+      description: plugin.description,
+      destRoot: result.filePaths[0]!,
+    });
+  });
+
+  ipcMain.handle(IpcChannels.pluginsImport, async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'プラグインのフォルダを選択(manifest.json を含むディレクトリ)',
+      properties: ['openDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { ok: false, message: 'キャンセルされた' };
+    }
+    return service.pluginImportStart(result.filePaths[0]!);
   });
 
   // M26-7: 表示中の会話の workspace 移動(実行中は service 側で拒否)

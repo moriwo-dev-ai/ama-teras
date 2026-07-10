@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentEvent, AppConfig, ModelPolicy, ProviderId, SecretSlot } from '../../shared/types';
 import type { CompletionRequest, LLMProvider, ProviderEvent } from '../providers/types';
@@ -205,5 +208,71 @@ describe('M27-1: connectionTest', () => {
     const r = await svc.connectionTest();
     expect(r.ok).toBe(false);
     expect(r.message).toContain('未設定');
+  });
+});
+
+describe('M27-4: pluginImportStart の enqueue 配線', () => {
+  function makeImportDir(name: string): { dir: string; cleanup: () => void } {
+    const base = mkdtempSync(join(tmpdir(), 'mycodex-svc-imp-'));
+    const dir = join(base, name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'manifest.json'),
+      JSON.stringify({
+        name,
+        version: '1.0.0',
+        pluginApiVersion: '^1',
+        description: 'テスト',
+        author: '',
+        license: 'MIT',
+        permissions: { network: false, childProcess: false, fsScope: 'none' },
+        dependencies: [],
+      }),
+    );
+    writeFileSync(join(dir, `${name}.ts`), `export default { name: '${name}' };`);
+    return { dir, cleanup: () => rmSync(base, { recursive: true, force: true }) };
+  }
+
+  it('検査合格なら importFrom 付きで enqueue され、既存同名ツールなら targetTool も付く', async () => {
+    const { dir, cleanup } = makeImportDir('imported_tool');
+    try {
+      const { svc, enqueue } = makeService({});
+      const r = await svc.pluginImportStart(dir);
+      expect(r.ok).toBe(true);
+      expect(r.jobId).toBe(1);
+      expect(enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ scope: 'tool', importFrom: dir }),
+      );
+      expect((enqueue.mock.calls[0]![0] as { targetTool?: string }).targetTool).toBeUndefined();
+
+      // 既存同名ツールがあると「既存修正」として扱う
+      const existing = {
+        name: 'imported_tool',
+        description: 'x',
+        inputSchema: { type: 'object' as const, properties: {} },
+        risk: 'safe' as const,
+        execute: async () => ({ content: 'ok' }),
+      };
+      const reg = {
+        list: () => [existing],
+        get: (n: string) => (n === 'imported_tool' ? existing : undefined),
+        reload: async () => {},
+        errors: [],
+      };
+      const { svc: svc2, enqueue: enqueue2 } = makeService({ registry: reg });
+      const r2 = await svc2.pluginImportStart(dir);
+      expect(r2.ok).toBe(true);
+      expect(enqueue2).toHaveBeenCalledWith(expect.objectContaining({ targetTool: 'imported_tool' }));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('検査不合格(manifest欠落)は enqueue せずエラーメッセージを返す', async () => {
+    const { svc, enqueue } = makeService({});
+    const r = await svc.pluginImportStart(join(tmpdir(), 'no-such-dir-xyz'));
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('検査に失敗');
+    expect(enqueue).not.toHaveBeenCalled();
   });
 });

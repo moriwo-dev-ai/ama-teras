@@ -58,6 +58,28 @@ export function QualitySection({
           ツール結果に追記される。エラーをモデルが見て自走修正できる(タイムアウト60秒・空欄=無効)
         </p>
       </div>
+
+      {/* M27-4: キルスイッチ(プラグイン失効リスト) */}
+      <div className="space-y-1">
+        <label className="text-xs text-zinc-400">プラグイン失効リストURL(キルスイッチ)</label>
+        <input
+          className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
+          defaultValue={config.pluginRevocationUrl ?? ''}
+          placeholder="例: https://…/revoked.json(空欄=チェックしない)"
+          onBlur={(e) => {
+            const raw = e.target.value.trim();
+            const next: AppConfig = { ...config };
+            delete next.pluginRevocationUrl;
+            if (raw !== '') next.pluginRevocationUrl = raw;
+            saveConfig(next);
+          }}
+        />
+        <p className="text-xs text-zinc-500">
+          起動時に一度フェッチし、リストに載っているプラグインを自動無効化する(理由はツール一覧の
+          エラー欄に表示)。危険が判明した共有プラグインを止める安全装置。ネットワーク不達時は
+          静かにスキップされる(次回起動で再チェック)
+        </p>
+      </div>
     </div>
   );
 }

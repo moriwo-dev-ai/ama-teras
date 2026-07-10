@@ -174,6 +174,13 @@ export class ConfigStore {
         merged.freeModeAllowEvolution = rec['freeModeAllowEvolution'];
       }
       if (typeof rec['workspace'] === 'string' && rec['workspace'] !== '') merged.workspace = rec['workspace'];
+      // M27-4: 失効リストURL(キルスイッチ)。http(s) のみ受け入れる
+      if (
+        typeof rec['pluginRevocationUrl'] === 'string' &&
+        /^https?:\/\//.test(rec['pluginRevocationUrl'])
+      ) {
+        merged.pluginRevocationUrl = rec['pluginRevocationUrl'];
+      }
       if (rec['scopeMode'] === 'project' || rec['scopeMode'] === 'fullPc') merged.scopeMode = rec['scopeMode'];
       // M11-1: 数値でない・非有限の maxTurns は未設定として扱う(後方互換)
       if (typeof rec['maxTurns'] === 'number' && Number.isFinite(rec['maxTurns'])) {
@@ -225,6 +232,10 @@ export class ConfigStore {
     // M27-1: 不正なプリセットIDは未設定へ正規化(IPC経由の範囲外値を防ぐ)
     if (clone.providerPreset !== undefined && parseProviderPreset(clone.providerPreset) === undefined) {
       delete clone.providerPreset;
+    }
+    // M27-4: 失効リストURLは http(s) のみ。空文字・不正形式は未設定へ
+    if (clone.pluginRevocationUrl !== undefined && !/^https?:\/\//.test(clone.pluginRevocationUrl)) {
+      delete clone.pluginRevocationUrl;
     }
     // M18: 保存時にも正規化(不正形は未設定へ、格上げ回数はクランプ)
     if (clone.modelPolicy !== undefined) {

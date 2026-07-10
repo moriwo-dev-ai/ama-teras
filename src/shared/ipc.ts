@@ -17,6 +17,8 @@ import type {
   McpServerStatus,
   PluginErrorInfo,
   ConnectionTestResult,
+  PluginExportResult,
+  PluginImportStartResult,
   ProviderId,
   RemoteStatusPayload,
   RunInfo,
@@ -60,6 +62,10 @@ export const IpcChannels = {
   evolutionList: 'evolution:list',
   /** M26-6: ジョブのキャンセル(queued=キュー除去/実行中=abort) */
   evolutionCancel: 'evolution:cancel',
+  /** M27-4: プラグインのエクスポート(コード+テスト+マニフェストのディレクトリ書き出し) */
+  pluginsExport: 'plugins:export',
+  /** M27-4: プラグインのインポート(検査→既存の検証ゲート→承認→導入) */
+  pluginsImport: 'plugins:import',
   /** M26-7: 表示中の会話の workspace を明示的に移動する */
   conversationMoveWorkspace: 'conversation:move-workspace',
   /** M11-3: 自動チェックポイント(Debugパネル) */
@@ -157,6 +163,10 @@ export interface MyCodexApi {
   evolutionList(): Promise<EvolutionJobSummary[]>;
   /** M26-6: ジョブのキャンセル。ok=false は対象外の状態(昇格待ち以降・完了済み等) */
   evolutionCancel(jobId: number): Promise<{ ok: boolean }>;
+  /** M27-4: プラグインのエクスポート(書き出し先はダイアログで選択) */
+  pluginsExport(toolName: string): Promise<PluginExportResult>;
+  /** M27-4: プラグインのインポート(フォルダ選択→検査→検証ゲートつき進化ジョブ) */
+  pluginsImport(): Promise<PluginImportStartResult>;
   /** M26-7: 表示中の会話の workspace を移動(実行中は不可)。以降のツール実行が移動先を参照 */
   conversationMoveWorkspace(newWorkspace: string): Promise<{ ok: boolean; message: string }>;
 

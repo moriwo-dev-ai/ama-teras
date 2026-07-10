@@ -19,6 +19,7 @@ import type {
   HistoryMessageView,
   ModelPolicy,
   PluginErrorInfo,
+  PluginImportStartResult,
   ProviderId,
   SecretSlot,
   ReviewCardPayload,
@@ -60,6 +61,7 @@ import {
 import { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from '../providers/anthropic';
 import { DEFAULT_OPENAI_MODEL, OpenAIProvider } from '../providers/openai';
 import type { ChatMessage, LLMProvider } from '../providers/types';
+import { inspectImportDir } from '../registry/packager';
 import { runReviewGateStep } from '../review/gateRunner';
 import { newlyCompleted } from '../review/planDiff';
 // M26-2: コア領域(聖域)判定はA側の正本リストを共用する(進化ジョブ非波及の逆方向importなのでOK)
@@ -102,6 +104,8 @@ export interface EvolutionLike {
     scope?: EvolutionScope;
     /** M25-8: 既存ツールの修正対象(scope='tool'のみ意味を持つ) */
     targetTool?: string;
+    /** M27-4: プラグインインポート元ディレクトリ(生成の代わりにコピーする) */
+    importFrom?: string;
   }): Promise<number>;
   /** M26-6: ジョブのキャンセル(queued=キュー除去/実行中=abort)。未実装(セーフモード等)なら省略可 */
   cancel?(id: number): boolean;
@@ -1838,6 +1842,38 @@ export class AgentService {
   ): Promise<{ jobId: number }> {
     return {
       jobId: await this.evolution.enqueue({ description, expectedIO, ...(scope !== undefined ? { scope } : {}) }),
+    };
+  }
+
+  /**
+   * M27-4: プラグインインポートの開始。ディレクトリを検査(manifest検証+権限静的解析)し、
+   * 合格なら進化ジョブとして enqueue する(以降は既存の検証ゲート→承認→昇格と同一経路。
+   * ゲートの省略は不可)。既存ツールと同名なら「既存修正(targetTool)」として扱う
+   */
+  async pluginImportStart(dir: string): Promise<PluginImportStartResult> {
+    const inspection = await inspectImportDir(dir);
+    if (!inspection.ok || inspection.manifest === undefined) {
+      return { ok: false, message: `インポート検査に失敗:\n${inspection.errors.join('\n')}` };
+    }
+    const m = inspection.manifest;
+    const exists = this.deps.registry.get(m.name) !== undefined;
+    const jobId = await this.evolution.enqueue({
+      description: `コミュニティプラグイン「${m.name}」のインポート(v${m.version})`,
+      expectedIO: m.description,
+      scope: 'tool',
+      importFrom: dir,
+      ...(exists ? { targetTool: m.name } : {}),
+    });
+    return {
+      ok: true,
+      message:
+        (exists
+          ? `既存ツール「${m.name}」の更新としてインポートを開始した(ジョブ#${jobId})`
+          : `インポートを開始した(ジョブ#${jobId})`) +
+        '。検証ゲート(typecheck→vitest→スモーク)合格後に承認ダイアログが出ます',
+      jobId,
+      manifest: m,
+      warnings: inspection.warnings,
     };
   }
 

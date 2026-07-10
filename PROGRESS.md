@@ -2,6 +2,32 @@
 
 ## 現在の状態
 
+- **M27-4追加(2026-07-10 夜間自律作業その2 T4)**: **プラグインのエクスポート/インポート基盤**
+  (ローカル完結。レジストリ本体は将来の別リポジトリ)。新モジュール `src/main/registry/`:
+  ①manifest.ts=REGISTRY_DESIGN.md準拠のマニフェスト検証(semver・pluginApiVersion範囲・
+  AGPL互換ライセンス許可リスト・依存ゼロルール・permissions形)。②permissions.ts=コードの
+  静的解析による権限自動抽出(モジュール参照+fetch/WebSocket等のグローバルAPI)と宣言との
+  突き合わせ(**宣言外API使用=自動リジェクト**、過剰宣言=警告。将来レジストリCIと共通化)。
+  ③packager.ts=エクスポート(コード+テスト+manifest.jsonの1ディレクトリ書き出し。権限は
+  自動抽出で生成)とインポート検査。④importRunner.ts=`ImportJobRunner`(LLM生成の代わりに
+  検査済みファイルをBへコピー)+`composeRunners`(importFrom有無で振り分け)。
+  **インポートは既存の進化パイプラインをそのまま通す**(EvolutionRequest.importFrom を追加し、
+  worktree→検証3段→承認ダイアログ(diff+危険API警告)→昇格→ロールバックが完全に同一経路=
+  ゲート省略なし。既存同名ツールは targetTool 扱いで「更新」になる)。
+  ⑤killswitch.ts+ToolRegistry.revoke=失効リストURL(設定「品質」タブ・既定空)を起動時
+  フェッチし一致プラグインを自動無効化(理由はツール一覧のエラー表示=ユーザー通知。
+  不達は静かにスキップ、reload後も失効維持)。UI: ツールデバッグの各行に「📦 エクスポート」、
+  進化パネルに「📦 インポート」。IPC `plugins:export` / `plugins:import` 新設。
+  自分で決めた判断: (a) **zip対応は見送り**(外部依存ゼロでの実装コスト・リスクに対し、
+  ディレクトリ形式で機能要件を満たす。レジストリ実体もgitディレクトリ方式でzipは不要)。
+  (b) スモーク入力は manifest の任意フィールド `smoke.input`(エクスポート時は {} を出力。
+  生成時の入力が残っていないため)。(c) fsScope の静的判定は none/workspace の2値
+  (実行時スコープはexecutorが強制するため宣言は情報提供が主目的)。(d) 失効通知は
+  ツール一覧のエラー欄で表示(専用トースト基盤を今夜作るより誤配線リスクが低い)。
+  テスト34件追加(manifest検証・権限抽出/突き合わせ・エクスポート往復・インポート検査・
+  ImportJobRunner・composeRunners・registry失効(reload持続含む)・killswitchパース・
+  service enqueue配線・**manager実git統合2件(インポート完走/ゲート不合格でfailed)**)。
+  全826テスト・typecheck 合格(フル実行1回目のmanager 1件は既知Windows並列負荷、単独再実行で全緑)。
 - **M27-3追加(2026-07-10 夜間自律作業その2 T3)**: **公開前セキュリティ総点検**
   (結果の正本は `SECURITY_AUDIT.md`)。git全履歴(249コミット)へのキー/シークレット/
   個人パス走査=検出なし。キー経路=SecretStore+safeStorage(DPAPI)のみ・renderer/リモート/

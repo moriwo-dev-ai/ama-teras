@@ -16,6 +16,8 @@ export function ToolDebugPanel(): JSX.Element {
   // M25-8: ツール一覧のタグ絞り込み・検索
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [toolSearch, setToolSearch] = useState('');
+  // M27-4: プラグインエクスポートの結果表示
+  const [exportMsg, setExportMsg] = useState('');
 
   const refresh = async (reload: boolean): Promise<void> => {
     const r = reload ? await window.api.toolsReload() : await window.api.toolsList();
@@ -151,6 +153,7 @@ export function ToolDebugPanel(): JSX.Element {
           />
           <span className="text-[11px] text-zinc-500">{filteredTools.length}/{tools.length}件</span>
         </div>
+        {exportMsg !== '' && <p className="text-[11px] text-zinc-400">{exportMsg}</p>}
         <div className="flex flex-wrap gap-1">
           <button
             className={`rounded-full px-2 py-0.5 text-[11px] ${
@@ -186,6 +189,21 @@ export function ToolDebugPanel(): JSX.Element {
                     {tag}
                   </span>
                 ))}
+                {/* M27-4: コード+テスト+マニフェストのディレクトリ書き出し(共有・レジストリ投稿用) */}
+                <button
+                  className="ml-auto rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-800"
+                  title="このプラグインをコード+テスト+マニフェストのフォルダとして書き出す"
+                  onClick={() => {
+                    void window.api
+                      .pluginsExport(t.name)
+                      .then((r) => setExportMsg(`${r.ok ? '✓' : '✗'} ${r.message}`))
+                      .catch((err: unknown) =>
+                        setExportMsg(`✗ ${err instanceof Error ? err.message : String(err)}`),
+                      );
+                  }}
+                >
+                  📦 エクスポート
+                </button>
               </div>
               <p className="mt-0.5 text-zinc-500">{t.description}</p>
             </li>
