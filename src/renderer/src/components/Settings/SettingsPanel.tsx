@@ -67,7 +67,8 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): JSX.Element
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60">
-      <div className="flex max-h-[90vh] w-[560px] max-w-[90vw] flex-col rounded-lg border border-zinc-600 bg-zinc-900 text-sm shadow-xl">
+      {/* M29-2: 高さは固定(タブ切替でモーダル外形が動かない)。中身側が overflow-y-auto でスクロール */}
+      <div className="flex h-[85vh] w-[560px] max-w-[90vw] flex-col rounded-lg border border-zinc-600 bg-zinc-900 text-sm shadow-xl">
         <div className="flex items-center justify-between px-5 pt-4">
           <h2 className="font-semibold">設定</h2>
           <div className="flex items-center gap-3 text-xs text-zinc-400">
