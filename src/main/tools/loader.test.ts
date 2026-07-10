@@ -106,3 +106,54 @@ describe('ToolRegistry.reload(動的ロード)', () => {
 function dummyCtx(): { cwd: string; signal: AbortSignal; log: () => void } {
   return { cwd: process.cwd(), signal: new AbortController().signal, log: () => {} };
 }
+
+describe('M27-5: pluginApiVersion によるロード時の無効化', () => {
+  const PLUGIN = `export default {
+  name: 'versioned_tool',
+  description: 'x',
+  inputSchema: { type: 'object', properties: {} },
+  risk: 'safe',
+  async execute() { return { content: 'ok' }; },
+};
+`;
+  const manifest = (range: string): string =>
+    JSON.stringify({ name: 'versioned_tool', pluginApiVersion: range });
+
+  it('範囲内(^1)のマニフェスト付きプラグインは普通にロードされる', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'mycodex-apiver-'));
+    try {
+      await writeFile(join(dir, 'versioned_tool.ts'), PLUGIN);
+      await writeFile(join(dir, 'versioned_tool.manifest.json'), manifest('^1'));
+      const r = await loadPlugins(dir, join(dir, 'cache'));
+      expect(r.plugins.some((p) => p.plugin.name === 'versioned_tool')).toBe(true);
+      expect(r.errors).toHaveLength(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('範囲外(^2)はクラッシュではなく無効化+理由が errors に載る', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'mycodex-apiver-'));
+    try {
+      await writeFile(join(dir, 'versioned_tool.ts'), PLUGIN);
+      await writeFile(join(dir, 'versioned_tool.manifest.json'), manifest('^2'));
+      const r = await loadPlugins(dir, join(dir, 'cache'));
+      expect(r.plugins.some((p) => p.plugin.name === 'versioned_tool')).toBe(false);
+      expect(r.errors.some((e) => e.message.includes('範囲外'))).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('マニフェスト無し・破損マニフェストは従来どおりロードされる(後方互換)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'mycodex-apiver-'));
+    try {
+      await writeFile(join(dir, 'versioned_tool.ts'), PLUGIN);
+      await writeFile(join(dir, 'versioned_tool.manifest.json'), '{broken');
+      const r = await loadPlugins(dir, join(dir, 'cache'));
+      expect(r.plugins.some((p) => p.plugin.name === 'versioned_tool')).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+});

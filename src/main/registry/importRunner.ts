@@ -41,6 +41,9 @@ export class ImportJobRunner implements EvolutionJobRunner {
     if (inspection.testPath !== undefined) {
       await copyFile(inspection.testPath, join(pluginsDir, `${m.name}.test.ts`));
     }
+    // M27-5: マニフェストも同梱する(<name>.manifest.json)。将来の本体APIメジャーアップ時、
+    // loader が pluginApiVersion 範囲外のプラグインを「クラッシュではなく無効化+理由表示」できる
+    await copyFile(join(req.importFrom, 'manifest.json'), join(pluginsDir, `${m.name}.manifest.json`));
     log(`B環境へコピー完了。検証ゲート(typecheck→vitest→スモーク)へ進む`);
     return { toolName: m.name, smokeInput: m.smoke?.input ?? {} };
   }

@@ -151,3 +151,27 @@ describe('M27-4: inspectImportDir(エクスポート→インポートの往復)
     expect(r.warnings.some((w) => w.includes('テスト'))).toBe(true);
   });
 });
+
+describe('M27-5: pluginApiVersion の互換範囲チェック', () => {
+  it('本体API範囲外(^2)のプラグインはインポート検査で拒否される', async () => {
+    const dir = join(base, 'future');
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, 'manifest.json'),
+      JSON.stringify({
+        name: 'future_tool',
+        version: '1.0.0',
+        pluginApiVersion: '^2',
+        description: 'x',
+        author: '',
+        license: 'MIT',
+        permissions: { network: false, childProcess: false, fsScope: 'none' },
+        dependencies: [],
+      }),
+    );
+    await writeFile(join(dir, 'future_tool.ts'), `export default {};`);
+    const r = await inspectImportDir(dir);
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.includes('範囲外'))).toBe(true);
+  });
+});

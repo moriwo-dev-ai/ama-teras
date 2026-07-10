@@ -64,6 +64,8 @@ describe('M27-4: ImportJobRunner', () => {
     expect(artifacts).toEqual({ toolName: 'hello_tool', smokeInput: { name: 'world' } });
     expect(existsSync(join(wt, 'src/main/tools/plugins/hello_tool.ts'))).toBe(true);
     expect(existsSync(join(wt, 'src/main/tools/plugins/hello_tool.test.ts'))).toBe(true);
+    // M27-5: マニフェストも同梱される(将来のAPIメジャーアップ時の無効化判定に使う)
+    expect(existsSync(join(wt, 'src/main/tools/plugins/hello_tool.manifest.json'))).toBe(true);
     // 権限宣言がログ(承認時の判断材料)に出る
     expect(logs.some((l) => l.includes('network=false'))).toBe(true);
   });

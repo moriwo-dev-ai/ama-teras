@@ -2,6 +2,26 @@
 
 ## 現在の状態
 
+- **M27-5追加(2026-07-10 夜間自律作業その2 T5)**: **pluginApiVersion(互換性契約)**。
+  ①現行 `ToolPlugin` インターフェースを **v1 として凍結**(正本
+  `src/main/tools/versioning.ts` の `PLUGIN_API_VERSION='1.0.0'`。types.ts に凍結コメント。
+  semver運用: マイナー=追加のみ・破壊的変更=メジャーのみ)。
+  ②範囲照合 `satisfiesApiRange`(npm互換の最小サブセット: ^/~/桁一致。解釈不能は安全側false)。
+  ③loader が `<name>.manifest.json`(インポートプラグインが同梱)の pluginApiVersion を照合し、
+  **範囲外はクラッシュではなく無効化+理由をツール一覧のエラー欄に表示**
+  (マニフェスト無し=組み込み・従来プラグインは常に互換扱い)。インポート検査
+  (inspectImportDir)でも範囲外を事前拒否。ImportJobRunner がマニフェストを
+  `<name>.manifest.json` として同梱コピーするようになった。
+  ④**プラグインの依存契約の機械検出**(guardrails.imports.test.ts): 非テストのプラグインが
+  import してよいのは `../types`(ToolPlugin)・node組み込み・`shared/types` の import type のみ。
+  src/main 内部・外部npm・同ディレクトリ他プラグインへの import はテストが落ちる
+  (現状の全プラグインは違反ゼロを確認済み。将来レジストリCIの先行実装を兼ねる)。
+  自分で決めた判断: 指示の「組み込み全プラグインのマニフェストに ^1 付与」は、静的な
+  manifest.json を20個追加すると説明・権限の二重管理ドリフトが生じるため、
+  **エクスポート時の自動生成(既定 ^1)+インポート時の同梱**で充足と解釈した
+  (組み込みはAPIと同梱なので定義上常に互換。実行時に照合が必要なのは外から来たものだけ)。
+  テスト13件追加(範囲照合・loaderの無効化3態・インポート拒否・同梱コピー・import契約走査)。
+  全859テスト・typecheck 合格。
 - **M27-4追加(2026-07-10 夜間自律作業その2 T4)**: **プラグインのエクスポート/インポート基盤**
   (ローカル完結。レジストリ本体は将来の別リポジトリ)。新モジュール `src/main/registry/`:
   ①manifest.ts=REGISTRY_DESIGN.md準拠のマニフェスト検証(semver・pluginApiVersion範囲・

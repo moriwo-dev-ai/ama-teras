@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { PluginManifest } from '../../shared/types';
+import { PLUGIN_API_VERSION, satisfiesApiRange } from '../tools/versioning';
 import { validateManifest } from './manifest';
 import { checkPermissions, extractPermissions } from './permissions';
 
@@ -105,6 +106,18 @@ export async function inspectImportDir(dir: string): Promise<ImportInspection> {
   const v = validateManifest(raw);
   if (!v.ok) return { ok: false, errors: v.errors, warnings: [] };
   const manifest = v.manifest;
+
+  // M27-5: 本体プラグインAPIとの互換範囲チェック(範囲外はインポート自体を拒否)
+  if (!satisfiesApiRange(manifest.pluginApiVersion)) {
+    return {
+      ok: false,
+      errors: [
+        `pluginApiVersion "${manifest.pluginApiVersion}" は本体プラグインAPI v${PLUGIN_API_VERSION} の範囲外(このプラグインは本体の別バージョン向け)`,
+      ],
+      warnings: [],
+      manifest,
+    };
+  }
 
   const codePath = join(dir, `${manifest.name}.ts`);
   if (!existsSync(codePath)) {

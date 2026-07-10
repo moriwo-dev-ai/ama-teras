@@ -144,6 +144,12 @@ export interface ToolResult {
  * - name はファイル名(拡張子なし)と一致させる
  * - 実行時 import は node 組み込みモジュールのみ可(相対importはトランスパイル先で解決できない)。
  *   型は `import type` でのみ参照する
+ *
+ * M27-5: このインターフェースは **プラグインAPI v1 として凍結**(正本は
+ * tools/versioning.ts の PLUGIN_API_VERSION)。マイナー=後方互換の追加のみ、
+ * 破壊的変更はメジャーを上げること。プラグインが依存してよいのはこの契約と
+ * 実行時に渡される ToolContext のみ(src/main 内部への import は
+ * plugins/guardrails.imports.test.ts が機械検出して禁止する)
  */
 export interface ToolPlugin {
   name: string;

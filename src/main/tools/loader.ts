@@ -4,6 +4,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { JsonSchema, ToolPlugin } from './types';
+import { PLUGIN_API_VERSION, satisfiesApiRange } from './versioning';
 
 // ソース内容ハッシュでトランスパイル済みプラグインをメモ化する。
 // reload のたびに全プラグインを再トランスパイル+再import すると無駄で、
@@ -92,6 +93,36 @@ async function pruneCache(cacheDir: string, keep: Set<string>): Promise<void> {
   );
 }
 
+/**
+ * M27-5: `<name>.manifest.json`(インポート/共有プラグインが持つ)の pluginApiVersion を
+ * 本体APIバージョンと照合する。範囲外なら理由を返す(=クラッシュではなく無効化+理由表示)。
+ * マニフェスト無し=組み込み・従来プラグイン(現行APIと同梱なので常に互換)
+ */
+async function apiVersionBlockReason(filePath: string): Promise<string | null> {
+  const manifestPath = filePath.replace(/\.ts$/, '.manifest.json');
+  let raw: string;
+  try {
+    raw = await readFile(manifestPath, 'utf8');
+  } catch {
+    return null; // マニフェスト無し=互換扱い
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const range =
+      isRecord(parsed) && typeof parsed['pluginApiVersion'] === 'string'
+        ? parsed['pluginApiVersion']
+        : null;
+    if (range === null) return null; // 範囲未記載は互換扱い(強制するのはレジストリCIの担当)
+    if (!satisfiesApiRange(range)) {
+      return `互換性のため無効化: pluginApiVersion "${range}" は本体プラグインAPI v${PLUGIN_API_VERSION} の範囲外`;
+    }
+    return null;
+  } catch {
+    // マニフェスト破損はプラグイン自体は動かす(バージョン照合だけ諦める)
+    return null;
+  }
+}
+
 /** dir 直下の *.ts(テストを除く)を全ロード。壊れたプラグインはスキップして errors に積む */
 export async function loadPlugins(dir: string, cacheDir: string): Promise<LoadResult> {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -103,6 +134,12 @@ export async function loadPlugins(dir: string, cacheDir: string): Promise<LoadRe
   const errors: PluginLoadError[] = [];
   for (const filePath of files) {
     try {
+      // M27-5: 範囲外プラグインは import せず無効化(理由はツール一覧のエラー欄に出る)
+      const blocked = await apiVersionBlockReason(filePath);
+      if (blocked !== null) {
+        errors.push({ filePath, message: blocked });
+        continue;
+      }
       plugins.push({ plugin: await loadPluginFile(filePath, cacheDir), filePath });
     } catch (err) {
       errors.push({ filePath, message: err instanceof Error ? err.message : String(err) });
