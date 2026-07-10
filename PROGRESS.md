@@ -1,46 +1,60 @@
 # PROGRESS
 
-## ⚠ 朝にユーザーとやること(NIGHT_TASKS5 = M31)
+## ⚠ 朝にユーザーとやること(NIGHT_TASKS5 = M31、全タスク完了)
 
-**最重要: T2(Electron 43)は未着手のまま保留中。理由は下記「M31の状態」参照。**
-
-1. **実アプリを閉じてから** 私に「T2から再開して」と指示
-   (稼働中のAMA-teras本体が node_modules/electron/dist/electron.exe をロックしており、
-   npm install が EBUSY で失敗。私からのアプリ終了はツール権限で拒否されたため保留した)
-2. T2〜T4完了後: `git push`(`!` プレフィックスで実行)
-3. インストーラができていれば: `gh release upload v1.0.0 <installer.exe>` で添付
-   → README「準備中」を配布リンクに差し替え → 再push
+1. `git push`(`!` プレフィックスで実行)
+2. インストーラ添付:
+   `gh release upload v1.0.0 "release/AMA-teras Setup 1.0.0.exe"`
+   (101.6MB。**このexeは深夜のプラグインロード修理込みの最新ビルド**)
+3. README(日英)の「Windows インストーラは準備中です」を Release への
+   ダウンロードリンクに差し替え → 再push
 4. https://github.com/moriwo-dev-ai/ama-teras/security/dependabot で
-   アラート23件が解消されたか確認(Electron 43 + electron-builder 26 で全解消の想定)
+   アラート23件の解消を確認(ローカル npm audit は **0件** になった)
+5. 掃除(私の権限では削除できなかったもの):
+   - `C:\Users\haru-\AppData\Local\Programs\AMA-teras`= 深夜に実機検証で
+     インストールした**修理前ビルド**。アンインストール(設定→アプリ)するか、
+     新しいインストーラで上書きインストールを
+   - scratchpad の `smoke-ud-e43` / `smoke-ud-inst` / `smoke-ud-unpacked`
+     (検証用一時userData。キー類は一切未入力)
+   - 以前からの持ち越し: `C:\Users\haru-\AppData\Roaming\Electron`
+6. 注意: 実アプリは深夜作業前にあなたが閉じたまま。次回起動から Electron 43 になる
 
-## M31(NIGHT_TASKS5)の状態
+## M31(NIGHT_TASKS5)の完了記録
 
 - **M31-1 完了**: `npm audit fix`(forceなし)。実質的な更新は既にlock内で済んでおり
-  差分はlicenseフィールド1行のみ。**残10件(high)は全てメジャー更新が必要**:
-  Electron本体の6件(→43.1.0、実行時に影響)+ tar系7件(devDepsのみ、
-  electron-builder/@electron/rebuild/node-gyp経由 →electron-builder 26で解消)。
-  typecheck 3構成+vitest 961件全緑。
-- **M31-2(Electron 43)保留**: 破壊的変更の事前調査は完了(下記)。
-  npm install 実行時に稼働中の実アプリがバイナリをロックしており EBUSY。
-  穏当な終了(taskkill、/Fなし)を試みたが自動モードの権限ガードが
-  「ユーザーが起動したプロセスの停止」を拒否(妥当なガードなので回避しない)。
-  **コードやlockは無傷に復旧済み**(electron 37.10.3 のまま全緑)。
-  - 調査済みの影響(37→43): ①**42でelectronパッケージのpostinstall自動DL廃止**
-    → B環境はnode_modulesジャンクション共有・スモークは `npx electron .` のため
-    影響なし。開発機のinstall手順のみ注意。②40でrendererのclipboardモジュール
-    非推奨(44で削除)→ 本アプリは全箇所 navigator.clipboard のため影響なし。
-    ③43でdialogのdefaultPath既定がDownloadsに変更 → ipc.tsの showOpenDialog 3箇所、
-    実害なし。④39でwindow.openポップアップ常時リサイズ可 → 影響なし。
-    ⑤Node 22→24.17 / Chromium 150 / V8 15。
-  - 再開手順: アプリ終了 → `npm i -D electron@43.1.0` → typecheck →
-    vitest → 一時userDataでスモーク(AMATERAS_SMOKE + フルUI)→ コミット
-- **M31-3(electron-builder 26)未着手**: T2完了後。既知の注意点(Web調査済み):
-  26.0.4以降 node-module-collector がパッケージマネージャをシェル実行するため、
-  **PowerShellプロファイルが標準出力に何か出すとJSONパース失敗**する事例あり。
-  失敗時はプロファイル出力を疑う。
-- **M31-4 一部完了**: README(日英)にSmartScreen注意書きの下書きを追加済み。
-  NSISビルド試行はT3後。
-- **M31-5 完了**: このチェックリスト。
+  差分はlicenseフィールド1行のみ。残10件(high)は全てメジャー更新が必要と確定
+  (Electron本体6件=実行時影響あり / tar系7件=devDepsのみ)。
+- **M31-2 完了**: **Electron 37.10.3 → 43.1.0**(Chromium 150 / Node 24.17 / V8 15)。
+  **コード変更ゼロで全緑**。事前Web調査どおり破壊的変更の影響なし
+  (①42でpostinstall自動DL廃止→B環境はnode_modules共有のため影響なし。
+  バイナリ取得は `npx install-electron` が必要=下記の開発機手順に注意。
+  ②rendererのclipboardは全箇所 navigator.clipboard で影響なし。
+  ③dialog defaultPath既定変更・④popupリサイズ挙動は実害なし)。
+  検証: typecheck 3構成+vitest(進化マネージャ実git統合2件は並列負荷時のみ
+  10秒タイムアウト→単独再実行で27/27緑=完了条件どおり合格)+
+  AMATERAS_SMOKEスモーク+一時userDataフルUI起動(CDP: マウント・IPC配線60本)。
+  夜間の中断経緯: 実アプリがバイナリをロック(EBUSY)→ 私からの終了は
+  権限ガードが拒否 → ユーザーがアプリを閉じて再開、の2段で完了。
+- **M31-3 完了**: **electron-builder 25→26.15.3**。設定(electron-builder.yml)は
+  無変更で互換。**npm audit 0件に**(tar系も解消)。懸念だったPowerShell
+  プロファイル汚染問題は発生せず。
+- **M31-4 完了**: **NSISインストーラのビルド・実機検証に成功(管理者権限不要)**。
+  `release/AMA-teras Setup 1.0.0.exe`(101.6MB、展開後386MB)。
+  - **重大バグを発見して修理**: パッケージ版で全プラグインのロードが失敗していた
+    (esbuildが読込時に ESBUILD_BINARY_PATH を固定するため、静的importが
+    ESMホイストで index.ts の環境変数設定より先に評価され、asar内パスの
+    spawnでENOENT)。**初回使用時の動的import化**で修理し、mainプロセス
+    全体の「esbuild静的import禁止」を回帰テストでピン(loader.esbuild.test.ts)。
+    修理後の実機(win-unpacked)で **tools=22 / errors=0** を確認。
+    ※eb26起因ではなく従来からの潜在バグ。実機インストール検証を初めて
+    やったことで発覚(=T4をやった価値)
+  - 実機確認: インストール(NSISウィザードはユーザーがクリック。/Sは
+    assisted installerでは効かなかった)→起動→レンダラマウント→
+    設定画面表示→CDPで正常終了、まで確認
+  - 自分で決めた判断: package.json version を 0.1.0→**1.0.0** に統一
+    (Release v1.0.0 と installer 表記の不一致を解消)。
+    古い成果物(Setup 0.1.0 / 旧MyCodex Setup)は release/ から削除
+- **M31-5 完了**: 冒頭チェックリスト。README(日英)にSmartScreen注意書き追加済み。
 
 ## 現在の状態
 
