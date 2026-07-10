@@ -2,6 +2,20 @@
 
 ## 現在の状態
 
+- **M28-4追加(2026-07-11 夜間自律作業その3 T4)**: **レジストリリポジトリの雛形**を
+  `C:\dev\amateras-registry` に新規作成(**git init+ローカルコミット 2418fd9 まで。
+  push・GitHub作成は指示どおり未実施**。名義は新noreply)。構造: `plugins/<name>/`
+  (コード+テスト+manifest.json)・`index.json`(M28-3の本体側検索と整合する
+  スキーマ)・`revoked.json`(空の失効リスト=本体キルスイッチのURL先)・README
+  (目的・導入は本体アプリから・投稿手順・検証済み/未検証の2層)・CONTRIBUTING
+  (DCO・マニフェスト必須項目・外部npm依存ゼロ・権限宣言)・PRテンプレート
+  (チェックリスト)・GitHub Actions `validate.yml`。
+  CI検証は **`scripts/validate.mjs` を依存ゼロで同梱**(本体リポジトリのcheckoutなしで
+  単体実行するため、M27-4の manifest/permissions と同一ルールを移植。同期義務を
+  スクリプト冒頭に明記)+索引整合(dir⇔index相互・files実在・version一致)も検査。
+  サンプルとして本体組み込みの `text_stats` をエクスポート形式で登録(verified: true・
+  動的 `import('fs/promises')` を使うため fsScope: "workspace" を宣言=権限解析の手本)。
+  `node scripts/validate.mjs` がグリーンであることを確認済み。本体側のコード変更なし。
 - **M28-3追加(2026-07-11 夜間自律作業その3 T3)**: **「作る前に探す」レジストリ検索の本体側**。
   `AppConfig.registryUrl`(設定「接続」タブ・既定空=検索スキップ)。新モジュール
   `registry/search.ts`: `<registryUrl>/index.json` の取得・検証(ツール名規則・パス
