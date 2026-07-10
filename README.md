@@ -107,5 +107,6 @@ flowchart LR
 - 本体は **AGPL-3.0**([LICENSE](LICENSE))。改変版をネットワークサービスとして提供する場合も
   ソース公開義務が生じます。
 - 「AMA-teras」の名称はフォークでは使用できません(商標方針は [NOTICE.md](NOTICE.md))。
-- コントリビューションは DCO 方式(AGPL互換ライセンスでの提供に同意)。
+- **コントリビューション歓迎**: 進め方・DCO・聖域(保護領域)の方針・レビュー基準は
+  [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
   プラグイン共有・レジストリ構想は `REGISTRY_DESIGN.md` を参照してください。
