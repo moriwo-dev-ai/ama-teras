@@ -53,8 +53,8 @@ Google Gemini / Groq / OpenRouter の無料枠APIキーを3ステップで接続
 ### 開発者向け(ソースから)
 
 ```bash
-git clone <このリポジトリ>
-cd amateras
+git clone https://github.com/moriwo-dev-ai/ama-teras.git
+cd ama-teras
 npm install
 npm run build      # 初回ビルド(本体 + スマホUI)
 npm start          # 起動

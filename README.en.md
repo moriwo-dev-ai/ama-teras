@@ -56,8 +56,8 @@ Free mode automatically dials down cost-heavy features.
 ### For developers (from source)
 
 ```bash
-git clone <this repository>
-cd amateras
+git clone https://github.com/moriwo-dev-ai/ama-teras.git
+cd ama-teras
 npm install
 npm run build      # first build (app + mobile UI)
 npm start          # launch
