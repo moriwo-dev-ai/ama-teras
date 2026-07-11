@@ -38,7 +38,7 @@ import type {
 import { ApprovalBroker } from '../agent/approval';
 import { compactHistory, DEFAULT_COMPACTION_THRESHOLD, estimateTokens } from '../agent/compaction';
 import { runAgentLoop } from '../agent/loop';
-import { contextLimitFor, DEFAULT_MODELS, PROVIDER_PRESETS } from '../../shared/models';
+import { contextLimitFor, DEFAULT_MODELS, isLocalBaseUrl, PROVIDER_PRESETS } from '../../shared/models';
 // M27-1: freeMode の実効値制御(maxTurns/レビューゲート/ModelPolicy/進化無効)は config.ts の純関数が正本
 import {
   effectiveMaxTurns,
@@ -723,6 +723,19 @@ export class AgentService {
     if (cfg.provider === 'openai') {
       // M27-1: プリセット(無料APIモード)= OpenAI互換エンドポイント+専用キースロット
       const preset = cfg.providerPreset !== undefined ? PROVIDER_PRESETS[cfg.providerPreset] : undefined;
+      if (preset !== undefined && preset.id === 'custom') {
+        // M35-5: 任意のOpenAI互換エンドポイント(Ollama等)。baseURLは設定値、
+        // localhost系はキー不要(OpenAI SDKがキー文字列を要求するためダミーを渡す)
+        const baseUrl = (cfg.customBaseUrl ?? '').trim();
+        if (baseUrl === '') return 'カスタム接続先(baseURL)が未設定(設定→基本の「カスタム接続」)';
+        const model = cfg.model.trim();
+        if (model === '') return 'カスタムのモデルIDが未設定(設定→基本。例: llama3.3)';
+        const key = this.deps.secrets.get('custom') ?? (isLocalBaseUrl(baseUrl) ? 'no-key-local' : null);
+        if (key === null) {
+          return 'カスタム接続先のAPIキーが未設定(localhost系のURLならキー不要で接続できます)';
+        }
+        return this.track(new OpenAIProvider(key, model, baseUrl), 'openai', model, 'main');
+      }
       if (preset !== undefined) {
         const key = this.deps.secrets.get(preset.id);
         if (!key) return `${preset.label.split('(')[0]} のAPIキーが未設定(設定画面の「無料で始める」から登録)`;
@@ -1136,9 +1149,10 @@ export class AgentService {
   private connectionEndpoint(): string {
     const cfg = this.deps.config.get();
     if (cfg.provider === 'openai') {
+      // M35-5: カスタムは設定のbaseURLが実接続先
       const preset = cfg.providerPreset !== undefined ? PROVIDER_PRESETS[cfg.providerPreset] : undefined;
-      const base = (preset?.baseUrl ?? 'https://api.openai.com/v1').replace(/\/+$/, '');
-      return `${base}/chat/completions`;
+      const rawBase = preset?.id === 'custom' ? (cfg.customBaseUrl ?? '(未設定)') : (preset?.baseUrl ?? 'https://api.openai.com/v1');
+      return `${rawBase.replace(/\/+$/, '')}/chat/completions`;
     }
     return 'https://api.anthropic.com/v1/messages';
   }

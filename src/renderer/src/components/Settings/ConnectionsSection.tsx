@@ -49,6 +49,66 @@ function OpsBandPicker({
   );
 }
 
+/**
+ * M35-4: Bluesky実行系の資格情報(identifier + app password)。
+ * secretsの 'bluesky' スロットにJSONで保存(safeStorage暗号化)。
+ * 登録すると bluesky アダプタの execute(post/follow/reply・岩戸ゲート承認制)が有効化される
+ */
+function BlueskyCredsSection(): JSX.Element {
+  const [identifier, setIdentifier] = useState('');
+  const [appPassword, setAppPassword] = useState('');
+  const [registered, setRegistered] = useState<boolean | null>(null);
+  const [notice, setNotice] = useState('');
+  useEffect(() => {
+    void window.api.secretsStatus().then((s) => setRegistered(s.bluesky));
+  }, []);
+  return (
+    <div className="space-y-1 rounded border border-zinc-800 p-2">
+      <p className="text-xs font-semibold text-zinc-300">
+        Bluesky実行系(フォロー・投稿・返信){registered === true ? '(設定済み)' : '(未設定=提案のみ)'}
+      </p>
+      <p className="text-[10px] text-zinc-500">
+        app passwordを登録すると、承認したフォロー・投稿を岩戸ゲート経由で実行できる
+        (bsky.app → Settings → App Passwords で発行。メインパスワードは絶対に入れない)。
+        プロフィールに「一部運用を自動化(承認制)」の開示を推奨
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        <input
+          className="min-w-[10rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono text-xs"
+          placeholder="ハンドル(例: moriwo.bsky.social)"
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value.trim())}
+        />
+        <input
+          type="password"
+          className="min-w-[10rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono text-xs"
+          placeholder="app password(xxxx-xxxx-xxxx-xxxx)"
+          value={appPassword}
+          onChange={(e) => setAppPassword(e.target.value.trim())}
+        />
+        <button
+          className="shrink-0 rounded bg-blue-600 px-3 py-1 text-xs hover:bg-blue-500 disabled:opacity-40"
+          disabled={identifier === '' || appPassword === ''}
+          onClick={() => {
+            void window.api
+              .secretsSet('bluesky', JSON.stringify({ identifier, appPassword }))
+              .then((s) => {
+                setRegistered(s.bluesky);
+                setIdentifier('');
+                setAppPassword('');
+                setNotice('保存した(実行系が有効化された。実行は毎回あなたの承認制)');
+              })
+              .catch((err: unknown) => setNotice(err instanceof Error ? err.message : String(err)));
+          }}
+        >
+          保存
+        </button>
+      </div>
+      {notice !== '' && <p className="text-[10px] text-zinc-400">{notice}</p>}
+    </div>
+  );
+}
+
 /** M34-7: 運営の今日の実測コスト(usage帯別集計の kamuhakari/gods 行) */
 function OpsCostToday(): JSX.Element | null {
   const [text, setText] = useState<string | null>(null);
@@ -189,6 +249,7 @@ function OwnerModeSection({
             />
             <OpsCostToday />
           </div>
+          <BlueskyCredsSection />
         </div>
       )}
     </div>

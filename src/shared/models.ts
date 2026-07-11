@@ -87,7 +87,40 @@ export const PROVIDER_PRESETS: Record<ProviderPresetId, ProviderPreset> = {
     rateLimitNotice:
       '無料枠の上限に達しました(OpenRouter)。:free モデルは1日あたりの回数制限があり、明日リセットされます',
   },
+  /**
+   * M35-5: 任意のOpenAI互換エンドポイント(Ollama・LM Studio・vLLM等)。
+   * baseUrl はここでは固定できない — 実接続は config.customBaseUrl を使う
+   * (service.createProvider が special-case)。models も自由入力
+   */
+  custom: {
+    id: 'custom',
+    label: 'カスタム(OpenAI互換 — Ollama等のローカルモデルも可)',
+    baseUrl: '',
+    defaultModel: '',
+    models: [],
+    keyPageUrl: '',
+    steps: [
+      '接続先のbaseURLを入力(例: Ollama は http://localhost:11434/v1)',
+      'モデルIDを入力(例: llama3.3、qwen2.5-coder:32b など接続先にあるもの)',
+      'APIキーが必要な接続先なら下の欄で保存(localhost系は不要)→接続テスト',
+    ],
+    rateLimitNotice:
+      '接続先の利用上限(またはローカルモデルの処理待ち)に達した可能性があります。少し待って再試行してください',
+  },
 };
+
+/**
+ * M35-5: ローカル接続先か(キー不要判定・純関数)。
+ * localhost / 127.x / [::1] / 0.0.0.0 をローカル扱いにする
+ */
+export function isLocalBaseUrl(baseUrl: string): boolean {
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase();
+    return host === 'localhost' || host === '0.0.0.0' || host === '::1' || host === '[::1]' || /^127\./.test(host);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * M29-4: 公式コミュニティレジストリのベースURL(registryUrl の既定値)。

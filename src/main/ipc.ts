@@ -65,7 +65,9 @@ function assertSecretSlot(value: unknown): asserts value is SecretSlot {
     value !== 'openai' &&
     value !== 'gemini' &&
     value !== 'groq' &&
-    value !== 'openrouter'
+    value !== 'openrouter' &&
+    value !== 'custom' &&
+    value !== 'bluesky'
   ) {
     throw new Error('IPC payload slot が不正');
   }
@@ -543,12 +545,16 @@ export async function registerIpcHandlers(
     gemini: secrets.has('gemini'),
     groq: secrets.has('groq'),
     openrouter: secrets.has('openrouter'),
+    custom: secrets.has('custom'),
+    bluesky: secrets.has('bluesky'),
   });
   ipcMain.handle(IpcChannels.secretsStatus, () => secretsStatus());
   ipcMain.handle(IpcChannels.secretsSet, (_e, slot: unknown, apiKey: unknown) => {
     assertSecretSlot(slot);
     assertString(apiKey, 'apiKey');
     secrets.set(slot, apiKey.trim());
+    // M35-4: 資格情報の変更をアダプタ宣言(Bluesky実行系の有効/無効)へ反映
+    operations.reset();
     return secretsStatus();
   });
   // M27-1: 接続テスト(現在の設定で最小1リクエスト)
@@ -602,6 +608,8 @@ export async function registerIpcHandlers(
     bandProvider: (band) => service.operationsBandProvider(band),
     // M34-7: 運営専用モデル帯(神議/神々。usage集計も区別される)
     roleProvider: (role) => service.operationsProvider(role),
+    // M35-4: Bluesky実行系の資格情報(secretsのblueskyスロット。無ければ提案のみ)
+    getBlueskySecret: () => secrets.get('bluesky'),
     readHighlightSources: async () => {
       let progressExcerpt = '';
       try {

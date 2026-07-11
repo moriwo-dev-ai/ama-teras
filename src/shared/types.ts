@@ -57,10 +57,12 @@ export type ProviderId = 'anthropic' | 'openai';
  * (openai SDK + baseURL差し替え)として動くため ProviderId は 'openai' のまま。
  * プリセットの実体(baseUrl・既定モデル・案内文)は shared/models.ts の PROVIDER_PRESETS
  */
-export type ProviderPresetId = 'gemini' | 'groq' | 'openrouter';
+/** M35-5: 'custom' = 任意のOpenAI互換エンドポイント(Ollama等。baseURLはconfig.customBaseUrl) */
+export type ProviderPresetId = 'gemini' | 'groq' | 'openrouter' | 'custom';
 
-/** APIキーの保存スロット。プリセットはOpenAIと別のキーを持つため独立スロット */
-export type SecretSlot = ProviderId | ProviderPresetId;
+/** APIキーの保存スロット。プリセットはOpenAIと別のキーを持つため独立スロット。
+ *  M35-4: 'bluesky' はAPIキーではなく資格情報JSON({identifier, appPassword})を保存する */
+export type SecretSlot = ProviderId | ProviderPresetId | 'bluesky';
 
 /** 送信モード。plan は実装前に計画を提示し、ツールを実行しない(承認後に通常モードで実行) */
 export type ChatMode = 'normal' | 'plan';
@@ -71,6 +73,10 @@ export interface SecretsStatus {
   gemini: boolean;
   groq: boolean;
   openrouter: boolean;
+  /** M35-5: カスタム(OpenAI互換)エンドポイント用スロット。ローカル(Ollama等)はキー不要 */
+  custom: boolean;
+  /** M35-4: Bluesky実行系の資格情報(identifier+app passwordのJSON)。有無のみ */
+  bluesky: boolean;
 }
 
 /** M27-1: 接続テスト(設定画面の「無料で始める」等)の結果 */
@@ -322,6 +328,11 @@ export interface AppConfig {
    * (既定OFF=運営タブ自体を表示しない。ON時のみ gh検出・メトリクス収集が動く)
    */
   operations?: OperationsConfig;
+  /**
+   * M35-5: providerPreset='custom' のときのOpenAI互換エンドポイント(Ollama等)。
+   * http(s)のみ。localhost系はキー不要(ダミーキーで接続)
+   */
+  customBaseUrl?: string;
 }
 
 // ---- M32: Project TAKAMA-gahara(運営) ----

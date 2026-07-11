@@ -1,5 +1,27 @@
 # PROGRESS
 
+## M35(2026-07-12未明): M34残のT4/T5完了
+
+- **T4 Bluesky実行系**: app password認証(secretsの'bluesky'スロットにJSON・
+  safeStorage暗号化。設定UIは接続タブのオーナーモード内)。**資格情報の有無で
+  アダプタ宣言ごと切替**(なし=execute空・提案のみ / あり=post/follow/reply)。
+  実行は岩戸ゲート経由のみ。**神議バッチ→承認→岩戸→実行の結線**: 仲間候補
+  (bluesky由来・match・未処理)のフォロー提案をLLM任せにせず決定的に生成し、
+  バッチ承認後も岩戸の全文確認を通る(拒否時はAPI未呼び出し=テスト固定)。
+  資格情報の保存で operations を再初期化(再起動不要で有効化)。
+  USER-GUIDEに自動化開示の推奨注記
+- **T5 カスタムbaseURL(OpenAI互換)**: providerPreset='custom' を追加。
+  baseURL自由入力(config.customBaseUrl)+モデルID自由入力+専用キースロット
+  ('custom')+接続テスト対応(診断URLも実接続先を表示)。
+  **localhost系はキー不要**(isLocalBaseUrl純関数・サブドメイン偽装も判定)で、
+  Ollama等は baseURL とモデルIDだけで動く。localhost時は「ローカルモデルは
+  自己進化の検証ゲート通過率が下がる場合がある」注意文を表示。
+  【判断】カスタムは「無料APIモード」ではない — freeMode自動ONにしない
+  (軽量化も進化無効化もしない。学習利用の注意文もローカルには表示しない)
+- テスト: models(custom/isLocalBaseUrl)+Bluesky実行系8件(リクエスト形状・
+  宣言一致・岩戸結線・拒否時未実行)を追加。全体全緑
+- **HN返答の自己判定**: 本文の完了報告参照
+
 ## ⚠ 次回ユーザー再起動で有効になる機能一覧(M34。ビルド済み・起動のみでOK)
 
 1. **監視の完全移管**(当直CLI→AMA-teras): はてブ数(M34-1)・HN karma/スレッド新着/

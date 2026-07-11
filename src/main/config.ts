@@ -28,7 +28,7 @@ export const MAX_ESCALATIONS_MAX = 3;
 export const FREE_MODE_DEFAULT_MAX_TURNS = 15;
 
 export function parseProviderPreset(raw: unknown): ProviderPresetId | undefined {
-  return raw === 'gemini' || raw === 'groq' || raw === 'openrouter' ? raw : undefined;
+  return raw === 'gemini' || raw === 'groq' || raw === 'openrouter' || raw === 'custom' ? raw : undefined;
 }
 
 /** M29-5: 自律モードの包括承認範囲(不正値は未設定=none扱い) */
@@ -265,6 +265,10 @@ export class ConfigStore {
       // M32-1: 運営(オーナーモード)。壊れた形は未設定=OFFへフォールバック
       const operations = parseOperationsConfig(rec['operations']);
       if (operations !== undefined) merged.operations = operations;
+      // M35-5: カスタム(OpenAI互換)のbaseURL。http(s)のみ(localhostも可)
+      if (typeof rec['customBaseUrl'] === 'string' && /^https?:\/\//.test(rec['customBaseUrl'])) {
+        merged.customBaseUrl = rec['customBaseUrl'];
+      }
       const remote = rec['remote'];
       if (typeof remote === 'object' && remote !== null && merged.remote) {
         const r = remote as Record<string, unknown>;
@@ -334,6 +338,10 @@ export class ConfigStore {
       const operations = parseOperationsConfig(clone.operations);
       if (operations) clone.operations = operations;
       else delete clone.operations;
+    }
+    // M35-5: カスタムbaseURLの正規化(不正形式・空は未設定へ。末尾スラッシュはprovider側で処理)
+    if (clone.customBaseUrl !== undefined && !/^https?:\/\//.test(clone.customBaseUrl)) {
+      delete clone.customBaseUrl;
     }
     this.config = clone;
     mkdirSync(dirname(this.filePath), { recursive: true });

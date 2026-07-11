@@ -12,6 +12,7 @@ import {
   KNOWN_MODELS,
   PROVIDER_PRESETS,
   isKnownModel,
+  isLocalBaseUrl,
 } from '../../../../shared/models';
 import { applyCustomThemeJson, clearCustomTheme, storedCustomThemeJson } from '../../lib/customTheme';
 
@@ -71,7 +72,13 @@ export function BasicSection({
       next.provider = 'openai';
       next.providerPreset = id;
       next.model = '';
-      next.freeMode = true; // プリセット選択で自動ON(手動で切替可)
+      // M35-5: カスタム(Ollama等)は「無料APIモード」ではない — 軽量化も進化無効化もしない
+      if (id === 'custom') {
+        delete next.freeMode;
+        delete next.freeModeAllowEvolution;
+      } else {
+        next.freeMode = true; // 無料プリセット選択で自動ON(手動で切替可)
+      }
     }
     saveConfig(next);
   };
@@ -109,7 +116,8 @@ export function BasicSection({
         </select>
         {preset !== undefined && (
           <p className="text-xs text-zinc-500">
-            プリセット使用中: OpenAI互換エンドポイント({preset.baseUrl})で動作
+            プリセット使用中: OpenAI互換エンドポイント(
+            {preset.id === 'custom' ? (config.customBaseUrl ?? '未設定') : preset.baseUrl})で動作
           </p>
         )}
       </div>
@@ -138,29 +146,64 @@ export function BasicSection({
                 <li key={i}>{s}</li>
               ))}
             </ol>
+            {/* M35-5: カスタム(OpenAI互換)= baseURL自由入力。localhost系はキー不要 */}
+            {preset.id === 'custom' && (
+              <div className="space-y-1">
+                <label className="text-xs text-zinc-400">接続先 baseURL(OpenAI互換)</label>
+                <input
+                  key={config.customBaseUrl}
+                  className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
+                  defaultValue={config.customBaseUrl ?? ''}
+                  placeholder="http://localhost:11434/v1"
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    const next: AppConfig = { ...config };
+                    if (v === '') delete next.customBaseUrl;
+                    else next.customBaseUrl = v;
+                    saveConfig(next);
+                  }}
+                />
+                {isLocalBaseUrl(config.customBaseUrl ?? '') && (
+                  <p className="text-xs text-amber-400">
+                    ℹ ローカルモデル(Ollama等)はAPIキー不要で接続できます。ただし
+                    ローカルモデルは自己進化の検証ゲート通過率が下がる場合があります
+                    (生成コードの品質はモデル性能に依存するため。ゲート自体は同じ厳しさで動きます)
+                  </p>
+                )}
+              </div>
+            )}
             <div className="flex items-center gap-2">
-              <button
-                className="rounded bg-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-600"
-                onClick={() => void window.api.openBillingPage(preset.id)}
-              >
-                APIキー取得ページを開く ↗
-              </button>
+              {preset.keyPageUrl !== '' && (
+                <button
+                  className="rounded bg-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-600"
+                  onClick={() => void window.api.openBillingPage(preset.id)}
+                >
+                  APIキー取得ページを開く ↗
+                </button>
+              )}
               <button
                 className="rounded bg-emerald-700 px-3 py-1.5 text-xs hover:bg-emerald-600 disabled:opacity-40"
-                disabled={testing || !keySet}
-                title={keySet ? '' : '先に下の欄でAPIキーを保存してください'}
+                disabled={
+                  testing ||
+                  !(keySet || (preset.id === 'custom' && isLocalBaseUrl(config.customBaseUrl ?? '')))
+                }
+                title={
+                  keySet || (preset.id === 'custom' && isLocalBaseUrl(config.customBaseUrl ?? ''))
+                    ? ''
+                    : '先に下の欄でAPIキーを保存してください(localhost系のカスタム接続はキー不要)'
+                }
                 onClick={runConnectionTest}
               >
                 {testing ? '接続テスト中…' : '接続テスト'}
               </button>
             </div>
             {testResult !== null && (
-              <p className={`text-xs ${testResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+              <p className={`whitespace-pre-wrap text-xs ${testResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
                 {testResult.ok ? '✓ ' : '✗ '}
                 {testResult.message}
               </p>
             )}
-            <p className="text-xs text-amber-400">ℹ {FREE_API_TRAINING_NOTICE}</p>
+            {preset.id !== 'custom' && <p className="text-xs text-amber-400">ℹ {FREE_API_TRAINING_NOTICE}</p>}
             <label className="flex items-center gap-2 text-xs text-zinc-300">
               <input
                 type="checkbox"

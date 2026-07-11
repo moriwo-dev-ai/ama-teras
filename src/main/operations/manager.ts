@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type {
   AdapterStatusInfo,
@@ -11,7 +12,12 @@ import type {
   TriageCard,
 } from '../../shared/types';
 import type { LLMProvider } from '../providers/types';
-import { createBlueskyAdapter, BlueskyReader, type BlueskyPost } from './adapters/bluesky';
+import {
+  createBlueskyAdapter,
+  parseBlueskyCredentials,
+  BlueskyReader,
+  type BlueskyPost,
+} from './adapters/bluesky';
 import { createGithubAdapter, defaultGhRunner, detectGhPath, GithubReader, type GhRunner } from './adapters/github';
 import { createHatenaAdapter, HatenaReader } from './adapters/hatena';
 import { createHnAdapter, fetchItem, fetchUserKarma, HnReader, type HnStory } from './adapters/hn';
@@ -65,6 +71,8 @@ export interface OperationsManagerDeps {
    * 'kamuhakari'/'gods' ラベルで区別される。未注入時は bandProvider で代行
    */
   roleProvider?: (role: 'kamuhakari' | 'gods') => LLMProvider | string;
+  /** M35-4: Bluesky実行系の資格情報(secrets 'bluesky' スロットのJSON)。未注入/未設定=提案のみ */
+  getBlueskySecret?: () => string | null;
   /** テスト用注入 */
   ghRunner?: GhRunner;
   fetchImpl?: FetchLike;
@@ -129,6 +137,7 @@ export class OperationsManager {
   private thread: OpsThread | null = null;
   private scheduler: GodScheduler | null = null;
   private gods: GodRegistry | null = null;
+  private blueskyExecAvailable = false;
 
   private hn: HnReader;
 
@@ -160,7 +169,11 @@ export class OperationsManager {
     if (run !== null) gate.register(createGithubAdapter(run, () => true));
     gate.register(createZennAdapter());
     gate.register(createXAdapter());
-    gate.register(createBlueskyAdapter());
+    // M35-4: 資格情報があれば実行系(post/follow/reply)が有効化される。
+    // 実行は岩戸ゲート経由のみ(executorは登録時に封印される)
+    const blueskyCreds = parseBlueskyCredentials(this.deps.getBlueskySecret?.() ?? null);
+    gate.register(createBlueskyAdapter(blueskyCreds, this.deps.fetchImpl));
+    this.blueskyExecAvailable = blueskyCreds !== null;
     gate.register(createHnAdapter());
     gate.register(createHatenaAdapter());
 
@@ -622,7 +635,42 @@ export class OperationsManager {
       }
     }
 
-    const batch = buildApprovalBatch(parsed.analysis, approvalChanges, parsed.proposals);
+    let batch = buildApprovalBatch(parsed.analysis, approvalChanges, parsed.proposals);
+
+    // M35-4: 仲間候補のフォロー提案(LLM任せにせず決定的に生成)。承認→岩戸ゲート→実行の結線
+    if (this.blueskyExecAvailable && this.candidates !== null) {
+      const newMatches = this.candidates
+        .list()
+        .filter((c) => c.status === 'new' && c.verdict === 'match' && c.source.startsWith('bluesky'))
+        .slice(0, 3);
+      const followItems = newMatches
+        .map((c) => {
+          const handle = /^@([\w.:-]+)/.exec(c.profile)?.[1];
+          if (handle === undefined) return null;
+          return {
+            id: randomUUID(),
+            kind: 'exec-action' as const,
+            title: `Bluesky: @${handle} をフォロー(仲間候補)`,
+            detail: c.reasons.join(' / '),
+            action: {
+              adapterId: 'bluesky',
+              actionName: 'follow',
+              target: `@${handle}`,
+              preview: `Blueskyで @${handle} をフォローする(自動化は承認制で運用)`,
+              params: { handle },
+            },
+            status: 'pending' as const,
+          };
+        })
+        .filter((i): i is NonNullable<typeof i> => i !== null);
+      if (followItems.length > 0) {
+        if (batch === null) {
+          batch = { id: randomUUID(), ts: new Date().toISOString(), analysis: parsed.analysis, items: followItems };
+        } else {
+          batch.items.push(...followItems);
+        }
+      }
+    }
     if (batch !== null) this.thread.addBatch(batch);
 
     // 運営スレッドへ: 分析+自律適用の通知+承認バッチ(1枚)
@@ -726,6 +774,12 @@ export class OperationsManager {
         return { ok: true, detail: `予算を${value}tokへ引き上げた(人間承認済み)` };
       }
       return { ok: true, detail: `承認を記録した(${item.change.kind} の適用はv1未対応=次版で実装)` };
+    }
+    // M35-4: 実行内容つきのexec-action(候補フォロー等)は岩戸ゲートへ
+    // (バッチ承認=意図の確認、岩戸=発信内容の最終確認。二重確認は仕様)
+    if (item.kind === 'exec-action' && item.action !== undefined) {
+      const a = item.action;
+      return await this.execute(a.adapterId, a.actionName, a.target, a.preview, a.params);
     }
     // M33-6: 能力ギャップの3分岐
     if (item.kind === 'capability-gap' && item.gap !== undefined) {

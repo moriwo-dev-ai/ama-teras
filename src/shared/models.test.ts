@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contextLimitFor, DEFAULT_MODELS, FREE_API_TRAINING_NOTICE, isKnownModel, KNOWN_MODELS, PROVIDER_PRESETS } from './models';
+import { contextLimitFor, DEFAULT_MODELS, FREE_API_TRAINING_NOTICE, isKnownModel, isLocalBaseUrl, KNOWN_MODELS, PROVIDER_PRESETS } from './models';
 
 describe('models', () => {
   it('既定モデルは各プロバイダの候補に含まれる', () => {
@@ -50,8 +50,11 @@ describe('models', () => {
 });
 
 describe('M27-1: PROVIDER_PRESETS(無料APIモード)', () => {
-  it('全プリセットが https の baseUrl / keyPageUrl と3ステップ案内を持つ', () => {
-    for (const p of Object.values(PROVIDER_PRESETS)) {
+  // M35-5: 'custom' は固定baseUrlを持たない特殊プリセット(実接続先は config.customBaseUrl)
+  const fixedPresets = Object.values(PROVIDER_PRESETS).filter((p) => p.id !== 'custom');
+
+  it('固定プリセットが https の baseUrl / keyPageUrl と3ステップ案内を持つ', () => {
+    for (const p of fixedPresets) {
       expect(p.baseUrl).toMatch(/^https:\/\//);
       expect(p.keyPageUrl).toMatch(/^https:\/\//);
       expect(p.steps).toHaveLength(3);
@@ -59,10 +62,27 @@ describe('M27-1: PROVIDER_PRESETS(無料APIモード)', () => {
     }
   });
 
-  it('既定モデルは候補一覧に含まれる', () => {
-    for (const p of Object.values(PROVIDER_PRESETS)) {
+  it('既定モデルは候補一覧に含まれる(固定プリセット)', () => {
+    for (const p of fixedPresets) {
       expect(p.models.some((m) => m.id === p.defaultModel)).toBe(true);
     }
+  });
+
+  it('M35-5: custom プリセットは baseUrl/defaultModel が空(設定値で駆動)で案内を持つ', () => {
+    const custom = PROVIDER_PRESETS.custom;
+    expect(custom.baseUrl).toBe('');
+    expect(custom.defaultModel).toBe('');
+    expect(custom.keyPageUrl).toBe(''); // キー取得ページなし(UIはボタンを出さない)
+    expect(custom.steps).toHaveLength(3);
+  });
+
+  it('M35-5: isLocalBaseUrl はローカル接続先(キー不要)を判定する', () => {
+    expect(isLocalBaseUrl('http://localhost:11434/v1')).toBe(true);
+    expect(isLocalBaseUrl('http://127.0.0.1:8080/v1')).toBe(true);
+    expect(isLocalBaseUrl('http://[::1]:11434/v1')).toBe(true);
+    expect(isLocalBaseUrl('https://api.example.com/v1')).toBe(false);
+    expect(isLocalBaseUrl('https://localhost.evil.com/v1')).toBe(false); // サブドメイン偽装
+    expect(isLocalBaseUrl('not-a-url')).toBe(false);
   });
 
   it('学習利用の注意文が定義されている', () => {
