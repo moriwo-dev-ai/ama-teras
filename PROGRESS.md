@@ -25,8 +25,11 @@
   重複報告は許容と MIGRATION_STATUS に明記)
   (d) 岩戸のリモート応答はデスクトップのダイアログとも双方向同期
   (operationsApprovalResolved イベント)
-- **T4(Bluesky実行系)未着手**: 認証保管+実行系は次回へ(タスク#85)。
-  **T5(カスタムbaseURL)**: 下記参照
+- **T4(Bluesky実行系)・T5(カスタムbaseURL)は次回へ**(時間の許す範囲、の範囲外と判断):
+  T5は着手前調査で SecretSlot型・secretsStatus・BasicSection(メイン設定UI)・
+  接続テスト・PROVIDER_PRESETS構造(固定baseUrl前提)へ波及することが判明。
+  必達4タスク完了後の深夜にメイン設定UIを急いで触るより次回冒頭で丁寧にやる方が
+  安全と判断(HNへの「実装済み」返答はT5完了まで保留すること)
 
 ## ⚠ 朝にユーザーとやること(NIGHT_TASKS7 = M33)
 
