@@ -1,0 +1,176 @@
+import { randomUUID } from 'node:crypto';
+import type {
+  ApprovalBatch,
+  ApprovalBatchItem,
+  GodClockJob,
+  InboxItem,
+  MetricsSnapshot,
+  OperationsDraft,
+  ParamChange,
+} from '../../shared/types';
+import { extractJson } from './llm';
+
+/**
+ * M33-4: 神議(かむはかり)— 中層の戦略ループ。
+ * 受け箱+メトリクス履歴を読み、planner帯で「何が効いたか・次の一手」を考え、
+ * ①承認バッチ(ユーザーへの1枚カード) ②神々のパラメータ調整 ③能力ギャップ を出す。
+ *
+ * 【2段階制(鉄則・テストで固定)】
+ * - 自律で変更可(記録+運営スレッド通知のみで即適用):
+ *   実行間隔(上下限クランプ必須)/検索キーワード・判定条件の調整/神の一時停止・再開/
+ *   許可済みツールの有効・無効切替/ツール使用レート間隔/予算の引き下げ
+ * - 人間承認必須:
+ *   新ツールの付与/判定プロンプトの書き換え/予算の引き上げ/神の新設・削除
+ * 神議自身は外部発信を実行しない(承認された実行系も岩戸ゲート経由)。
+ */
+
+export type { ApprovalBatch, ApprovalBatchItem, ParamChange };
+
+/** 2段階制の判定(純関数)。予算は増減で分岐する */
+export function classifyParamChange(change: ParamChange): 'autonomous' | 'approval' {
+  const autonomous: string[] = ['interval', 'keywords', 'pause', 'resume', 'tool-toggle', 'rate-limit', 'budget-decrease'];
+  return autonomous.includes(change.kind) ? 'autonomous' : 'approval';
+}
+
+/**
+ * 予算変更の向き判定(純関数)。LLMが 'budget-decrease' を騙って増額してくる事故を防ぐため、
+ * 現在値との比較で必ず再分類する(宣言ではなく実際の値で判定)。
+ */
+export function reclassifyBudgetChange(change: ParamChange, currentBudget: number): ParamChange {
+  if (change.kind !== 'budget-decrease' && change.kind !== 'budget-increase') return change;
+  const value = typeof change.value === 'number' ? change.value : Number.NaN;
+  if (!Number.isFinite(value) || value < 0) return { ...change, kind: 'budget-increase' }; // 不正値は安全側=承認必須
+  return { ...change, kind: value < currentBudget ? 'budget-decrease' : 'budget-increase' };
+}
+
+export interface KamuhakariRunResult {
+  analysis: string;
+  appliedChanges: { change: ParamChange; detail: string }[];
+  batch: ApprovalBatch | null;
+  tokensUsed: number;
+}
+
+/** 神議プロンプト(planner帯) */
+export function buildKamuhakariPrompt(input: {
+  unread: InboxItem[];
+  history: MetricsSnapshot[];
+  postedDrafts: OperationsDraft[];
+  jobs: GodClockJob[];
+  currentKeywords: string[];
+}): string {
+  const inboxSummary = input.unread
+    .slice(0, 40)
+    .map((i) => `- [${i.kind}] ${i.godId}: ${i.title}`)
+    .join('\n');
+  const series = input.history
+    .slice(-14)
+    .map((s) => {
+      const gh = Object.entries(s.github)
+        .map(([r, m]) => `${r}:★${m.stars}/閲覧${m.views ?? '?'}/DL${m.downloads ?? '?'}`)
+        .join(' ');
+      const zn = Object.entries(s.zenn)
+        .map(([slug, m]) => `zenn:${slug}♥${m.liked}`)
+        .join(' ');
+      return `- ${s.ts.slice(5, 16)} ${gh} ${zn}`;
+    })
+    .join('\n');
+  const posted = input.postedDrafts.map((d) => `- ${d.postedAt ?? ''} [${d.media ?? '?'}] ${d.title}`).join('\n');
+  const clocks = input.jobs
+    .map((j) => `- ${j.godId}: ${j.enabled ? '稼働' : '停止'} 間隔${j.intervalMin}分 予算${j.dailyTokenBudget}(今日${j.spentToday})`)
+    .join('\n');
+
+  return `あなたは「神議(かむはかり)」— OSSプロジェクト AMA-teras の運営戦略会議。
+目的: どうすれば本当にAIを楽しむ人々にこのプロジェクトが届くか。誇張やスパムは絶対にしない。
+
+# 受け箱(未読)
+${inboxSummary || '(なし)'}
+
+# メトリクス時系列(直近)
+${series || '(なし)'}
+
+# 投下履歴(投稿済み発信)
+${posted || '(なし)'}
+
+# 神々の時計と予算
+${clocks}
+
+# 現在の巡回キーワード
+${input.currentKeywords.join(', ') || '(未設定)'}
+
+# あなたの権限(2段階制)
+自律で変更可: 実行間隔(15分〜24時間)・検索キーワード・神の一時停止/再開・予算の引き下げ
+人間承認必須: 新ツールの付与・判定プロンプト書き換え・予算の引き上げ・神の新設/削除
+外部発信(投稿・コメント等)は自分では実行できない。提案として承認バッチに載せるだけで、
+承認された実行も必ず岩戸ゲート(人間の最終確認ダイアログ)を通る。
+
+# 出力(JSONのみ)
+{
+ "analysis": "何が効いたか・現状分析(3〜6文。データが乏しければ正直にそう書く)",
+ "paramChanges": [{"kind":"interval|keywords|pause|resume|budget-decrease|budget-increase|judge-prompt|god-create","godId":"...","reason":"...","value": 数値または["キーワード"]}],
+ "proposals": [{"kind":"exec-action|capability-gap","title":"...","detail":"人間がやるべき/承認すべき提案(具体的に)"}]
+}
+変更が不要なら paramChanges は空配列でよい。提案は多くても5件。`;
+}
+
+export function parseKamuhakariOutput(raw: string): {
+  analysis: string;
+  paramChanges: ParamChange[];
+  proposals: { kind: 'exec-action' | 'capability-gap'; title: string; detail: string }[];
+} | null {
+  const parsed = extractJson(raw);
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const rec = parsed as Record<string, unknown>;
+  const analysis = String(rec['analysis'] ?? '').trim();
+  const paramChanges: ParamChange[] = [];
+  if (Array.isArray(rec['paramChanges'])) {
+    for (const c of rec['paramChanges'] as unknown[]) {
+      const cr = c as Record<string, unknown>;
+      const kind = String(cr['kind'] ?? '');
+      const godId = String(cr['godId'] ?? '');
+      if (kind === '' || godId === '') continue;
+      const change: ParamChange = { kind: kind as ParamChange['kind'], godId, reason: String(cr['reason'] ?? '') };
+      if (cr['value'] !== undefined) change.value = cr['value'];
+      paramChanges.push(change);
+    }
+  }
+  const proposals = Array.isArray(rec['proposals'])
+    ? (rec['proposals'] as unknown[])
+        .map((p) => {
+          const pr = p as Record<string, unknown>;
+          const kind = pr['kind'] === 'exec-action' ? ('exec-action' as const) : ('capability-gap' as const);
+          const title = String(pr['title'] ?? '').trim();
+          if (title === '') return null;
+          return { kind, title, detail: String(pr['detail'] ?? '') };
+        })
+        .filter((p): p is { kind: 'exec-action' | 'capability-gap'; title: string; detail: string } => p !== null)
+    : [];
+  if (analysis === '' && paramChanges.length === 0 && proposals.length === 0) return null;
+  return { analysis, paramChanges, proposals };
+}
+
+/** 承認バッチの組み立て(純関数) */
+export function buildApprovalBatch(
+  analysis: string,
+  approvalChanges: ParamChange[],
+  proposals: { kind: 'exec-action' | 'capability-gap'; title: string; detail: string }[],
+): ApprovalBatch | null {
+  const items: ApprovalBatchItem[] = [
+    ...approvalChanges.map((change) => ({
+      id: randomUUID(),
+      kind: 'param-approval' as const,
+      title: `[${change.godId}] ${change.kind}: ${change.reason}`,
+      detail: `値: ${JSON.stringify(change.value)}`,
+      change,
+      status: 'pending' as const,
+    })),
+    ...proposals.map((p) => ({
+      id: randomUUID(),
+      kind: p.kind === 'exec-action' ? ('exec-action' as const) : ('capability-gap' as const),
+      title: p.title,
+      detail: p.detail,
+      status: 'pending' as const,
+    })),
+  ];
+  if (items.length === 0) return null;
+  return { id: randomUUID(), ts: new Date().toISOString(), analysis, items };
+}

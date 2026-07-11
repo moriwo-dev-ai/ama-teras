@@ -126,6 +126,19 @@ const api: AmaterasApi = {
     subscribe<IwatoRequestPayload>(IpcChannels.operationsApprovalRequest, listener),
   operationsApprovalRespond: (id, approved) =>
     ipcRenderer.invoke(IpcChannels.operationsApprovalRespond, id, approved),
+
+  // M33: 神議アーキテクチャ
+  operationsClocks: () => ipcRenderer.invoke(IpcChannels.operationsClocks),
+  operationsClockUpdate: (id, patch) => ipcRenderer.invoke(IpcChannels.operationsClockUpdate, id, patch),
+  operationsInboxList: (limit) => ipcRenderer.invoke(IpcChannels.operationsInboxList, limit),
+  operationsInboxMarkRead: (ids) => ipcRenderer.invoke(IpcChannels.operationsInboxMarkRead, ids),
+  operationsThreadList: () => ipcRenderer.invoke(IpcChannels.operationsThreadList),
+  operationsThreadSend: (text) => ipcRenderer.invoke(IpcChannels.operationsThreadSend, text),
+  operationsThreadBatches: () => ipcRenderer.invoke(IpcChannels.operationsThreadBatches),
+  operationsThreadPending: () => ipcRenderer.invoke(IpcChannels.operationsThreadPending),
+  operationsBatchRespond: (batchId, itemId, approved) =>
+    ipcRenderer.invoke(IpcChannels.operationsBatchRespond, batchId, itemId, approved),
+  operationsKamuhakariRun: () => ipcRenderer.invoke(IpcChannels.operationsKamuhakariRun),
 };
 
 contextBridge.exposeInMainWorld('api', api);

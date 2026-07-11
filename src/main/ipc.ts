@@ -652,6 +652,42 @@ export async function registerIpcHandlers(
     if (typeof approved !== 'boolean') throw new Error('IPC payload approved が不正');
     iwatoPending.get(id)?.(approved);
   });
+  // M33: 神議アーキテクチャ(時計・受け箱・⛩運営スレッド・承認バッチ)
+  ipcMain.handle(IpcChannels.operationsClocks, () => operations.clocks());
+  ipcMain.handle(IpcChannels.operationsClockUpdate, (_e, id: unknown, patch: unknown) => {
+    assertString(id, 'id');
+    if (typeof patch !== 'object' || patch === null) throw new Error('IPC payload patch が不正');
+    const p = patch as Record<string, unknown>;
+    return operations.updateClock(id, {
+      ...(typeof p['intervalMin'] === 'number' ? { intervalMin: p['intervalMin'] } : {}),
+      ...(typeof p['enabled'] === 'boolean' ? { enabled: p['enabled'] } : {}),
+      ...(typeof p['dailyTokenBudget'] === 'number' ? { dailyTokenBudget: p['dailyTokenBudget'] } : {}),
+    });
+  });
+  ipcMain.handle(IpcChannels.operationsInboxList, (_e, limit: unknown) =>
+    operations.inboxList(typeof limit === 'number' ? limit : 100),
+  );
+  ipcMain.handle(IpcChannels.operationsInboxMarkRead, (_e, ids: unknown) => {
+    if (!Array.isArray(ids) || ids.some((i) => typeof i !== 'string')) throw new Error('IPC payload ids が不正');
+    operations.inboxMarkRead(ids as string[]);
+  });
+  ipcMain.handle(IpcChannels.operationsThreadList, () => operations.threadList());
+  ipcMain.handle(IpcChannels.operationsThreadSend, (_e, text: unknown) => {
+    assertString(text, 'text');
+    return operations.threadSend(text);
+  });
+  ipcMain.handle(IpcChannels.operationsThreadBatches, () => operations.threadBatches());
+  ipcMain.handle(IpcChannels.operationsThreadPending, () => operations.threadPendingCount());
+  ipcMain.handle(IpcChannels.operationsBatchRespond, (_e, batchId: unknown, itemId: unknown, approved: unknown) => {
+    assertString(batchId, 'batchId');
+    assertString(itemId, 'itemId');
+    if (typeof approved !== 'boolean') throw new Error('IPC payload approved が不正');
+    return operations.batchRespond(batchId, itemId, approved);
+  });
+  ipcMain.handle(IpcChannels.operationsKamuhakariRun, async () => {
+    const result = await operations.runKamuhakari();
+    return { analysis: result.analysis, batchItems: result.batch?.items.length ?? 0, applied: result.appliedChanges.length };
+  });
 
   // ---- 進化 ----
   ipcMain.handle(IpcChannels.evolutionPromoteRespond, (_e, jobId: unknown, approved: unknown) => {

@@ -1,15 +1,19 @@
 import type {
   AdapterStatusInfo,
   AgentEvent,
+  ApprovalBatch,
   ApprovalDecision,
   ApprovalRequestPayload,
   ApprovalResolvedPayload,
   AppConfig,
   CommunityCandidate,
+  GodClockJob,
+  InboxItem,
   IwatoRequestPayload,
   MediaStrategyEntry,
   MetricsSnapshot,
   OperationsDraft,
+  OpsThreadMessage,
   TriageCard,
   AutonomousRegistryScope,
   AutonomousStatePayload,
@@ -144,6 +148,17 @@ export const IpcChannels = {
   operationsExecute: 'operations:execute',
   operationsApprovalRequest: 'operations:approval-request',
   operationsApprovalRespond: 'operations:approval-respond',
+  /** M33: 神議アーキテクチャ(時計・受け箱・⛩運営スレッド・承認バッチ) */
+  operationsClocks: 'operations:clocks',
+  operationsClockUpdate: 'operations:clock-update',
+  operationsInboxList: 'operations:inbox-list',
+  operationsInboxMarkRead: 'operations:inbox-mark-read',
+  operationsThreadList: 'operations:thread-list',
+  operationsThreadSend: 'operations:thread-send',
+  operationsThreadBatches: 'operations:thread-batches',
+  operationsThreadPending: 'operations:thread-pending',
+  operationsBatchRespond: 'operations:batch-respond',
+  operationsKamuhakariRun: 'operations:kamuhakari-run',
 } as const;
 
 /** preload が window.api として公開するAPIの型。renderer はこれ経由でしか main と話せない */
@@ -321,4 +336,20 @@ export interface AmaterasApi {
   ): Promise<{ ok: boolean; detail: string }>;
   onOperationsApprovalRequest(listener: (req: IwatoRequestPayload) => void): () => void;
   operationsApprovalRespond(id: string, approved: boolean): Promise<void>;
+
+  /** M33: 神議アーキテクチャ。オーナーモードOFF時は空/nullを返す */
+  operationsClocks(): Promise<GodClockJob[]>;
+  operationsClockUpdate(
+    id: string,
+    patch: { intervalMin?: number; enabled?: boolean; dailyTokenBudget?: number },
+  ): Promise<GodClockJob | null>;
+  operationsInboxList(limit?: number): Promise<(InboxItem & { read: boolean })[]>;
+  operationsInboxMarkRead(ids: string[]): Promise<void>;
+  operationsThreadList(): Promise<OpsThreadMessage[]>;
+  operationsThreadSend(text: string): Promise<OpsThreadMessage[]>;
+  operationsThreadBatches(): Promise<ApprovalBatch[]>;
+  operationsThreadPending(): Promise<number>;
+  operationsBatchRespond(batchId: string, itemId: string, approved: boolean): Promise<{ ok: boolean; detail: string }>;
+  /** 神議の手動開催(定刻を待たずに1回) */
+  operationsKamuhakariRun(): Promise<{ analysis: string; batchItems: number; applied: number }>;
 }

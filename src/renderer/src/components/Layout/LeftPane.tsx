@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { groupSessionsByProject } from '../../../../shared/sessionGroups';
 import type { SessionMeta } from '../../../../shared/types';
 import { useChatStore } from '../../stores/chat';
+import { useOperationsStore } from '../../stores/operations';
+import { useOpsThreadStore } from '../../stores/opsThread';
 import { useRunsStore } from '../../stores/runs';
 
 /**
@@ -24,6 +26,42 @@ function relTime(iso: string): string {
   const h = Math.floor(min / 60);
   if (h < 24) return `${h}時間前`;
   return `${Math.floor(h / 24)}日前`;
+}
+
+/**
+ * M33-4: ⛩運営スレッドの常設エントリ(オーナーモードON時のみ表示)。
+ * 承認待ちバッチがあるときは未読バッジを出す
+ */
+function OpsThreadEntry(): JSX.Element | null {
+  const enabled = useOperationsStore((s) => s.enabled);
+  const refreshOps = useOperationsStore((s) => s.refresh);
+  const { open, pending, setOpen, refreshPending } = useOpsThreadStore();
+  useEffect(() => {
+    void refreshOps();
+  }, [refreshOps]);
+  useEffect(() => {
+    if (!enabled) return;
+    void refreshPending();
+    const timer = setInterval(() => void refreshPending(), 60_000);
+    return () => clearInterval(timer);
+  }, [enabled, refreshPending]);
+  if (!enabled) return null;
+  return (
+    <button
+      className={`relative w-full rounded border px-2 py-1.5 text-left text-xs ${
+        open ? 'border-orange-700 bg-orange-950/40 text-orange-200' : 'border-zinc-700 text-zinc-200 hover:bg-zinc-800'
+      }`}
+      title="運営(Project TAKAMA-gahara)— 神議との会話・承認バッチ"
+      onClick={() => setOpen(!open)}
+    >
+      ⛩ 運営
+      {pending > 0 && (
+        <span className="anim-pulse absolute right-2 top-1.5 rounded-full bg-orange-600 px-1.5 text-[10px] leading-4 text-white">
+          {pending}
+        </span>
+      )}
+    </button>
+  );
 }
 
 export function LeftPane(): JSX.Element {
@@ -138,6 +176,7 @@ export function LeftPane(): JSX.Element {
         >
           + 新しいタスク
         </button>
+        <OpsThreadEntry />
         <input
           ref={searchRef}
           id="session-search"

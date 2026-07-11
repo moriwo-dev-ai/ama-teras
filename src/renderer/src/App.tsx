@@ -3,6 +3,7 @@ import { ApprovalDialog } from './components/Approval/ApprovalDialog';
 import { IwatoApprovalDialog } from './components/Approval/IwatoApprovalDialog';
 import { ChatView } from './components/Chat/ChatView';
 import { PromotionDialog } from './components/Evolution/EvolutionPanel';
+import { OpsThreadPanel } from './components/Operations/OpsThreadPanel';
 import { LeftPane } from './components/Layout/LeftPane';
 import { RevealMenu } from './components/Layout/RevealMenu';
 import { RightPane } from './components/Layout/RightPane';
@@ -10,6 +11,7 @@ import { SidePane, useIsNarrow, usePaneState } from './components/Layout/SidePan
 import { SettingsPanel } from './components/Settings/SettingsPanel';
 import { useApprovalStore } from './stores/approval';
 import { useChatStore } from './stores/chat';
+import { useOpsThreadStore } from './stores/opsThread';
 import { useEvolutionStore } from './stores/evolution';
 import { usePreviewStore } from './stores/preview';
 import { useRightPaneStore } from './stores/rightPane';
@@ -23,6 +25,7 @@ export default function App(): JSX.Element {
   const handleEvolutionEvent = useEvolutionStore((s) => s.handleEvent);
   const handleSubAgentUpdate = useSubAgentStore((s) => s.handleUpdate);
   const [showSettings, setShowSettings] = useState(false);
+  const opsThreadOpen = useOpsThreadStore((s) => s.open);
   // M30-2: エラーカード・モデルバッジ等からの「設定を開く」導線(開くタブ+再発火用nonce)
   const [settingsTab, setSettingsTab] = useState<'basic' | 'models' | 'quality' | 'connect' | 'memory'>('basic');
   const [settingsNonce, setSettingsNonce] = useState(0);
@@ -171,7 +174,8 @@ export default function App(): JSX.Element {
           <LeftPane />
         </SidePane>
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <ChatView />
+          {/* M33-4: ⛩運営スレッド(左ペインの常設エントリで開閉。通常チャットと混ぜない) */}
+          {opsThreadOpen ? <OpsThreadPanel /> : <ChatView />}
         </main>
         <SidePane
           side="right"

@@ -458,6 +458,91 @@ export interface TriageCard {
   createdAt: string;
 }
 
+// ---- M33: 神議(かむはかり)アーキテクチャ ----
+
+/** M33-1: 神の時計(スケジューラのジョブ)。intervalMin か dailyTimes のどちらかの時計を持つ */
+export interface GodClockJob {
+  id: string;
+  godId: string;
+  intervalMin: number;
+  /** 神議用: 毎日の実行時刻 'HH:MM'。指定時は intervalMin より優先 */
+  dailyTimes?: string[];
+  enabled: boolean;
+  lastRun?: string;
+  nextRun?: string;
+  /** 1日トークン予算(0=無制限)。超過で間隔自動倍化+報告 */
+  dailyTokenBudget: number;
+  spentToday: number;
+  spentDate?: string;
+  baseIntervalMin?: number;
+}
+
+/** M33-2: 受け箱(神々の成果物キュー) */
+export type InboxItemKind =
+  | 'metrics'
+  | 'candidate'
+  | 'draft'
+  | 'triage'
+  | 'budget-alert'
+  | 'kamuhakari-report';
+
+export interface InboxItem {
+  id: string;
+  kind: InboxItemKind;
+  ts: string;
+  godId: string;
+  title: string;
+  payload: Record<string, unknown>;
+}
+
+/** M33-4: 神議のパラメータ変更(2段階制)。自律可/承認必須の分類は kamuhakari.ts の純関数 */
+export interface ParamChange {
+  kind:
+    | 'interval'
+    | 'keywords'
+    | 'pause'
+    | 'resume'
+    | 'tool-toggle'
+    | 'rate-limit'
+    | 'budget-decrease'
+    | 'new-tool'
+    | 'judge-prompt'
+    | 'budget-increase'
+    | 'god-create'
+    | 'god-delete';
+  godId: string;
+  reason: string;
+  value?: unknown;
+}
+
+export interface ApprovalBatchItem {
+  id: string;
+  kind: 'exec-action' | 'param-approval' | 'capability-gap';
+  title: string;
+  detail: string;
+  action?: { adapterId: string; actionName: string; target: string; preview: string; params: Record<string, unknown> };
+  change?: ParamChange;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
+/** M33-4: 承認バッチ(神議がまとめる1枚のカード。バラバラ通知の禁止) */
+export interface ApprovalBatch {
+  id: string;
+  ts: string;
+  analysis: string;
+  items: ApprovalBatchItem[];
+}
+
+/** M33-4: ⛩運営スレッドのメッセージ */
+export interface OpsThreadMessage {
+  id: string;
+  ts: string;
+  role: 'user' | 'kamuhakari' | 'system';
+  kind: 'text' | 'approval-batch' | 'notice';
+  body: string;
+  batchId?: string;
+}
+
 /** メディア戦略ボードの1媒体 */
 export interface MediaStrategyEntry {
   media: string;

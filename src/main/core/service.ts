@@ -796,8 +796,8 @@ export class AgentService {
     return provider;
   }
 
-  /** M32: 運営機能(週報・発信ドラフト・トリアージ)用のLLM帯。string=キー未設定メッセージ */
-  operationsBandProvider(band: 'planner' | 'reviewer'): LLMProvider | string {
+  /** M32/M33: 運営機能用のLLM帯。神エージェントは安い帯(worker/explorer)を使う。string=キー未設定 */
+  operationsBandProvider(band: 'planner' | 'reviewer' | 'worker' | 'explorer'): LLMProvider | string {
     return this.createBandProvider(band);
   }
 

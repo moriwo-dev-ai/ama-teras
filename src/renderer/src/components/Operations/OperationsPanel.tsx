@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import type {
   CommunityCandidate,
+  GodClockJob,
+  InboxItem,
   MediaStrategyEntry,
   MetricsSnapshot,
   OperationsDraft,
@@ -9,6 +11,85 @@ import type {
 } from '../../../../shared/types';
 import { useOperationsStore } from '../../stores/operations';
 import { firstUrl, hatenaPanelUrl, xIntentUrl } from './postLinks';
+
+/** M33: 神々の時計(ダッシュボード)。会話・承認は左の⛩運営スレッドへ(ここには置かない) */
+function GodClocks(): JSX.Element {
+  const [jobs, setJobs] = useState<GodClockJob[]>([]);
+  const reload = useCallback((): void => {
+    void window.api.operationsClocks().then(setJobs);
+  }, []);
+  useEffect(() => {
+    reload();
+    const timer = setInterval(reload, 60_000);
+    return () => clearInterval(timer);
+  }, [reload]);
+  const GOD_LABEL: Record<string, string> = {
+    'omoi-kami': '🧠 OMOI-kami(観測)',
+    'uzume-patrol': '💃 AMENO-uzume(巡回)',
+    'uzume-drafts': '💃 AMENO-uzume(下書き)',
+    'tedika-rao': '💪 TEDIKA-rao(門番)',
+    kamuhakari: '⛩ 神議(戦略会議)',
+  };
+  if (jobs.length === 0) return <p className="text-xs text-zinc-500">時計は次回アプリ再起動後に動き出す</p>;
+  return (
+    <div className="space-y-1">
+      {jobs.map((j) => (
+        <div key={j.id} className="flex flex-wrap items-center gap-2 rounded border border-zinc-800 bg-zinc-950 p-1.5 text-[10px]">
+          <button
+            className={`rounded px-1.5 py-0.5 ${j.enabled ? 'bg-green-900 text-green-300' : 'bg-zinc-800 text-zinc-500'}`}
+            title="クリックで有効/無効"
+            onClick={() => void window.api.operationsClockUpdate(j.id, { enabled: !j.enabled }).then(reload)}
+          >
+            {j.enabled ? '● 稼働' : '○ 停止'}
+          </button>
+          <span className="font-semibold text-zinc-200">{GOD_LABEL[j.godId] ?? j.godId}</span>
+          <span className="text-zinc-500">
+            {j.dailyTimes !== undefined ? `毎日 ${j.dailyTimes.join('/')}` : `${j.intervalMin}分ごと`}
+          </span>
+          {j.nextRun !== undefined && <span className="text-zinc-500">次回 {j.nextRun.slice(11, 16)}</span>}
+          <span className="ml-auto text-zinc-500">
+            今日 {j.spentToday.toLocaleString()}
+            {j.dailyTokenBudget > 0 ? ` / ${j.dailyTokenBudget.toLocaleString()}` : ''} tok
+          </span>
+        </div>
+      ))}
+      <p className="text-[10px] text-zinc-600">間隔・予算の調整は神議が自律で行う(引き上げ系はあなたの承認制)。会話は左の⛩運営スレッドで</p>
+    </div>
+  );
+}
+
+/** M33: 受け箱(ダッシュボード) */
+function InboxView(): JSX.Element {
+  const [items, setItems] = useState<(InboxItem & { read: boolean })[]>([]);
+  const reload = useCallback((): void => {
+    void window.api.operationsInboxList(50).then(setItems);
+  }, []);
+  useEffect(() => {
+    reload();
+    const timer = setInterval(reload, 60_000);
+    return () => clearInterval(timer);
+  }, [reload]);
+  const KIND_ICON: Record<string, string> = {
+    metrics: '📊',
+    candidate: '🔍',
+    draft: '📝',
+    triage: '💪',
+    'budget-alert': '⚠',
+    'kamuhakari-report': '⛩',
+  };
+  if (items.length === 0) return <p className="text-xs text-zinc-500">受け箱は空(神々の成果物がここに届く)</p>;
+  return (
+    <div className="max-h-60 space-y-0.5 overflow-y-auto">
+      {items.map((i) => (
+        <div key={i.id} className={`flex items-baseline gap-1.5 rounded p-1 text-[10px] ${i.read ? 'text-zinc-600' : 'text-zinc-300'}`}>
+          <span>{KIND_ICON[i.kind] ?? '・'}</span>
+          <span className="shrink-0 text-zinc-600">{i.ts.slice(5, 16)}</span>
+          <span className="min-w-0 flex-1">{i.title}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /**
  * M32: 右ペイン「運営」タブ — Project TAKAMA-gahara。
@@ -397,6 +478,14 @@ export function OperationsPanel(): JSX.Element {
       {error !== null && (
         <div className="rounded border border-red-800 bg-red-950 p-2 text-xs text-red-300">{error}</div>
       )}
+
+      <Section title="神々の時計" kana="かむはかり" role="定刻ジョブと予算(M33)">
+        <GodClocks />
+      </Section>
+
+      <Section title="受け箱" kana="inbox" role="神々の成果物キュー">
+        <InboxView />
+      </Section>
 
       <Section title="OMOI-kami" kana="オモイカネ" role="観測と戦略">
         <div className="flex flex-wrap gap-1.5">
