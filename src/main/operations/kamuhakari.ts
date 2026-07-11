@@ -108,6 +108,12 @@ ${input.currentKeywords.join(', ') || '(未設定)'}
 - evolve: 神への能力追加 = request_capability の起票案(detail に依頼文)
 - new-god: 新しい神の作成 = godDraft に定義JSON({id,name,engine,clock,dailyTokenBudget,enabled}。
   engine は metrics-observer/community-patrol/draft-writer/issue-gatekeeper のみ)
+  **命名の掟(ブランド)**: 神の名は必ず日本神話(八百万の神)から採る。役割に対応する神を選ぶこと。
+  既存: OMOI-kami(思兼神=知恵・観測)/ AMENO-uzume(天鈿女命=芸能・広報)/
+  TEDIKA-rao(手力男命=岩戸を開いた力・門番)/ AMENO-koyane(天児屋命=祝詞・司会進行)。
+  候補例: SARUTA-hiko(猿田彦=道案内・オンボーディング)/ SUKUNA-bikona(少名毘古那=医薬・修復)/
+  ISHIKORI-dome(石凝姥命=鏡作り・ビルド/リリース)/ KOTOSHIRO-nushi(事代主=託宣・予測)。
+  id は英小文字ハイフン(例: saruta-hiko)、name は「SARUTA-hiko(猿田彦・道案内)」の形
 
 # 出力(JSONのみ)
 {

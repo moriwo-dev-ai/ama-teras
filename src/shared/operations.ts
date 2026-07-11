@@ -1,0 +1,64 @@
+/**
+ * M39: 運営の一括承認まわりの共有定数(main と renderer が同じ判断をするため)。
+ * ロジックは置かない(判定の純関数のみ)。
+ */
+
+/**
+ * リンクを開くところまでしかできない媒体(アプリからは何も発行しない)。
+ * X は規約上、自動投稿・自動フォローを実装しない(アダプタの execute 宣言も空)。
+ * はてブも同様に「追加画面を開く」まで。最後のクリックは必ず人間が押す。
+ */
+export const LINK_ONLY_ADAPTERS = ['x', 'hatena'] as const;
+
+export function isLinkOnlyAdapter(adapterId: string): boolean {
+  return (LINK_ONLY_ADAPTERS as readonly string[]).includes(adapterId);
+}
+
+/** 一度に開くブラウザウィンドウの上限。超えた分は「続きを開く」で人間が刻む */
+export const MAX_LINKS_PER_OPEN = 5;
+
+/** X Web Intent(投稿画面を本文プリセットで開く。投稿ボタンは人間が押す) */
+export function xIntentUrl(text: string): string {
+  return `https://x.com/intent/post?text=${encodeURIComponent(text)}`;
+}
+
+/** はてなブックマーク追加パネル(追加ボタンは人間が押す) */
+export function hatenaPanelUrl(url: string): string {
+  return `https://b.hatena.ne.jp/entry/panel/?url=${encodeURIComponent(url)}`;
+}
+
+/** 本文から最初の http(s) URL(はてブ対象の記事URL検出)。無ければ null */
+export function firstUrl(text: string): string | null {
+  const m = /https?:\/\/[^\s<>"')\]}、。]+/.exec(text);
+  return m ? m[0] : null;
+}
+
+/**
+ * アダプタid → 媒体名(下書きの media 欄・効果測定・戦略ボードで使う共通の呼び名)。
+ * 'zenn-repo' は実装の都合の名前なので、媒体としては 'zenn' に寄せる
+ */
+export function mediaOf(adapterId: string): string {
+  return adapterId === 'zenn-repo' ? 'zenn' : adapterId;
+}
+
+/** 一括承認の単位キー(媒体×アクション)。異なる媒体・アクションは混ぜない */
+export function bulkGroupKey(adapterId: string, actionName: string): string {
+  return `${adapterId}:${actionName}`;
+}
+
+/** 一括実行の結果(1件ずつの成否。途中で失敗しても残りは続行する) */
+export interface BulkItemResult {
+  itemId: string;
+  target: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface BulkRespondResult {
+  ok: boolean;
+  /** 例: 「3件中2件成功」 */
+  detail: string;
+  results: BulkItemResult[];
+  /** リンク媒体(X/はてブ)のとき、renderer が開くURL。main は何も発行しない */
+  links?: { itemId: string; label: string; url: string }[];
+}

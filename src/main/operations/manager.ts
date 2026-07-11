@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type {
   AdapterStatusInfo,
   AppConfig,
+  ApprovalBatchItem,
   CommunityCandidate,
   IwatoRequestPayload,
   MediaStrategyEntry,
@@ -11,6 +12,16 @@ import type {
   OperationsDraft,
   TriageCard,
 } from '../../shared/types';
+import {
+  bulkGroupKey,
+  firstUrl,
+  hatenaPanelUrl,
+  isLinkOnlyAdapter,
+  mediaOf,
+  xIntentUrl,
+  type BulkItemResult,
+  type BulkRespondResult,
+} from '../../shared/operations';
 import type { LLMProvider } from '../providers/types';
 import {
   createBlueskyAdapter,
@@ -710,6 +721,18 @@ export class OperationsManager {
         }
       }
     }
+
+    // M39: 未投稿の発信ドラフトを「行き先つき」で承認バッチに載せる(決定的生成)。
+    // 一括承認すると、媒体ごとにできる限界まで進む(X=投稿画面を開く / Bluesky=API投稿 /
+    // Zenn=published:falseでコミット / GitHub=下書きリリース)
+    const draftItems = this.buildDraftProposals();
+    if (draftItems.length > 0) {
+      if (batch === null) {
+        batch = { id: randomUUID(), ts: new Date().toISOString(), analysis: parsed.analysis, items: draftItems };
+      } else {
+        batch.items.push(...draftItems);
+      }
+    }
     if (batch !== null) this.thread.addBatch(batch);
 
     // 運営スレッドへ: 分析+自律適用の通知+承認バッチ(1枚)
@@ -723,6 +746,104 @@ export class OperationsManager {
     this.inbox.markRead(unread.map((u) => u.id));
     this.inbox.post({ kind: 'kamuhakari-report', godId: 'kamuhakari', title: `神議: 適用${appliedChanges.length}件/承認待ち${batch?.items.length ?? 0}件`, payload: {} });
     return { analysis: parsed.analysis, appliedChanges, batch, tokensUsed };
+  }
+
+  /**
+   * M39: 未投稿ドラフト → 承認バッチ項目(行き先つき)。種類ごとの行き先はコードで固定
+   * (M37のUI表と同じ規則。Xの文字数に合わない種類をXへ流さない)。
+   * ここは提案の生成のみ — 実行は必ず承認 → 岩戸ゲート(またはリンクを人間が開く)を通る
+   */
+  private buildDraftProposals(): ApprovalBatchItem[] {
+    if (this.drafts === null) return [];
+    const cfg = this.opsConfig();
+    const items: ApprovalBatchItem[] = [];
+    const pending = this.drafts.list().filter((d) => d.status === 'draft');
+
+    for (const d of pending.slice(0, 10)) {
+      const base = { id: randomUUID(), kind: 'exec-action' as const, status: 'pending' as const };
+      if (d.kind === 'x-post') {
+        items.push({
+          ...base,
+          title: `X: 投稿画面を開く「${d.title}」`,
+          detail: '規約上、アプリからは投稿しない(投稿ボタンはあなたが押す)',
+          action: {
+            adapterId: 'x',
+            actionName: 'open-intent',
+            target: `X 投稿画面「${d.title}」`,
+            preview: d.body,
+            params: { url: xIntentUrl(d.body), draftId: d.id },
+          },
+        });
+        const url = firstUrl(d.body);
+        if (url !== null) {
+          items.push({
+            ...base,
+            id: randomUUID(),
+            title: `はてブ: 追加画面を開く(${url})`,
+            detail: '追加ボタンはあなたが押す(アプリからは発行しない)',
+            action: {
+              adapterId: 'hatena',
+              actionName: 'add',
+              target: `はてブ追加画面(${url})`,
+              preview: url,
+              params: { url: hatenaPanelUrl(url), draftId: d.id },
+            },
+          });
+        }
+        // Blueskyは規約上APIで投稿できる。300字以内のものだけ提案(超過は分割が必要=人間判断)
+        if (this.blueskyExecAvailable && [...d.body].length <= 300) {
+          items.push({
+            ...base,
+            id: randomUUID(),
+            title: `Bluesky: 投稿「${d.title}」`,
+            detail: '承認後、岩戸ゲートを経てAPIで投稿する',
+            action: {
+              adapterId: 'bluesky',
+              actionName: 'post',
+              target: `Bluesky 投稿「${d.title}」`,
+              preview: d.body,
+              params: { text: d.body, draftId: d.id },
+            },
+          });
+        }
+        continue;
+      }
+      if (d.kind === 'release-note') {
+        const tag = /v\d+\.\d+\.\d+/.exec(d.body)?.[0] ?? /v\d+\.\d+\.\d+/.exec(d.title)?.[0];
+        const repo = cfg.repos[0];
+        if (tag !== undefined && repo !== undefined) {
+          items.push({
+            ...base,
+            title: `GitHub Release(下書き): ${repo} ${tag}`,
+            detail: '公開(publish)はGitHub上であなたが行う。作成は必ず下書き',
+            action: {
+              adapterId: 'github',
+              actionName: 'release',
+              target: `${repo} のリリース ${tag}(下書き)`,
+              preview: `# ${d.title}\n\n${d.body}`,
+              params: { repo, tag, title: d.title, body: d.body, draftId: d.id },
+            },
+          });
+        }
+        continue;
+      }
+      if (d.kind === 'article-outline' && (cfg.zennRepoDir ?? '') !== '') {
+        items.push({
+          ...base,
+          title: `Zenn記事化: 「${d.title}」`,
+          detail: '承認時に本文をLLMが起こし、全文を岩戸ダイアログで見せる。published: false でコミット',
+          action: {
+            adapterId: 'zenn-repo',
+            actionName: 'commit-article',
+            target: `zenn-content/articles/(${d.title})`,
+            // 本文は承認直前に生成する(ここではアウトラインを見せる)
+            preview: d.body,
+            params: { draftId: d.id },
+          },
+        });
+      }
+    }
+    return items;
   }
 
   // ---- M33: UI用アクセサ ----
@@ -790,6 +911,147 @@ export class OperationsManager {
     );
     this.thread.post({ role: 'kamuhakari', kind: 'text', body: reply.trim() });
     return this.thread.list();
+  }
+
+  /**
+   * M39: 同種(媒体×アクション)の複数項目を一括で応答する。
+   * - 実行系(Bluesky/GitHub/Zenn): 岩戸ゲートの1ダイアログに全件の全文を並べ、承認後に1件ずつ実行。
+   *   1件失敗しても残りは続行し「N件中M件成功」を返す(部分成功を成功に見せない)
+   * - リンク媒体(X/はてブ): アプリは何も発行しない。開くべきURLを返し、renderer が開く
+   *   (投稿/追加ボタンは人間が押す。規約=大原則)
+   */
+  async bulkRespond(batchId: string, itemIds: string[], approved: boolean): Promise<BulkRespondResult> {
+    if (!this.ensureInitialized() || this.thread === null || this.gate === null || this.drafts === null) {
+      return { ok: false, detail: '未初期化', results: [] };
+    }
+    const batch = this.thread.getBatch(batchId);
+    if (batch === null) return { ok: false, detail: 'バッチが見つからない', results: [] };
+    const items = batch.items.filter((i) => itemIds.includes(i.id) && i.action !== undefined);
+    if (items.length === 0) return { ok: false, detail: '対象項目が無い', results: [] };
+
+    const keys = new Set(items.map((i) => bulkGroupKey(i.action!.adapterId, i.action!.actionName)));
+    if (keys.size !== 1) {
+      // 媒体・アクションが混在した一括は禁止(承認ダイアログの「何を・どこへ」が濁るため)
+      return { ok: false, detail: '媒体×アクションが異なる項目は一括できない', results: [] };
+    }
+    const { adapterId, actionName } = items[0]!.action!;
+
+    if (!approved) {
+      for (const i of items) this.thread.respondBatchItem(batchId, i.id, false);
+      return {
+        ok: true,
+        detail: `${items.length}件を却下した`,
+        results: items.map((i) => ({ itemId: i.id, target: i.action!.target, ok: false, detail: '却下' })),
+      };
+    }
+
+    this.deps.audit({
+      kind: 'operations-execute',
+      adapterId: `god:kamuhakari`,
+      action: `batch-bulk:${adapterId}:${actionName}`,
+      target: `${items.length}件`,
+      approved: true,
+      detail: '一括承認',
+    });
+
+    // リンク媒体: アプリは発行しない。URLを返して renderer に開かせる
+    if (isLinkOnlyAdapter(adapterId)) {
+      const links = items.map((i) => ({
+        itemId: i.id,
+        label: i.action!.target,
+        url: String(i.action!.params['url'] ?? ''),
+      }));
+      for (const i of items) this.thread.respondBatchItem(batchId, i.id, true);
+      return {
+        ok: true,
+        detail: `${items.length}件の投稿画面を開く(投稿ボタンはあなたが押す)`,
+        results: items.map((i) => ({ itemId: i.id, target: i.action!.target, ok: true, detail: 'リンクを開く' })),
+        links: links.filter((l) => l.url !== ''),
+      };
+    }
+
+    // Zenn記事は本文が未生成なので、承認ダイアログに出す前に本文を起こす(全文プレビューのため)
+    const prepared: { id: string; target: string; preview: string; params: Record<string, unknown>; draftId?: string }[] = [];
+    for (const i of items) {
+      const a = i.action!;
+      if (adapterId === 'zenn-repo' && typeof a.params['draftId'] === 'string') {
+        const built = await this.buildZennArticle(String(a.params['draftId']));
+        if (built === null) {
+          prepared.push({ id: i.id, target: a.target, preview: a.preview, params: a.params });
+          continue;
+        }
+        prepared.push({
+          id: i.id,
+          target: `zenn-content/articles/${built.slug}.md(published: false)`,
+          preview: built.markdown,
+          params: { slug: built.slug, markdown: built.markdown },
+          draftId: String(a.params['draftId']),
+        });
+        continue;
+      }
+      prepared.push({
+        id: i.id,
+        target: a.target,
+        preview: a.preview,
+        params: a.params,
+        ...(typeof a.params['draftId'] === 'string' ? { draftId: String(a.params['draftId']) } : {}),
+      });
+    }
+
+    const { approved: gateOk, results } = await this.gate.requestExecuteMany(
+      adapterId,
+      actionName,
+      prepared.map(({ id, target, preview, params }) => ({ id, target, preview, params })),
+    );
+
+    const out: BulkItemResult[] = results.map((r) => ({
+      itemId: r.id,
+      target: r.target,
+      ok: r.ok,
+      detail: r.detail,
+    }));
+    for (const r of out) {
+      this.thread.respondBatchItem(batchId, r.itemId, gateOk && r.ok);
+      // 発信ドラフト由来なら、実際に出せたものだけ「投稿済み」にする(効果測定の起点)
+      const src = prepared.find((p) => p.id === r.itemId);
+      if (gateOk && r.ok && src?.draftId !== undefined) {
+        this.drafts.update(src.draftId, { status: 'posted', media: mediaOf(adapterId) });
+      }
+    }
+    const okCount = out.filter((r) => r.ok).length;
+    return {
+      ok: gateOk && okCount > 0,
+      detail: gateOk ? `${out.length}件中${okCount}件成功` : '承認されなかったため実行していない',
+      results: out,
+    };
+  }
+
+  /** M39: 記事アウトライン → 本文(frontmatter込み)。一括承認の全文プレビュー用にも使う */
+  private async buildZennArticle(draftId: string): Promise<{ slug: string; markdown: string } | null> {
+    if (this.drafts === null) return null;
+    const draft = this.drafts.list().find((d) => d.id === draftId);
+    if (draft === undefined || draft.kind !== 'article-outline') return null;
+    const sources = (await this.deps.readHighlightSources?.()) ?? { progressExcerpt: '', recentCommits: '' };
+    const body = await completeText(
+      this.llm('planner'),
+      'あなたは技術記事のライター。事実だけを書く。',
+      buildArticleOutlinePrompt({
+        title: draft.title,
+        outline: draft.body,
+        progressExcerpt: sources.progressExcerpt,
+      }),
+    );
+    const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 12);
+    const slug = articleSlug(draft.title, stamp);
+    const markdown = buildArticleMarkdown(
+      { title: draft.title, emoji: '⛩️', type: 'tech', topics: ['ai', 'electron', 'typescript', 'claude'] },
+      body,
+    );
+    // 承認可否にかかわらず本文の下書きは残す(コピーして手で使える)
+    this.drafts.add([
+      { kind: 'article-body', title: `Zenn記事: ${draft.title}(${slug})`, body: markdown, media: 'zenn' },
+    ]);
+    return { slug, markdown };
   }
 
   /** 承認バッチ項目への応答。param-approval の承認は即適用(人間承認済みのため) */
@@ -1017,31 +1279,15 @@ export class OperationsManager {
       return { ok: false, detail: 'zenn-contentのパスが未設定(設定→接続→オーナーモード)' };
     }
 
-    const sources = (await this.deps.readHighlightSources?.()) ?? { progressExcerpt: '', recentCommits: '' };
-    const body = await completeText(
-      this.llm('planner'),
-      'あなたは技術記事のライター。事実だけを書く。',
-      buildArticleOutlinePrompt({
-        title: draft.title,
-        outline: draft.body,
-        progressExcerpt: sources.progressExcerpt,
-      }),
-    );
-    const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 12);
-    const slug = articleSlug(draft.title, stamp);
-    const markdown = buildArticleMarkdown(
-      { title: draft.title, emoji: '⛩️', type: 'tech', topics: ['ai', 'electron', 'typescript', 'claude'] },
-      body,
-    );
-    const [saved] = this.drafts.add([
-      { kind: 'article-body', title: `Zenn記事: ${draft.title}(${slug})`, body: markdown, media: 'zenn' },
-    ]);
+    const built = await this.buildZennArticle(draftId);
+    if (built === null) return { ok: false, detail: '本文の生成に失敗' };
+    const saved = this.drafts.list().find((d) => d.kind === 'article-body' && d.body === built.markdown);
     const result = await this.gate.requestExecute(
       'zenn-repo',
       'commit-article',
-      `zenn-content/articles/${slug}.md(published: false。公開はZennの記事設定であなたが行う)`,
-      markdown,
-      { slug, markdown },
+      `zenn-content/articles/${built.slug}.md(published: false。公開はZennの記事設定であなたが行う)`,
+      built.markdown,
+      { slug: built.slug, markdown: built.markdown },
     );
     return { ...result, ...(saved !== undefined ? { bodyDraftId: saved.id } : {}) };
   }

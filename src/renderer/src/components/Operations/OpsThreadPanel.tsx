@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ApprovalBatch, OpsThreadMessage } from '../../../../shared/types';
+import type { ApprovalBatch, ApprovalBatchItem, OpsThreadMessage } from '../../../../shared/types';
+import { bulkGroupKey, isLinkOnlyAdapter, MAX_LINKS_PER_OPEN } from '../../../../shared/operations';
 import { useOpsThreadStore } from '../../stores/opsThread';
 
 /**
@@ -7,13 +8,130 @@ import { useOpsThreadStore } from '../../stores/opsThread';
  * 神議の分析・承認バッチはここへカードで届く。右ペイン運営タブはダッシュボード専用。
  */
 
+/** M39: 媒体×アクションの表示名(一括ボタンのラベル) */
+const GROUP_LABEL: Record<string, string> = {
+  'x:open-intent': '𝕏 X投稿画面',
+  'hatena:add': 'B! はてブ追加画面',
+  'bluesky:post': '🦋 Bluesky投稿',
+  'bluesky:follow': '🦋 Blueskyフォロー',
+  'github:release': '🐙 GitHub Release(下書き)',
+  'zenn-repo:commit-article': '📝 Zenn記事(published: false)',
+};
+
+/**
+ * M39: 同種(媒体×アクション)の一括承認。
+ * 実行系 = 岩戸ダイアログに全件の全文が並び、承認1回で1件ずつ実行(部分成功を正直に返す)。
+ * リンク媒体(X/はてブ) = アプリは発行しない。承認するとURLが返るので、ここで開く
+ * (一度に開くのは MAX_LINKS_PER_OPEN 件まで。残りは「続きを開く」で人間が刻む)
+ */
+function BulkBar({
+  batchId,
+  groupKey,
+  items,
+  onRespond,
+}: {
+  batchId: string;
+  groupKey: string;
+  items: ApprovalBatchItem[];
+  onRespond: () => void;
+}): JSX.Element {
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [rest, setRest] = useState<{ label: string; url: string }[]>([]);
+  const linkOnly = isLinkOnlyAdapter(items[0]?.action?.adapterId ?? '');
+  const label = GROUP_LABEL[groupKey] ?? groupKey;
+
+  const openSome = (links: { label: string; url: string }[]): void => {
+    for (const l of links.slice(0, MAX_LINKS_PER_OPEN)) {
+      window.open(l.url, '_blank', 'noopener,noreferrer');
+    }
+    setRest(links.slice(MAX_LINKS_PER_OPEN));
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 rounded border border-orange-900 bg-zinc-900 p-1.5">
+      <span className="text-[10px] font-semibold text-orange-300">
+        {label} {items.length}件
+      </span>
+      <button
+        className="rounded border border-green-800 px-2 py-0.5 text-[10px] text-green-300 hover:bg-green-950 disabled:opacity-50"
+        disabled={busy}
+        title={
+          linkOnly
+            ? '規約上アプリからは投稿しない。投稿画面をまとめて開く(投稿ボタンはあなたが押す)'
+            : '岩戸ダイアログに全件の全文が並ぶ。承認は1回、実行は1件ずつ'
+        }
+        onClick={() => {
+          setBusy(true);
+          setNotice(null);
+          void window.api
+            .operationsBulkRespond(batchId, items.map((i) => i.id), true)
+            .then((r) => {
+              setNotice(r.detail);
+              if (r.links !== undefined && r.links.length > 0) openSome(r.links);
+            })
+            .catch((e: unknown) => setNotice(e instanceof Error ? e.message : String(e)))
+            .finally(() => {
+              setBusy(false);
+              onRespond();
+            });
+        }}
+      >
+        {busy ? '処理中…' : linkOnly ? `まとめて開く(${items.length}件)` : `⛩ ${items.length}件まとめて承認`}
+      </button>
+      <button
+        className="rounded border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          void window.api
+            .operationsBulkRespond(batchId, items.map((i) => i.id), false)
+            .then((r) => setNotice(r.detail))
+            .finally(() => {
+              setBusy(false);
+              onRespond();
+            });
+        }}
+      >
+        まとめて却下
+      </button>
+      {rest.length > 0 && (
+        <button
+          className="rounded border border-zinc-600 px-2 py-0.5 text-[10px] hover:bg-zinc-800"
+          title="ウィンドウを開きすぎないよう、続きは分けて開く"
+          onClick={() => openSome(rest)}
+        >
+          続きを開く(残り{rest.length}件)
+        </button>
+      )}
+      {notice !== null && <span className="text-[10px] text-zinc-400">{notice}</span>}
+    </div>
+  );
+}
+
 function BatchCard({ batch, onRespond }: { batch: ApprovalBatch; onRespond: () => void }): JSX.Element {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const kindLabel = { 'exec-action': '実行提案', 'param-approval': 'パラメータ承認', 'capability-gap': '能力ギャップ' } as const;
+
+  // M39: 未処理の実行提案を「媒体×アクション」でまとめる(異種は混ぜない=承認の的が濁らない)
+  const groups = new Map<string, ApprovalBatchItem[]>();
+  for (const item of batch.items) {
+    if (item.status !== 'pending' || item.action === undefined) continue;
+    const key = bulkGroupKey(item.action.adapterId, item.action.actionName);
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+
   return (
     <div className="rounded-md border border-orange-800 bg-zinc-950 p-2 text-xs">
       <p className="mb-1 font-semibold text-orange-300">⛩ 承認バッチ({batch.ts.slice(5, 16)})</p>
+      {[...groups.entries()]
+        .filter(([, items]) => items.length >= 2)
+        .map(([key, items]) => (
+          <div key={key} className="mb-1.5">
+            <BulkBar batchId={batch.id} groupKey={key} items={items} onRespond={onRespond} />
+          </div>
+        ))}
       <div className="space-y-1.5">
         {batch.items.map((item) => (
           <div key={item.id} className="rounded border border-zinc-800 p-1.5">
@@ -29,8 +147,17 @@ function BatchCard({ batch, onRespond }: { batch: ApprovalBatch; onRespond: () =
                   disabled={busy !== null}
                   onClick={() => {
                     setBusy(item.id);
-                    void window.api
-                      .operationsBatchRespond(batch.id, item.id, true)
+                    // M39: 行き先つきの提案は1件でも一括経路を通す(X/はてブのURLを受け取って開くため)
+                    const respond =
+                      item.action !== undefined
+                        ? window.api.operationsBulkRespond(batch.id, [item.id], true).then((r) => {
+                            for (const l of (r.links ?? []).slice(0, MAX_LINKS_PER_OPEN)) {
+                              window.open(l.url, '_blank', 'noopener,noreferrer');
+                            }
+                            return r;
+                          })
+                        : window.api.operationsBatchRespond(batch.id, item.id, true);
+                    void respond
                       .then((r) => setNotice(r.detail))
                       .finally(() => {
                         setBusy(null);

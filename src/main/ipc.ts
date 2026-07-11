@@ -734,6 +734,18 @@ export async function registerIpcHandlers(
     if (typeof approved !== 'boolean') throw new Error('IPC payload approved が不正');
     return operations.batchRespond(batchId, itemId, approved);
   });
+  // M39: 同種(媒体×アクション)の一括承認。実行は manager 内で岩戸ゲート(全件1ダイアログ)を通る
+  ipcMain.handle(
+    IpcChannels.operationsBulkRespond,
+    (_e, batchId: unknown, itemIds: unknown, approved: unknown) => {
+      assertString(batchId, 'batchId');
+      if (!Array.isArray(itemIds) || itemIds.some((i) => typeof i !== 'string')) {
+        throw new Error('IPC payload itemIds が不正');
+      }
+      if (typeof approved !== 'boolean') throw new Error('IPC payload approved が不正');
+      return operations.bulkRespond(batchId, itemIds as string[], approved);
+    },
+  );
   ipcMain.handle(IpcChannels.operationsKamuhakariRun, async () => {
     const result = await operations.runKamuhakari();
     return { analysis: result.analysis, batchItems: result.batch?.items.length ?? 0, applied: result.appliedChanges.length };

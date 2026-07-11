@@ -143,6 +143,8 @@ const api: AmaterasApi = {
   operationsThreadSend: (text) => ipcRenderer.invoke(IpcChannels.operationsThreadSend, text),
   operationsThreadBatches: () => ipcRenderer.invoke(IpcChannels.operationsThreadBatches),
   operationsThreadPending: () => ipcRenderer.invoke(IpcChannels.operationsThreadPending),
+  operationsBulkRespond: (batchId, itemIds, approved) =>
+    ipcRenderer.invoke(IpcChannels.operationsBulkRespond, batchId, itemIds, approved),
   operationsBatchRespond: (batchId, itemId, approved) =>
     ipcRenderer.invoke(IpcChannels.operationsBatchRespond, batchId, itemId, approved),
   operationsKamuhakariRun: () => ipcRenderer.invoke(IpcChannels.operationsKamuhakariRun),

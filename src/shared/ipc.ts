@@ -46,6 +46,7 @@ import type {
   UsageSummary,
   WorkspaceGitStatus,
 } from './types';
+import type { BulkRespondResult } from './operations';
 
 /** IPCチャネル名の一元定義。文字列リテラルを直接使わない */
 export const IpcChannels = {
@@ -166,6 +167,8 @@ export const IpcChannels = {
   operationsThreadBatches: 'operations:thread-batches',
   operationsThreadPending: 'operations:thread-pending',
   operationsBatchRespond: 'operations:batch-respond',
+  /** M39: 同種(媒体×アクション)の一括承認。岩戸ダイアログは全件まとめて1回 */
+  operationsBulkRespond: 'operations:bulk-respond',
   operationsKamuhakariRun: 'operations:kamuhakari-run',
   /** M33-5: 神の宣言的定義(適用は岩戸ゲート承認必須) */
   operationsGodDefs: 'operations:god-defs',
@@ -385,6 +388,12 @@ export interface AmaterasApi {
   operationsThreadBatches(): Promise<ApprovalBatch[]>;
   operationsThreadPending(): Promise<number>;
   operationsBatchRespond(batchId: string, itemId: string, approved: boolean): Promise<{ ok: boolean; detail: string }>;
+  /**
+   * M39: 同種(媒体×アクション)の複数項目を一括で承認/却下する。
+   * 実行系は岩戸ダイアログに全件の全文が並び、承認後に1件ずつ実行(部分成功を返す)。
+   * X/はてブは links を返すので renderer が開く(投稿ボタンは人間が押す)
+   */
+  operationsBulkRespond(batchId: string, itemIds: string[], approved: boolean): Promise<BulkRespondResult>;
   /** 神議の手動開催(定刻を待たずに1回) */
   operationsKamuhakariRun(): Promise<{ analysis: string; batchItems: number; applied: number }>;
   /** M33-5: 神の定義一覧と変更申請(適用は承認ダイアログ=岩戸ゲートを通る) */

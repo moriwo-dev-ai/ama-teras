@@ -14,7 +14,10 @@ import { useOperationsStore } from '../../stores/operations';
 import { draftActionsFor } from './draftActions';
 import { firstUrl, hatenaPanelUrl, xIntentUrl } from './postLinks';
 
-/** M33: 神々の時計(ダッシュボード)。会話・承認は左の⛩運営スレッドへ(ここには置かない) */
+/**
+ * M33: 神々の時計(ダッシュボード)。会話・承認は左の⛩運営スレッドへ(ここには置かない)。
+ * M39: 進行役として AMENO-koyane(天児屋命=祝詞・司会進行)の名を与えた
+ */
 function GodClocks(): JSX.Element {
   const [jobs, setJobs] = useState<GodClockJob[]>([]);
   const reload = useCallback((): void => {
@@ -748,7 +751,7 @@ export function OperationsPanel(): JSX.Element {
         <div className="rounded border border-red-800 bg-red-950 p-2 text-xs text-red-300">{error}</div>
       )}
 
-      <Section title="神々の時計" kana="かむはかり" role="定刻ジョブと予算(M33)">
+      <Section title="AMENO-koyane" kana="アメノコヤネ" role="神々の時計 — 定刻ジョブと予算の司会進行">
         <GodClocks />
       </Section>
 

@@ -121,6 +121,62 @@ export class IwatoGate {
   }
 
   /**
+   * M39: 同一アダプタ・同一アクションの複数件を「1回の承認ダイアログ」で通す。
+   * 掟は緩めない — ダイアログには全件の全文プレビューを並べる(何を・どこへ・全文)。
+   * 承認は1回だが、実行・audit は1件ずつ。1件失敗しても残りは続行し、成否を返す
+   * (部分成功を「全部成功」に見せない)。
+   */
+  async requestExecuteMany(
+    adapterId: string,
+    action: string,
+    items: { id: string; target: string; preview: string; params: Record<string, unknown> }[],
+  ): Promise<{ approved: boolean; results: { id: string; target: string; ok: boolean; detail: string }[] }> {
+    if (items.length === 0) return { approved: false, results: [] };
+    const adapter = this.adapters.get(adapterId);
+    const denied = (detail: string): { approved: boolean; results: { id: string; target: string; ok: boolean; detail: string }[] } => {
+      for (const it of items) {
+        this.audit({ kind: 'operations-execute', adapterId, action, target: it.target, approved: false, detail });
+      }
+      return { approved: false, results: items.map((it) => ({ id: it.id, target: it.target, ok: false, detail })) };
+    };
+    if (!adapter) return denied(`未登録のアダプタ: ${adapterId}`);
+    if (!adapter.capabilities.execute.includes(action)) {
+      return denied('capabilities.execute に無いアクション(拒否)');
+    }
+
+    const request: IwatoRequestPayload = {
+      id: randomUUID(),
+      adapterId,
+      action,
+      target: `${items.length}件: ${items.map((i) => i.target).join(' / ')}`,
+      // 全件の全文を並べる(1件でも読めない状態で承認させない)
+      preview: items
+        .map((i, n) => `── ${n + 1}/${items.length}: ${i.target} ──\n${i.preview}`)
+        .join('\n\n'),
+      compliance: adapter.compliance,
+    };
+    const approved = await this.approvalPrompt(request);
+    if (!approved) return denied('ユーザーが承認しなかった(一括)');
+
+    const executor = sealedExecutors.get(this)?.get(adapterId);
+    if (!executor) return denied(`アダプタ ${adapterId} に executor が無い(内部不整合)`);
+
+    const results: { id: string; target: string; ok: boolean; detail: string }[] = [];
+    for (const it of items) {
+      try {
+        const detail = await executor(action, it.params);
+        this.audit({ kind: 'operations-execute', adapterId, action, target: it.target, approved: true, detail });
+        results.push({ id: it.id, target: it.target, ok: true, detail });
+      } catch (err) {
+        const detail = `実行失敗: ${err instanceof Error ? err.message : String(err)}`;
+        this.audit({ kind: 'operations-execute', adapterId, action, target: it.target, approved: true, detail });
+        results.push({ id: it.id, target: it.target, ok: false, detail });
+      }
+    }
+    return { approved: true, results };
+  }
+
+  /**
    * 岩戸ゲート本体。外部へ出る操作はすべてここを通る:
    * 宣言チェック → 承認ダイアログ(何を・どこへ・全文プレビュー) → 実行 → audit。
    * 承認されなければ executor には一切到達しない。
