@@ -155,8 +155,17 @@ export class GodScheduler {
     return this.jobs.map((j) => ({ ...j }));
   }
 
-  /** 神議の自律調整/ユーザー操作の入口。間隔はクランプ、dailyTimesはHH:MM形式のみ */
-  update(id: string, patch: Partial<Pick<GodClockJob, 'intervalMin' | 'enabled' | 'dailyTimes' | 'dailyTokenBudget'>>): GodClockJob | null {
+  /**
+   * 神議の自律調整/ユーザー操作の入口。間隔はクランプ、dailyTimesはHH:MM形式のみ。
+   * M36-1: byUser=true(ユーザーの直接設定・人間承認済みの変更)による予算設定は
+   * budgetSetByUser を立て、以後の神議の自律予算調整(引き下げ含む)より優先される
+   * (自律側の拒否は manager.applyAutonomousChange が担う)
+   */
+  update(
+    id: string,
+    patch: Partial<Pick<GodClockJob, 'intervalMin' | 'enabled' | 'dailyTimes' | 'dailyTokenBudget'>>,
+    opts: { byUser?: boolean } = {},
+  ): GodClockJob | null {
     const job = this.jobs.find((j) => j.id === id);
     if (!job) return null;
     if (patch.intervalMin !== undefined) {
@@ -171,6 +180,7 @@ export class GodScheduler {
     }
     if (patch.dailyTokenBudget !== undefined && patch.dailyTokenBudget >= 0) {
       job.dailyTokenBudget = Math.round(patch.dailyTokenBudget);
+      if (opts.byUser === true) job.budgetSetByUser = true;
     }
     job.nextRun = computeNextRun(job, this.nowFn()).toISOString();
     this.save();

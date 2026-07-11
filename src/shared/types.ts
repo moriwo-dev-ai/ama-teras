@@ -503,6 +503,11 @@ export interface GodClockJob {
   nextRun?: string;
   /** 1日トークン予算(0=無制限)。超過で間隔自動倍化+報告 */
   dailyTokenBudget: number;
+  /**
+   * M36-1: ユーザーが手動設定した予算(true のとき神議の自律調整=引き下げも不可。
+   * 人間承認済みの変更は可)。任意フィールド=旧形式互換
+   */
+  budgetSetByUser?: boolean;
   spentToday: number;
   spentDate?: string;
   baseIntervalMin?: number;

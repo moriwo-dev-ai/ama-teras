@@ -139,6 +139,24 @@ describe('M33-1: GodScheduler(tick統合)', () => {
     expect(job.nextRun).toBeDefined();
   });
 
+  it('M36-1: byUser の予算設定は budgetSetByUser を立て、自律更新では立たない', () => {
+    const sched = new GodScheduler(
+      join(dir, 'schedule.json'),
+      vi.fn(),
+      { onBudgetAlert: () => {}, onJobRun: () => {} },
+      () => new Date('2026-07-12T00:00:00'),
+    );
+    sched.ensureJobs([baseJob({ id: 'j' })]);
+    // 神議の自律調整(byUserなし)ではフラグが立たない
+    sched.update('j', { dailyTokenBudget: 5000 });
+    expect(sched.list()[0]?.budgetSetByUser).toBeUndefined();
+    // ユーザーの手動設定(引き上げも承認不要)でフラグが立つ
+    sched.update('j', { dailyTokenBudget: 99_999 }, { byUser: true });
+    const job = sched.list()[0]!;
+    expect(job.dailyTokenBudget).toBe(99_999);
+    expect(job.budgetSetByUser).toBe(true);
+  });
+
   it('update: 間隔クランプ(ユーザー保護の下限を神議も越えられない)+永続化', () => {
     const sched = new GodScheduler(
       join(dir, 'schedule.json'),

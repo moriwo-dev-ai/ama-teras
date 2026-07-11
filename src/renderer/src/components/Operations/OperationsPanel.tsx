@@ -47,13 +47,32 @@ function GodClocks(): JSX.Element {
             {j.dailyTimes !== undefined ? `毎日 ${j.dailyTimes.join('/')}` : `${j.intervalMin}分ごと`}
           </span>
           {j.nextRun !== undefined && <span className="text-zinc-500">次回 {j.nextRun.slice(11, 16)}</span>}
-          <span className="ml-auto text-zinc-500">
-            今日 {j.spentToday.toLocaleString()}
-            {j.dailyTokenBudget > 0 ? ` / ${j.dailyTokenBudget.toLocaleString()}` : ''} tok
+          <span className="ml-auto flex items-center gap-1 text-zinc-500">
+            今日 {j.spentToday.toLocaleString()} /
+            {/* M36-1: 予算の手動設定(ユーザーの設定行為=承認不要。以後は神議の自律調整より優先) */}
+            <input
+              type="number"
+              min={0}
+              step={1000}
+              key={`${j.id}:${j.dailyTokenBudget}`}
+              className="w-20 rounded border border-zinc-700 bg-zinc-900 px-1 py-0.5 text-right text-[10px]"
+              defaultValue={j.dailyTokenBudget}
+              title="1日トークン予算(0=無制限)。手動設定すると神議の自律調整より優先される"
+              onBlur={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v) && v >= 0 && v !== j.dailyTokenBudget) {
+                  void window.api.operationsClockUpdate(j.id, { dailyTokenBudget: v }).then(reload);
+                }
+              }}
+            />
+            tok{j.budgetSetByUser === true ? ' 🔒' : ''}
           </span>
         </div>
       ))}
-      <p className="text-[10px] text-zinc-600">間隔・予算の調整は神議が自律で行う(引き上げ系はあなたの承認制)。会話は左の⛩運営スレッドで</p>
+      <p className="text-[10px] text-zinc-600">
+        予算は0=無制限。手動で設定した予算(🔒)は神議の自律調整より優先される。
+        間隔の調整は神議が自律で行う(予算引き上げの提案はあなたの承認制)。会話は左の⛩運営スレッドで
+      </p>
       <GodDefEditor />
     </div>
   );

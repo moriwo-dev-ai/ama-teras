@@ -18,3 +18,7 @@ build/candidates/
 # 夜間作業の個人向け指示書(公開リポジトリに含めない)
 NIGHT_TASKS*.md
 .pulse-log.json
+
+# 私的ビジョンメモ(公開判断が出るまでコミット禁止)
+docs/TSUKUYOMI_VISION.md
+docs/vision-mihashira.md

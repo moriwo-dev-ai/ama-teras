@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { AppConfig, ModelBand, OperationsConfig } from '../../../../shared/types';
-import { DEFAULT_REGISTRY_URL } from '../../../../shared/models';
+import { DEFAULT_REGISTRY_URL, KNOWN_MODELS } from '../../../../shared/models';
 import { useOperationsStore } from '../../stores/operations';
 import { McpSection } from './McpSection';
 import { RemoteAccessSection } from './RemoteAccessSection';
@@ -11,6 +11,8 @@ import { UsageSection } from './UsageSection';
  * 推奨: 神議=Sonnet系(分析品質と単価のバランス。planner=Fable5のままだと
  * 1日2回の定例だけで月1万円級になる)、神々=未設定(worker帯)のまま
  */
+const OPS_BAND_CUSTOM = '__custom__';
+
 function OpsBandPicker({
   label,
   hint,
@@ -22,6 +24,11 @@ function OpsBandPicker({
   band: ModelBand | undefined;
   onChange: (band: ModelBand | undefined) => void;
 }): JSX.Element {
+  // M36-2: モデルは基本タブと同じリスト選択式(KNOWN_MODELS)。自由入力は「カスタム」選択時のみ
+  const known = band !== undefined ? KNOWN_MODELS[band.provider] : [];
+  const isCustomModel = band !== undefined && band.model !== '' && !known.some((m) => m.id === band.model);
+  const [customOpen, setCustomOpen] = useState(false);
+  const selectValue = band === undefined ? '' : isCustomModel || customOpen ? OPS_BAND_CUSTOM : band.model;
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-xs">
       <span className="w-28 shrink-0 text-zinc-400">{label}</span>
@@ -30,7 +37,8 @@ function OpsBandPicker({
         value={band?.provider ?? ''}
         onChange={(e) => {
           const v = e.target.value;
-          onChange(v === '' ? undefined : { provider: v as ModelBand['provider'], model: band?.model ?? '' });
+          setCustomOpen(false);
+          onChange(v === '' ? undefined : { provider: v as ModelBand['provider'], model: '' });
         }}
       >
         <option value="">{hint}</option>
@@ -38,12 +46,42 @@ function OpsBandPicker({
         <option value="openai">openai</option>
       </select>
       {band !== undefined && (
-        <input
-          className="min-w-[10rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono text-xs"
-          placeholder="モデルID(空=プロバイダ既定)"
-          defaultValue={band.model}
-          onBlur={(e) => onChange({ provider: band.provider, model: e.target.value.trim() })}
-        />
+        <>
+          <select
+            className="min-w-[12rem] rounded border border-zinc-600 bg-zinc-800 px-1.5 py-1 text-xs"
+            value={selectValue}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === OPS_BAND_CUSTOM) {
+                setCustomOpen(true);
+                return;
+              }
+              setCustomOpen(false);
+              onChange({ provider: band.provider, model: v });
+            }}
+          >
+            <option value="">(プロバイダ既定)</option>
+            {known.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+            <option value={OPS_BAND_CUSTOM}>カスタム(モデルIDを直接入力)</option>
+          </select>
+          {(isCustomModel || customOpen) && (
+            <input
+              className="min-w-[10rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono text-xs"
+              placeholder="モデルID"
+              defaultValue={isCustomModel ? band.model : ''}
+              autoFocus={customOpen}
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                setCustomOpen(false);
+                onChange({ provider: band.provider, model: v });
+              }}
+            />
+          )}
+        </>
       )}
     </div>
   );

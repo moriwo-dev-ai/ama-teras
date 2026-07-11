@@ -303,6 +303,28 @@ describe('M32-1: オーナーモードゲート(manager)', () => {
     expect(status.adapters.find((a) => a.id === 'x')?.capabilities.execute).toEqual([]);
   });
 
+  it('M36-1: ユーザー手動設定の予算は神議の自律引き下げより優先される', async () => {
+    const manager = new OperationsManager({
+      userDataDir: dir,
+      getConfig: () =>
+        ({ operations: { enabled: true, repos: [], zennSlugs: [] } }) as unknown as AppConfig,
+      audit: () => {},
+      approvalPrompt: () => Promise.resolve(false),
+      bandProvider: () => 'キー未設定',
+      ghRunner: async () => '[]',
+    });
+    await manager.status();
+    // ユーザーがUI経由(updateClock)で手動設定 — 引き上げでも承認不要
+    const updated = manager.updateClock('uzume-patrol', { dailyTokenBudget: 50_000 });
+    expect(updated?.budgetSetByUser).toBe(true);
+    // 神議の自律引き下げは拒否される(applyAutonomousChange経由)
+    const detail = (
+      manager as unknown as { applyAutonomousChange: (c: unknown) => string }
+    ).applyAutonomousChange({ kind: 'budget-decrease', godId: 'uzume-patrol', reason: '節約', value: 1000 });
+    expect(detail).toContain('手動設定');
+    expect(manager.clocks().find((j) => j.id === 'uzume-patrol')?.dailyTokenBudget).toBe(50_000);
+  });
+
   it('M34-2: 自分のHNコメントへの返信を検知し、全文つきで受け箱へ(2回目の巡回で差分)', async () => {
     const kids: number[] = [];
     const fetchImpl = vi.fn(async (url: string) => {

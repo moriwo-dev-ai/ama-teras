@@ -566,6 +566,11 @@ export class OperationsManager {
     if (change.kind === 'budget-decrease') {
       const value = typeof change.value === 'number' ? change.value : Number.NaN;
       if (!Number.isFinite(value) || value < 0) return '不正な予算値(未適用)';
+      // M36-1: ユーザーが手動設定した予算は神議の自律調整(引き下げ含む)より優先
+      const target = this.scheduler.list().find((j) => j.id === this.jobIdForGod(change.godId));
+      if (target?.budgetSetByUser === true) {
+        return 'ユーザーが手動設定した予算のため自律変更しない(変更したい場合は承認バッチへ)';
+      }
       const updated = this.scheduler.update(this.jobIdForGod(change.godId), { dailyTokenBudget: value });
       return updated ? `予算を${value}tokへ引き下げた` : '対象ジョブなし';
     }
@@ -695,7 +700,9 @@ export class OperationsManager {
 
   updateClock(id: string, patch: { intervalMin?: number; enabled?: boolean; dailyTokenBudget?: number }): GodClockJob | null {
     if (!this.ensureInitialized() || this.scheduler === null) return null;
-    return this.scheduler.update(id, patch);
+    // M36-1: この入口はUI(=ユーザー自身の設定行為)。引き上げも承認不要で、
+    // 以後の神議の自律予算調整より優先される
+    return this.scheduler.update(id, patch, { byUser: true });
   }
 
   inboxList(limit = 100): ReturnType<Inbox['list']> {
@@ -770,7 +777,8 @@ export class OperationsManager {
       if (item.change.kind === 'budget-increase') {
         const value = typeof item.change.value === 'number' ? item.change.value : Number.NaN;
         if (!Number.isFinite(value) || value < 0) return { ok: false, detail: '不正な予算値' };
-        this.scheduler.update(this.jobIdForGod(item.change.godId), { dailyTokenBudget: value });
+        // 人間承認済み=ユーザー設定と同格(byUser)
+        this.scheduler.update(this.jobIdForGod(item.change.godId), { dailyTokenBudget: value }, { byUser: true });
         return { ok: true, detail: `予算を${value}tokへ引き上げた(人間承認済み)` };
       }
       return { ok: true, detail: `承認を記録した(${item.change.kind} の適用はv1未対応=次版で実装)` };
