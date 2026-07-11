@@ -94,6 +94,25 @@ describe('M33-4: 神議の入出力', () => {
     expect(parseKamuhakariOutput('こんばんは')).toBeNull();
   });
 
+  it('M33-6: 能力ギャップの3分岐がパース・バッチに保持される(不明branchはadhocへ安全側)', () => {
+    const parsed = parseKamuhakariOutput(
+      JSON.stringify({
+        analysis: 'a',
+        paramChanges: [],
+        proposals: [
+          { kind: 'capability-gap', title: '英語圏巡回が欲しい', detail: '…', branch: 'new-god', godDraft: { id: 'uzume-en' } },
+          { kind: 'capability-gap', title: 'HN観測', detail: '…', branch: 'evolve' },
+          { kind: 'capability-gap', title: '謎', detail: '…', branch: 'take-over-the-world' },
+        ],
+      }),
+    );
+    expect(parsed?.proposals[0]?.gap).toEqual({ branch: 'new-god', godDraft: { id: 'uzume-en' } });
+    expect(parsed?.proposals[1]?.gap?.branch).toBe('evolve');
+    expect(parsed?.proposals[2]?.gap?.branch).toBe('adhoc'); // 安全側
+    const batch = buildApprovalBatch('a', [], parsed?.proposals ?? []);
+    expect(batch?.items[0]?.gap?.branch).toBe('new-god');
+  });
+
   it('承認バッチ: 承認必須の変更+提案が項目化され、空なら null', () => {
     const batch = buildApprovalBatch(
       '分析',

@@ -103,19 +103,32 @@ ${input.currentKeywords.join(', ') || '(未設定)'}
 外部発信(投稿・コメント等)は自分では実行できない。提案として承認バッチに載せるだけで、
 承認された実行も必ず岩戸ゲート(人間の最終確認ダイアログ)を通る。
 
+# 能力ギャップの3分岐(足りない能力を見つけたら branch を選ぶ)
+- adhoc: 単発ならAMA-teras本体がその場でカバー(ユーザーが通常チャットで実行する下書きを detail に)
+- evolve: 神への能力追加 = request_capability の起票案(detail に依頼文)
+- new-god: 新しい神の作成 = godDraft に定義JSON({id,name,engine,clock,dailyTokenBudget,enabled}。
+  engine は metrics-observer/community-patrol/draft-writer/issue-gatekeeper のみ)
+
 # 出力(JSONのみ)
 {
  "analysis": "何が効いたか・現状分析(3〜6文。データが乏しければ正直にそう書く)",
  "paramChanges": [{"kind":"interval|keywords|pause|resume|budget-decrease|budget-increase|judge-prompt|god-create","godId":"...","reason":"...","value": 数値または["キーワード"]}],
- "proposals": [{"kind":"exec-action|capability-gap","title":"...","detail":"人間がやるべき/承認すべき提案(具体的に)"}]
+ "proposals": [{"kind":"exec-action|capability-gap","title":"...","detail":"...","branch":"adhoc|evolve|new-god(capability-gapのみ)","godDraft":{...}(new-godのみ)}]
 }
 変更が不要なら paramChanges は空配列でよい。提案は多くても5件。`;
+}
+
+export interface KamuhakariProposal {
+  kind: 'exec-action' | 'capability-gap';
+  title: string;
+  detail: string;
+  gap?: { branch: 'adhoc' | 'evolve' | 'new-god'; godDraft?: unknown };
 }
 
 export function parseKamuhakariOutput(raw: string): {
   analysis: string;
   paramChanges: ParamChange[];
-  proposals: { kind: 'exec-action' | 'capability-gap'; title: string; detail: string }[];
+  proposals: KamuhakariProposal[];
 } | null {
   const parsed = extractJson(raw);
   if (typeof parsed !== 'object' || parsed === null) return null;
@@ -133,17 +146,25 @@ export function parseKamuhakariOutput(raw: string): {
       paramChanges.push(change);
     }
   }
-  const proposals = Array.isArray(rec['proposals'])
-    ? (rec['proposals'] as unknown[])
-        .map((p) => {
-          const pr = p as Record<string, unknown>;
-          const kind = pr['kind'] === 'exec-action' ? ('exec-action' as const) : ('capability-gap' as const);
-          const title = String(pr['title'] ?? '').trim();
-          if (title === '') return null;
-          return { kind, title, detail: String(pr['detail'] ?? '') };
-        })
-        .filter((p): p is { kind: 'exec-action' | 'capability-gap'; title: string; detail: string } => p !== null)
-    : [];
+  const proposals: KamuhakariProposal[] = [];
+  if (Array.isArray(rec['proposals'])) {
+    for (const p of rec['proposals'] as unknown[]) {
+      const pr = p as Record<string, unknown>;
+      const kind = pr['kind'] === 'exec-action' ? ('exec-action' as const) : ('capability-gap' as const);
+      const title = String(pr['title'] ?? '').trim();
+      if (title === '') continue;
+      const proposal: KamuhakariProposal = { kind, title, detail: String(pr['detail'] ?? '') };
+      if (kind === 'capability-gap') {
+        // M33-6: 3分岐。不明値は adhoc(最も安全=人間が通常チャットで対応)へ
+        const branch = pr['branch'];
+        proposal.gap = {
+          branch: branch === 'evolve' || branch === 'new-god' ? branch : 'adhoc',
+          ...(pr['godDraft'] !== undefined ? { godDraft: pr['godDraft'] } : {}),
+        };
+      }
+      proposals.push(proposal);
+    }
+  }
   if (analysis === '' && paramChanges.length === 0 && proposals.length === 0) return null;
   return { analysis, paramChanges, proposals };
 }
@@ -152,7 +173,7 @@ export function parseKamuhakariOutput(raw: string): {
 export function buildApprovalBatch(
   analysis: string,
   approvalChanges: ParamChange[],
-  proposals: { kind: 'exec-action' | 'capability-gap'; title: string; detail: string }[],
+  proposals: KamuhakariProposal[],
 ): ApprovalBatch | null {
   const items: ApprovalBatchItem[] = [
     ...approvalChanges.map((change) => ({
@@ -168,6 +189,7 @@ export function buildApprovalBatch(
       kind: p.kind === 'exec-action' ? ('exec-action' as const) : ('capability-gap' as const),
       title: p.title,
       detail: p.detail,
+      ...(p.gap !== undefined ? { gap: p.gap } : {}),
       status: 'pending' as const,
     })),
   ];

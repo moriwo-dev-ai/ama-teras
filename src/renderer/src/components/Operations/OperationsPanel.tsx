@@ -54,7 +54,67 @@ function GodClocks(): JSX.Element {
         </div>
       ))}
       <p className="text-[10px] text-zinc-600">間隔・予算の調整は神議が自律で行う(引き上げ系はあなたの承認制)。会話は左の⛩運営スレッドで</p>
+      <GodDefEditor />
     </div>
+  );
+}
+
+/** M33-5: 神の定義エディタ(最小: JSON表示+検証+申請)。適用は承認ダイアログ必須 */
+function GodDefEditor(): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [json, setJson] = useState('');
+  const [notice, setNotice] = useState<string | null>(null);
+  const load = (): void => {
+    void window.api.operationsGodDefs().then((defs) => setJson(JSON.stringify(defs, null, 1)));
+  };
+  return (
+    <details
+      onToggle={(e) => {
+        const isOpen = (e.target as HTMLDetailsElement).open;
+        setOpen(isOpen);
+        if (isOpen && json === '') load();
+      }}
+    >
+      <summary className="cursor-pointer text-[10px] text-zinc-500">⚙ 神の定義(JSON。新設・改造は承認ダイアログ必須)</summary>
+      {open && (
+        <div className="mt-1 space-y-1">
+          <textarea
+            className="h-40 w-full rounded border border-zinc-700 bg-zinc-900 p-2 font-mono text-[10px]"
+            value={json}
+            onChange={(e) => setJson(e.target.value)}
+          />
+          <div className="flex items-center gap-1.5">
+            <button
+              className="rounded border border-orange-800 px-2 py-0.5 text-[10px] text-orange-300 hover:bg-orange-950"
+              onClick={() => {
+                try {
+                  const parsed: unknown = JSON.parse(json);
+                  const defs = Array.isArray(parsed) ? parsed : [parsed];
+                  setNotice('申請中…(定義ごとに承認ダイアログが出る)');
+                  void (async () => {
+                    const results: string[] = [];
+                    for (const def of defs) {
+                      const r = await window.api.operationsGodDefApply(def);
+                      results.push(`${(def as { id?: string }).id ?? '?'}: ${r.ok ? '✓' : '✗'} ${r.detail}`);
+                    }
+                    setNotice(results.join(' / '));
+                    load();
+                  })();
+                } catch (err) {
+                  setNotice(`JSONが不正: ${err instanceof Error ? err.message : String(err)}`);
+                }
+              }}
+            >
+              ⛩ 変更を申請(承認ダイアログ)
+            </button>
+            <button className="rounded border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-800" onClick={load}>
+              再読込
+            </button>
+          </div>
+          {notice !== null && <p className="text-[10px] text-zinc-400">{notice}</p>}
+        </div>
+      )}
+    </details>
   );
 }
 
@@ -573,6 +633,24 @@ export function OperationsPanel(): JSX.Element {
                     <span className="text-[10px] text-zinc-600">(Xはブラウザで開いて人間が見る)</span>
                   </div>
                 ))}
+                {searchResult.hn.length > 0 && (
+                  <div className="space-y-0.5">
+                    <p className="text-[10px] text-zinc-500">Hacker News:</p>
+                    {searchResult.hn.map((s) => (
+                      <div key={s.id} className="text-[10px]">
+                        <a
+                          className="text-blue-400 hover:underline"
+                          href={`https://news.ycombinator.com/item?id=${s.id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {s.title}
+                        </a>
+                        <span className="ml-1 text-zinc-600">▲{s.points} 💬{s.numComments}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {searchResult.bluesky.length > 0 && (
                   <div className="space-y-1">
                     <p className="text-[10px] text-zinc-500">Bluesky公開検索:</p>

@@ -522,6 +522,11 @@ export interface ApprovalBatchItem {
   detail: string;
   action?: { adapterId: string; actionName: string; target: string; preview: string; params: Record<string, unknown> };
   change?: ParamChange;
+  /**
+   * M33-6: 能力ギャップの3分岐。adhoc=単発カバー(通常チャットで実行)/
+   * evolve=request_capability起票案 / new-god=新神定義の下書き(承認→岩戸ゲート→有効化)
+   */
+  gap?: { branch: 'adhoc' | 'evolve' | 'new-god'; godDraft?: unknown };
   status: 'pending' | 'approved' | 'rejected';
 }
 

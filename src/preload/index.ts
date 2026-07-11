@@ -139,6 +139,8 @@ const api: AmaterasApi = {
   operationsBatchRespond: (batchId, itemId, approved) =>
     ipcRenderer.invoke(IpcChannels.operationsBatchRespond, batchId, itemId, approved),
   operationsKamuhakariRun: () => ipcRenderer.invoke(IpcChannels.operationsKamuhakariRun),
+  operationsGodDefs: () => ipcRenderer.invoke(IpcChannels.operationsGodDefs),
+  operationsGodDefApply: (definition) => ipcRenderer.invoke(IpcChannels.operationsGodDefApply, definition),
 };
 
 contextBridge.exposeInMainWorld('api', api);

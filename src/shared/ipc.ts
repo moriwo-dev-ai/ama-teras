@@ -159,6 +159,9 @@ export const IpcChannels = {
   operationsThreadPending: 'operations:thread-pending',
   operationsBatchRespond: 'operations:batch-respond',
   operationsKamuhakariRun: 'operations:kamuhakari-run',
+  /** M33-5: 神の宣言的定義(適用は岩戸ゲート承認必須) */
+  operationsGodDefs: 'operations:god-defs',
+  operationsGodDefApply: 'operations:god-def-apply',
 } as const;
 
 /** preload が window.api として公開するAPIの型。renderer はこれ経由でしか main と話せない */
@@ -321,6 +324,8 @@ export interface AmaterasApi {
   operationsDiscoverySearch(keywords: string[]): Promise<{
     x: { label: string; query: string; url: string }[];
     bluesky: { author: string; handle: string; text: string; uri: string }[];
+    /** M33-7: HN検索(read専用アダプタ) */
+    hn: { id: number; title: string; url: string; points: number; numComments: number; author: string }[];
   }>;
   operationsCandidateAnalyze(pastedText: string, source: string): Promise<CommunityCandidate | null>;
   operationsCandidatesList(): Promise<CommunityCandidate[]>;
@@ -352,4 +357,7 @@ export interface AmaterasApi {
   operationsBatchRespond(batchId: string, itemId: string, approved: boolean): Promise<{ ok: boolean; detail: string }>;
   /** 神議の手動開催(定刻を待たずに1回) */
   operationsKamuhakariRun(): Promise<{ analysis: string; batchItems: number; applied: number }>;
+  /** M33-5: 神の定義一覧と変更申請(適用は承認ダイアログ=岩戸ゲートを通る) */
+  operationsGodDefs(): Promise<unknown[]>;
+  operationsGodDefApply(definition: unknown): Promise<{ ok: boolean; detail: string }>;
 }

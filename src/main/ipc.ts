@@ -688,6 +688,11 @@ export async function registerIpcHandlers(
     const result = await operations.runKamuhakari();
     return { analysis: result.analysis, batchItems: result.batch?.items.length ?? 0, applied: result.appliedChanges.length };
   });
+  // M33-5: 神の定義(一覧は自由・適用は岩戸ゲート承認必須)
+  ipcMain.handle(IpcChannels.operationsGodDefs, () => operations.godDefinitions());
+  ipcMain.handle(IpcChannels.operationsGodDefApply, (_e, definition: unknown) =>
+    operations.requestGodDefinitionApply(definition),
+  );
 
   // ---- 進化 ----
   ipcMain.handle(IpcChannels.evolutionPromoteRespond, (_e, jobId: unknown, approved: unknown) => {

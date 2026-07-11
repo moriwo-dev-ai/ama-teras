@@ -220,7 +220,7 @@ describe('M32-1: オーナーモードゲート(manager)', () => {
     expect(exec.detail).toContain('オーナーモード');
   });
 
-  it('オーナーモードON: アダプタ4種が登録され、xのexecuteは空宣言', async () => {
+  it('オーナーモードON: アダプタが登録され、xのexecuteは空宣言', async () => {
     const manager = new OperationsManager({
       userDataDir: dir,
       getConfig: () =>
@@ -232,7 +232,8 @@ describe('M32-1: オーナーモードゲート(manager)', () => {
     });
     const status = await manager.status();
     expect(status.enabled).toBe(true);
-    expect(status.adapters.map((a) => a.id).sort()).toEqual(['bluesky', 'github', 'x', 'zenn']);
+    // M33-5/7: god-definition(定義変更=承認必須)と hn(read専用)もアダプタとして登録される
+    expect(status.adapters.map((a) => a.id).sort()).toEqual(['bluesky', 'github', 'god-definition', 'hn', 'x', 'zenn']);
     expect(status.adapters.find((a) => a.id === 'x')?.capabilities.execute).toEqual([]);
   });
 });

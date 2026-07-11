@@ -13,6 +13,7 @@ import type {
 import type { LLMProvider } from '../providers/types';
 import { createBlueskyAdapter, BlueskyReader, type BlueskyPost } from './adapters/bluesky';
 import { createGithubAdapter, defaultGhRunner, detectGhPath, GithubReader, type GhRunner } from './adapters/github';
+import { createHnAdapter, HnReader, type HnStory } from './adapters/hn';
 import { createXAdapter, buildXSearchSuggestions, type XSearchSuggestion } from './adapters/x';
 import { createZennAdapter, ZennReader, type FetchLike } from './adapters/zenn';
 import {
@@ -37,6 +38,7 @@ import {
 import { completeText, completeTextWithUsage } from './llm';
 import { OmoiKami } from './omoiKami';
 import { IwatoGate, type IwatoAuditEvent } from './protocol';
+import { GodRegistry, type GodDefinition } from './gods';
 import { GodScheduler, type GodClockJob } from './scheduler';
 import { OpsThread, type OpsThreadMessage } from './thread';
 import { triageRepo } from './tedikaRao';
@@ -87,14 +89,18 @@ const DEFAULT_GOD_PARAMS: GodParams = {
   knownIssues: {},
 };
 
-/** 既定の神々の時計(NIGHT_TASKS7 T3/T4。ユーザーは運営タブから変更可) */
-const DEFAULT_JOBS: GodClockJob[] = [
-  { id: 'omoi-kami', godId: 'omoi-kami', intervalMin: 360, enabled: true, dailyTokenBudget: 0, spentToday: 0 },
-  { id: 'uzume-patrol', godId: 'uzume-patrol', intervalMin: 60, enabled: true, dailyTokenBudget: 30_000, spentToday: 0 },
-  { id: 'uzume-drafts', godId: 'uzume-drafts', intervalMin: 1440, enabled: true, dailyTokenBudget: 20_000, spentToday: 0 },
-  { id: 'tedika-rao', godId: 'tedika-rao', intervalMin: 60, enabled: true, dailyTokenBudget: 30_000, spentToday: 0 },
-  { id: 'kamuhakari', godId: 'kamuhakari', intervalMin: 720, dailyTimes: ['09:00', '21:00'], enabled: true, dailyTokenBudget: 60_000, spentToday: 0 },
-];
+/** M33-5: 定義(gods/*.json)→時計ジョブへの写像 */
+function jobFromDefinition(def: GodDefinition): GodClockJob {
+  return {
+    id: def.id,
+    godId: def.id,
+    intervalMin: def.clock.intervalMin ?? 720,
+    ...(def.clock.dailyTimes !== undefined ? { dailyTimes: def.clock.dailyTimes } : {}),
+    enabled: def.enabled,
+    dailyTokenBudget: def.dailyTokenBudget,
+    spentToday: 0,
+  };
+}
 
 export class OperationsManager {
   private gate: IwatoGate | null = null;
@@ -109,10 +115,14 @@ export class OperationsManager {
   private inbox: Inbox | null = null;
   private thread: OpsThread | null = null;
   private scheduler: GodScheduler | null = null;
+  private gods: GodRegistry | null = null;
+
+  private hn: HnReader;
 
   constructor(private readonly deps: OperationsManagerDeps) {
     this.zenn = new ZennReader(deps.fetchImpl);
     this.bluesky = new BlueskyReader(deps.fetchImpl);
+    this.hn = new HnReader(deps.fetchImpl);
   }
 
   private opsConfig(): OperationsConfig {
@@ -138,6 +148,33 @@ export class OperationsManager {
     gate.register(createZennAdapter());
     gate.register(createXAdapter());
     gate.register(createBlueskyAdapter());
+    gate.register(createHnAdapter());
+
+    // M33-5: 神の定義レジストリ+定義変更アダプタ。
+    // 定義の新設・改造(組織図の自己改変)は岩戸ゲートの承認を通ったexecutorのみが
+    // applyApproved に到達できる(protocol.ts の封印=承認バイパス不可)
+    const gods = new GodRegistry(this.dir);
+    gods.ensureDefaults();
+    this.gods = gods;
+    gate.register({
+      id: 'god-definition',
+      capabilities: { read: true, search: false, draft: false, execute: ['apply'] },
+      compliance: '神の新設・改造(定義変更)は人間承認必須。適用前にスキーマ検証',
+      executor: async (_action, params) => {
+        const result = gods.applyApproved(params['definition']);
+        if (!result.ok || result.def === undefined) throw new Error(result.detail);
+        // 時計へ同期(新神はジョブ追加、既存は clock/budget/enabled を反映)
+        if (this.scheduler !== null) {
+          this.scheduler.ensureJobs([jobFromDefinition(result.def)]);
+          this.scheduler.update(result.def.id, {
+            intervalMin: result.def.clock.intervalMin ?? 720,
+            enabled: result.def.enabled,
+            dailyTokenBudget: result.def.dailyTokenBudget,
+          });
+        }
+        return Promise.resolve(result.detail);
+      },
+    });
     this.gate = gate;
 
     this.omoi = new OmoiKami(this.dir, {
@@ -181,7 +218,7 @@ export class OperationsManager {
         },
       },
     );
-    this.scheduler.ensureJobs(DEFAULT_JOBS);
+    this.scheduler.ensureJobs(gods.list().map(jobFromDefinition));
     this.scheduler.start();
     return true;
   }
@@ -199,6 +236,34 @@ export class OperationsManager {
     this.inbox = null;
     this.thread = null;
     this.scheduler = null;
+    this.gods = null;
+  }
+
+  // ---- M33-5: 神の定義(宣言的データ)----
+
+  godDefinitions(): GodDefinition[] {
+    if (!this.ensureInitialized() || this.gods === null) return [];
+    return this.gods.list();
+  }
+
+  /**
+   * 定義変更の申請。適用は岩戸ゲートの承認ダイアログ
+   * (何を・どこへ・全文=定義JSON)を通ったときだけ行われる
+   */
+  async requestGodDefinitionApply(definition: unknown): Promise<{ ok: boolean; detail: string }> {
+    if (!this.ensureInitialized() || this.gate === null) {
+      return { ok: false, detail: 'オーナーモードがOFF' };
+    }
+    const rec = typeof definition === 'object' && definition !== null ? (definition as Record<string, unknown>) : {};
+    const id = String(rec['id'] ?? '(不明)');
+    const isNew = this.gods?.get(id) === null;
+    return this.gate.requestExecute(
+      'god-definition',
+      'apply',
+      `神の定義: ${id}(${isNew ? '新設' : '改造'})`,
+      JSON.stringify(definition, null, 1),
+      { definition: definition as never },
+    );
   }
 
   // ---- M33: 神パラメータ(キーワード・重複排除・差分基準) ----
@@ -243,8 +308,14 @@ export class OperationsManager {
 
   private async runGod(godId: string): Promise<{ ok: boolean; detail: string; tokensUsed: number }> {
     if (this.inbox === null) return { ok: false, detail: '未初期化', tokensUsed: 0 };
+    // M33-5: 定義(エンジン)でディスパッチ。定義が無い場合はid直指定(後方互換)
+    const def = this.gods?.get(godId) ?? null;
+    const engine = def?.engine ?? godId;
     try {
-      if (godId === 'omoi-kami') {
+      if (engine === 'community-patrol') return await this.runUzumePatrol(def);
+      if (engine === 'draft-writer') return await this.runUzumeDrafts();
+      if (engine === 'issue-gatekeeper') return await this.runTedikaDiff();
+      if (engine === 'metrics-observer' || godId === 'omoi-kami') {
         const snap = await this.collectSnapshot();
         if (snap === null) return { ok: false, detail: '収集失敗', tokensUsed: 0 };
         const stars = Object.values(snap.github).reduce((a, m) => a + m.stars, 0);
@@ -257,10 +328,7 @@ export class OperationsManager {
         });
         return { ok: true, detail: 'スナップショット投函', tokensUsed: 0 };
       }
-      if (godId === 'uzume-patrol') return await this.runUzumePatrol();
-      if (godId === 'uzume-drafts') return await this.runUzumeDrafts();
-      if (godId === 'tedika-rao') return await this.runTedikaDiff();
-      if (godId === 'kamuhakari') {
+      if (engine === 'kamuhakari' || godId === 'kamuhakari') {
         const result = await this.runKamuhakari();
         return { ok: true, detail: `神議完了(適用${result.appliedChanges.length}/バッチ${result.batch ? 1 : 0})`, tokensUsed: result.tokensUsed };
       }
@@ -271,11 +339,16 @@ export class OperationsManager {
   }
 
   /** AMENO-uzume 巡回(1時間ごと): Bluesky検索→未評価のみ安い帯で目利き→候補+受け箱 */
-  private async runUzumePatrol(): Promise<{ ok: boolean; detail: string; tokensUsed: number }> {
+  private async runUzumePatrol(def: GodDefinition | null = null): Promise<{ ok: boolean; detail: string; tokensUsed: number }> {
     if (this.candidates === null || this.inbox === null) return { ok: false, detail: '未初期化', tokensUsed: 0 };
     const params = this.loadParams();
     const provider = this.cheapLLM();
     if (typeof provider === 'string') return { ok: false, detail: provider, tokensUsed: 0 };
+    // M33-5: 定義のjudgePrompt上書き(変更は人間承認済みのもののみここに届く)
+    const judgePrompt = (pasted: string): string =>
+      def?.judgePrompt !== undefined
+        ? `${def.judgePrompt}\n\n# 貼り付けテキスト\n${pasted.slice(0, 4000)}\n\n# 出力(JSONのみ)\n{"verdict":"match"|"no-match"|"unclear","reasons":["…"],"replyDraft":"matchの場合のみ"}`
+        : buildCandidatePrompt(pasted);
 
     let tokensUsed = 0;
     let evaluated = 0;
@@ -294,7 +367,7 @@ export class OperationsManager {
         const { text, tokensUsed: t } = await completeTextWithUsage(
           provider,
           'あなたはコミュニティ担当。',
-          buildCandidatePrompt(pasted),
+          judgePrompt(pasted),
         );
         tokensUsed += t;
         const parsed = parseCandidate(text, `bluesky:${keyword}`, pasted);
@@ -539,7 +612,7 @@ export class OperationsManager {
   }
 
   /** 承認バッチ項目への応答。param-approval の承認は即適用(人間承認済みのため) */
-  batchRespond(batchId: string, itemId: string, approved: boolean): { ok: boolean; detail: string } {
+  async batchRespond(batchId: string, itemId: string, approved: boolean): Promise<{ ok: boolean; detail: string }> {
     if (!this.ensureInitialized() || this.thread === null || this.scheduler === null) {
       return { ok: false, detail: '未初期化' };
     }
@@ -564,6 +637,18 @@ export class OperationsManager {
         return { ok: true, detail: `予算を${value}tokへ引き上げた(人間承認済み)` };
       }
       return { ok: true, detail: `承認を記録した(${item.change.kind} の適用はv1未対応=次版で実装)` };
+    }
+    // M33-6: 能力ギャップの3分岐
+    if (item.kind === 'capability-gap' && item.gap !== undefined) {
+      if (item.gap.branch === 'new-god' && item.gap.godDraft !== undefined) {
+        // 新神の有効化は、さらに岩戸ゲート(定義JSON全文の最終確認ダイアログ)を通る
+        // =無承認の自動有効化は構造的に不可能(gods.test.ts で固定)
+        return await this.requestGodDefinitionApply(item.gap.godDraft);
+      }
+      if (item.gap.branch === 'evolve') {
+        return { ok: true, detail: '起票案を承認した。通常チャットで内容を request_capability として起票してください' };
+      }
+      return { ok: true, detail: '単発カバーを承認した。提案の下書きを通常チャットで実行してください' };
     }
     return { ok: true, detail: '承認を記録した(実行系は岩戸ゲート経由で別途実行)' };
   }
@@ -642,13 +727,16 @@ export class OperationsManager {
     return strategyBoard(this.omoi.latestPair().current);
   }
 
-  /** 仲間発見: 検索URL(X=人間が開く)+Bluesky公開検索の結果 */
-  async discoverySearch(keywords: string[]): Promise<{ x: XSearchSuggestion[]; bluesky: BlueskyPost[] }> {
-    if (!this.ensureInitialized()) return { x: [], bluesky: [] };
+  /** 仲間発見: 検索URL(X=人間が開く)+Bluesky公開検索+HN検索(M33-7)の結果 */
+  async discoverySearch(
+    keywords: string[],
+  ): Promise<{ x: XSearchSuggestion[]; bluesky: BlueskyPost[]; hn: HnStory[] }> {
+    if (!this.ensureInitialized()) return { x: [], bluesky: [], hn: [] };
     const x = buildXSearchSuggestions(keywords);
     const query = keywords.filter((k) => k.trim() !== '').join(' ');
     const bluesky = query === '' ? [] : await this.bluesky.searchPosts(query, 10);
-    return { x, bluesky };
+    const hn = query === '' ? [] : await this.hn.search(query, 5);
+    return { x, bluesky, hn };
   }
 
   /** 貼り付け解析 → 候補カード保存 */
