@@ -6,6 +6,7 @@ import type {
   ApprovalResolvedPayload,
   AutonomousStatePayload,
   EvolutionEvent,
+  IwatoRequestPayload,
   RunInfo,
   SubAgentUpdate,
 } from '../shared/types';
@@ -101,6 +102,30 @@ const api: AmaterasApi = {
   evolutionHistory: () => ipcRenderer.invoke(IpcChannels.evolutionHistory),
   evolutionRollbackLast: () => ipcRenderer.invoke(IpcChannels.evolutionRollbackLast),
   evolutionCapabilities: () => ipcRenderer.invoke(IpcChannels.evolutionCapabilities),
+
+  // M32: 運営(Project TAKAMA-gahara)。オーナーモードOFF時はmain側が空/nullを返す
+  operationsStatus: () => ipcRenderer.invoke(IpcChannels.operationsStatus),
+  operationsSnapshot: () => ipcRenderer.invoke(IpcChannels.operationsSnapshot),
+  operationsHistory: (limit) => ipcRenderer.invoke(IpcChannels.operationsHistory, limit),
+  operationsWeeklyReport: () => ipcRenderer.invoke(IpcChannels.operationsWeeklyReport),
+  operationsDraftsGenerate: () => ipcRenderer.invoke(IpcChannels.operationsDraftsGenerate),
+  operationsDraftsList: () => ipcRenderer.invoke(IpcChannels.operationsDraftsList),
+  operationsDraftUpdate: (id, patch) => ipcRenderer.invoke(IpcChannels.operationsDraftUpdate, id, patch),
+  operationsStrategyBoard: () => ipcRenderer.invoke(IpcChannels.operationsStrategyBoard),
+  operationsDiscoverySearch: (keywords) =>
+    ipcRenderer.invoke(IpcChannels.operationsDiscoverySearch, keywords),
+  operationsCandidateAnalyze: (pastedText, source) =>
+    ipcRenderer.invoke(IpcChannels.operationsCandidateAnalyze, pastedText, source),
+  operationsCandidatesList: () => ipcRenderer.invoke(IpcChannels.operationsCandidatesList),
+  operationsCandidateResolve: (id, status) =>
+    ipcRenderer.invoke(IpcChannels.operationsCandidateResolve, id, status),
+  operationsTriage: () => ipcRenderer.invoke(IpcChannels.operationsTriage),
+  operationsExecute: (adapterId, action, target, preview, params) =>
+    ipcRenderer.invoke(IpcChannels.operationsExecute, adapterId, action, target, preview, params),
+  onOperationsApprovalRequest: (listener) =>
+    subscribe<IwatoRequestPayload>(IpcChannels.operationsApprovalRequest, listener),
+  operationsApprovalRespond: (id, approved) =>
+    ipcRenderer.invoke(IpcChannels.operationsApprovalRespond, id, approved),
 };
 
 contextBridge.exposeInMainWorld('api', api);

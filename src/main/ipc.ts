@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, type WebContents } from 'electron';
+import { execFile } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { IpcChannels } from '../shared/ipc';
@@ -30,6 +31,7 @@ import { readAndClearPendingQueue, writePendingQueue } from './evolution/pending
 import { clearSentinel, writeSentinel } from './evolution/sentinel';
 import { healthCheckAfterPromotion, rebuildAndHealthBoot } from './evolution/supervisor';
 import { defaultRunCommand } from './evolution/gates';
+import { OperationsManager } from './operations/manager';
 import { composeRunners, ImportJobRunner } from './registry/importRunner';
 import { fetchRevocationList } from './registry/killswitch';
 import { exportPlugin } from './registry/packager';
@@ -508,7 +510,10 @@ export async function registerIpcHandlers(
     assertConfig(next);
     // remote 設定(tokenHash 含む)は専用IPCでのみ変更する。settings:set 経由の
     // 上書き・消去を防ぐため常に現在値を維持する(M10-2)
-    return config.set({ ...next, remote: config.get().remote });
+    const saved = config.set({ ...next, remote: config.get().remote });
+    // M32: オーナーモードや対象リポジトリの変更を反映(次回アクセスで再初期化)
+    operations.reset();
+    return saved;
   });
   ipcMain.handle(IpcChannels.memoryGet, () => readProjectMemory(service.getWorkspace()));
   ipcMain.handle(IpcChannels.memorySet, (_e, content: unknown) => {
@@ -547,6 +552,106 @@ export async function registerIpcHandlers(
   });
   // M27-1: 接続テスト(現在の設定で最小1リクエスト)
   ipcMain.handle(IpcChannels.connectionTest, () => service.connectionTest());
+
+  // ---- M32: 運営(Project TAKAMA-gahara)。operations.enabled=オーナーモード時のみ実働 ----
+  // 岩戸ゲートの承認: renderer の共通ダイアログ(何を・どこへ・全文プレビュー)へ橋渡しし、
+  // 応答を待つ。10分無応答は拒否扱い(承認なし実行は protocol.ts がコードレベルで不可能にする)
+  const iwatoPending = new Map<string, (approved: boolean) => void>();
+  const operations = new OperationsManager({
+    userDataDir: app.getPath('userData'),
+    getConfig: () => config.get(),
+    audit: (e) =>
+      audit.append({
+        tool: `operations:${e.adapterId}`,
+        scope: 'system',
+        paths: [],
+        event: e.approved ? 'result' : 'hard-deny',
+        detail: `[岩戸] ${e.action} → ${e.target}: ${e.detail}`,
+      }),
+    approvalPrompt: (req) =>
+      new Promise<boolean>((resolve) => {
+        iwatoPending.set(req.id, (approved) => {
+          iwatoPending.delete(req.id);
+          resolve(approved);
+        });
+        push(IpcChannels.operationsApprovalRequest, req);
+        setTimeout(() => {
+          const pending = iwatoPending.get(req.id);
+          if (pending) pending(false);
+        }, 10 * 60_000);
+      }),
+    bandProvider: (band) => service.operationsBandProvider(band),
+    readHighlightSources: async () => {
+      let progressExcerpt = '';
+      try {
+        progressExcerpt = readFileSync(join(repoDir, 'PROGRESS.md'), 'utf8').slice(0, 6000);
+      } catch {
+        // PROGRESS.md 無しでも下書き生成は可能(素材が減るだけ)
+      }
+      const recentCommits = await new Promise<string>((resolve) => {
+        execFile('git', ['log', '--oneline', '-20'], { cwd: repoDir, timeout: 15_000 }, (err, stdout) =>
+          resolve(err ? '' : stdout),
+        );
+      });
+      return { progressExcerpt, recentCommits };
+    },
+  });
+  ipcMain.handle(IpcChannels.operationsStatus, () => operations.status());
+  ipcMain.handle(IpcChannels.operationsSnapshot, () => operations.collectSnapshot());
+  ipcMain.handle(IpcChannels.operationsHistory, (_e, limit: unknown) =>
+    operations.history(typeof limit === 'number' ? limit : 30),
+  );
+  ipcMain.handle(IpcChannels.operationsWeeklyReport, () => operations.weeklyReport());
+  ipcMain.handle(IpcChannels.operationsDraftsGenerate, () => operations.generateDrafts());
+  ipcMain.handle(IpcChannels.operationsDraftsList, () => operations.listDrafts());
+  ipcMain.handle(IpcChannels.operationsDraftUpdate, (_e, id: unknown, patch: unknown) => {
+    assertString(id, 'id');
+    if (typeof patch !== 'object' || patch === null) throw new Error('IPC payload patch が不正');
+    const p = patch as Record<string, unknown>;
+    return operations.updateDraft(id, {
+      ...(p['status'] === 'draft' || p['status'] === 'posted' || p['status'] === 'discarded'
+        ? { status: p['status'] }
+        : {}),
+      ...(typeof p['body'] === 'string' ? { body: p['body'] } : {}),
+      ...(typeof p['title'] === 'string' ? { title: p['title'] } : {}),
+      ...(typeof p['media'] === 'string' ? { media: p['media'] } : {}),
+    });
+  });
+  ipcMain.handle(IpcChannels.operationsStrategyBoard, () => operations.strategyBoard());
+  ipcMain.handle(IpcChannels.operationsDiscoverySearch, (_e, keywords: unknown) => {
+    if (!Array.isArray(keywords) || keywords.some((k) => typeof k !== 'string')) {
+      throw new Error('IPC payload keywords が不正');
+    }
+    return operations.discoverySearch(keywords as string[]);
+  });
+  ipcMain.handle(IpcChannels.operationsCandidateAnalyze, (_e, pastedText: unknown, source: unknown) => {
+    assertString(pastedText, 'pastedText');
+    assertString(source, 'source');
+    return operations.analyzeCandidate(pastedText, source);
+  });
+  ipcMain.handle(IpcChannels.operationsCandidatesList, () => operations.listCandidates());
+  ipcMain.handle(IpcChannels.operationsCandidateResolve, (_e, id: unknown, status: unknown) => {
+    assertString(id, 'id');
+    if (status !== 'kept' && status !== 'discarded') throw new Error('IPC payload status が不正');
+    return operations.resolveCandidate(id, status);
+  });
+  ipcMain.handle(IpcChannels.operationsTriage, () => operations.triage());
+  ipcMain.handle(
+    IpcChannels.operationsExecute,
+    (_e, adapterId: unknown, action: unknown, target: unknown, preview: unknown, params: unknown) => {
+      assertString(adapterId, 'adapterId');
+      assertString(action, 'action');
+      assertString(target, 'target');
+      assertString(preview, 'preview');
+      const p = typeof params === 'object' && params !== null ? (params as Record<string, unknown>) : {};
+      return operations.execute(adapterId, action, target, preview, p);
+    },
+  );
+  ipcMain.handle(IpcChannels.operationsApprovalRespond, (_e, id: unknown, approved: unknown) => {
+    assertString(id, 'id');
+    if (typeof approved !== 'boolean') throw new Error('IPC payload approved が不正');
+    iwatoPending.get(id)?.(approved);
+  });
 
   // ---- 進化 ----
   ipcMain.handle(IpcChannels.evolutionPromoteRespond, (_e, jobId: unknown, approved: unknown) => {

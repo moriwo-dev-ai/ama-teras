@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ApprovalDialog } from './components/Approval/ApprovalDialog';
+import { IwatoApprovalDialog } from './components/Approval/IwatoApprovalDialog';
 import { ChatView } from './components/Chat/ChatView';
 import { PromotionDialog } from './components/Evolution/EvolutionPanel';
 import { LeftPane } from './components/Layout/LeftPane';
@@ -194,6 +195,7 @@ export default function App(): JSX.Element {
         />
       )}
       <ApprovalDialog />
+      <IwatoApprovalDialog />
       <PromotionDialog />
       <RevealMenu />
     </div>

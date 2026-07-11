@@ -1,9 +1,16 @@
 import type {
+  AdapterStatusInfo,
   AgentEvent,
   ApprovalDecision,
   ApprovalRequestPayload,
   ApprovalResolvedPayload,
   AppConfig,
+  CommunityCandidate,
+  IwatoRequestPayload,
+  MediaStrategyEntry,
+  MetricsSnapshot,
+  OperationsDraft,
+  TriageCard,
   AutonomousRegistryScope,
   AutonomousStatePayload,
   ChatImageInput,
@@ -119,6 +126,24 @@ export const IpcChannels = {
   evolutionRollbackLast: 'evolution:rollback-last',
   /** M23-6: 進化で獲得した能力(スキル/自己書き換え)一覧 */
   evolutionCapabilities: 'evolution:capabilities',
+  /** M32: 運営(Project TAKAMA-gahara)。operations.enabled=オーナーモード時のみ有効 */
+  operationsStatus: 'operations:status',
+  operationsSnapshot: 'operations:snapshot',
+  operationsHistory: 'operations:history',
+  operationsWeeklyReport: 'operations:weekly-report',
+  operationsDraftsGenerate: 'operations:drafts-generate',
+  operationsDraftsList: 'operations:drafts-list',
+  operationsDraftUpdate: 'operations:draft-update',
+  operationsStrategyBoard: 'operations:strategy-board',
+  operationsDiscoverySearch: 'operations:discovery-search',
+  operationsCandidateAnalyze: 'operations:candidate-analyze',
+  operationsCandidatesList: 'operations:candidates-list',
+  operationsCandidateResolve: 'operations:candidate-resolve',
+  operationsTriage: 'operations:triage',
+  /** 岩戸ゲート: 実行要求(main内で承認フローが走る)と承認ダイアログの橋渡し */
+  operationsExecute: 'operations:execute',
+  operationsApprovalRequest: 'operations:approval-request',
+  operationsApprovalRespond: 'operations:approval-respond',
 } as const;
 
 /** preload が window.api として公開するAPIの型。renderer はこれ経由でしか main と話せない */
@@ -257,4 +282,43 @@ export interface AmaterasApi {
       files: string[];
     }[]
   >;
+
+  /**
+   * M32: 運営(Project TAKAMA-gahara)。operations.enabled=オーナーモードOFFのとき、
+   * status は enabled:false を返し、他は空/nullを返す(UIはタブ自体を出さない)
+   */
+  operationsStatus(): Promise<{
+    enabled: boolean;
+    ghDetected: boolean;
+    ghPath: string | null;
+    adapters: AdapterStatusInfo[];
+  }>;
+  operationsSnapshot(): Promise<MetricsSnapshot | null>;
+  operationsHistory(limit?: number): Promise<MetricsSnapshot[]>;
+  operationsWeeklyReport(): Promise<OperationsDraft | null>;
+  operationsDraftsGenerate(): Promise<OperationsDraft[]>;
+  operationsDraftsList(): Promise<OperationsDraft[]>;
+  operationsDraftUpdate(
+    id: string,
+    patch: { status?: 'draft' | 'posted' | 'discarded'; body?: string; title?: string; media?: string },
+  ): Promise<OperationsDraft | null>;
+  operationsStrategyBoard(): Promise<MediaStrategyEntry[]>;
+  operationsDiscoverySearch(keywords: string[]): Promise<{
+    x: { label: string; query: string; url: string }[];
+    bluesky: { author: string; handle: string; text: string; uri: string }[];
+  }>;
+  operationsCandidateAnalyze(pastedText: string, source: string): Promise<CommunityCandidate | null>;
+  operationsCandidatesList(): Promise<CommunityCandidate[]>;
+  operationsCandidateResolve(id: string, status: 'kept' | 'discarded'): Promise<CommunityCandidate | null>;
+  operationsTriage(): Promise<TriageCard[]>;
+  /** 岩戸ゲート: 承認ダイアログ(onOperationsApprovalRequest)を経てのみ実行される */
+  operationsExecute(
+    adapterId: string,
+    action: string,
+    target: string,
+    preview: string,
+    params: Record<string, unknown>,
+  ): Promise<{ ok: boolean; detail: string }>;
+  onOperationsApprovalRequest(listener: (req: IwatoRequestPayload) => void): () => void;
+  operationsApprovalRespond(id: string, approved: boolean): Promise<void>;
 }

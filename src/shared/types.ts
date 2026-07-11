@@ -317,6 +317,155 @@ export interface AppConfig {
    * renderer からの settings:set では上書きされない(専用IPCでのみ変更)。
    */
   remote?: RemoteConfig;
+  /**
+   * M32-1: 運営(Project TAKAMA-gahara)。enabled は「オーナーモード」スイッチ
+   * (既定OFF=運営タブ自体を表示しない。ON時のみ gh検出・メトリクス収集が動く)
+   */
+  operations?: OperationsConfig;
+}
+
+// ---- M32: Project TAKAMA-gahara(運営) ----
+
+/** M32-1: 運営設定。enabled=オーナーモード(既定OFF) */
+export interface OperationsConfig {
+  enabled: boolean;
+  /** 観測対象リポジトリ('owner/repo' 形式) */
+  repos: string[];
+  /** 観測対象Zenn記事スラッグ(zenn.dev/api/articles/{slug}) */
+  zennSlugs: string[];
+}
+
+/** アダプタ能力宣言(OPERATIONS_DESIGN.md の規約どおり) */
+export interface AdapterCapabilities {
+  /** 観測(メトリクス・投稿・反応の取得) */
+  read: boolean;
+  /** 発見(候補・言及の検索) */
+  search: boolean;
+  /** 下書き生成の対象か */
+  draft: boolean;
+  /** 承認後に実行可能なアクション(空=提案のみ) */
+  execute: string[];
+}
+
+/** 外部媒体アダプタの宣言部(executor は含まれない=renderer へ渡してよい形) */
+export interface MediaAdapter {
+  id: string;
+  capabilities: AdapterCapabilities;
+  /** 規約上の制約メモ(UIに表示) */
+  compliance: string;
+}
+
+/** 運営タブのアダプタ状態表示 */
+export interface AdapterStatusInfo extends MediaAdapter {
+  available: boolean;
+  detail?: string;
+}
+
+/** 岩戸ゲートの承認ダイアログに渡す内容(何を・どこへ・全文プレビュー) */
+export interface IwatoRequestPayload {
+  id: string;
+  adapterId: string;
+  action: string;
+  /** どこへ(リポジトリ/Issue番号/投稿先など人間が読める形) */
+  target: string;
+  /** 全文プレビュー(投稿・コメントの本文そのもの) */
+  preview: string;
+  /** アダプタの規約メモ(ダイアログに表示) */
+  compliance: string;
+}
+
+/** OMOI-kami: リポジトリ単位のメトリクス */
+export interface RepoMetrics {
+  stars: number;
+  forks: number;
+  watchers: number;
+  openIssues: number;
+  openPRs: number;
+  /** traffic API(push権限が要る。失敗時は undefined) */
+  views?: number;
+  viewsUnique?: number;
+  clones?: number;
+  clonesUnique?: number;
+  referrers?: { referrer: string; count: number; uniques: number }[];
+  /** リリースアセットの合計DL数 */
+  downloads?: number;
+}
+
+export interface ZennMetrics {
+  liked: number;
+  comments: number;
+}
+
+/** OMOI-kami: 日次スナップショット(userData/operations/metrics.jsonl に1行1件) */
+export interface MetricsSnapshot {
+  ts: string;
+  github: Record<string, RepoMetrics>;
+  zenn: Record<string, ZennMetrics>;
+  registry?: { plugins: number };
+}
+
+/** AMENO-uzume: 発信下書き。投稿ボタンは存在しない(コピー+投稿済みマークのみ) */
+export interface OperationsDraft {
+  id: string;
+  kind: 'x-post' | 'release-note' | 'article-outline' | 'reply' | 'weekly-report';
+  title: string;
+  body: string;
+  createdAt: string;
+  status: 'draft' | 'posted' | 'discarded';
+  /** 「投稿済み」マークの日時(OMOI-kamiの反応突き合わせ用) */
+  postedAt?: string;
+  /** 投稿先媒体(x / zenn / hatena / hn / reddit / bluesky 等) */
+  media?: string;
+}
+
+/** AMENO-uzume: 仲間発見の候補カード */
+export interface CommunityCandidate {
+  id: string;
+  /** 入力経路(x-paste / bluesky-search 等) */
+  source: string;
+  /** 貼り付けられた/取得したプロフィール・投稿の原文(要約はLLM評価側) */
+  profile: string;
+  verdict: 'match' | 'no-match' | 'unclear';
+  /** なぜこの人か(ヒューリスティクス: 自作公開/失敗談/売り込み導線なし/実験の話) */
+  reasons: string[];
+  /** その人の直近の話題への返信下書き(宣伝ではなく内容への反応) */
+  replyDraft?: string;
+  createdAt: string;
+  status: 'new' | 'kept' | 'discarded';
+}
+
+/** TEDIKA-rao: Issue/PRトリアージカード */
+export interface TriageFinding {
+  severity: 'high' | 'medium' | 'low';
+  note: string;
+}
+
+export interface TriageCard {
+  id: string;
+  repo: string;
+  kind: 'issue' | 'pr';
+  number: number;
+  title: string;
+  author: string;
+  summary: string;
+  findings: TriageFinding[];
+  replyDraft: string;
+  labels: string[];
+  /** マージ可否等の推奨アクション(実行は岩戸ゲート経由のみ) */
+  recommendation: string;
+  /** レジストリPR等のCI結果(check-runs) */
+  ci?: { name: string; status: string; conclusion: string }[];
+  createdAt: string;
+}
+
+/** メディア戦略ボードの1媒体 */
+export interface MediaStrategyEntry {
+  media: string;
+  audience: string;
+  /** 規約・特性メモ */
+  note: string;
+  /** 次アクションの提案(静的初期データ+メトリクスからの示唆) */
+  nextAction: string;
 }
 
 /** renderer のツール一覧・デバッグパネル用 */

@@ -1,0 +1,252 @@
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type {
+  CommunityCandidate,
+  MediaStrategyEntry,
+  MetricsSnapshot,
+  OperationsDraft,
+} from '../../shared/types';
+import { extractJson } from './llm';
+
+/**
+ * M32-4: AMENO-uzume(アメノウズメ)— 広報と仲間探し。
+ * すべて「下書き・提示」まで。投稿ボタンは作らない(大原則)。
+ * LLM実行は manager が行い、このモジュールはプロンプト構築・パース・保存を担う。
+ */
+
+// ---- 発信ドラフト ----
+
+export class DraftStore {
+  private readonly path: string;
+
+  constructor(dir: string) {
+    this.path = join(dir, 'drafts.json');
+    mkdirSync(dir, { recursive: true });
+  }
+
+  list(): OperationsDraft[] {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(this.path, 'utf8'));
+      return Array.isArray(parsed) ? (parsed as OperationsDraft[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private save(drafts: OperationsDraft[]): void {
+    writeFileSync(this.path, JSON.stringify(drafts, null, 1), 'utf8');
+  }
+
+  add(drafts: Omit<OperationsDraft, 'id' | 'createdAt' | 'status'>[]): OperationsDraft[] {
+    const all = this.list();
+    const created = drafts.map((d) => ({
+      ...d,
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      status: 'draft' as const,
+    }));
+    this.save([...all, ...created]);
+    return created;
+  }
+
+  /** 投稿済み/破棄マーク+本文編集。投稿済みは postedAt を刻む(OMOI-kami突き合わせ用) */
+  update(
+    id: string,
+    patch: Partial<Pick<OperationsDraft, 'status' | 'body' | 'title' | 'media'>>,
+  ): OperationsDraft | null {
+    const all = this.list();
+    const idx = all.findIndex((d) => d.id === id);
+    const target = all[idx];
+    if (target === undefined) return null;
+    const next: OperationsDraft = { ...target, ...patch };
+    if (patch.status === 'posted' && target.status !== 'posted') {
+      next.postedAt = new Date().toISOString();
+    }
+    all[idx] = next;
+    this.save(all);
+    return next;
+  }
+}
+
+/** 見せ場抽出→下書き生成のプロンプト */
+export function buildHighlightPrompt(input: {
+  progressExcerpt: string;
+  recentCommits: string;
+  current: MetricsSnapshot | null;
+  previous: MetricsSnapshot | null;
+}): string {
+  const metricsNote = input.current
+    ? JSON.stringify({ current: input.current, previous: input.previous ?? undefined })
+    : '(メトリクスなし)';
+  return `あなたはOSSプロジェクト AMA-teras の広報担当(アメノウズメ)。開発記録から「見せ場」を抽出し、発信の下書きを作る。
+
+# 素材: PROGRESS.md 直近抜粋
+${input.progressExcerpt.slice(0, 6000)}
+
+# 素材: 直近コミット
+${input.recentCommits.slice(0, 2000)}
+
+# 素材: メトリクス(current/previous)
+${metricsNote}
+
+# ルール
+- 誇張しない。実際にやったこと・実際の数字だけを使う
+- 失敗談・ヒヤリ話は隠さず見せ場として扱う(この製品の信頼はガードの実話で成り立つ)
+- X投稿は日本語で140字目安(ハッシュタグ込み)。リンクプレースホルダは {URL} と書く
+
+# 出力(JSONのみ。コードフェンス可)
+[
+ {"kind":"x-post","title":"見せ場の一言","body":"投稿文(140字目安)"},
+ {"kind":"release-note","title":"リリースノート見出し","body":"Markdown本文(見出し+箇条書き)"},
+ {"kind":"article-outline","title":"記事タイトル案","body":"Markdownアウトライン(H2〜H3)"}
+]`;
+}
+
+export function parseDrafts(raw: string): Omit<OperationsDraft, 'id' | 'createdAt' | 'status'>[] {
+  const parsed = extractJson(raw);
+  if (!Array.isArray(parsed)) return [];
+  const kinds = new Set(['x-post', 'release-note', 'article-outline', 'reply', 'weekly-report']);
+  const out: Omit<OperationsDraft, 'id' | 'createdAt' | 'status'>[] = [];
+  for (const item of parsed) {
+    if (typeof item !== 'object' || item === null) continue;
+    const rec = item as Record<string, unknown>;
+    const kind = String(rec['kind'] ?? '');
+    const title = String(rec['title'] ?? '').trim();
+    const body = String(rec['body'] ?? '').trim();
+    if (!kinds.has(kind) || title === '' || body === '') continue;
+    out.push({ kind: kind as OperationsDraft['kind'], title, body });
+  }
+  return out;
+}
+
+// ---- メディア戦略ボード ----
+
+/** OPERATIONS_DESIGN.md の媒体ポートフォリオ(初期データ) */
+export const MEDIA_PORTFOLIO: readonly Omit<MediaStrategyEntry, 'nextAction'>[] = [
+  { media: 'zenn', audience: '日本語圏エンジニア', note: 'トレンドはいいね初速で決まる。週1記事(build in public)' },
+  { media: 'hatena', audience: '日本語圏テック一般', note: 'セルフブクマ1users目はOK。記事と同日に' },
+  { media: 'x', audience: '日本語圏個人開発者', note: '自動投稿・自動フォロー禁止(規約)。デモGIF付きが効く' },
+  { media: 'hn', audience: '英語圏(Show HN)', note: '米国朝(JST 21〜24時)投稿。コメント即応が必須' },
+  { media: 'reddit', audience: '英語圏(r/ClaudeAI等)', note: 'Show HN後日。宣伝臭に厳しい。実験の話として' },
+  { media: 'bluesky', audience: '英語圏AI開発者', note: 'API自動化に寛容(Bot開示が礼儀)。現状読み取りのみ' },
+  { media: 'youtube', audience: '中期・デモ動画', note: 'インストーラ成熟後。短尺から' },
+  { media: 'producthunt', audience: '中期・プロダクト層', note: 'インストーラ+英語ドキュメント成熟後' },
+] as const;
+
+/** 現在のメトリクスから媒体ごとの次アクションを提案(静的ヒューリスティクス) */
+export function strategyBoard(current: MetricsSnapshot | null): MediaStrategyEntry[] {
+  const stars = current ? Object.values(current.github).reduce((a, m) => a + m.stars, 0) : 0;
+  const zennLiked = current ? Object.values(current.zenn).reduce((a, m) => a + m.liked, 0) : 0;
+  return MEDIA_PORTFOLIO.map((entry) => {
+    let nextAction = '発信ドラフトを生成して投稿(人間が実行)';
+    if (entry.media === 'zenn') {
+      nextAction =
+        zennLiked < 5
+          ? '公開済み記事の初速づくり: X・はてブと同日展開で回遊を作る。次記事の仕込み(岩戸開き=運営自動化)'
+          : '次の記事を出す(週1ペース維持)';
+    }
+    if (entry.media === 'hn') {
+      nextAction =
+        stars < 30
+          ? 'Show HN投稿の下書きを準備(README.en整備済み)。投稿はJST21〜24時・張り付ける日に'
+          : 'Show HN実施済みなら、コメントで出た論点を記事化';
+    }
+    if (entry.media === 'x') nextAction = 'デモGIF付きでZenn記事を投稿(下書きはAMENO-uzumeが生成)';
+    if (entry.media === 'hatena') nextAction = 'Zenn記事をセルフブクマ(1users目)';
+    if (entry.media === 'bluesky') nextAction = 'AI開発者の検索で仲間発見(候補カード化)';
+    return { ...entry, nextAction };
+  });
+}
+
+// ---- 仲間発見(コミュニティ・ディスカバリー) ----
+
+export class CandidateStore {
+  private readonly path: string;
+
+  constructor(dir: string) {
+    this.path = join(dir, 'candidates.json');
+    mkdirSync(dir, { recursive: true });
+  }
+
+  list(): CommunityCandidate[] {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(this.path, 'utf8'));
+      return Array.isArray(parsed) ? (parsed as CommunityCandidate[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private save(all: CommunityCandidate[]): void {
+    writeFileSync(this.path, JSON.stringify(all, null, 1), 'utf8');
+  }
+
+  add(candidate: Omit<CommunityCandidate, 'id' | 'createdAt' | 'status'>): CommunityCandidate {
+    const all = this.list();
+    const created: CommunityCandidate = {
+      ...candidate,
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      status: 'new',
+    };
+    this.save([...all, created]);
+    return created;
+  }
+
+  resolve(id: string, status: 'kept' | 'discarded'): CommunityCandidate | null {
+    const all = this.list();
+    const idx = all.findIndex((c) => c.id === id);
+    const target = all[idx];
+    if (target === undefined) return null;
+    all[idx] = { ...target, status };
+    this.save(all);
+    return all[idx];
+  }
+}
+
+/**
+ * 貼り付けテキストの「本当にAIを楽しんでいる人か」評価プロンプト。
+ * ヒューリスティクスは設計書どおり(自作公開/失敗談/売り込み導線なし/宣伝より実験)。
+ */
+export function buildCandidatePrompt(pastedText: string): string {
+  return `あなたはコミュニティ担当(アメノウズメ)。以下はSNSのプロフィール/投稿の貼り付け。
+「本当にAIを楽しんでいる人(商売目的でない)」かを判定する。
+
+# 判定ヒューリスティクス
+- 自作の作品・コードを公開している
+- 技術的な失敗談を書く(成功アピールだけでない)
+- 有料note・情報商材・LINE誘導などの売り込み導線が「無い」
+- 宣伝より実験・プロセスの話が多い
+
+# 貼り付けテキスト
+${pastedText.slice(0, 4000)}
+
+# 出力(JSONのみ)
+{
+ "verdict": "match" | "no-match" | "unclear",
+ "reasons": ["判定理由を1〜4個。テキスト中の根拠を引用しつつ"],
+ "replyDraft": "match の場合のみ: その人の直近の話題への返信下書き(日本語・宣伝ではなく内容への具体的な反応。AMA-terasの宣伝文を入れない)"
+}`;
+}
+
+export function parseCandidate(
+  raw: string,
+  source: string,
+  pastedText: string,
+): Omit<CommunityCandidate, 'id' | 'createdAt' | 'status'> | null {
+  const parsed = extractJson(raw);
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const rec = parsed as Record<string, unknown>;
+  const verdict = rec['verdict'];
+  if (verdict !== 'match' && verdict !== 'no-match' && verdict !== 'unclear') return null;
+  const reasons = Array.isArray(rec['reasons']) ? (rec['reasons'] as unknown[]).map(String) : [];
+  const replyDraft = typeof rec['replyDraft'] === 'string' && rec['replyDraft'].trim() !== '' ? rec['replyDraft'] : undefined;
+  return {
+    source,
+    profile: pastedText.slice(0, 2000),
+    verdict,
+    reasons,
+    ...(verdict === 'match' && replyDraft !== undefined ? { replyDraft } : {}),
+  };
+}

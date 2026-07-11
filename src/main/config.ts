@@ -6,6 +6,7 @@ import type {
   AutonomousRegistryScope,
   ModelBand,
   ModelPolicy,
+  OperationsConfig,
   ProviderPresetId,
   ReviewGateConfig,
 } from '../shared/types';
@@ -33,6 +34,23 @@ export function parseProviderPreset(raw: unknown): ProviderPresetId | undefined 
 /** M29-5: 自律モードの包括承認範囲(不正値は未設定=none扱い) */
 export function parseAutonomousRegistryScope(raw: unknown): AutonomousRegistryScope | undefined {
   return raw === 'none' || raw === 'verified' || raw === 'verified-generate' ? raw : undefined;
+}
+
+/**
+ * M32-1: 運営設定(オーナーモード)。repos は 'owner/repo' 形式のみ受け入れる。
+ * 壊れた形は undefined(=OFF)へフォールバック
+ */
+export function parseOperationsConfig(raw: unknown): OperationsConfig | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const rec = raw as Record<string, unknown>;
+  if (typeof rec['enabled'] !== 'boolean') return undefined;
+  const repos = Array.isArray(rec['repos'])
+    ? rec['repos'].filter((r): r is string => typeof r === 'string' && /^[\w.-]+\/[\w.-]+$/.test(r))
+    : [];
+  const zennSlugs = Array.isArray(rec['zennSlugs'])
+    ? rec['zennSlugs'].filter((s): s is string => typeof s === 'string' && /^[\w-]+$/.test(s))
+    : [];
+  return { enabled: rec['enabled'], repos, zennSlugs };
 }
 
 /**
@@ -215,6 +233,9 @@ export class ConfigStore {
       // M19: 品質レビュー・ゲート(同上)
       const review = parseReviewGate(rec['reviewGate']);
       if (review) merged.reviewGate = review;
+      // M32-1: 運営(オーナーモード)。壊れた形は未設定=OFFへフォールバック
+      const operations = parseOperationsConfig(rec['operations']);
+      if (operations !== undefined) merged.operations = operations;
       const remote = rec['remote'];
       if (typeof remote === 'object' && remote !== null && merged.remote) {
         const r = remote as Record<string, unknown>;
@@ -278,6 +299,12 @@ export class ConfigStore {
       const review = parseReviewGate(clone.reviewGate);
       if (review) clone.reviewGate = review;
       else delete clone.reviewGate;
+    }
+    // M32-1: 運営設定の正規化(不正repos/slugの除外。壊れた形は未設定=OFFへ)
+    if (clone.operations !== undefined) {
+      const operations = parseOperationsConfig(clone.operations);
+      if (operations) clone.operations = operations;
+      else delete clone.operations;
     }
     this.config = clone;
     mkdirSync(dirname(this.filePath), { recursive: true });

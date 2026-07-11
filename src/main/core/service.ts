@@ -796,6 +796,11 @@ export class AgentService {
     return provider;
   }
 
+  /** M32: 運営機能(週報・発信ドラフト・トリアージ)用のLLM帯。string=キー未設定メッセージ */
+  operationsBandProvider(band: 'planner' | 'reviewer'): LLMProvider | string {
+    return this.createBandProvider(band);
+  }
+
   // ---- workspace / executor ----
 
   getWorkspace(): string {

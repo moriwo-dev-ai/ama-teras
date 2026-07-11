@@ -2,8 +2,10 @@ import { useEffect } from 'react';
 import { SubAgentPanel } from '../Agents/SubAgentPanel';
 import { ToolDebugPanel } from '../Debug/ToolDebugPanel';
 import { EvolutionPanel } from '../Evolution/EvolutionPanel';
+import { OperationsPanel } from '../Operations/OperationsPanel';
 import { PlanPanel } from '../Plan/PlanPanel';
 import { useEvolutionStore } from '../../stores/evolution';
+import { useOperationsStore } from '../../stores/operations';
 import { usePreviewStore } from '../../stores/preview';
 import { useRightPaneStore, type RightPaneTab } from '../../stores/rightPane';
 import { useSubAgentStore } from '../../stores/subagents';
@@ -25,6 +27,17 @@ export function RightPane(): JSX.Element {
     (s) => s.jobs.filter((j) => !TERMINAL_JOB_STATUS.has(j.status)).length,
   );
 
+  // M32-1: 運営タブはオーナーモード(operations.enabled)の時だけ存在する
+  const operationsEnabled = useOperationsStore((s) => s.enabled);
+  const refreshOperations = useOperationsStore((s) => s.refresh);
+  useEffect(() => {
+    void refreshOperations();
+  }, [refreshOperations]);
+  // オーナーモードOFF化で運営タブに居たらプレビューへ退避
+  useEffect(() => {
+    if (!operationsEnabled && tab === 'operations') setTab('preview');
+  }, [operationsEnabled, tab, setTab]);
+
   // プレビューを開いたらプレビュータブへ
   useEffect(() => {
     if (previewResult) setTab('preview');
@@ -35,6 +48,7 @@ export function RightPane(): JSX.Element {
     { id: 'plan', label: '計画' },
     { id: 'agents', label: 'エージェント', ...(runningAgents > 0 ? { badge: runningAgents } : {}) },
     { id: 'evolution', label: '進化', ...(activeJobs > 0 ? { badge: activeJobs } : {}) },
+    ...(operationsEnabled ? [{ id: 'operations' as const, label: '運営' }] : []),
     { id: 'debug', label: 'Debug' },
   ];
 
@@ -74,6 +88,7 @@ export function RightPane(): JSX.Element {
         {tab === 'plan' && <PlanPanel />}
         {tab === 'agents' && <SubAgentPanel />}
         {tab === 'evolution' && <EvolutionPanel />}
+        {tab === 'operations' && operationsEnabled && <OperationsPanel />}
         {tab === 'debug' && <ToolDebugPanel />}
       </div>
     </div>

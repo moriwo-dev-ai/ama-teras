@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 /** M15-4: 右ペインのタブ状態(ヘッダボタン・プレビュー・バッジで共有) */
-export type RightPaneTab = 'preview' | 'plan' | 'agents' | 'evolution' | 'debug';
+export type RightPaneTab = 'preview' | 'plan' | 'agents' | 'evolution' | 'operations' | 'debug';
 
 interface RightPaneState {
   tab: RightPaneTab;

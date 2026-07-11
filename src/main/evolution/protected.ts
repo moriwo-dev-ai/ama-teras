@@ -47,6 +47,11 @@ export const PROTECTED_PATHS: readonly string[] = [
   'src/main/tools/autonomy.ts',
   /** 通常経路の聖域判定ロジック(このリストの利用側) */
   'src/main/tools/sanctuary.ts',
+  /**
+   * M32-2: 岩戸ゲート(Protocol AMANO-iwate)。外部への発信(投稿・コメント・マージ)は
+   * 全てこのゲートの承認フローを通る。承認バイパス実装への差し替えを禁止する
+   */
+  'src/main/operations/protocol.ts',
 ];
 
 /**
