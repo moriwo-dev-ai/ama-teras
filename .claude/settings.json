@@ -1,32 +1,9 @@
 {
-  "model": "fable",
   "permissions": {
-    "allow": [
-      "Read",
-      "Edit",
-      "Write",
-      "Glob",
-      "Grep",
-      "Bash(npm run:*)",
-      "Bash(npm install:*)",
-      "Bash(npm test:*)",
-      "Bash(npx:*)",
-      "Bash(node:*)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(git status)",
-      "Bash(git diff:*)",
-      "Bash(git log:*)",
-      "Bash(git worktree:*)",
-      "Bash(git tag:*)",
-      "Bash(mkdir:*)"
-    ],
     "deny": [
       "Bash(rm -rf:*)",
       "Bash(git reset --hard:*)",
       "Bash(npm publish:*)",
-      "Bash(curl:*)",
-      "Bash(wget:*)",
       "Read(./.env)",
       "Read(./.env.*)",
       "Read(~/.ssh/**)",

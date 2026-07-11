@@ -14,8 +14,12 @@
 4. Bluesky対応状況: 公開検索(read)のみ実装。投稿・フォローは認証保管が未実装のため
    **capabilities宣言ごと空**にしてある(宣言と実挙動の一致を優先。対応時は
    executor と宣言を同時に足す)
-5. 注意: 昨夜のコミットに `.claude/settings.json`(git push denyルール削除)も
-   含まれている。公開リポジトリに載せたくなければ指示を(該当ファイルの追跡外し可能)
+5. ~~注意: 昨夜のコミットに `.claude/settings.json` が含まれている~~ → **対応済み(M32-7)**:
+   リポジトリの settings.json は clone者全員のClaude Codeに適用されるため、
+   個人設定(model指定・allowリスト)を `.claude/settings.local.json`(gitignore済み)へ
+   移し、リポジトリ側は**安全側のdenyのみの最小構成**
+   (rm -rf / git reset --hard / npm publish / .env・~/.ssh・~/.aws読み取り禁止)に縮小。
+   curl/wget denyはローカル側にのみ残した(clone者の作業を過剰に縛らないため)
 
 ## M32(NIGHT_TASKS6 = Project TAKAMA-gahara 第1弾)完了記録
 
