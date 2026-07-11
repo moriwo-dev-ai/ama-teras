@@ -1,10 +1,7 @@
 import { toDataURL } from 'qrcode';
 import { useEffect, useRef, useState } from 'react';
 import type { RemoteStatusPayload } from '../../../../shared/types';
-import { buildRemoteUrl, qrGuidance } from './remoteUrl';
-
-/** 旧保存先(〜M17)。localStorageはuserData移行で消えるため、読み取りフォールバックとしてのみ残す */
-const LEGACY_HOST_KEY = 'mycodex-remote-host';
+import { buildRemoteUrl, qrGuidance, resolveInitialHost } from './remoteUrl';
 
 /** M13-0: 接続URLのQR表示。M21-3: 案内文とトークン再生成の導線は qrGuidance(純関数)で決定 */
 function RemoteQr({
@@ -72,11 +69,13 @@ export function RemoteAccessSection(): JSX.Element {
     void window.api.remoteStatus().then((s) => {
       setStatus(s);
       setPort(String(s.port));
-      // ホスト名はconfig優先。空なら旧localStorageから引き継いでconfigへ保存(自己修復)
-      const legacy = window.localStorage.getItem(LEGACY_HOST_KEY) ?? '';
-      const initial = s.host ?? legacy;
+      // M32-8: config優先 → localStorage新キー(amateras-*)→ 旧キー、の順で解決。
+      // localStorage経由で見つけた場合はconfigへ自己修復保存する
+      const { host: initial, heal } = resolveInitialHost(s.host, (key) =>
+        window.localStorage.getItem(key),
+      );
       setHost(initial);
-      if (!s.host && legacy !== '') void window.api.remoteSetHost(legacy);
+      if (heal) void window.api.remoteSetHost(initial);
     });
   }, []);
 
@@ -206,6 +205,12 @@ export function RemoteAccessSection(): JSX.Element {
               hasPlainToken={token !== null}
               onRegenerate={() => setConfirmRegen(true)}
             />
+          )}
+          {/* M32-8: 黙って消さない — ホスト名が空でURL/QRを出せない理由を示す */}
+          {!url && (
+            <p className="text-[11px] text-zinc-500">
+              ホスト名を入力すると接続URLとQRが表示されます
+            </p>
           )}
         </div>
       )}

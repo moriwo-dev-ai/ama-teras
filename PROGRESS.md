@@ -21,6 +21,17 @@
    (rm -rf / git reset --hard / npm publish / .env・~/.ssh・~/.aws読み取り禁止)に縮小。
    curl/wget denyはローカル側にのみ残した(clone者の作業を過剰に縛らないため)
 
+## M32-8(2026-07-12): リモートアクセスQR消失バグ修正+雑務
+
+- **QR消失バグ**(ユーザー報告): RemoteAccessSection のホスト名フォールバックが
+  旧localStorageキー(mycodex-remote-host)のみ参照しており、M27-3のキー
+  リネーム(amateras-*)後、config未保存の環境でホスト名が空に戻りQRが黙って消えた。
+  修正: ①解決順を config → amateras-remote-host → mycodex-remote-host の純関数
+  `resolveInitialHost` に抽出し、localStorage経由で見つけたらconfigへ自己修復保存
+  ②ホスト名が空でURL/QRを出せない時は「ホスト名を入力すると接続URLとQRが
+  表示されます」の案内を表示(黙って消さない)。回帰テスト5件追加
+- `.pulse-log.json`(Cowork側スケジュールタスクの状態ファイル)を .gitignore に追加
+
 ## M32(NIGHT_TASKS6 = Project TAKAMA-gahara 第1弾)完了記録
 
 - **ユーザー追加指示(2026-07-11夜・確定方針)**: 運営タブはオーナー機能としてゲートする。
