@@ -1,12 +1,74 @@
 # PROGRESS
 
-## M32(NIGHT_TASKS6 = Project TAKAMA-gahara)作業中メモ
+## ⚠ 朝にユーザーとやること(NIGHT_TASKS6 = M32、全タスク完了)
+
+1. **動作確認**: 設定 → 接続 → 「オーナーモード」をON → 対象リポジトリ
+   (moriwo-dev-ai/ama-teras 等)とZennスラッグを登録 → 右ペイン「運営」タブで
+   「📊 今すぐ収集」。gh認証は既存のログインをそのまま使う(traffic/実行系には
+   repoスコープが必要 — 既に `gh auth login` 済みなら通常は足りている)
+2. 週報・発信ドラフト生成にはAPIキー(planner/reviewer帯)を使う。ModelPolicy
+   未設定なら単一モデル設定で代行される
+3. **岩戸ゲートの実弾テスト**(任意・あなた立ち会いで): トリアージカードの
+   「⛩ 返信を送信」→ 承認ダイアログの表示と audit.jsonl への記録を確認
+   (拒否すれば何も発信されない。夜間は実発行を一切していない)
+4. Bluesky対応状況: 公開検索(read)のみ実装。投稿・フォローは認証保管が未実装のため
+   **capabilities宣言ごと空**にしてある(宣言と実挙動の一致を優先。対応時は
+   executor と宣言を同時に足す)
+5. 注意: 昨夜のコミットに `.claude/settings.json`(git push denyルール削除)も
+   含まれている。公開リポジトリに載せたくなければ指示を(該当ファイルの追跡外し可能)
+
+## M32(NIGHT_TASKS6 = Project TAKAMA-gahara 第1弾)完了記録
 
 - **ユーザー追加指示(2026-07-11夜・確定方針)**: 運営タブはオーナー機能としてゲートする。
   `AppConfig.operations.enabled` を「オーナーモード」スイッチとして設定の「接続」タブに置き、
   **既定OFF**。OFFの間は右ペインに運営タブを表示しない(存在自体を見せない)。
-  ONにした時だけタブ表示・gh検出・メトリクス収集が動く。
-- push一括承認済み(本セッション。deny ルールはユーザーが削除)。外部への実発行は引き続き禁止。
+  ONにした時だけタブ表示・gh検出・メトリクス収集が動く。→ **実装済み**
+  (manager.ensureInitialized が enabled 時のみ初期化。OFF時はgh検出もfetchも走らない
+  ことをテストで固定)
+- **M32-2 Protocol AMANO-iwate(最優先・完了)**: `operations/protocol.ts` に
+  MediaAdapter規約+岩戸ゲート。**executor はモジュール内 WeakMap に封印され、
+  登録時に呼び出し元の参照からも削除される** — 承認フロー(何を・どこへ・全文
+  プレビュー+規約メモ)を通らずに実行へ到達する経路がコードレベルで存在しない。
+  宣言(capabilities.execute)と実装(executor有無)の不一致は登録時に例外。
+  全実行(拒否含む)を audit.jsonl に `[岩戸]` プレフィックスで記録。
+  **protocol.ts を聖域(PROTECTED_PATHS+docs/PROTECTED.md 第8項)に追加**。
+  承認ダイアログ(IwatoApprovalDialog)は既存の聖域 `components/Approval/` 配下に配置
+- **アダプタ**: github(gh CLI・read/search+execute: comment/label/merge)/
+  zenn(公開API read)/ x(検索URL生成+貼り付け解析のみ・**execute空=全て人間**)/
+  bluesky(公開検索read・執行系は宣言ごと空の骨組み)
+- **M32-3 OMOI-kami**: スナップショット収集(GitHub基本+traffic views/clones/
+  referrers+リリースDL数+Zennいいね/コメント+レジストリ件数)→
+  userData/operations/metrics.jsonl に時系列蓄積 → 運営タブに前回比(⬆/⬇)表示。
+  週報はプロンプト構築(時系列×referrer×投下履歴の突き合わせ)+planner帯で下書き化。
+  traffic API不達(権限なし)でも基本メトリクスは成立(テスト固定)
+- **M32-4 AMENO-uzume**: PROGRESS.md冒頭6KB+git log 20件+メトリクス差分から
+  見せ場抽出 → X投稿/リリースノート/記事アウトラインをJSONで下書き生成。
+  **投稿ボタンは作っていない**(コピー+「投稿済みにする」マークのみ。マークは
+  postedAt を刻み週報の突き合わせに使う)。メディア戦略ボード(8媒体の初期
+  ポートフォリオ+メトリクス連動の次アクション)。仲間発見: X検索URL生成
+  (開くのは人間)+Bluesky公開検索+貼り付けテキストのLLM評価(ヒューリスティクス:
+  自作公開/失敗談/売り込み導線なし/実験の話)→ 候補カード(理由+宣伝ではない
+  返信下書き)
+- **M32-5 TEDIKA-rao**: オープンIssue/PR取得 → PRはdiff(60KB上限)込みで
+  reviewer帯がseverity方式トリアージ → カード(要旨/指摘/返信下書き/ラベル案/推奨)。
+  レジストリ系リポジトリのPRは check-runs を統合表示。LLM出力が壊れても
+  「手動確認」カードで生存。実行系は岩戸ゲート経由のみ(UIのボタンも
+  operationsExecute → 承認ダイアログの経路しか無い)
+- **M32-6 仕上げ**: USER-GUIDE に「Project TAKAMA-gahara」章(岩戸開きの物語+
+  三神+岩戸の掟)。README追記は**保留**し docs/README-takamagahara-draft.md に
+  日英下書きのみ(次のZenn記事「岩戸開き」と同時公開の方針どおり)
+- **判断(自分で決めた)**: (a) Blueskyのexecuteは「宣言して未実装エラー」ではなく
+  宣言ごと空に(宣言と実挙動の一致テストを通すため。対応時に両方同時追加)。
+  (b) 承認応答のタイムアウトは10分=拒否扱い(無人放置で実行が宙吊りにならない)。
+  (c) 運営の観測データ・下書き・候補は userData/operations/ 配下(リポジトリには
+  入れない=公開リポジトリに運営データが漏れない)。
+  (d) 岩戸の監査は既存 audit.jsonl に統合(scope='system'・event=result/hard-deny)
+- **テスト**: 岩戸ゲート11件(承認なし到達不能・封印・宣言一致・audit)+
+  運営13件(収集/週報プロンプト/下書き/候補/トリアージ/オーナーゲート)。
+  全体 typecheck 3構成+vitest **988件全緑**
+- push: 本セッションはユーザーの一括承認済み(denyルールもユーザーが削除)。
+  外部への実発行(SNS投稿・GitHubコメント等)は**一切行っていない**(実装のみ。
+  テストは全てモック)
 
 ## ⚠ 朝にユーザーとやること(NIGHT_TASKS5 = M31、全タスク完了)
 
