@@ -111,6 +111,10 @@ const api: AmaterasApi = {
   operationsDraftsGenerate: () => ipcRenderer.invoke(IpcChannels.operationsDraftsGenerate),
   operationsDraftsList: () => ipcRenderer.invoke(IpcChannels.operationsDraftsList),
   operationsDraftUpdate: (id, patch) => ipcRenderer.invoke(IpcChannels.operationsDraftUpdate, id, patch),
+  operationsDraftRelease: (draftId, repo, tag) =>
+    ipcRenderer.invoke(IpcChannels.operationsDraftRelease, draftId, repo, tag),
+  operationsDraftZennArticle: (draftId) =>
+    ipcRenderer.invoke(IpcChannels.operationsDraftZennArticle, draftId),
   operationsStrategyBoard: () => ipcRenderer.invoke(IpcChannels.operationsStrategyBoard),
   operationsDiscoverySearch: (keywords) =>
     ipcRenderer.invoke(IpcChannels.operationsDiscoverySearch, keywords),

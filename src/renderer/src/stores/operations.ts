@@ -11,6 +11,8 @@ interface OperationsState {
   ghDetected: boolean;
   ghPath: string | null;
   adapters: AdapterStatusInfo[];
+  /** M37: 発信ドラフトの行き先(GitHub Release)候補 */
+  repos: string[];
   loaded: boolean;
   refresh: () => Promise<void>;
 }
@@ -20,13 +22,14 @@ export const useOperationsStore = create<OperationsState>((set) => ({
   ghDetected: false,
   ghPath: null,
   adapters: [],
+  repos: [],
   loaded: false,
   refresh: async () => {
     try {
       const status = await window.api.operationsStatus();
       set({ ...status, loaded: true });
     } catch {
-      set({ enabled: false, ghDetected: false, ghPath: null, adapters: [], loaded: true });
+      set({ enabled: false, ghDetected: false, ghPath: null, adapters: [], repos: [], loaded: true });
     }
   },
 }));

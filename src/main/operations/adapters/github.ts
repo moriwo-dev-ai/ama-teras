@@ -189,9 +189,10 @@ export function createGithubAdapter(run: GhRunner, ghAvailable: () => boolean): 
       read: true,
       search: true,
       draft: true,
-      execute: ['comment', 'label', 'merge'],
+      execute: ['comment', 'label', 'merge', 'release'],
     },
-    compliance: 'GitHub APIの正規利用(gh CLI認証)。コメント/ラベル/マージは承認後のみ',
+    compliance:
+      'GitHub APIの正規利用(gh CLI認証)。コメント/ラベル/マージ/リリースは承認後のみ。リリースは常に下書き(draft)で作成し、公開は人間がGitHub上で行う',
     availability: () =>
       Promise.resolve(
         ghAvailable()
@@ -215,6 +216,23 @@ export function createGithubAdapter(run: GhRunner, ghAvailable: () => boolean): 
       if (action === 'merge') {
         await run(['pr', 'merge', number, '-R', repo, '--merge']);
         return `${repo}#${number} をマージした`;
+      }
+      if (action === 'release') {
+        // M37: リリースノート下書き → GitHub Release。公開(publish)は人間がGitHub上で行うため
+        // 作成は必ず --draft。既存タグがあれば本文の差し替えのみ(下書き状態は変えない)
+        const tag = String(params['tag'] ?? '');
+        const title = String(params['title'] ?? tag);
+        const body = String(params['body'] ?? '');
+        const exists = await run(['release', 'view', tag, '-R', repo, '--json', 'tagName']).then(
+          () => true,
+          () => false,
+        );
+        if (exists) {
+          await run(['release', 'edit', tag, '-R', repo, '--title', title, '--notes', body]);
+          return `${repo} のリリース ${tag} の本文を更新した(公開状態は変更していない)`;
+        }
+        await run(['release', 'create', tag, '-R', repo, '--title', title, '--notes', body, '--draft']);
+        return `${repo} にリリース ${tag} を下書きで作成した(公開はGitHub上であなたが行う)`;
       }
       throw new Error(`未知のアクション: ${action}`);
     },

@@ -10,6 +10,7 @@ import type {
   TriageCard,
 } from '../../../../shared/types';
 import { useOperationsStore } from '../../stores/operations';
+import { draftActionsFor } from './draftActions';
 import { firstUrl, hatenaPanelUrl, xIntentUrl } from './postLinks';
 
 /** M33: 神々の時計(ダッシュボード)。会話・承認は左の⛩運営スレッドへ(ここには置かない) */
@@ -296,12 +297,95 @@ const DRAFT_KIND_LABEL: Record<OperationsDraft['kind'], string> = {
   'x-post': 'X投稿',
   'release-note': 'リリースノート',
   'article-outline': '記事アウトライン',
+  'article-body': 'Zenn記事本文',
   reply: '返信',
   'weekly-report': '週報',
 };
 
+/** M37: リリースノート → GitHub Release(下書き)。repo/tagを添えて岩戸ゲートへ */
+function ReleaseAction({ draft }: { draft: OperationsDraft }): JSX.Element {
+  const repos = useOperationsStore((s) => s.repos);
+  const [repo, setRepo] = useState(repos[0] ?? '');
+  // 本文中の vX.Y.Z を初期タグ候補にする(人間が直せる)
+  const [tag, setTag] = useState(/v\d+\.\d+\.\d+/.exec(draft.body)?.[0] ?? '');
+  const [result, setResult] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <>
+      <select
+        className="rounded border border-zinc-700 bg-zinc-800 px-1 py-0.5 text-[10px]"
+        value={repo}
+        onChange={(e) => setRepo(e.target.value)}
+      >
+        {repos.length === 0 && <option value="">(観測対象リポジトリ未設定)</option>}
+        {repos.map((r) => (
+          <option key={r} value={r}>
+            {r}
+          </option>
+        ))}
+      </select>
+      <input
+        className="w-24 rounded border border-zinc-700 bg-zinc-800 px-1 py-0.5 font-mono text-[10px]"
+        value={tag}
+        placeholder="v1.0.1"
+        onChange={(e) => setTag(e.target.value)}
+      />
+      <button
+        className="shrink-0 rounded border border-zinc-600 px-2 py-0.5 text-[10px] hover:bg-zinc-800 disabled:opacity-40"
+        title="承認ダイアログ(何を・どこへ・全文)を経て、GitHub Release を下書きで作成/更新する。公開はGitHub上であなたが行う"
+        disabled={busy || repo === '' || tag.trim() === ''}
+        onClick={() => {
+          setBusy(true);
+          setResult(null);
+          void window.api
+            .operationsDraftRelease(draft.id, repo, tag.trim())
+            .then((r) => setResult(r.detail))
+            .catch((e: unknown) => setResult(e instanceof Error ? e.message : String(e)))
+            .finally(() => setBusy(false));
+        }}
+      >
+        {busy ? '承認待ち…' : '🐙 GitHub Releaseへ'}
+      </button>
+      {result !== null && <span className="text-[10px] text-zinc-400">{result}</span>}
+    </>
+  );
+}
+
+/** M37: 記事アウトライン → 本文をLLMで起こし、承認後 zenn-content へ published:false でコミット */
+function ZennArticleAction({ draft, onUpdate }: { draft: OperationsDraft; onUpdate: () => void }): JSX.Element {
+  const [result, setResult] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <>
+      <button
+        className="shrink-0 rounded border border-zinc-600 px-2 py-0.5 text-[10px] hover:bg-zinc-800 disabled:opacity-40"
+        title="アウトラインから本文を下書きし、承認後に zenn-content へ published: false でコミットする(公開はZennの記事設定であなたが行う)"
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          setResult(null);
+          void window.api
+            .operationsDraftZennArticle(draft.id)
+            .then((r) => setResult(r.detail))
+            .catch((e: unknown) => setResult(e instanceof Error ? e.message : String(e)))
+            .finally(() => {
+              setBusy(false);
+              onUpdate(); // 本文ドラフト(article-body)は承認可否にかかわらず残る
+            });
+        }}
+      >
+        {busy ? '本文を執筆中…' : '📝 Zenn記事化(published: false)'}
+      </button>
+      {result !== null && <span className="text-[10px] text-zinc-400">{result}</span>}
+    </>
+  );
+}
+
 function DraftCard({ draft, onUpdate }: { draft: OperationsDraft; onUpdate: () => void }): JSX.Element {
   const [media, setMedia] = useState(draft.media ?? 'x');
+  // M37: 行き先は種類ごとにコードで固定(Xに載らない種類にXボタンを出さない)
+  const actions = draftActionsFor(draft.kind);
+  const url = firstUrl(draft.body);
   return (
     <div className="rounded border border-zinc-800 bg-zinc-950 p-2 text-xs">
       <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -315,23 +399,27 @@ function DraftCard({ draft, onUpdate }: { draft: OperationsDraft; onUpdate: () =
       <div className="flex flex-wrap items-center gap-1.5">
         <CopyButton text={draft.body} />
         {/* M32-9: 1タップ投稿リンク — 開いた先の投稿/追加ボタンは人間が押す(自動投稿はしない) */}
-        <button
-          className="shrink-0 rounded border border-zinc-600 px-2 py-0.5 text-[10px] hover:bg-zinc-800"
-          title="X の投稿画面を本文入りで開く(投稿ボタンはあなたが押す)"
-          onClick={() => window.open(xIntentUrl(draft.body), '_blank', 'noopener,noreferrer')}
-        >
-          𝕏 投稿画面を開く
-        </button>
-        {firstUrl(draft.body) !== null && (
+        {actions.includes('x-intent') && (
+          <button
+            className="shrink-0 rounded border border-zinc-600 px-2 py-0.5 text-[10px] hover:bg-zinc-800"
+            title="X の投稿画面を本文入りで開く(投稿ボタンはあなたが押す)"
+            onClick={() => window.open(xIntentUrl(draft.body), '_blank', 'noopener,noreferrer')}
+          >
+            𝕏 投稿画面を開く
+          </button>
+        )}
+        {actions.includes('hatena') && url !== null && (
           <button
             className="shrink-0 rounded border border-zinc-600 px-2 py-0.5 text-[10px] hover:bg-zinc-800"
             title="本文中のURLをはてなブックマークに追加する画面を開く(追加ボタンはあなたが押す)"
-            onClick={() =>
-              window.open(hatenaPanelUrl(firstUrl(draft.body) ?? ''), '_blank', 'noopener,noreferrer')
-            }
+            onClick={() => window.open(hatenaPanelUrl(url), '_blank', 'noopener,noreferrer')}
           >
             B! はてブ画面を開く
           </button>
+        )}
+        {actions.includes('github-release') && draft.status === 'draft' && <ReleaseAction draft={draft} />}
+        {actions.includes('zenn-article') && draft.status === 'draft' && (
+          <ZennArticleAction draft={draft} onUpdate={onUpdate} />
         )}
         {draft.status === 'draft' && (
           <>

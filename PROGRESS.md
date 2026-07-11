@@ -1,5 +1,32 @@
 # PROGRESS
 
+## M37(2026-07-12): 発信ドラフトの行き先(種類ごとのアクション)
+
+下書きの種類 → 行き先の対応を**コードで固定**(`draftActions.ts` の表。Xの文字数に
+合わない種類にXボタンを出さない)。外部へ出る経路はすべて岩戸ゲート(承認)を通る。
+
+- **x-post**: 従来どおりX投稿画面を開く1タップリンク(+本文にURLがあればはてブ)。
+  最後のクリックは人間(規約)
+- **release-note → GitHub Release**(M37-1): repo(観測対象から選択)+タグを添えて
+  岩戸ゲートへ。承認後 `gh release create --draft`(既存タグなら `edit` で本文更新のみ)。
+  **作成は必ず下書き(--draft)**。公開はGitHub上で人間が行う。コピーボタンは残す
+- **article-outline → Zenn記事化**(M37-2): アウトラインからLLMが本文を執筆 →
+  `article-body` 下書きとして保存 → 岩戸ゲート(全文プレビュー)→ 承認後
+  zenn-content の `articles/<slug>.md` に **published: false** でコミット・push。
+  公開(true化)は別途人間の判断。**executorは published:false のfrontmatterが無い
+  Markdownを拒否**(この経路で公開記事は出せない)。承認されなくても本文の下書きは残る
+- **reply / weekly-report / article-body**: 外部への行き先を持たない(コピーのみ)
+- 新アダプタ `zenn-repo`(execute: commit-article)。パスは設定→接続→オーナーモードの
+  「zenn-content リポジトリのパス」(未設定なら availability=false で誘導)。
+  gitはインジェクション可能(テストは実push無し)
+- `operations.status()` に `repos` を追加(UIのリリース先候補)。全フィールド任意/加算のみ=
+  状態ファイル・旧設定と互換
+
+判断メモ: Zennのslugは規則(a-z0-9-_ 12〜50字)があるため、日本語タイトルは
+`ama-teras-<YYYYMMDDHHmm>` に落とす純関数 `articleSlug` を用意した(テスト固定)。
+
+テスト: draftDestinations.test.ts(14)+ draftActions.test.ts(4)追加。全1063緑。
+
 ## M36(2026-07-12): 運営タブ小改修
 
 ### インシデント記録: 私的メモの誤コミット(復旧済み)

@@ -103,6 +103,37 @@ ${metricsNote}
 ]`;
 }
 
+/**
+ * M37: 記事アウトライン → Zenn記事の本文(Markdown)。
+ * frontmatter はコード側(zennRepo.buildArticleMarkdown)で必ず published: false を付けるので、
+ * LLMには本文だけを書かせる。
+ */
+export function buildArticleOutlinePrompt(input: {
+  title: string;
+  outline: string;
+  progressExcerpt: string;
+}): string {
+  return `あなたはOSSプロジェクト AMA-teras の技術記事ライター。以下のアウトラインからZennの記事本文(Markdown)を書く。
+
+# 記事タイトル
+${input.title}
+
+# アウトライン
+${input.outline.slice(0, 4000)}
+
+# 素材: PROGRESS.md 直近抜粋(事実確認用。ここに無いことは書かない)
+${input.progressExcerpt.slice(0, 6000)}
+
+# ルール
+- 誇張・推測を書かない。実際にやったこと・実際の数字だけを使う
+- frontmatter(---で囲む部分)は書かない。本文(H2見出しから)だけを出力する
+- 日本語。コードブロックには言語指定を付ける
+- 失敗談・ヒヤリ話は隠さない(この製品の信頼はガードの実話で成り立つ)
+
+# 出力
+Markdown本文のみ(前置き・後書きの説明文は不要)`;
+}
+
 export function parseDrafts(raw: string): Omit<OperationsDraft, 'id' | 'createdAt' | 'status'>[] {
   const parsed = extractJson(raw);
   if (!Array.isArray(parsed)) return [];

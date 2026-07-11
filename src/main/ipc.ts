@@ -646,6 +646,20 @@ export async function registerIpcHandlers(
       ...(typeof p['media'] === 'string' ? { media: p['media'] } : {}),
     });
   });
+  // M37: 下書きの行き先。実行そのものは manager 内で岩戸ゲート(承認)を必ず通る
+  ipcMain.handle(
+    IpcChannels.operationsDraftRelease,
+    (_e, draftId: unknown, repo: unknown, tag: unknown) => {
+      assertString(draftId, 'draftId');
+      assertString(repo, 'repo');
+      assertString(tag, 'tag');
+      return operations.requestRelease(draftId, repo, tag);
+    },
+  );
+  ipcMain.handle(IpcChannels.operationsDraftZennArticle, (_e, draftId: unknown) => {
+    assertString(draftId, 'draftId');
+    return operations.requestZennArticle(draftId);
+  });
   ipcMain.handle(IpcChannels.operationsStrategyBoard, () => operations.strategyBoard());
   ipcMain.handle(IpcChannels.operationsDiscoverySearch, (_e, keywords: unknown) => {
     if (!Array.isArray(keywords) || keywords.some((k) => typeof k !== 'string')) {

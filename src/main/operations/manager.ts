@@ -24,6 +24,14 @@ import { createHnAdapter, fetchItem, fetchUserKarma, HnReader, type HnStory } fr
 import { createXAdapter, buildXSearchSuggestions, type XSearchSuggestion } from './adapters/x';
 import { createZennAdapter, ZennReader, type FetchLike } from './adapters/zenn';
 import {
+  articleSlug,
+  buildArticleMarkdown,
+  createZennRepoAdapter,
+  defaultGitRunner,
+  type GitRunner,
+} from './adapters/zennRepo';
+import {
+  buildArticleOutlinePrompt,
   buildCandidatePrompt,
   buildHighlightPrompt,
   CandidateStore,
@@ -75,6 +83,8 @@ export interface OperationsManagerDeps {
   getBlueskySecret?: () => string | null;
   /** テスト用注入 */
   ghRunner?: GhRunner;
+  /** M37: zenn-content への commit/push 実行(未注入=実git) */
+  gitRunner?: GitRunner;
   fetchImpl?: FetchLike;
   /** workspace のPROGRESS.md/git logを読む(発信ドラフトの素材) */
   readHighlightSources?: () => Promise<{ progressExcerpt: string; recentCommits: string }>;
@@ -85,6 +95,8 @@ export interface OperationsStatus {
   ghDetected: boolean;
   ghPath: string | null;
   adapters: AdapterStatusInfo[];
+  /** M37: 発信ドラフトの行き先候補(リリース先リポジトリ)としてUIが使う */
+  repos: string[];
 }
 
 /** M33: 神ごとのパラメータ(キーワード・巡回済み記録・Issue差分基準)。userData/operations/god-params.json */
@@ -176,6 +188,13 @@ export class OperationsManager {
     this.blueskyExecAvailable = blueskyCreds !== null;
     gate.register(createHnAdapter());
     gate.register(createHatenaAdapter());
+    // M37: Zenn記事のコミット先(zenn-content)。パス未設定でも登録はする
+    // (availability=false で「設定へ」を案内する。実行時は executor が弾く)
+    gate.register(
+      createZennRepoAdapter(() => this.opsConfig().zennRepoDir ?? null, {
+        run: this.deps.gitRunner ?? defaultGitRunner(),
+      }),
+    );
 
     // M33-5: 神の定義レジストリ+定義変更アダプタ。
     // 定義の新設・改造(組織図の自己改変)は岩戸ゲートの承認を通ったexecutorのみが
@@ -806,13 +825,14 @@ export class OperationsManager {
 
   async status(): Promise<OperationsStatus> {
     if (!this.ensureInitialized() || this.gate === null) {
-      return { enabled: false, ghDetected: false, ghPath: null, adapters: [] };
+      return { enabled: false, ghDetected: false, ghPath: null, adapters: [], repos: [] };
     }
     return {
       enabled: true,
       ghDetected: this.github !== null,
       ghPath: this.ghPath,
       adapters: await this.gate.status(),
+      repos: [...this.opsConfig().repos],
     };
   }
 
@@ -871,6 +891,79 @@ export class OperationsManager {
   ): OperationsDraft | null {
     if (!this.ensureInitialized() || this.drafts === null) return null;
     return this.drafts.update(id, patch);
+  }
+
+  // ---- M37: 下書きの行き先(種類ごとに固定。すべて岩戸ゲート経由)----
+
+  /**
+   * リリースノート下書き → GitHub Release(下書き)。
+   * 承認ダイアログに repo/tag/全文を出し、承認後に gh release create --draft(既存タグなら本文更新)。
+   */
+  async requestRelease(draftId: string, repo: string, tag: string): Promise<{ ok: boolean; detail: string }> {
+    if (!this.ensureInitialized() || this.gate === null || this.drafts === null) {
+      return { ok: false, detail: 'オーナーモードがOFF(運営機能は無効)' };
+    }
+    const draft = this.drafts.list().find((d) => d.id === draftId);
+    if (draft === undefined) return { ok: false, detail: '下書きが見つからない' };
+    if (draft.kind !== 'release-note') return { ok: false, detail: 'この下書きはリリースノートではない' };
+    const cleanTag = tag.trim();
+    if (!/^[\w.\-+]{1,64}$/.test(cleanTag)) return { ok: false, detail: `タグ名が不正: ${cleanTag}` };
+    if (!this.opsConfig().repos.includes(repo)) {
+      return { ok: false, detail: `観測対象リポジトリに無い: ${repo}` };
+    }
+    return this.gate.requestExecute(
+      'github',
+      'release',
+      `${repo} のリリース ${cleanTag}(下書きとして作成/更新。公開はあなたがGitHub上で行う)`,
+      `# ${draft.title}\n\n${draft.body}`,
+      { repo, tag: cleanTag, title: draft.title, body: draft.body },
+    );
+  }
+
+  /**
+   * 記事アウトライン → Zenn記事化。
+   * LLMで本文を起こして下書き(article-body)として保存し、そのうえで岩戸ゲートへ。
+   * 承認されれば zenn-content の articles/ に published: false でコミット・push。
+   * 承認されなくても本文の下書きは残る(コピーして手で使える)。
+   */
+  async requestZennArticle(draftId: string): Promise<{ ok: boolean; detail: string; bodyDraftId?: string }> {
+    if (!this.ensureInitialized() || this.gate === null || this.drafts === null) {
+      return { ok: false, detail: 'オーナーモードがOFF(運営機能は無効)' };
+    }
+    const draft = this.drafts.list().find((d) => d.id === draftId);
+    if (draft === undefined) return { ok: false, detail: '下書きが見つからない' };
+    if (draft.kind !== 'article-outline') return { ok: false, detail: 'この下書きは記事アウトラインではない' };
+    if ((this.opsConfig().zennRepoDir ?? '') === '') {
+      return { ok: false, detail: 'zenn-contentのパスが未設定(設定→接続→オーナーモード)' };
+    }
+
+    const sources = (await this.deps.readHighlightSources?.()) ?? { progressExcerpt: '', recentCommits: '' };
+    const body = await completeText(
+      this.llm('planner'),
+      'あなたは技術記事のライター。事実だけを書く。',
+      buildArticleOutlinePrompt({
+        title: draft.title,
+        outline: draft.body,
+        progressExcerpt: sources.progressExcerpt,
+      }),
+    );
+    const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 12);
+    const slug = articleSlug(draft.title, stamp);
+    const markdown = buildArticleMarkdown(
+      { title: draft.title, emoji: '⛩️', type: 'tech', topics: ['ai', 'electron', 'typescript', 'claude'] },
+      body,
+    );
+    const [saved] = this.drafts.add([
+      { kind: 'article-body', title: `Zenn記事: ${draft.title}(${slug})`, body: markdown, media: 'zenn' },
+    ]);
+    const result = await this.gate.requestExecute(
+      'zenn-repo',
+      'commit-article',
+      `zenn-content/articles/${slug}.md(published: false。公開はZennの記事設定であなたが行う)`,
+      markdown,
+      { slug, markdown },
+    );
+    return { ...result, ...(saved !== undefined ? { bodyDraftId: saved.id } : {}) };
   }
 
   strategyBoard(): MediaStrategyEntry[] {

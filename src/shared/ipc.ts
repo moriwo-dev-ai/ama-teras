@@ -138,6 +138,9 @@ export const IpcChannels = {
   operationsDraftsGenerate: 'operations:drafts-generate',
   operationsDraftsList: 'operations:drafts-list',
   operationsDraftUpdate: 'operations:draft-update',
+  /** M37: 下書きの行き先(種類ごとに固定)。どちらも岩戸ゲートの承認を通る */
+  operationsDraftRelease: 'operations:draft-release',
+  operationsDraftZennArticle: 'operations:draft-zenn-article',
   operationsStrategyBoard: 'operations:strategy-board',
   operationsDiscoverySearch: 'operations:discovery-search',
   operationsCandidateAnalyze: 'operations:candidate-analyze',
@@ -312,6 +315,8 @@ export interface AmaterasApi {
     ghDetected: boolean;
     ghPath: string | null;
     adapters: AdapterStatusInfo[];
+    /** M37: リリースノート下書きの行き先候補 */
+    repos: string[];
   }>;
   operationsSnapshot(): Promise<MetricsSnapshot | null>;
   operationsHistory(limit?: number): Promise<MetricsSnapshot[]>;
@@ -322,6 +327,16 @@ export interface AmaterasApi {
     id: string,
     patch: { status?: 'draft' | 'posted' | 'discarded'; body?: string; title?: string; media?: string },
   ): Promise<OperationsDraft | null>;
+  /** M37: リリースノート下書き → GitHub Release(下書き。承認ダイアログ経由) */
+  operationsDraftRelease(
+    draftId: string,
+    repo: string,
+    tag: string,
+  ): Promise<{ ok: boolean; detail: string }>;
+  /** M37: 記事アウトライン → 本文をLLMで起こし、承認後 zenn-content に published:false でコミット */
+  operationsDraftZennArticle(
+    draftId: string,
+  ): Promise<{ ok: boolean; detail: string; bodyDraftId?: string }>;
   operationsStrategyBoard(): Promise<MediaStrategyEntry[]>;
   operationsDiscoverySearch(keywords: string[]): Promise<{
     x: { label: string; query: string; url: string }[];

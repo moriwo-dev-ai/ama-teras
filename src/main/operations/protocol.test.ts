@@ -133,10 +133,11 @@ describe('初期アダプタの宣言と実挙動の一致', () => {
     }
   });
 
-  it('github: comment/label/merge を宣言し、executor は宣言外アクションを拒否する', async () => {
+  it('github: comment/label/merge/release を宣言し、executor は宣言外アクションを拒否する', async () => {
     const run = vi.fn().mockResolvedValue('');
     const adapter = createGithubAdapter(run, () => true);
-    expect(adapter.capabilities.execute).toEqual(['comment', 'label', 'merge']);
+    // M37: release(リリースノート下書きの行き先)を追加
+    expect(adapter.capabilities.execute).toEqual(['comment', 'label', 'merge', 'release']);
     expect(adapter.executor).toBeDefined();
     await expect(adapter.executor!('follow', {})).rejects.toThrow(/未知のアクション/);
   });

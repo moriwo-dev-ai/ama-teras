@@ -237,6 +237,24 @@ function OwnerModeSection({
               }}
             />
           </div>
+          {/* M37: Zenn記事化の行き先(zenn-content リポジトリ) */}
+          <div>
+            <p className="mb-0.5 text-xs text-zinc-400">
+              zenn-content リポジトリのパス(記事アウトラインの「Zenn記事化」の行き先)
+            </p>
+            <input
+              className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono text-xs"
+              defaultValue={ops.zennRepoDir ?? ''}
+              placeholder="C:\dev\zenn-content"
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                save({ ...ops, ...(v !== '' ? { zennRepoDir: v } : { zennRepoDir: undefined as never }) });
+              }}
+            />
+            <p className="text-[10px] text-zinc-500">
+              コミットは必ず published: false(非公開)。公開はZennの記事設定であなたが行う
+            </p>
+          </div>
           {/* M34-2: HN監視(読み取りのみ) */}
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-zinc-400">HNユーザー(karma・返信監視)</span>

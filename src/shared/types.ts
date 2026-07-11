@@ -357,6 +357,8 @@ export interface OperationsConfig {
   kamuhakariBand?: ModelBand;
   /** M34-7: 神々(判定・下書き)専用モデル帯。未設定=従来のworker帯 */
   godsBand?: ModelBand;
+  /** M37: Zenn記事リポジトリ(zenn-content)のローカルパス。未設定=「Zenn記事化」は使えない */
+  zennRepoDir?: string;
 }
 
 /** アダプタ能力宣言(OPERATIONS_DESIGN.md の規約どおり) */
@@ -435,10 +437,14 @@ export interface MetricsSnapshot {
   hn?: { karma?: number };
 }
 
-/** AMENO-uzume: 発信下書き。投稿ボタンは存在しない(コピー+投稿済みマークのみ) */
+/**
+ * AMENO-uzume: 発信下書き。行き先ごとのアクション(M37)はあるが、
+ * 外部への発行は必ず岩戸ゲート(承認)を通る。Xだけは規約上リンクを開くまで
+ */
 export interface OperationsDraft {
   id: string;
-  kind: 'x-post' | 'release-note' | 'article-outline' | 'reply' | 'weekly-report';
+  /** M37: article-body = アウトラインから起こしたZenn記事本文(frontmatter込み) */
+  kind: 'x-post' | 'release-note' | 'article-outline' | 'article-body' | 'reply' | 'weekly-report';
   title: string;
   body: string;
   createdAt: string;

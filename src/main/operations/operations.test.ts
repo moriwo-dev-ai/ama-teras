@@ -269,7 +269,7 @@ describe('M32-1: オーナーモードゲート(manager)', () => {
   it('オーナーモードOFF: status は enabled:false・アダプタ空で、収集も動かない', async () => {
     const manager = makeManager(false);
     const status = await manager.status();
-    expect(status).toEqual({ enabled: false, ghDetected: false, ghPath: null, adapters: [] });
+    expect(status).toEqual({ enabled: false, ghDetected: false, ghPath: null, adapters: [], repos: [] });
     expect(await manager.collectSnapshot()).toBeNull();
     expect(manager.listDrafts()).toEqual([]);
     expect(manager.strategyBoard()).toEqual([]);
@@ -291,6 +291,7 @@ describe('M32-1: オーナーモードゲート(manager)', () => {
     const status = await manager.status();
     expect(status.enabled).toBe(true);
     // M33-5/7・M34-1: god-definition(定義変更=承認必須)/hn/hatena(read専用)も登録される
+    // M37: zenn-repo(記事コミット。パス未設定なら availability=false)
     expect(status.adapters.map((a) => a.id).sort()).toEqual([
       'bluesky',
       'github',
@@ -299,6 +300,7 @@ describe('M32-1: オーナーモードゲート(manager)', () => {
       'hn',
       'x',
       'zenn',
+      'zenn-repo',
     ]);
     expect(status.adapters.find((a) => a.id === 'x')?.capabilities.execute).toEqual([]);
   });
