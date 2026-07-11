@@ -441,6 +441,33 @@ export interface MetricsSnapshot {
  * AMENO-uzume: 発信下書き。行き先ごとのアクション(M37)はあるが、
  * 外部への発行は必ず岩戸ゲート(承認)を通る。Xだけは規約上リンクを開くまで
  */
+/** M38-3: 発信の効果測定(投稿→前後メトリクス差分)。相関であって因果ではない */
+export interface MetricTotals {
+  stars: number;
+  zennLiked: number;
+  zennComments: number;
+  hatena: number;
+  downloads: number;
+  views: number;
+}
+
+export interface ImpactEntry {
+  draftId: string;
+  title: string;
+  media: string | null;
+  /** 本文から拾った最初のURL(どの投稿かを人間が辿る手掛かり) */
+  url: string | null;
+  postedAt: string;
+  /** 計測窓(時間)。この時間ぶん経ってから after を取る */
+  windowHours: number;
+  /** false = まだ計測窓が閉じていない/スナップショットが足りない */
+  measurable: boolean;
+  before: MetricTotals | null;
+  after: MetricTotals | null;
+  delta: MetricTotals | null;
+  note: string;
+}
+
 export interface OperationsDraft {
   id: string;
   /** M37: article-body = アウトラインから起こしたZenn記事本文(frontmatter込み) */
@@ -528,7 +555,9 @@ export type InboxItemKind =
   | 'budget-alert'
   | 'kamuhakari-report'
   /** M34-2: HNの新着コメント・自コメントへの返信(payload.fullText に全文) */
-  | 'hn-reply';
+  | 'hn-reply'
+  /** M38-2: 承認された能力ギャップから進化ジョブを起票した通知 */
+  | 'evolution';
 
 export interface InboxItem {
   id: string;

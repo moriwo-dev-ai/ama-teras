@@ -8,6 +8,7 @@ import type {
   AppConfig,
   CommunityCandidate,
   GodClockJob,
+  ImpactEntry,
   InboxItem,
   IwatoRequestPayload,
   MediaStrategyEntry,
@@ -141,6 +142,8 @@ export const IpcChannels = {
   /** M37: 下書きの行き先(種類ごとに固定)。どちらも岩戸ゲートの承認を通る */
   operationsDraftRelease: 'operations:draft-release',
   operationsDraftZennArticle: 'operations:draft-zenn-article',
+  /** M38-3: 発信の効果測定(投稿→前後メトリクス差分) */
+  operationsImpacts: 'operations:impacts',
   operationsStrategyBoard: 'operations:strategy-board',
   operationsDiscoverySearch: 'operations:discovery-search',
   operationsCandidateAnalyze: 'operations:candidate-analyze',
@@ -337,6 +340,8 @@ export interface AmaterasApi {
   operationsDraftZennArticle(
     draftId: string,
   ): Promise<{ ok: boolean; detail: string; bodyDraftId?: string }>;
+  /** M38-3: 投稿ごとの前後メトリクス差分(相関であって因果ではない) */
+  operationsImpacts(windowHours?: number): Promise<ImpactEntry[]>;
   operationsStrategyBoard(): Promise<MediaStrategyEntry[]>;
   operationsDiscoverySearch(keywords: string[]): Promise<{
     x: { label: string; query: string; url: string }[];
@@ -365,7 +370,13 @@ export interface AmaterasApi {
   operationsClocks(): Promise<GodClockJob[]>;
   operationsClockUpdate(
     id: string,
-    patch: { intervalMin?: number; enabled?: boolean; dailyTokenBudget?: number },
+    patch: {
+      intervalMin?: number;
+      enabled?: boolean;
+      dailyTokenBudget?: number;
+      /** M38-1: false=🔓 予算の調整権限を神議へ返す(施錠は予算設定時に自動) */
+      budgetSetByUser?: boolean;
+    },
   ): Promise<GodClockJob | null>;
   operationsInboxList(limit?: number): Promise<(InboxItem & { read: boolean })[]>;
   operationsInboxMarkRead(ids: string[]): Promise<void>;

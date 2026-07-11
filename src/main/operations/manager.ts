@@ -40,6 +40,7 @@ import {
   parseDrafts,
   strategyBoard,
 } from './amenoUzume';
+import { computeImpacts, summarize, type ImpactEntry } from './impact';
 import { Inbox } from './inbox';
 import {
   buildApprovalBatch,
@@ -81,6 +82,12 @@ export interface OperationsManagerDeps {
   roleProvider?: (role: 'kamuhakari' | 'gods') => LLMProvider | string;
   /** M35-4: Bluesky実行系の資格情報(secrets 'bluesky' スロットのJSON)。未注入/未設定=提案のみ */
   getBlueskySecret?: () => string | null;
+  /**
+   * M38-2: 承認済みの能力ギャップ(branch='evolve')を進化ジョブとして起票する。
+   * 起票の引き金は必ず「人間が承認バッチで承認した」ことで、神議が自分で起票することはない。
+   * 昇格は従来どおり進化サブシステムの承認制(ここは起票までを自動化する配線)
+   */
+  enqueueEvolution?: (description: string, expectedIO: string) => Promise<number>;
   /** テスト用注入 */
   ghRunner?: GhRunner;
   /** M37: zenn-content への commit/push 実行(未注入=実git) */
@@ -107,6 +114,8 @@ interface GodParams {
   seenHandles: string[];
   /** TEDIKA-rao差分チェックの既知Issue/PR番号(repo別) */
   knownIssues: Record<string, number[]>;
+  /** M38-3: 効果測定を受け箱へ報告済みの下書きID(二重報告の防止)。任意=旧形式互換 */
+  impactReported?: string[];
   /** M34-2: HN監視の既知状態(karma・スレッドのコメント総数・自コメントへの既知返信id)。任意=旧形式互換 */
   hnState?: {
     karma?: number;
@@ -379,7 +388,13 @@ export class OperationsManager {
           payload: { ts: snap.ts },
         });
         await this.watchHackerNews(snap.hn?.karma);
-        return { ok: true, detail: 'スナップショット投函', tokensUsed: 0 };
+        // M38-3: 発信の効果測定(投稿→前後差分)。計測窓が閉じた投稿を1度だけ受け箱へ
+        const reported = this.reportImpacts(godId);
+        return {
+          ok: true,
+          detail: `スナップショット投函${reported > 0 ? `(効果測定${reported}件)` : ''}`,
+          tokensUsed: 0,
+        };
       }
       if (engine === 'kamuhakari' || godId === 'kamuhakari') {
         const result = await this.runKamuhakari();
@@ -717,7 +732,10 @@ export class OperationsManager {
     return this.scheduler.list();
   }
 
-  updateClock(id: string, patch: { intervalMin?: number; enabled?: boolean; dailyTokenBudget?: number }): GodClockJob | null {
+  updateClock(
+    id: string,
+    patch: { intervalMin?: number; enabled?: boolean; dailyTokenBudget?: number; budgetSetByUser?: boolean },
+  ): GodClockJob | null {
     if (!this.ensureInitialized() || this.scheduler === null) return null;
     // M36-1: この入口はUI(=ユーザー自身の設定行為)。引き上げも承認不要で、
     // 以後の神議の自律予算調整より優先される
@@ -816,7 +834,31 @@ export class OperationsManager {
         return await this.requestGodDefinitionApply(item.gap.godDraft);
       }
       if (item.gap.branch === 'evolve') {
-        return { ok: true, detail: '起票案を承認した。通常チャットで内容を request_capability として起票してください' };
+        // M38-2: 承認 → 進化ジョブとして自動起票(従来は「通常チャットで起票して」の手渡しだった)。
+        // 起票の引き金は人間の承認バッチのみ。生成物の昇格は進化サブシステムの承認制のまま
+        if (this.deps.enqueueEvolution === undefined) {
+          return { ok: true, detail: '起票案を承認した(進化サブシステム未接続。通常チャットで request_capability として起票してください)' };
+        }
+        try {
+          const jobId = await this.deps.enqueueEvolution(
+            `[神議] ${item.title}`,
+            item.detail,
+          );
+          this.inbox?.post({
+            kind: 'evolution',
+            godId: 'kamuhakari',
+            title: `進化ジョブ #${jobId} を起票した: ${item.title}`,
+            payload: { jobId },
+          });
+          this.thread?.post({
+            role: 'system',
+            kind: 'notice',
+            body: `🧬 承認により進化ジョブ #${jobId} を起票した(「${item.title}」)。進捗と昇格承認は進化タブで`,
+          });
+          return { ok: true, detail: `進化ジョブ #${jobId} を起票した(進捗・昇格承認は進化タブ)` };
+        } catch (err) {
+          return { ok: false, detail: `進化ジョブの起票に失敗: ${err instanceof Error ? err.message : String(err)}` };
+        }
       }
       return { ok: true, detail: '単発カバーを承認した。提案の下書きを通常チャットで実行してください' };
     }
@@ -891,6 +933,44 @@ export class OperationsManager {
   ): OperationsDraft | null {
     if (!this.ensureInitialized() || this.drafts === null) return null;
     return this.drafts.update(id, patch);
+  }
+
+  // ---- M38-3: 発信の効果測定(投稿 → 前後メトリクス差分)----
+
+  /**
+   * 投稿済みドラフト × メトリクス時系列の前後差分。
+   * 神議が能力ギャップ(evolve)として要求した「投稿URL→前後メトリクス差分の自動記録」の実体。
+   */
+  impacts(windowHours = 24): ImpactEntry[] {
+    if (!this.ensureInitialized() || this.drafts === null || this.omoi === null) return [];
+    const posted = this.drafts.list().filter((d) => d.status === 'posted');
+    return computeImpacts(posted, this.omoi.history(200), new Date(), windowHours);
+  }
+
+  /** 計測窓が閉じた投稿の効果を、1投稿につき1回だけ受け箱へ投函する。戻り値=今回報告した件数 */
+  private reportImpacts(godId: string): number {
+    if (this.inbox === null) return 0;
+    const params = this.loadParams();
+    const already = new Set(params.impactReported ?? []);
+    const fresh = this.impacts().filter((e) => e.measurable && !already.has(e.draftId));
+    for (const entry of fresh) {
+      this.inbox.post({
+        kind: 'metrics',
+        godId,
+        title: `効果測定: ${summarize(entry)}`,
+        // 因果ではなく相関(同時期の他要因は排除できない)。判断材料としてのみ使う
+        payload: {
+          draftId: entry.draftId,
+          url: entry.url,
+          media: entry.media,
+          postedAt: entry.postedAt,
+          delta: entry.delta,
+        },
+      });
+      already.add(entry.draftId);
+    }
+    if (fresh.length > 0) this.saveParams({ ...params, impactReported: [...already] });
+    return fresh.length;
   }
 
   // ---- M37: 下書きの行き先(種類ごとに固定。すべて岩戸ゲート経由)----

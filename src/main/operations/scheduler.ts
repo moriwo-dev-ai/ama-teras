@@ -163,11 +163,19 @@ export class GodScheduler {
    */
   update(
     id: string,
-    patch: Partial<Pick<GodClockJob, 'intervalMin' | 'enabled' | 'dailyTimes' | 'dailyTokenBudget'>>,
+    patch: Partial<
+      Pick<GodClockJob, 'intervalMin' | 'enabled' | 'dailyTimes' | 'dailyTokenBudget' | 'budgetSetByUser'>
+    >,
     opts: { byUser?: boolean } = {},
   ): GodClockJob | null {
     const job = this.jobs.find((j) => j.id === id);
     if (!job) return null;
+    // M38-1: 予算のロック解錠(🔓)。ユーザーが明示的に神議へ調整権限を返す操作。
+    // 施錠(true)は予算設定と同時にしか起きない(下の byUser 経路)ので、ここでは解錠のみ扱う
+    if (patch.budgetSetByUser === false) {
+      job.budgetSetByUser = undefined as never;
+      delete job.budgetSetByUser;
+    }
     if (patch.intervalMin !== undefined) {
       job.intervalMin = clampIntervalMin(patch.intervalMin);
       job.baseIntervalMin = undefined as never;

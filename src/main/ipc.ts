@@ -610,6 +610,8 @@ export async function registerIpcHandlers(
     roleProvider: (role) => service.operationsProvider(role),
     // M35-4: Bluesky実行系の資格情報(secretsのblueskyスロット。無ければ提案のみ)
     getBlueskySecret: () => secrets.get('bluesky'),
+    // M38-2: 承認された能力ギャップ(evolve)を進化ジョブへ。昇格は従来どおり承認制
+    enqueueEvolution: (description, expectedIO) => service.evolutionEnqueue(description, expectedIO).then((r) => r.jobId),
     readHighlightSources: async () => {
       let progressExcerpt = '';
       try {
@@ -660,6 +662,9 @@ export async function registerIpcHandlers(
     assertString(draftId, 'draftId');
     return operations.requestZennArticle(draftId);
   });
+  ipcMain.handle(IpcChannels.operationsImpacts, (_e, windowHours: unknown) =>
+    operations.impacts(typeof windowHours === 'number' ? windowHours : 24),
+  );
   ipcMain.handle(IpcChannels.operationsStrategyBoard, () => operations.strategyBoard());
   ipcMain.handle(IpcChannels.operationsDiscoverySearch, (_e, keywords: unknown) => {
     if (!Array.isArray(keywords) || keywords.some((k) => typeof k !== 'string')) {
@@ -705,6 +710,8 @@ export async function registerIpcHandlers(
       ...(typeof p['intervalMin'] === 'number' ? { intervalMin: p['intervalMin'] } : {}),
       ...(typeof p['enabled'] === 'boolean' ? { enabled: p['enabled'] } : {}),
       ...(typeof p['dailyTokenBudget'] === 'number' ? { dailyTokenBudget: p['dailyTokenBudget'] } : {}),
+      // M38-1: 🔓解錠(神議へ調整権限を返す)。施錠は予算設定と同時に自動で立つ
+      ...(p['budgetSetByUser'] === false ? { budgetSetByUser: false } : {}),
     });
   });
   ipcMain.handle(IpcChannels.operationsInboxList, (_e, limit: unknown) =>

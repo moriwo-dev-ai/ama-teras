@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type {
   CommunityCandidate,
   GodClockJob,
+  ImpactEntry,
   InboxItem,
   MediaStrategyEntry,
   MetricsSnapshot,
@@ -66,12 +67,30 @@ function GodClocks(): JSX.Element {
                 }
               }}
             />
-            tok{j.budgetSetByUser === true ? ' 🔒' : ''}
+            tok
+            {/* M38-1: 施錠/解錠トグル。🔒=あなたの設定が優先 / 🔓=神議に調整権限を返す */}
+            <button
+              className="ml-0.5 rounded px-0.5 hover:bg-zinc-800"
+              title={
+                j.budgetSetByUser === true
+                  ? '🔒 あなたの手動設定が神議の自律調整より優先されている。クリックで解錠(神議に予算の調整権限を返す)'
+                  : '🔓 予算は神議が自律調整できる状態。予算欄に数値を入れると自動で施錠される'
+              }
+              onClick={() => {
+                if (j.budgetSetByUser !== true) return; // 施錠は予算設定と同時にしか起きない
+                void window.api
+                  .operationsClockUpdate(j.id, { budgetSetByUser: false })
+                  .then(reload);
+              }}
+            >
+              {j.budgetSetByUser === true ? '🔒' : '🔓'}
+            </button>
           </span>
         </div>
       ))}
       <p className="text-[10px] text-zinc-600">
         予算は0=無制限。手動で設定した予算(🔒)は神議の自律調整より優先される。
+        🔒をクリックすると解錠(🔓)し、神議に予算の調整権限を返す(値はそのまま)。
         間隔の調整は神議が自律で行う(予算引き上げの提案はあなたの承認制)。会話は左の⛩運営スレッドで
       </p>
       <GodDefEditor />
@@ -288,6 +307,68 @@ function MetricsView({ current, previous }: { current: MetricsSnapshot; previous
       <p className="rounded border border-zinc-800 bg-zinc-950 p-1.5 text-[10px] text-zinc-500">
         ℹ X(Twitter)関連の反応はアプリでは監視できません(規約上、自動取得を行いません)。
         Xアプリの通知で確認してください
+      </p>
+    </div>
+  );
+}
+
+/**
+ * M38-3: 発信の効果測定(投稿 → 前後メトリクス差分)。
+ * 神議が要求した「どの投稿がどの変化を生んだか」の受け皿。相関であって因果ではない
+ */
+function ImpactView(): JSX.Element | null {
+  const [entries, setEntries] = useState<ImpactEntry[]>([]);
+  useEffect(() => {
+    void window.api.operationsImpacts().then(setEntries);
+  }, []);
+  if (entries.length === 0) return null;
+  const fmt = (d: ImpactEntry['delta']): string => {
+    if (d === null) return '';
+    const parts: string[] = [];
+    const push = (label: string, v: number): void => {
+      if (v !== 0) parts.push(`${label}${v > 0 ? '+' : ''}${v}`);
+    };
+    push('★', d.stars);
+    push('Zenn♥', d.zennLiked);
+    push('💬', d.zennComments);
+    push('B!', d.hatena);
+    push('DL', d.downloads);
+    push('閲覧', d.views);
+    return parts.length > 0 ? parts.join(' / ') : '変化なし(±0)';
+  };
+  return (
+    <div className="space-y-1 rounded border border-zinc-800 bg-zinc-950 p-2">
+      <p className="text-xs font-semibold text-zinc-300">発信の効果(投稿前後の差分)</p>
+      {entries.map((e) => (
+        <div key={e.draftId} className="text-[11px]">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="rounded bg-zinc-800 px-1 text-[10px] text-zinc-400">
+              {e.media ?? '媒体不明'}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-zinc-300">{e.title}</span>
+            <span className={e.measurable ? 'text-green-400' : 'text-zinc-500'}>
+              {e.measurable ? fmt(e.delta) : e.note}
+            </span>
+          </div>
+          <p className="text-[10px] text-zinc-600">
+            {e.postedAt.slice(0, 16).replace('T', ' ')} 投稿 / 計測窓{e.windowHours}h
+            {e.url !== null && (
+              <>
+                {' '}
+                ·{' '}
+                <button
+                  className="underline hover:text-zinc-400"
+                  onClick={() => window.open(e.url ?? '', '_blank', 'noopener,noreferrer')}
+                >
+                  投稿先URL
+                </button>
+              </>
+            )}
+          </p>
+        </div>
+      ))}
+      <p className="text-[10px] text-zinc-600">
+        ※ 相関であって因果ではない(同時期の他要因は排除できない)。判断材料としてのみ使う
       </p>
     </div>
   );
@@ -700,6 +781,7 @@ export function OperationsPanel(): JSX.Element {
         {history.length >= 2 && (
           <p className="text-[10px] text-zinc-500">時系列: {history.length}件(userData/operations/metrics.jsonl)</p>
         )}
+        <ImpactView />
       </Section>
 
       <Section title="AMENO-uzume" kana="アメノウズメ" role="広報と仲間探し">
