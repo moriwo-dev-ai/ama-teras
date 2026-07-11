@@ -72,6 +72,55 @@ export class HnReader {
   }
 }
 
+export interface HnCommentNode {
+  id: number;
+  author: string;
+  text: string;
+}
+
+/** M34-2: karma監視(公式API・読み取りのみ) */
+export async function fetchUserKarma(
+  fetchImpl: FetchLike,
+  user: string,
+): Promise<{ karma: number; submitted: number[] } | null> {
+  try {
+    const res = await fetchImpl(`https://hacker-news.firebaseio.com/v0/user/${encodeURIComponent(user)}.json`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as Record<string, unknown> | null;
+    if (data === null) return null;
+    return {
+      karma: typeof data['karma'] === 'number' ? data['karma'] : 0,
+      submitted: Array.isArray(data['submitted']) ? (data['submitted'] as number[]).slice(0, 30) : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** M34-2: item取得(スレッドのdescendants数・自コメントのkids=返信の検知に使う) */
+export async function fetchItem(
+  fetchImpl: FetchLike,
+  id: number,
+): Promise<{ id: number; by: string; text: string; title: string; kids: number[]; descendants: number; type: string } | null> {
+  try {
+    const res = await fetchImpl(`https://hacker-news.firebaseio.com/v0/item/${id}.json`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as Record<string, unknown> | null;
+    if (data === null || data['deleted'] === true) return null;
+    return {
+      id,
+      by: String(data['by'] ?? ''),
+      text: String(data['text'] ?? '').replace(/<[^>]+>/g, ' '),
+      title: String(data['title'] ?? ''),
+      kids: Array.isArray(data['kids']) ? (data['kids'] as number[]) : [],
+      descendants: typeof data['descendants'] === 'number' ? data['descendants'] : 0,
+      type: String(data['type'] ?? ''),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function createHnAdapter(): AdapterRuntime {
   return {
     id: 'hn',

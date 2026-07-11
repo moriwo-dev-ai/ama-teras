@@ -84,7 +84,7 @@ import {
   type ScopePolicy,
 } from '../tools/executor';
 import type { ToolPlugin } from '../tools/types';
-import { resolveBandLLM, type ModelBandName } from './bands';
+import { resolveBandLLM, resolveOperationsLLM, type ModelBandName } from './bands';
 import type { EventBus } from './events';
 import { ProcessManager } from './processes';
 import { previewFile, resolveRevealTarget, type RevealResolveResult } from './filePreview';
@@ -799,6 +799,29 @@ export class AgentService {
   /** M32/M33: 運営機能用のLLM帯。神エージェントは安い帯(worker/explorer)を使う。string=キー未設定 */
   operationsBandProvider(band: 'planner' | 'reviewer' | 'worker' | 'explorer'): LLMProvider | string {
     return this.createBandProvider(band);
+  }
+
+  /**
+   * M34-7: 運営専用モデル帯(operations.kamuhakariBand/godsBand)。
+   * 未設定はModelPolicyの従来帯(planner/worker)、それも無ければ単一モデル設定で代行。
+   * usage集計は 'kamuhakari' / 'gods' ラベルで区別する(帯別コスト表示に行が出る)
+   */
+  operationsProvider(role: 'kamuhakari' | 'gods'): LLMProvider | string {
+    const cfg = this.deps.config.get();
+    const resolved = resolveOperationsLLM(cfg.operations, this.modelPolicy(), role);
+    if (resolved === null) return this.createProvider(); // 単一モデル設定で代行(mainラベル)
+    const key = this.deps.secrets.get(resolved.provider);
+    if (!key) {
+      return `運営(${role === 'kamuhakari' ? '神議' : '神々'}): ${resolved.provider} のAPIキーが未設定`;
+    }
+    return this.track(
+      resolved.provider === 'openai'
+        ? new OpenAIProvider(key, resolved.model)
+        : new AnthropicProvider(key, resolved.model),
+      resolved.provider,
+      resolved.model,
+      role,
+    );
   }
 
   // ---- workspace / executor ----

@@ -581,6 +581,8 @@ export async function registerIpcHandlers(
         }, 10 * 60_000);
       }),
     bandProvider: (band) => service.operationsBandProvider(band),
+    // M34-7: 運営専用モデル帯(神議/神々。usage集計も区別される)
+    roleProvider: (role) => service.operationsProvider(role),
     readHighlightSources: async () => {
       let progressExcerpt = '';
       try {

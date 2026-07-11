@@ -191,6 +191,64 @@ describe('M32-5: TEDIKA-rao', () => {
   });
 });
 
+describe('M34-1/2: はてブ+HN観測(旧形式互換込み)', () => {
+  it('スナップショットに はてブ数(Zenn pathから自動導出+watchUrls)とHN karmaが載る', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes('zenn.dev/api/articles/my-slug')) {
+        return jsonRes({ article: { liked_count: 3, comments_count: 0, path: '/moriwo/articles/my-slug' } });
+      }
+      if (url.includes('bookmark.hatenaapis.com/count/entries')) {
+        return jsonRes({
+          'https://zenn.dev/moriwo/articles/my-slug': 4,
+          'https://example.com/extra': 2,
+        });
+      }
+      if (url.includes('firebaseio.com/v0/user/moriwo-dev-ai.json')) {
+        return jsonRes({ karma: 5, submitted: [] });
+      }
+      return jsonRes(null, false);
+    });
+    const { HatenaReader } = await import('./adapters/hatena');
+    const omoi = new OmoiKami(dir, {
+      github: null,
+      zenn: new ZennReader(fetchImpl),
+      hatena: new HatenaReader(fetchImpl),
+      fetchImpl,
+    });
+    const snap = await omoi.collectSnapshot({
+      enabled: true,
+      repos: [],
+      zennSlugs: ['my-slug'],
+      watchUrls: ['https://example.com/extra'],
+      hnUser: 'moriwo-dev-ai',
+    });
+    expect(snap.hatena).toEqual({
+      'https://zenn.dev/moriwo/articles/my-slug': 4,
+      'https://example.com/extra': 2,
+    });
+    expect(snap.hn).toEqual({ karma: 5 });
+    // はてブAPIへ渡ったURLにZenn由来の自動導出が含まれる
+    const hatenaCall = fetchImpl.mock.calls.find(([u]) => (u as string).includes('hatenaapis'))?.[0] as string;
+    expect(hatenaCall).toContain(encodeURIComponent('https://zenn.dev/moriwo/articles/my-slug'));
+  });
+
+  it('【互換】稼働中インスタンスが書いた旧形式スナップショット(hatena/hn無し)を読める', async () => {
+    const { appendFileSync, mkdirSync } = await import('node:fs');
+    mkdirSync(dir, { recursive: true });
+    // M33世代の実フォーマット(hatena/hnフィールドなし)
+    appendFileSync(
+      join(dir, 'metrics.jsonl'),
+      `${JSON.stringify({ ts: '2026-07-11T06:07:58.855Z', github: { 'o/r': { stars: 0, forks: 0, watchers: 0, openIssues: 0, openPRs: 0 } }, zenn: { s: { liked: 2, comments: 0 } }, registry: { plugins: 1 } })}\n`,
+      'utf8',
+    );
+    const omoi = new OmoiKami(dir, { github: null, zenn: new ZennReader() });
+    const history = omoi.history(10);
+    expect(history).toHaveLength(1);
+    expect(history[0]?.zenn['s']?.liked).toBe(2);
+    expect(history[0]?.hatena).toBeUndefined(); // 旧形式のまま壊れない
+  });
+});
+
 describe('M32-1: オーナーモードゲート(manager)', () => {
   const makeManager = (enabled: boolean): OperationsManager =>
     new OperationsManager({
@@ -232,8 +290,55 @@ describe('M32-1: オーナーモードゲート(manager)', () => {
     });
     const status = await manager.status();
     expect(status.enabled).toBe(true);
-    // M33-5/7: god-definition(定義変更=承認必須)と hn(read専用)もアダプタとして登録される
-    expect(status.adapters.map((a) => a.id).sort()).toEqual(['bluesky', 'github', 'god-definition', 'hn', 'x', 'zenn']);
+    // M33-5/7・M34-1: god-definition(定義変更=承認必須)/hn/hatena(read専用)も登録される
+    expect(status.adapters.map((a) => a.id).sort()).toEqual([
+      'bluesky',
+      'github',
+      'god-definition',
+      'hatena',
+      'hn',
+      'x',
+      'zenn',
+    ]);
     expect(status.adapters.find((a) => a.id === 'x')?.capabilities.execute).toEqual([]);
+  });
+
+  it('M34-2: 自分のHNコメントへの返信を検知し、全文つきで受け箱へ(2回目の巡回で差分)', async () => {
+    const kids: number[] = [];
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes('/v0/user/moriwo-dev-ai.json')) return jsonRes({ karma: 1, submitted: [100] });
+      if (url.includes('/v0/item/100.json')) {
+        return jsonRes({ id: 100, type: 'comment', by: 'moriwo-dev-ai', text: 'my comment', kids: [...kids] });
+      }
+      if (url.includes('/v0/item/200.json')) {
+        return jsonRes({ id: 200, type: 'comment', by: 'alice', text: '<p>great project!</p>' });
+      }
+      return jsonRes(null, false);
+    });
+    const manager = new OperationsManager({
+      userDataDir: dir,
+      getConfig: () =>
+        ({
+          operations: { enabled: true, repos: [], zennSlugs: [], hnUser: 'moriwo-dev-ai' },
+        }) as unknown as AppConfig,
+      audit: () => {},
+      approvalPrompt: () => Promise.resolve(false),
+      bandProvider: () => 'キー未設定',
+      ghRunner: async () => '[]',
+      fetchImpl,
+    });
+    // 1回目: 基準線の確立(返信なし)
+    await manager.collectSnapshot(); // 初期化を確実に
+    const run = (
+      manager as unknown as { runGod: (id: string) => Promise<{ ok: boolean; detail: string }> }
+    ).runGod.bind(manager);
+    await run('omoi-kami');
+    // 2回目: 返信(kid 200)が付いた
+    kids.push(200);
+    await run('omoi-kami');
+    const replies = manager.inboxList(50).filter((i) => i.kind === 'hn-reply');
+    expect(replies.length).toBeGreaterThanOrEqual(1);
+    expect(replies[0]?.title).toContain('@alice');
+    expect(String(replies[0]?.payload['fullText'])).toContain('great project');
   });
 });

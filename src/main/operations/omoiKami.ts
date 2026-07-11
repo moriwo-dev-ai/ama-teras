@@ -8,6 +8,8 @@ import type {
   ZennMetrics,
 } from '../../shared/types';
 import type { GithubReader } from './adapters/github';
+import { fetchUserKarma } from './adapters/hn';
+import type { HatenaReader } from './adapters/hatena';
 import type { FetchLike, ZennReader } from './adapters/zenn';
 
 /**
@@ -24,6 +26,8 @@ export class OmoiKami {
     private readonly deps: {
       github: GithubReader | null;
       zenn: ZennReader;
+      /** M34-1: はてブ数(未注入なら収集しない) */
+      hatena?: HatenaReader;
       fetchImpl?: FetchLike;
     },
   ) {
@@ -48,6 +52,27 @@ export class OmoiKami {
       if (m !== null) zenn[slug] = m;
     }
     const snapshot: MetricsSnapshot = { ts: new Date().toISOString(), github, zenn };
+
+    // M34-1: はてブ数。Zenn記事URLはAPIのpathから自動導出+watchUrlsの任意URL
+    if (this.deps.hatena !== undefined) {
+      const urls = [
+        ...Object.values(zenn)
+          .map((m) => (m.path !== undefined ? `https://zenn.dev${m.path}` : null))
+          .filter((u): u is string => u !== null),
+        ...(cfg.watchUrls ?? []),
+      ];
+      if (urls.length > 0) {
+        const counts = await this.deps.hatena.counts(urls);
+        if (Object.keys(counts).length > 0) snapshot.hatena = counts;
+      }
+    }
+
+    // M34-2: HN karma(読み取りのみ)
+    if (cfg.hnUser !== undefined && cfg.hnUser !== '') {
+      const fetchImpl = this.deps.fetchImpl ?? ((url: string) => fetch(url));
+      const user = await fetchUserKarma(fetchImpl, cfg.hnUser);
+      if (user !== null) snapshot.hn = { karma: user.karma };
+    }
 
     if (registryUrl !== undefined && registryUrl.trim() !== '') {
       try {

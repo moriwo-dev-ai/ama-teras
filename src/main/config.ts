@@ -50,7 +50,36 @@ export function parseOperationsConfig(raw: unknown): OperationsConfig | undefine
   const zennSlugs = Array.isArray(rec['zennSlugs'])
     ? rec['zennSlugs'].filter((s): s is string => typeof s === 'string' && /^[\w-]+$/.test(s))
     : [];
-  return { enabled: rec['enabled'], repos, zennSlugs };
+  const out: OperationsConfig = { enabled: rec['enabled'], repos, zennSlugs };
+  // M34: 追加フィールドは全て任意(旧形式=無しでもそのまま通る)
+  if (Array.isArray(rec['watchUrls'])) {
+    const urls = rec['watchUrls'].filter((u): u is string => typeof u === 'string' && /^https?:\/\//.test(u));
+    if (urls.length > 0) out.watchUrls = urls;
+  }
+  if (typeof rec['hnUser'] === 'string' && /^[\w-]{1,30}$/.test(rec['hnUser'])) out.hnUser = rec['hnUser'];
+  if (Array.isArray(rec['hnThreads'])) {
+    const threads = rec['hnThreads']
+      .map((t) => {
+        if (typeof t !== 'string') return null;
+        const m = /(?:item\?id=)?(\d{4,12})/.exec(t.trim());
+        return m ? m[1]! : null;
+      })
+      .filter((t): t is string => t !== null);
+    if (threads.length > 0) out.hnThreads = threads;
+  }
+  const parseBand = (v: unknown): ModelBand | undefined => {
+    if (typeof v !== 'object' || v === null) return undefined;
+    const b = v as Record<string, unknown>;
+    if ((b['provider'] === 'anthropic' || b['provider'] === 'openai') && typeof b['model'] === 'string') {
+      return { provider: b['provider'], model: b['model'] };
+    }
+    return undefined;
+  };
+  const kamu = parseBand(rec['kamuhakariBand']);
+  if (kamu !== undefined) out.kamuhakariBand = kamu;
+  const gods = parseBand(rec['godsBand']);
+  if (gods !== undefined) out.godsBand = gods;
+  return out;
 }
 
 /**

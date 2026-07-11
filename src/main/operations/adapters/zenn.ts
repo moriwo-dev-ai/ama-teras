@@ -19,9 +19,11 @@ export class ZennReader {
       const article = (data['article'] ?? data) as Record<string, unknown>;
       const liked = article['liked_count'];
       const comments = article['comments_count'];
+      const path = article['path']; // M34-1: 正規URL(はてブ数の自動導出用)
       return {
         liked: typeof liked === 'number' ? liked : 0,
         comments: typeof comments === 'number' ? comments : 0,
+        ...(typeof path === 'string' && path.startsWith('/') ? { path } : {}),
       };
     } catch {
       return null;

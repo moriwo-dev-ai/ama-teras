@@ -245,9 +245,30 @@ function MetricsView({ current, previous }: { current: MetricsSnapshot; previous
           </div>
         );
       })}
+      {/* M34-1/2: はてブ数・HN karma(前回比つき) */}
+      {current.hatena !== undefined && (
+        <div className="rounded border border-zinc-800 bg-zinc-950 p-2 text-xs text-zinc-400">
+          {Object.entries(current.hatena).map(([url, count]) => (
+            <div key={url} className="flex gap-2">
+              <span className="font-semibold text-zinc-300">B! {delta(count, previous?.hatena?.[url])}</span>
+              <span className="min-w-0 truncate text-zinc-600">{url.replace(/^https?:\/\//, '')}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {current.hn?.karma !== undefined && (
+        <p className="text-xs text-zinc-400">
+          <span className="font-semibold text-zinc-300">HN karma {delta(current.hn.karma, previous?.hn?.karma)}</span>
+        </p>
+      )}
       {current.registry && (
         <p className="text-[10px] text-zinc-500">レジストリ公開プラグイン: {current.registry.plugins}件</p>
       )}
+      {/* M34-3: X告知の扱い(誤解防止の固定注記) */}
+      <p className="rounded border border-zinc-800 bg-zinc-950 p-1.5 text-[10px] text-zinc-500">
+        ℹ X(Twitter)関連の反応はアプリでは監視できません(規約上、自動取得を行いません)。
+        Xアプリの通知で確認してください
+      </p>
     </div>
   );
 }

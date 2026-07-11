@@ -326,13 +326,26 @@ export interface AppConfig {
 
 // ---- M32: Project TAKAMA-gahara(運営) ----
 
-/** M32-1: 運営設定。enabled=オーナーモード(既定OFF) */
+/** M32-1: 運営設定。enabled=オーナーモード(既定OFF)。M34のフィールドは全て任意=旧形式互換 */
 export interface OperationsConfig {
   enabled: boolean;
   /** 観測対象リポジトリ('owner/repo' 形式) */
   repos: string[];
   /** 観測対象Zenn記事スラッグ(zenn.dev/api/articles/{slug}) */
   zennSlugs: string[];
+  /**
+   * M34-1: はてブ数の監視URL(任意追加分)。Zenn記事のURLは zennSlugs から
+   * 自動導出(APIのpath)されるので、ここには他媒体のURLだけ入れればよい
+   */
+  watchUrls?: string[];
+  /** M34-2: HN karma監視のユーザー名(読み取りのみ) */
+  hnUser?: string;
+  /** M34-2: HN監視スレッド(item idまたはitem?id=のURL) */
+  hnThreads?: string[];
+  /** M34-7: 神議(分析・週報)専用モデル帯。未設定=従来のplanner帯 */
+  kamuhakariBand?: ModelBand;
+  /** M34-7: 神々(判定・下書き)専用モデル帯。未設定=従来のworker帯 */
+  godsBand?: ModelBand;
 }
 
 /** アダプタ能力宣言(OPERATIONS_DESIGN.md の規約どおり) */
@@ -394,14 +407,21 @@ export interface RepoMetrics {
 export interface ZennMetrics {
   liked: number;
   comments: number;
+  /** M34-1: 記事の正規URLパス(はてブ数導出用。旧スナップショットには無い=任意) */
+  path?: string;
 }
 
-/** OMOI-kami: 日次スナップショット(userData/operations/metrics.jsonl に1行1件) */
+/** OMOI-kami: 日次スナップショット(userData/operations/metrics.jsonl に1行1件)。
+ *  M34フィールドは全て任意=稼働中インスタンスが書いた旧形式もそのまま読める */
 export interface MetricsSnapshot {
   ts: string;
   github: Record<string, RepoMetrics>;
   zenn: Record<string, ZennMetrics>;
   registry?: { plugins: number };
+  /** M34-1: はてブ数(URL→件数) */
+  hatena?: Record<string, number>;
+  /** M34-2: HN観測(karma等) */
+  hn?: { karma?: number };
 }
 
 /** AMENO-uzume: 発信下書き。投稿ボタンは存在しない(コピー+投稿済みマークのみ) */
@@ -484,7 +504,9 @@ export type InboxItemKind =
   | 'draft'
   | 'triage'
   | 'budget-alert'
-  | 'kamuhakari-report';
+  | 'kamuhakari-report'
+  /** M34-2: HNの新着コメント・自コメントへの返信(payload.fullText に全文) */
+  | 'hn-reply';
 
 export interface InboxItem {
   id: string;

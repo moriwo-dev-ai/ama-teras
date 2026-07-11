@@ -13,7 +13,8 @@ import type {
 import type { LLMProvider } from '../providers/types';
 import { createBlueskyAdapter, BlueskyReader, type BlueskyPost } from './adapters/bluesky';
 import { createGithubAdapter, defaultGhRunner, detectGhPath, GithubReader, type GhRunner } from './adapters/github';
-import { createHnAdapter, HnReader, type HnStory } from './adapters/hn';
+import { createHatenaAdapter, HatenaReader } from './adapters/hatena';
+import { createHnAdapter, fetchItem, fetchUserKarma, HnReader, type HnStory } from './adapters/hn';
 import { createXAdapter, buildXSearchSuggestions, type XSearchSuggestion } from './adapters/x';
 import { createZennAdapter, ZennReader, type FetchLike } from './adapters/zenn';
 import {
@@ -58,6 +59,12 @@ export interface OperationsManagerDeps {
   approvalPrompt: (req: IwatoRequestPayload) => Promise<boolean>;
   /** LLM帯の取得(service注入。string=キー未設定メッセージ)。神エージェントは worker/explorer */
   bandProvider: (band: 'planner' | 'reviewer' | 'worker' | 'explorer') => LLMProvider | string;
+  /**
+   * M34-7: 運営専用モデル帯(kamuhakariBand/godsBand)を解決したプロバイダ。
+   * 未設定時は従来帯(planner/worker)へフォールバックし、usage集計は
+   * 'kamuhakari'/'gods' ラベルで区別される。未注入時は bandProvider で代行
+   */
+  roleProvider?: (role: 'kamuhakari' | 'gods') => LLMProvider | string;
   /** テスト用注入 */
   ghRunner?: GhRunner;
   fetchImpl?: FetchLike;
@@ -80,6 +87,12 @@ interface GodParams {
   seenHandles: string[];
   /** TEDIKA-rao差分チェックの既知Issue/PR番号(repo別) */
   knownIssues: Record<string, number[]>;
+  /** M34-2: HN監視の既知状態(karma・スレッドのコメント総数・自コメントへの既知返信id)。任意=旧形式互換 */
+  hnState?: {
+    karma?: number;
+    threadDescendants: Record<string, number>;
+    ownCommentKids: Record<string, number[]>;
+  };
 }
 
 const DEFAULT_GOD_PARAMS: GodParams = {
@@ -149,6 +162,7 @@ export class OperationsManager {
     gate.register(createXAdapter());
     gate.register(createBlueskyAdapter());
     gate.register(createHnAdapter());
+    gate.register(createHatenaAdapter());
 
     // M33-5: 神の定義レジストリ+定義変更アダプタ。
     // 定義の新設・改造(組織図の自己改変)は岩戸ゲートの承認を通ったexecutorのみが
@@ -180,6 +194,7 @@ export class OperationsManager {
     this.omoi = new OmoiKami(this.dir, {
       github: this.github,
       zenn: this.zenn,
+      hatena: new HatenaReader(this.deps.fetchImpl),
       ...(this.deps.fetchImpl !== undefined ? { fetchImpl: this.deps.fetchImpl } : {}),
     });
     this.drafts = new DraftStore(this.dir);
@@ -301,9 +316,13 @@ export class OperationsManager {
 
   // ---- M33: 神々の定刻実行(T3)----
 
-  private cheapLLM(): ReturnType<OperationsManagerDeps['bandProvider']> {
-    // 神エージェントは安い帯。worker帯が未設定でも service 側が単一モデルへフォールバックする
-    return this.deps.bandProvider('worker');
+  private cheapLLM(): LLMProvider | string {
+    // M34-7: 運営専用帯(godsBand)優先。未設定はworker帯へフォールバック(roleProvider内で解決)
+    return this.deps.roleProvider?.('gods') ?? this.deps.bandProvider('worker');
+  }
+
+  private kamuhakariLLM(): LLMProvider | string {
+    return this.deps.roleProvider?.('kamuhakari') ?? this.deps.bandProvider('planner');
   }
 
   private async runGod(godId: string): Promise<{ ok: boolean; detail: string; tokensUsed: number }> {
@@ -320,12 +339,14 @@ export class OperationsManager {
         if (snap === null) return { ok: false, detail: '収集失敗', tokensUsed: 0 };
         const stars = Object.values(snap.github).reduce((a, m) => a + m.stars, 0);
         const liked = Object.values(snap.zenn).reduce((a, m) => a + m.liked, 0);
+        const hatena = Object.values(snap.hatena ?? {}).reduce((a, c) => a + c, 0);
         this.inbox.post({
           kind: 'metrics',
           godId,
-          title: `観測: ★${stars} / Zenn♥${liked}`,
+          title: `観測: ★${stars} / Zenn♥${liked}${snap.hatena !== undefined ? ` / B!${hatena}` : ''}${snap.hn?.karma !== undefined ? ` / HN karma ${snap.hn.karma}` : ''}`,
           payload: { ts: snap.ts },
         });
+        await this.watchHackerNews(snap.hn?.karma);
         return { ok: true, detail: 'スナップショット投函', tokensUsed: 0 };
       }
       if (engine === 'kamuhakari' || godId === 'kamuhakari') {
@@ -336,6 +357,74 @@ export class OperationsManager {
     } catch (err) {
       return { ok: false, detail: err instanceof Error ? err.message : String(err), tokensUsed: 0 };
     }
+  }
+
+  /**
+   * M34-2: HN監視(読み取りのみ・書き込みは実装しない)。
+   * karma変化・登録スレッドの新コメント・自分のコメントへの返信(全文添付)を受け箱へ。
+   * 既知状態は god-params.json の hnState(任意フィールド=旧形式互換)
+   */
+  private async watchHackerNews(currentKarma: number | undefined): Promise<void> {
+    if (this.inbox === null) return;
+    const cfg = this.opsConfig();
+    if (cfg.hnUser === undefined && (cfg.hnThreads === undefined || cfg.hnThreads.length === 0)) return;
+    const fetchImpl = this.deps.fetchImpl ?? ((url: string) => fetch(url));
+    const params = this.loadParams();
+    const state = params.hnState ?? { threadDescendants: {}, ownCommentKids: {} };
+
+    // karma変化
+    if (currentKarma !== undefined && state.karma !== undefined && currentKarma !== state.karma) {
+      this.inbox.post({
+        kind: 'metrics',
+        godId: 'omoi-kami',
+        title: `HN karma ${state.karma} → ${currentKarma}(${currentKarma > state.karma ? '⬆+' : '⬇'}${currentKarma - state.karma})`,
+        payload: { karma: currentKarma },
+      });
+    }
+    if (currentKarma !== undefined) state.karma = currentKarma;
+
+    // 登録スレッドの新着コメント(descendants差分)
+    for (const threadId of cfg.hnThreads ?? []) {
+      const item = await fetchItem(fetchImpl, Number(threadId));
+      if (item === null) continue;
+      const known = state.threadDescendants[threadId];
+      if (known !== undefined && item.descendants > known) {
+        this.inbox.post({
+          kind: 'hn-reply',
+          godId: 'omoi-kami',
+          title: `HNスレッド「${item.title.slice(0, 60)}」にコメント+${item.descendants - known}(計${item.descendants})`,
+          payload: { threadId, url: `https://news.ycombinator.com/item?id=${threadId}` },
+        });
+      }
+      state.threadDescendants[threadId] = item.descendants;
+    }
+
+    // 自分のコメントへの返信(submitted上位のcommentのkids差分→本文全文を添付)
+    if (cfg.hnUser !== undefined) {
+      const user = await fetchUserKarma(fetchImpl, cfg.hnUser);
+      for (const itemId of (user?.submitted ?? []).slice(0, 15)) {
+        const own = await fetchItem(fetchImpl, itemId);
+        if (own === null || own.type !== 'comment' || own.by !== cfg.hnUser) continue;
+        const knownKids = new Set(state.ownCommentKids[String(itemId)] ?? []);
+        const newKids = own.kids.filter((k) => !knownKids.has(k));
+        for (const kidId of newKids) {
+          const reply = await fetchItem(fetchImpl, kidId);
+          if (reply === null) continue;
+          this.inbox.post({
+            kind: 'hn-reply',
+            godId: 'omoi-kami',
+            title: `HN: あなたのコメントに @${reply.by} が返信`,
+            payload: {
+              url: `https://news.ycombinator.com/item?id=${kidId}`,
+              fullText: reply.text.slice(0, 4000),
+              inReplyTo: own.text.slice(0, 500),
+            },
+          });
+        }
+        state.ownCommentKids[String(itemId)] = own.kids;
+      }
+    }
+    this.saveParams({ ...params, hnState: state });
   }
 
   /** AMENO-uzume 巡回(1時間ごと): Bluesky検索→未評価のみ安い帯で目利き→候補+受け箱 */
@@ -489,7 +578,7 @@ export class OperationsManager {
     if (!this.ensureInitialized() || this.inbox === null || this.thread === null || this.omoi === null || this.drafts === null || this.scheduler === null) {
       return { analysis: '', appliedChanges: [], batch: null, tokensUsed: 0 };
     }
-    const provider = this.deps.bandProvider('planner');
+    const provider = this.kamuhakariLLM();
     if (typeof provider === 'string') {
       this.thread.post({ role: 'system', kind: 'notice', body: `神議を開けない: ${provider}` });
       return { analysis: '', appliedChanges: [], batch: null, tokensUsed: 0 };
@@ -590,7 +679,7 @@ export class OperationsManager {
   async threadSend(text: string): Promise<OpsThreadMessage[]> {
     if (!this.ensureInitialized() || this.thread === null) return [];
     this.thread.post({ role: 'user', kind: 'text', body: text });
-    const provider = this.deps.bandProvider('planner');
+    const provider = this.kamuhakariLLM();
     if (typeof provider === 'string') {
       this.thread.post({ role: 'system', kind: 'notice', body: provider });
       return this.thread.list();
