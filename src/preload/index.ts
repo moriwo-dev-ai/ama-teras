@@ -126,6 +126,8 @@ const api: AmaterasApi = {
     subscribe<IwatoRequestPayload>(IpcChannels.operationsApprovalRequest, listener),
   operationsApprovalRespond: (id, approved) =>
     ipcRenderer.invoke(IpcChannels.operationsApprovalRespond, id, approved),
+  onOperationsApprovalResolved: (listener) =>
+    subscribe<{ id: string; approved: boolean }>(IpcChannels.operationsApprovalResolved, listener),
 
   // M33: 神議アーキテクチャ
   operationsClocks: () => ipcRenderer.invoke(IpcChannels.operationsClocks),

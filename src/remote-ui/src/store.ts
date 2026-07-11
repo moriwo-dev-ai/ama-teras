@@ -109,7 +109,7 @@ export function applyChatEvent(messages: UiMessage[], event: AgentEvent): UiMess
 
 const TERMINAL = ['done', 'cancelled', 'error', 'max_turns_reached'];
 
-export type Tab = 'chat' | 'approvals' | 'evolution' | 'audit' | 'settings';
+export type Tab = 'chat' | 'approvals' | 'ops' | 'evolution' | 'audit' | 'settings';
 
 interface RemoteState {
   connected: boolean;

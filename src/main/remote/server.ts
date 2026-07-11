@@ -72,6 +72,25 @@ export interface RemoteServerDeps {
   auditTail: (limit: number) => AuditEntry[];
   /** SSE keep-alive 間隔 ms(テスト用に注入可) */
   heartbeatMs?: number;
+  /** M34-6: 運営(TAKAMA-gahara)のリモート対応。未注入なら /api/ops/* は404 */
+  operations?: RemoteOperationsFacade;
+}
+
+/** M34-6: 運営リモートAPIの窓口(実装は ipc.ts が OperationsManager を包んで注入) */
+export interface RemoteOperationsFacade {
+  summary(): Promise<{
+    enabled: boolean;
+    clocks: import('../../shared/types').GodClockJob[];
+    inbox: (import('../../shared/types').InboxItem & { read: boolean })[];
+    latest: import('../../shared/types').MetricsSnapshot | null;
+    pendingIwato: import('../../shared/types').IwatoRequestPayload[];
+  }>;
+  threadList(): import('../../shared/types').OpsThreadMessage[];
+  threadSend(text: string): Promise<import('../../shared/types').OpsThreadMessage[]>;
+  batches(): import('../../shared/types').ApprovalBatch[];
+  batchRespond(batchId: string, itemId: string, approved: boolean): Promise<{ ok: boolean; detail: string }>;
+  /** 岩戸ゲートの応答(リモート経由フラグ込みでauditされる)。falseなら該当承認なし */
+  iwatoRespond(id: string, approved: boolean): boolean;
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -359,6 +378,54 @@ export class RemoteServer {
         }
         facade.evolutionPromoteRespond(jobId, approved);
         return sendJson(res, 200, { ok: true });
+      }
+
+      // ---- M34-6: 運営(TAKAMA-gahara)のリモートフル対応 ----
+      // 出先のスマホだけで「運営」が完結する: ダッシュボード閲覧・⛩スレッド・
+      // 承認バッチ・岩戸ゲート応答。既存のトークン認証配下(追加の公開経路なし)
+
+      case 'GET /api/ops/summary': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        return sendJson(res, 200, await this.deps.operations.summary());
+      }
+
+      case 'GET /api/ops/thread': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        return sendJson(res, 200, { messages: this.deps.operations.threadList() });
+      }
+
+      case 'POST /api/ops/thread': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        const body = await readJsonBody(req);
+        if (typeof body['text'] !== 'string' || body['text'].trim() === '') {
+          throw new HttpError(400, 'text(string) が必要');
+        }
+        return sendJson(res, 200, { messages: await this.deps.operations.threadSend(body['text']) });
+      }
+
+      case 'GET /api/ops/batches': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        return sendJson(res, 200, { batches: this.deps.operations.batches() });
+      }
+
+      case 'POST /api/ops/batch-respond': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        const body = await readJsonBody(req);
+        if (typeof body['batchId'] !== 'string' || typeof body['itemId'] !== 'string' || typeof body['approved'] !== 'boolean') {
+          throw new HttpError(400, 'batchId/itemId(string) と approved(boolean) が必要');
+        }
+        return sendJson(res, 200, await this.deps.operations.batchRespond(body['batchId'], body['itemId'], body['approved']));
+      }
+
+      case 'POST /api/ops/iwato-respond': {
+        // 岩戸ゲート(外部発信の最終確認)へのリモート応答。auditに「リモート経由」が残る
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        const body = await readJsonBody(req);
+        if (typeof body['id'] !== 'string' || typeof body['approved'] !== 'boolean') {
+          throw new HttpError(400, 'id(string) と approved(boolean) が必要');
+        }
+        const ok = this.deps.operations.iwatoRespond(body['id'], body['approved']);
+        return sendJson(res, 200, { ok });
       }
 
       default:

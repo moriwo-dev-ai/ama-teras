@@ -122,6 +122,38 @@ export class RemoteApi {
     return this.req('POST', '/api/autonomous', { on, ...(confirmed ? { confirmed: true } : {}) });
   }
 
+  // ---- M34-6: 運営(TAKAMA-gahara)。オーナーモードOFF時は enabled:false ----
+
+  opsSummary(): Promise<{
+    enabled: boolean;
+    clocks: import('../../shared/types').GodClockJob[];
+    inbox: (import('../../shared/types').InboxItem & { read: boolean })[];
+    latest: import('../../shared/types').MetricsSnapshot | null;
+    pendingIwato: import('../../shared/types').IwatoRequestPayload[];
+  }> {
+    return this.req('GET', '/api/ops/summary');
+  }
+
+  opsThread(): Promise<{ messages: import('../../shared/types').OpsThreadMessage[] }> {
+    return this.req('GET', '/api/ops/thread');
+  }
+
+  opsThreadSend(text: string): Promise<{ messages: import('../../shared/types').OpsThreadMessage[] }> {
+    return this.req('POST', '/api/ops/thread', { text });
+  }
+
+  opsBatches(): Promise<{ batches: import('../../shared/types').ApprovalBatch[] }> {
+    return this.req('GET', '/api/ops/batches');
+  }
+
+  opsBatchRespond(batchId: string, itemId: string, approved: boolean): Promise<{ ok: boolean; detail: string }> {
+    return this.req('POST', '/api/ops/batch-respond', { batchId, itemId, approved });
+  }
+
+  opsIwatoRespond(id: string, approved: boolean): Promise<{ ok: boolean }> {
+    return this.req('POST', '/api/ops/iwato-respond', { id, approved });
+  }
+
   /** SSE。切断時は EventSource が自動再接続し、再接続ごとに snapshot が届く */
   openEvents(): EventSource {
     return new EventSource(`/api/events?token=${encodeURIComponent(this.token)}`);

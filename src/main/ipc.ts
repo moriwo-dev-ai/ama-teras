@@ -6,6 +6,7 @@ import { IpcChannels } from '../shared/ipc';
 import type {
   AppConfig,
   ApprovalDecision,
+  IwatoRequestPayload,
   ProviderId,
   ProvisionalInstall,
   SecretSlot,
@@ -557,6 +558,26 @@ export async function registerIpcHandlers(
   // 岩戸ゲートの承認: renderer の共通ダイアログ(何を・どこへ・全文プレビュー)へ橋渡しし、
   // 応答を待つ。10分無応答は拒否扱い(承認なし実行は protocol.ts がコードレベルで不可能にする)
   const iwatoPending = new Map<string, (approved: boolean) => void>();
+  // M34-6: リモート表示用に承認待ちの内容も保持(応答時に除去+renderer側ダイアログも閉じる)
+  const iwatoPendingList: IwatoRequestPayload[] = [];
+  const iwatoRespond = (id: string, approved: boolean, viaRemote: boolean): boolean => {
+    const resolver = iwatoPending.get(id);
+    if (!resolver) return false;
+    const idx = iwatoPendingList.findIndex((r) => r.id === id);
+    if (idx >= 0) iwatoPendingList.splice(idx, 1);
+    if (viaRemote) {
+      audit.append({
+        tool: 'operations:iwato',
+        scope: 'system',
+        paths: [],
+        event: 'approval',
+        detail: `[岩戸] リモート経由で${approved ? '承認' : '拒否'}: ${id}`,
+      });
+    }
+    push(IpcChannels.operationsApprovalResolved, { id, approved });
+    resolver(approved);
+    return true;
+  };
   const operations = new OperationsManager({
     userDataDir: app.getPath('userData'),
     getConfig: () => config.get(),
@@ -574,11 +595,9 @@ export async function registerIpcHandlers(
           iwatoPending.delete(req.id);
           resolve(approved);
         });
+        iwatoPendingList.push(req);
         push(IpcChannels.operationsApprovalRequest, req);
-        setTimeout(() => {
-          const pending = iwatoPending.get(req.id);
-          if (pending) pending(false);
-        }, 10 * 60_000);
+        setTimeout(() => iwatoRespond(req.id, false, false), 10 * 60_000);
       }),
     bandProvider: (band) => service.operationsBandProvider(band),
     // M34-7: 運営専用モデル帯(神議/神々。usage集計も区別される)
@@ -652,7 +671,7 @@ export async function registerIpcHandlers(
   ipcMain.handle(IpcChannels.operationsApprovalRespond, (_e, id: unknown, approved: unknown) => {
     assertString(id, 'id');
     if (typeof approved !== 'boolean') throw new Error('IPC payload approved が不正');
-    iwatoPending.get(id)?.(approved);
+    iwatoRespond(id, approved, false);
   });
   // M33: 神議アーキテクチャ(時計・受け箱・⛩運営スレッド・承認バッチ)
   ipcMain.handle(IpcChannels.operationsClocks, () => operations.clocks());
@@ -906,6 +925,21 @@ export async function registerIpcHandlers(
       staticDir: getRemoteUiDir(),
       auditTail: (limit) => audit.tail(limit),
       usageSummary: () => usageMeter.summary(),
+      // M34-6: 運営のリモートフル対応(既存トークン認証配下。オーナーモードOFF時は空を返す)
+      operations: {
+        summary: async () => ({
+          enabled: (await operations.status()).enabled,
+          clocks: operations.clocks(),
+          inbox: operations.inboxList(30),
+          latest: operations.history(1)[0] ?? null,
+          pendingIwato: [...iwatoPendingList],
+        }),
+        threadList: () => operations.threadList(),
+        threadSend: (text) => operations.threadSend(text),
+        batches: () => operations.threadBatches(),
+        batchRespond: (batchId, itemId, approved) => operations.batchRespond(batchId, itemId, approved),
+        iwatoRespond: (id, approved) => iwatoRespond(id, approved, true),
+      },
       remoteSettings: {
         get: sanitizedConfig,
         set: (patch) => {

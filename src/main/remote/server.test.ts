@@ -113,7 +113,10 @@ let token: string;
 let port: number;
 let calls: FacadeCalls;
 
-async function startServer(opts?: { maxFailures?: number }): Promise<void> {
+async function startServer(opts?: {
+  maxFailures?: number;
+  operations?: import('./server').RemoteOperationsFacade;
+}): Promise<void> {
   const stub = stubFacade();
   calls = stub.calls;
   const pair = generateToken();
@@ -131,6 +134,7 @@ async function startServer(opts?: { maxFailures?: number }): Promise<void> {
     staticDir,
     auditTail: (limit) => audit.tail(limit),
     heartbeatMs: 60_000,
+    ...(opts?.operations !== undefined ? { operations: opts.operations } : {}),
   });
   await server.start(0, '127.0.0.1');
   const p = server.port();
@@ -435,6 +439,89 @@ describe('RemoteServer: SSE', () => {
     await startServer();
     const res = await rawGet(port, '/api/events');
     expect(res.status).toBe(401);
+  });
+});
+
+describe('M34-6: 運営リモートAPI', () => {
+  function rawPost(
+    portNum: number,
+    rawPath: string,
+    body: unknown,
+    headers?: Record<string, string>,
+  ): Promise<{ status: number; body: string }> {
+    return new Promise((resolve, reject) => {
+      const payload = JSON.stringify(body);
+      const req = httpRequest(
+        {
+          host: '127.0.0.1',
+          port: portNum,
+          path: rawPath,
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...headers },
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () =>
+            resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }),
+          );
+        },
+      );
+      req.on('error', reject);
+      req.end(payload);
+    });
+  }
+
+  const iwatoCalls: [string, boolean][] = [];
+  const opsStub: import('./server').RemoteOperationsFacade = {
+    summary: async () => ({
+      enabled: true,
+      clocks: [{ id: 'kamuhakari', godId: 'kamuhakari', intervalMin: 720, enabled: true, dailyTokenBudget: 60000, spentToday: 100 }],
+      inbox: [],
+      latest: null,
+      pendingIwato: [{ id: 'iw-1', adapterId: 'github', action: 'comment', target: 'o/r#1', preview: '返信本文', compliance: 'c' }],
+    }),
+    threadList: () => [],
+    threadSend: async (text) => [{ id: 'm1', ts: '', role: 'user', kind: 'text', body: text }],
+    batches: () => [],
+    batchRespond: async () => ({ ok: true, detail: '承認' }),
+    iwatoRespond: (id, approved) => {
+      iwatoCalls.push([id, approved]);
+      return true;
+    },
+  };
+
+  it('operations 未注入なら /api/ops/* は404', async () => {
+    await startServer();
+    const res = await rawGet(port, '/api/ops/summary', authed());
+    expect(res.status).toBe(404);
+  });
+
+  it('summary が時計と承認待ち岩戸(全文プレビュー込み)を返す・要トークン', async () => {
+    await startServer({ operations: opsStub });
+    expect((await rawGet(port, '/api/ops/summary')).status).toBe(401); // 認証なしは拒否
+    const res = await rawGet(port, '/api/ops/summary', authed());
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body) as { enabled: boolean; pendingIwato: { preview: string }[] };
+    expect(body.enabled).toBe(true);
+    expect(body.pendingIwato[0]?.preview).toBe('返信本文');
+  });
+
+  it('岩戸応答がルーティングされる(承認/拒否)+バリデーション', async () => {
+    await startServer({ operations: opsStub });
+    iwatoCalls.length = 0;
+    const ok = await rawPost(port, '/api/ops/iwato-respond', { id: 'iw-1', approved: true }, authed());
+    expect(ok.status).toBe(200);
+    expect(iwatoCalls).toEqual([['iw-1', true]]);
+    const bad = await rawPost(port, '/api/ops/iwato-respond', { id: 42 }, authed());
+    expect(bad.status).toBe(400);
+  });
+
+  it('⛩スレッド送信がルーティングされる', async () => {
+    await startServer({ operations: opsStub });
+    const res = await rawPost(port, '/api/ops/thread', { text: 'キーワード変えて' }, authed());
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body).messages[0].body).toBe('キーワード変えて');
   });
 });
 

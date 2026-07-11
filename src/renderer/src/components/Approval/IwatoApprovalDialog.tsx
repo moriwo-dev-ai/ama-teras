@@ -17,6 +17,14 @@ export function IwatoApprovalDialog(): JSX.Element | null {
       }),
     [],
   );
+  // M34-6: リモート(スマホ)やタイムアウトで解決された分はこちらのダイアログも閉じる
+  useEffect(
+    () =>
+      window.api.onOperationsApprovalResolved(({ id }) => {
+        setQueue((q) => q.filter((r) => r.id !== id));
+      }),
+    [],
+  );
 
   const req = queue[0];
   if (!req) return null;

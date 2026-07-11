@@ -148,6 +148,8 @@ export const IpcChannels = {
   operationsExecute: 'operations:execute',
   operationsApprovalRequest: 'operations:approval-request',
   operationsApprovalRespond: 'operations:approval-respond',
+  /** M34-6: 岩戸承認がどこか(デスクトップ/リモート/タイムアウト)で解決された通知 */
+  operationsApprovalResolved: 'operations:approval-resolved',
   /** M33: 神議アーキテクチャ(時計・受け箱・⛩運営スレッド・承認バッチ) */
   operationsClocks: 'operations:clocks',
   operationsClockUpdate: 'operations:clock-update',
@@ -341,6 +343,8 @@ export interface AmaterasApi {
   ): Promise<{ ok: boolean; detail: string }>;
   onOperationsApprovalRequest(listener: (req: IwatoRequestPayload) => void): () => void;
   operationsApprovalRespond(id: string, approved: boolean): Promise<void>;
+  /** M34-6: リモート/タイムアウトで解決された岩戸承認をデスクトップ側ダイアログからも消す */
+  onOperationsApprovalResolved(listener: (payload: { id: string; approved: boolean }) => void): () => void;
 
   /** M33: 神議アーキテクチャ。オーナーモードOFF時は空/nullを返す */
   operationsClocks(): Promise<GodClockJob[]>;

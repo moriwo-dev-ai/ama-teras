@@ -14,6 +14,7 @@ import { AuditView } from './components/AuditView';
 import { SettingsView } from './components/SettingsView';
 import { ChatView } from './components/ChatView';
 import { EvolutionView } from './components/EvolutionView';
+import { OpsView } from './components/OpsView';
 import { useRemoteStore, type Tab } from './store';
 
 function TokenGate({ onSubmit }: { onSubmit: (token: string) => void }): JSX.Element {
@@ -57,6 +58,7 @@ function TokenGate({ onSubmit }: { onSubmit: (token: string) => void }): JSX.Ele
 const TAB_LABEL: Record<Tab, string> = {
   chat: 'チャット',
   approvals: '承認',
+  ops: '⛩運営',
   evolution: '進化',
   audit: '監査',
   settings: '設定',
@@ -266,6 +268,7 @@ export function App(): JSX.Element {
       </nav>
       {store.tab === 'chat' && <ChatView api={api} />}
       {store.tab === 'approvals' && <ApprovalsView api={api} />}
+      {store.tab === 'ops' && <OpsView api={api} />}
       {store.tab === 'evolution' && <EvolutionView api={api} />}
       {store.tab === 'audit' && <AuditView api={api} />}
       {store.tab === 'settings' && <SettingsView api={api} />}
