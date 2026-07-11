@@ -8,6 +8,7 @@ import type {
   TriageCard,
 } from '../../../../shared/types';
 import { useOperationsStore } from '../../stores/operations';
+import { firstUrl, hatenaPanelUrl, xIntentUrl } from './postLinks';
 
 /**
  * M32: 右ペイン「運営」タブ — Project TAKAMA-gahara。
@@ -132,6 +133,25 @@ function DraftCard({ draft, onUpdate }: { draft: OperationsDraft; onUpdate: () =
       <pre className="mb-1 max-h-40 overflow-auto whitespace-pre-wrap text-zinc-300">{draft.body}</pre>
       <div className="flex flex-wrap items-center gap-1.5">
         <CopyButton text={draft.body} />
+        {/* M32-9: 1タップ投稿リンク — 開いた先の投稿/追加ボタンは人間が押す(自動投稿はしない) */}
+        <button
+          className="shrink-0 rounded border border-zinc-600 px-2 py-0.5 text-[10px] hover:bg-zinc-800"
+          title="X の投稿画面を本文入りで開く(投稿ボタンはあなたが押す)"
+          onClick={() => window.open(xIntentUrl(draft.body), '_blank', 'noopener,noreferrer')}
+        >
+          𝕏 投稿画面を開く
+        </button>
+        {firstUrl(draft.body) !== null && (
+          <button
+            className="shrink-0 rounded border border-zinc-600 px-2 py-0.5 text-[10px] hover:bg-zinc-800"
+            title="本文中のURLをはてなブックマークに追加する画面を開く(追加ボタンはあなたが押す)"
+            onClick={() =>
+              window.open(hatenaPanelUrl(firstUrl(draft.body) ?? ''), '_blank', 'noopener,noreferrer')
+            }
+          >
+            B! はてブ画面を開く
+          </button>
+        )}
         {draft.status === 'draft' && (
           <>
             <select
