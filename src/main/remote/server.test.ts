@@ -473,6 +473,8 @@ describe('M34-6: 運営リモートAPI', () => {
   }
 
   const iwatoCalls: [string, boolean][] = [];
+  const draftUpdates: [string, string][] = [];
+  const clockUpdates: [string, string][] = [];
   const opsStub: import('./server').RemoteOperationsFacade = {
     summary: async () => ({
       enabled: true,
@@ -489,6 +491,31 @@ describe('M34-6: 運営リモートAPI', () => {
       iwatoCalls.push([id, approved]);
       return true;
     },
+    // M40: スマホからのフル操作
+    bulkRespond: async (_batchId, itemIds, approved) => ({
+      ok: approved,
+      detail: `${itemIds.length}件中${approved ? itemIds.length : 0}件成功`,
+      results: itemIds.map((itemId) => ({ itemId, target: 't', ok: approved, detail: 'd' })),
+      ...(approved ? { links: [{ itemId: itemIds[0] ?? '', label: 'X', url: 'https://x.com/intent/post?text=a' }] } : {}),
+    }),
+    drafts: async () => ({
+      drafts: [
+        { id: 'd1', kind: 'x-post', title: 't', body: 'b', createdAt: '', status: 'draft' },
+      ],
+      impacts: [],
+      repos: ['o/r'],
+    }),
+    draftUpdate: (id, patch) => {
+      draftUpdates.push([id, patch.status ?? '']);
+      return null;
+    },
+    draftRelease: async (draftId, repo, tag) => ({ ok: true, detail: `${repo} ${tag} ${draftId}` }),
+    draftZennArticle: async (draftId) => ({ ok: true, detail: `zenn ${draftId}` }),
+    clockUpdate: (id, patch) => {
+      clockUpdates.push([id, JSON.stringify(patch)]);
+      return null;
+    },
+    godRun: async (godId) => ({ ok: true, detail: `ran ${godId}`, tokensUsed: 0 }),
   };
 
   it('operations 未注入なら /api/ops/* は404', async () => {
@@ -522,6 +549,54 @@ describe('M34-6: 運営リモートAPI', () => {
     const res = await rawPost(port, '/api/ops/thread', { text: 'キーワード変えて' }, authed());
     expect(res.status).toBe(200);
     expect(JSON.parse(res.body).messages[0].body).toBe('キーワード変えて');
+  });
+
+  // ---- M40: スマホからのフル操作(デスクトップ同等) ----
+
+  it('M40: 一括承認がルーティングされ、リンク媒体のURLが返る(スマホが開く)', async () => {
+    await startServer({ operations: opsStub });
+    expect((await rawPost(port, '/api/ops/bulk-respond', { batchId: 'b1', itemIds: ['i1'], approved: true })).status).toBe(401);
+    const res = await rawPost(port, '/api/ops/bulk-respond', { batchId: 'b1', itemIds: ['i1', 'i2'], approved: true }, authed());
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body) as { detail: string; links?: { url: string }[] };
+    expect(body.detail).toBe('2件中2件成功');
+    expect(body.links?.[0]?.url).toContain('x.com/intent');
+    // バリデーション: itemIds は string[]
+    expect((await rawPost(port, '/api/ops/bulk-respond', { batchId: 'b1', itemIds: 'i1', approved: true }, authed())).status).toBe(400);
+  });
+
+  it('M40: 発信ドラフトの取得と操作(投稿済み・Release・Zenn記事化)', async () => {
+    await startServer({ operations: opsStub });
+    const list = await rawGet(port, '/api/ops/drafts', authed());
+    expect(JSON.parse(list.body).drafts[0].id).toBe('d1');
+    expect(JSON.parse(list.body).repos).toEqual(['o/r']);
+
+    await rawPost(port, '/api/ops/draft-update', { id: 'd1', patch: { status: 'posted' } }, authed());
+    expect(draftUpdates).toContainEqual(['d1', 'posted']);
+
+    const rel = await rawPost(port, '/api/ops/draft-release', { draftId: 'd1', repo: 'o/r', tag: 'v1.0.1' }, authed());
+    expect(JSON.parse(rel.body).detail).toBe('o/r v1.0.1 d1');
+
+    const zenn = await rawPost(port, '/api/ops/draft-zenn', { draftId: 'd1' }, authed());
+    expect(JSON.parse(zenn.body).detail).toBe('zenn d1');
+
+    // バリデーション
+    expect((await rawPost(port, '/api/ops/draft-release', { draftId: 'd1', repo: 'o/r' }, authed())).status).toBe(400);
+  });
+
+  it('M40: 時計の操作(稼働・予算・🔓解錠)と神の手動実行', async () => {
+    await startServer({ operations: opsStub });
+    await rawPost(port, '/api/ops/clock-update', { id: 'omoi-kami', patch: { enabled: true, dailyTokenBudget: 20000 } }, authed());
+    await rawPost(port, '/api/ops/clock-update', { id: 'omoi-kami', patch: { budgetSetByUser: false } }, authed());
+    expect(clockUpdates[0]?.[1]).toContain('20000');
+    expect(clockUpdates[1]?.[1]).toContain('"budgetSetByUser":false');
+    // 施錠(true)はリモートからは立てられない(予算設定時に自動で立つ経路のみ)
+    await rawPost(port, '/api/ops/clock-update', { id: 'omoi-kami', patch: { budgetSetByUser: true } }, authed());
+    expect(clockUpdates[2]?.[1]).not.toContain('budgetSetByUser');
+
+    const run = await rawPost(port, '/api/ops/god-run', { godId: 'omoi-kami' }, authed());
+    expect(JSON.parse(run.body).detail).toBe('ran omoi-kami');
+    expect((await rawPost(port, '/api/ops/god-run', {}, authed())).status).toBe(400);
   });
 });
 

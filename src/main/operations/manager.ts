@@ -846,6 +846,15 @@ export class OperationsManager {
     return items;
   }
 
+  /**
+   * M40: 神を今すぐ1回動かす(デスクトップの各神ボタン相当をリモートからも押せるように)。
+   * 予算・時計はそのまま(定刻実行の予定は変えない)
+   */
+  async runGodNow(godId: string): Promise<{ ok: boolean; detail: string; tokensUsed: number }> {
+    if (!this.ensureInitialized()) return { ok: false, detail: 'オーナーモードがOFF', tokensUsed: 0 };
+    return this.runGod(godId);
+  }
+
   // ---- M33: UI用アクセサ ----
 
   clocks(): GodClockJob[] {

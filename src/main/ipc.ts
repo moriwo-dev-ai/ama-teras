@@ -980,6 +980,19 @@ export async function registerIpcHandlers(
         batches: () => operations.threadBatches(),
         batchRespond: (batchId, itemId, approved) => operations.batchRespond(batchId, itemId, approved),
         iwatoRespond: (id, approved) => iwatoRespond(id, approved, true),
+        // M40: スマホからデスクトップ同等の操作(ドラフト・時計・神の手動実行・一括承認)。
+        // 実行系は従来どおり岩戸ゲートを通り、承認ダイアログはスマホにも出る
+        bulkRespond: (batchId, itemIds, approved) => operations.bulkRespond(batchId, itemIds, approved),
+        drafts: async () => ({
+          drafts: operations.listDrafts(),
+          impacts: operations.impacts(),
+          repos: (await operations.status()).repos,
+        }),
+        draftUpdate: (id, patch) => operations.updateDraft(id, patch),
+        draftRelease: (draftId, repo, tag) => operations.requestRelease(draftId, repo, tag),
+        draftZennArticle: (draftId) => operations.requestZennArticle(draftId),
+        clockUpdate: (id, patch) => operations.updateClock(id, patch),
+        godRun: (godId) => operations.runGodNow(godId),
       },
       remoteSettings: {
         get: sanitizedConfig,

@@ -91,6 +91,35 @@ export interface RemoteOperationsFacade {
   batchRespond(batchId: string, itemId: string, approved: boolean): Promise<{ ok: boolean; detail: string }>;
   /** 岩戸ゲートの応答(リモート経由フラグ込みでauditされる)。falseなら該当承認なし */
   iwatoRespond(id: string, approved: boolean): boolean;
+
+  // ---- M40: スマホからデスクトップ同等の運営操作をするための窓口 ----
+  /** M39: 同種(媒体×アクション)の一括承認。X/はてブは links を返す(スマホのブラウザで開く) */
+  bulkRespond(
+    batchId: string,
+    itemIds: string[],
+    approved: boolean,
+  ): Promise<import('../../shared/operations').BulkRespondResult>;
+  /** 発信ドラフト+効果測定+行き先候補(リポジトリ)。運営タブのドラフト欄に相当 */
+  drafts(): Promise<{
+    drafts: import('../../shared/types').OperationsDraft[];
+    impacts: import('../../shared/types').ImpactEntry[];
+    repos: string[];
+  }>;
+  draftUpdate(
+    id: string,
+    patch: { status?: 'draft' | 'posted' | 'discarded'; body?: string; title?: string; media?: string },
+  ): import('../../shared/types').OperationsDraft | null;
+  /** リリースノート → GitHub Release(下書き)。岩戸ゲート承認はスマホ側に出る */
+  draftRelease(draftId: string, repo: string, tag: string): Promise<{ ok: boolean; detail: string }>;
+  /** 記事アウトライン → Zenn記事化(published: false でコミット) */
+  draftZennArticle(draftId: string): Promise<{ ok: boolean; detail: string }>;
+  /** 神々の時計の操作(稼働/間隔/予算/🔒解錠) */
+  clockUpdate(
+    id: string,
+    patch: { intervalMin?: number; enabled?: boolean; dailyTokenBudget?: number; budgetSetByUser?: boolean },
+  ): import('../../shared/types').GodClockJob | null;
+  /** 神を今すぐ1回動かす(観測・下書き生成・トリアージ・神議) */
+  godRun(godId: string): Promise<{ ok: boolean; detail: string; tokensUsed: number }>;
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -415,6 +444,104 @@ export class RemoteServer {
           throw new HttpError(400, 'batchId/itemId(string) と approved(boolean) が必要');
         }
         return sendJson(res, 200, await this.deps.operations.batchRespond(body['batchId'], body['itemId'], body['approved']));
+      }
+
+      // ---- M40: スマホからのフル操作(ドラフト・時計・神の手動実行・一括承認)----
+
+      case 'POST /api/ops/bulk-respond': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        const body = await readJsonBody(req);
+        const ids = body['itemIds'];
+        if (
+          typeof body['batchId'] !== 'string' ||
+          !Array.isArray(ids) ||
+          ids.some((i) => typeof i !== 'string') ||
+          typeof body['approved'] !== 'boolean'
+        ) {
+          throw new HttpError(400, 'batchId(string)/itemIds(string[])/approved(boolean) が必要');
+        }
+        return sendJson(
+          res,
+          200,
+          await this.deps.operations.bulkRespond(body['batchId'], ids as string[], body['approved']),
+        );
+      }
+
+      case 'GET /api/ops/drafts': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        return sendJson(res, 200, await this.deps.operations.drafts());
+      }
+
+      case 'POST /api/ops/draft-update': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        const body = await readJsonBody(req);
+        const patch = body['patch'];
+        if (typeof body['id'] !== 'string' || typeof patch !== 'object' || patch === null) {
+          throw new HttpError(400, 'id(string) と patch(object) が必要');
+        }
+        const p = patch as Record<string, unknown>;
+        return sendJson(
+          res,
+          200,
+          this.deps.operations.draftUpdate(body['id'], {
+            ...(p['status'] === 'draft' || p['status'] === 'posted' || p['status'] === 'discarded'
+              ? { status: p['status'] }
+              : {}),
+            ...(typeof p['media'] === 'string' ? { media: p['media'] } : {}),
+          }),
+        );
+      }
+
+      case 'POST /api/ops/draft-release': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        const body = await readJsonBody(req);
+        if (
+          typeof body['draftId'] !== 'string' ||
+          typeof body['repo'] !== 'string' ||
+          typeof body['tag'] !== 'string'
+        ) {
+          throw new HttpError(400, 'draftId/repo/tag(string) が必要');
+        }
+        return sendJson(
+          res,
+          200,
+          await this.deps.operations.draftRelease(body['draftId'], body['repo'], body['tag']),
+        );
+      }
+
+      case 'POST /api/ops/draft-zenn': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        const body = await readJsonBody(req);
+        if (typeof body['draftId'] !== 'string') throw new HttpError(400, 'draftId(string) が必要');
+        return sendJson(res, 200, await this.deps.operations.draftZennArticle(body['draftId']));
+      }
+
+      case 'POST /api/ops/clock-update': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        const body = await readJsonBody(req);
+        const patch = body['patch'];
+        if (typeof body['id'] !== 'string' || typeof patch !== 'object' || patch === null) {
+          throw new HttpError(400, 'id(string) と patch(object) が必要');
+        }
+        const p = patch as Record<string, unknown>;
+        return sendJson(
+          res,
+          200,
+          this.deps.operations.clockUpdate(body['id'], {
+            ...(typeof p['intervalMin'] === 'number' ? { intervalMin: p['intervalMin'] } : {}),
+            ...(typeof p['enabled'] === 'boolean' ? { enabled: p['enabled'] } : {}),
+            ...(typeof p['dailyTokenBudget'] === 'number' ? { dailyTokenBudget: p['dailyTokenBudget'] } : {}),
+            // 🔓 解錠のみ(施錠は予算設定と同時に自動で立つ)
+            ...(p['budgetSetByUser'] === false ? { budgetSetByUser: false } : {}),
+          }),
+        );
+      }
+
+      case 'POST /api/ops/god-run': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        const body = await readJsonBody(req);
+        if (typeof body['godId'] !== 'string') throw new HttpError(400, 'godId(string) が必要');
+        return sendJson(res, 200, await this.deps.operations.godRun(body['godId']));
       }
 
       case 'POST /api/ops/iwato-respond': {

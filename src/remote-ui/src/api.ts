@@ -154,6 +154,52 @@ export class RemoteApi {
     return this.req('POST', '/api/ops/iwato-respond', { id, approved });
   }
 
+  // ---- M40: スマホからのフル操作(デスクトップの運営タブ相当)----
+
+  /** M39: 同種の一括承認。X/はてブは links が返るのでスマホのブラウザで開く */
+  opsBulkRespond(
+    batchId: string,
+    itemIds: string[],
+    approved: boolean,
+  ): Promise<import('../../shared/operations').BulkRespondResult> {
+    return this.req('POST', '/api/ops/bulk-respond', { batchId, itemIds, approved });
+  }
+
+  opsDrafts(): Promise<{
+    drafts: import('../../shared/types').OperationsDraft[];
+    impacts: import('../../shared/types').ImpactEntry[];
+    repos: string[];
+  }> {
+    return this.req('GET', '/api/ops/drafts');
+  }
+
+  opsDraftUpdate(
+    id: string,
+    patch: { status?: 'draft' | 'posted' | 'discarded'; media?: string },
+  ): Promise<import('../../shared/types').OperationsDraft | null> {
+    return this.req('POST', '/api/ops/draft-update', { id, patch });
+  }
+
+  opsDraftRelease(draftId: string, repo: string, tag: string): Promise<{ ok: boolean; detail: string }> {
+    return this.req('POST', '/api/ops/draft-release', { draftId, repo, tag });
+  }
+
+  opsDraftZenn(draftId: string): Promise<{ ok: boolean; detail: string }> {
+    return this.req('POST', '/api/ops/draft-zenn', { draftId });
+  }
+
+  opsClockUpdate(
+    id: string,
+    patch: { intervalMin?: number; enabled?: boolean; dailyTokenBudget?: number; budgetSetByUser?: boolean },
+  ): Promise<import('../../shared/types').GodClockJob | null> {
+    return this.req('POST', '/api/ops/clock-update', { id, patch });
+  }
+
+  /** 神を今すぐ1回動かす(観測/下書き生成/トリアージ/神議) */
+  opsGodRun(godId: string): Promise<{ ok: boolean; detail: string; tokensUsed: number }> {
+    return this.req('POST', '/api/ops/god-run', { godId });
+  }
+
   /** SSE。切断時は EventSource が自動再接続し、再接続ごとに snapshot が届く */
   openEvents(): EventSource {
     return new EventSource(`/api/events?token=${encodeURIComponent(this.token)}`);
