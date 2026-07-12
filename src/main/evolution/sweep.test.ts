@@ -36,7 +36,10 @@ afterEach(async () => {
   await rm(base, { recursive: true, force: true }).catch(() => {});
 });
 
-describe('M50: 進化ジョブの残骸掃除と採番', () => {
+// 実gitを叩く(worktree作成・ジャンクション)ので既定5秒では足りない。
+// 付け忘れると全スイート並列実行の負荷でタイムアウトし、**進化ジョブのvitestゲートを落とす**
+// (実害: ジョブ16。プラグイン本体は合格していたのに、このテストのせいで failed になった)
+describe('M50: 進化ジョブの残骸掃除と採番', { timeout: 60_000 }, () => {
   it('強制終了で残ったworktreeとディレクトリを掃除し、空のブランチも消す', async () => {
     const wt = new WorktreeManager(repo, worktreeBase);
     const info = await wt.create(7, 'main'); // 作りっぱなし = 強制終了された状態

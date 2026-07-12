@@ -142,7 +142,11 @@ export async function runGates(opts: GateOptions): Promise<GatesOutcome> {
 
   const commands: { name: string; command: string; env?: Record<string, string> }[] = [
     { name: 'typecheck', command: 'npm run typecheck' },
-    { name: 'vitest', command: 'npx vitest run' },
+    // M51: --no-file-parallelism。実gitやタイマーを叩くスイートは、ワーカーを並列に立てると
+    // 負荷でタイムアウトする(ローカル検証でも --no-file-parallelism が必須になっている)。
+    // ゲートは**昇格を決める判定**なので、速さより決定性を採る。
+    // 無関係なフレーク1件で、合格していたプラグインが落ちる(実害: ジョブ16)
+    { name: 'vitest', command: 'npx vitest run --no-file-parallelism' },
   ];
   if (scope === 'tool') {
     // 従来どおり: build+ツールスモークを1ゲートで(挙動不変・回帰テスト対象)
