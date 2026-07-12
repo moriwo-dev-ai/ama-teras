@@ -202,6 +202,12 @@ export const IpcChannels = {
   tsukuyomiSpeakFallback: 'tsukuyomi:speak-fallback',
   /** M42-3: 在席検知(rendererのカメラ監視から。映像は送られない・一文だけ) */
   tsukuyomiPresence: 'tsukuyomi:presence',
+  /** M42-4: 選別した静止フレーム1枚を映像理解へ(上限内のみ。保存しない) */
+  tsukuyomiFrame: 'tsukuyomi:frame',
+  /** M42-5: 録音(WAV)→ ローカルwhisper → 抽出候補。**音声はAPIに送らない** */
+  tsukuyomiTranscribe: 'tsukuyomi:transcribe',
+  /** M42-5: whisper が配置されているか(未配置ならUIに表示) */
+  tsukuyomiWhisperReady: 'tsukuyomi:whisper-ready',
   tsukuyomiEvent: 'tsukuyomi:event',
 } as const;
 
@@ -461,5 +467,10 @@ export interface AmaterasApi {
   tsukuyomiSpeakFallback(text: string): Promise<boolean>;
   /** M42-3: 在席状態の変化(離席/戻り)。**映像は渡さない** */
   tsukuyomiPresence(event: 'away' | 'returned', text: string): Promise<void>;
+  /** M42-4: 選別した1枚(JPEG base64)を理解へ。上限超過・OFFなら null(送らない) */
+  tsukuyomiFrame(jpegBase64: string): Promise<string | null>;
+  /** M42-5: 録音を文字起こし(ローカル)→ 抽出候補を返す。**帳にはまだ書かない** */
+  tsukuyomiTranscribe(wav: ArrayBuffer): Promise<{ items: { kind: ChoEntry['kind']; text: string; due?: string }[]; error?: string }>;
+  tsukuyomiWhisperReady(): Promise<boolean>;
   onTsukuyomiEvent(listener: (event: TsukuyomiEvent) => void): () => void;
 }

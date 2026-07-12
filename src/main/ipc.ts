@@ -460,6 +460,16 @@ export async function registerIpcHandlers(
     getConfig: () => config.get(),
     hasOwnerKey,
     emit: (event) => bus.publish('tsukuyomi:event', event),
+    // M42-4: 映像理解は安い帯(worker)で。キー未設定なら理解しない(在席検知は続く)
+    visionProvider: () => {
+      const p = service.operationsBandProvider('worker');
+      return typeof p === 'string' ? null : p;
+    },
+    // トークン消費は 'tsukuyomi' ラベルで usage 集計へ(帯別コスト表示に行が出る)
+    onVisionUsage: (inputTokens, outputTokens) => {
+      const cfg = config.get();
+      usageMeter.record(cfg.provider, cfg.model, { inputTokens, outputTokens, cacheReadTokens: 0 }, 'tsukuyomi');
+    },
   });
   tsukuyomi.start();
 
@@ -490,6 +500,17 @@ export async function registerIpcHandlers(
     assertString(id, 'id');
     if (typeof done !== 'boolean') throw new Error('IPC payload done が不正');
     return tsukuyomi.setDone(id, done);
+  });
+  ipcMain.handle(IpcChannels.tsukuyomiWhisperReady, () => tsukuyomi.whisperReady());
+  ipcMain.handle(IpcChannels.tsukuyomiTranscribe, (_e, wav: unknown) => {
+    if (!(wav instanceof ArrayBuffer) && !ArrayBuffer.isView(wav)) throw new Error('IPC payload wav が不正');
+    // 音声はここから外に出ない: ローカルwhisperで文字起こし → 一時ファイルは即削除
+    return tsukuyomi.transcribeAndExtract(Buffer.from(wav as ArrayBuffer));
+  });
+  ipcMain.handle(IpcChannels.tsukuyomiFrame, (_e, jpegBase64: unknown) => {
+    assertString(jpegBase64, 'jpegBase64');
+    // 上限(1時間6枚・1日50枚)は manager が見る。超えていたら送らずに null を返す
+    return tsukuyomi.understandFrame(jpegBase64);
   });
   ipcMain.handle(IpcChannels.tsukuyomiPresence, (_e, event: unknown, text: unknown) => {
     assertString(text, 'text');
@@ -579,6 +600,9 @@ export async function registerIpcHandlers(
     const saved = config.set({ ...next, remote: config.get().remote });
     // M32: オーナーモードや対象リポジトリの変更を反映(次回アクセスで再初期化)
     operations.reset();
+    // M42(TUKU-yomi): 目・耳のON/OFFを即座に renderer へ配る。これが無いとカメラをONにしても
+    // 「📷 見守り中」が出ない(= 稼働中なのに見えない = 鉄則5違反)
+    tsukuyomi.onConfigChanged();
     return saved;
   });
   ipcMain.handle(IpcChannels.memoryGet, () => readProjectMemory(service.getWorkspace()));

@@ -1,5 +1,5 @@
 import { app, BrowserWindow, shell } from 'electron';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname as pathDirname, join } from 'node:path';
@@ -10,6 +10,26 @@ import { ToolRegistry } from './tools/registry';
 import { migrateUserData } from './userDataMigration';
 
 const dirname = fileURLToPath(new URL('.', import.meta.url));
+
+/**
+ * M42-3(TUKU-yomi): カメラ・マイクを許可してよいかを設定ファイルから直接読む。
+ * ipc.ts の ConfigStore とは別インスタンスになるが、ここが必要とするのは
+ * 「今この瞬間 目/耳がONか」だけ。鍵ファイルが無ければ enabled が保存時に false へ
+ * 正規化されているので、鍵なし機体では常に false になる(鉄則4の二重防御)
+ */
+function readTsukuyomiPermission(): { camera: boolean; ears: boolean } {
+  try {
+    const keyPath = join(app.getPath('userData'), 'tsukuyomi', '.owner');
+    if (!existsSync(keyPath)) return { camera: false, ears: false };
+    const raw = readFileSync(join(app.getPath('userData'), 'config.json'), 'utf8');
+    const cfg = JSON.parse(raw) as { tsukuyomi?: { enabled?: boolean; camera?: boolean; ears?: boolean } };
+    const t = cfg.tsukuyomi;
+    if (t?.enabled !== true) return { camera: false, ears: false };
+    return { camera: t.camera === true, ears: t.ears === true };
+  } catch {
+    return { camera: false, ears: false };
+  }
+}
 
 // パッケージ版では esbuild のネイティブバイナリが asar 外(app.asar.unpacked)に
 // 展開されるが、esbuild 本体は asar 内パスを見に行き ENOENT になる。
@@ -142,6 +162,18 @@ function createWindow(): void {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
+  });
+
+  // M42-3(TUKU-yomi): カメラ・マイクの権限。**'media' だけ・月読が目/耳をONにしている時だけ**許可する。
+  // 鍵ファイルが無ければ config 側で enabled が false に落ちるので、ここも自然に拒否になる。
+  // それ以外の権限(位置情報・通知等)は従来どおり全部拒否
+  mainWindow.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
+    if (permission !== 'media') {
+      callback(false);
+      return;
+    }
+    const tsu = readTsukuyomiPermission();
+    callback(tsu.camera || tsu.ears);
   });
 
   mainWindow.on('ready-to-show', () => mainWindow?.show());

@@ -475,6 +475,27 @@ function TsukuyomiSection({
             />
             口: PCのスピーカーから実際に喋る(既定OFF)
           </label>
+          {/* M42-3: 目。ONの間は必ず「📷 見守り中」が出る(消せない)。停止は1クリック */}
+          <label className="flex items-center gap-2 text-xs text-zinc-400">
+            <input
+              type="checkbox"
+              checked={tsu.camera === true}
+              onChange={(e) => save({ ...tsu, camera: e.target.checked, ...(e.target.checked ? {} : { cameraUnderstanding: false }) })}
+            />
+            目: カメラで在席を見る(既定OFF・**APIには何も送らない**・映像は保存しない)
+          </label>
+          {/* M42-4: 理解=API送信。カメラとは別トグル。何が起きるかを明示する */}
+          {tsu.camera === true && (
+            <label className="flex items-center gap-2 pl-5 text-xs text-zinc-400">
+              <input
+                type="checkbox"
+                checked={tsu.cameraUnderstanding === true}
+                onChange={(e) => save({ ...tsu, cameraUnderstanding: e.target.checked })}
+              />
+              映像理解: **選別した静止画をAnthropic APIに送信します**(既定OFF・上限
+              {tsu.framesPerHour ?? 6}枚/時・{tsu.framesPerDay ?? 50}枚/日・送信後に保存しない)
+            </label>
+          )}
           <label className="flex items-center gap-2 text-xs">
             1日の声かけ上限
             <input

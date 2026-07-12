@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppConfig, ChoEntry, RunInfo, TsukuyomiConfig, TsukuyomiEvent, TsukuyomiStatus } from '../../shared/types';
 import { TSUKUYOMI_DEFAULTS } from '../config';
+import type { LLMProvider } from '../providers/types';
 import {
   canInterrupt,
   canSendFrame,
@@ -15,8 +16,11 @@ import {
   spendFrame,
   type TsukuyomiState,
 } from './budget';
+import { extractCommitments, type ExtractedItem } from './extractor';
+import { understandScene } from './sceneUnderstanding';
 import { finishedRuns, runLabel, speechFor } from './speaker';
 import { TsukiNoCho } from './tsukiNoCho';
+import { transcribe, whisperPaths, whisperReady, type WhisperRunner } from './transcriber';
 
 /**
  * M42(TUKU-yomi): 月読モードのライフサイクル。
@@ -35,6 +39,12 @@ export interface TsukuyomiManagerDeps {
   hasOwnerKey: () => boolean;
   /** renderer への通知(remote-ui へは中継しない) */
   emit: (event: TsukuyomiEvent) => void;
+  /** M42-4: 映像理解に使うプロバイダ(vision対応。未注入=理解しない) */
+  visionProvider?: () => LLMProvider | null;
+  /** M42-4: トークン消費を usage 集計へ */
+  onVisionUsage?: (inputTokens: number, outputTokens: number) => void;
+  /** M42-5: whisper の実行(テストでは偽実装。音声はAPIに出ない) */
+  whisperRunner?: WhisperRunner;
   nowFn?: () => Date;
 }
 
@@ -233,6 +243,74 @@ export class TsukuyomiManager {
     this.state = spendFrame(this.state, this.now());
     this.saveState();
     this.emitStatus();
+  }
+
+  /**
+   * M42-4: 選別された1枚(JPEG base64)から状況の一文を得て帳に残す。
+   *
+   * **上限に達していたら送らない**(理解を止めるだけで、在席検知は続く・鉄則11)。
+   * フレームは保存しない(メモリ→API→破棄)。返り値は帳に入れた一文(入れなければ null)
+   */
+  async understandFrame(jpegBase64: string): Promise<string | null> {
+    if (!this.canSendFrame()) return null;
+    const provider = this.deps.visionProvider?.();
+    if (provider === undefined || provider === null) return null;
+
+    // 上限は「送る前」に消費する(失敗しても枠は使ったものとして数える=暴走しない)
+    this.spendFrame();
+    try {
+      const { text } = await understandScene(jpegBase64, {
+        provider,
+        onUsage: (input, output) => this.deps.onVisionUsage?.(input, output),
+      });
+      if (text === null) return null;
+      this.add({ kind: 'observation', text, source: 'camera' });
+      return text;
+    } catch {
+      return null; // API不達・拒否は静かに諦める(月は騒がない)
+    }
+  }
+
+  // ---- M42-5: 耳(ローカル文字起こし → 抽出 → 確認UI)----
+
+  /** whisper が配置されているか(未配置なら UI に「モデル未配置」を出す) */
+  whisperReady(): boolean {
+    return whisperReady(whisperPaths(this.deps.userDataDir));
+  }
+
+  /**
+   * 録音(WAV)→ **ローカル** whisper で文字起こし → 抽出 → **候補を返すだけ**。
+   *
+   * 音声はAPIに送らない(鉄則2)。一時WAVは文字起こし直後に削除される。
+   * 生の文字起こしもここで捨てる — 返すのは抽出結果だけで、帳に書くのは人間の承認後
+   */
+  async transcribeAndExtract(wav: Buffer): Promise<{ items: ExtractedItem[]; error?: string }> {
+    if (!this.active() || this.cfg().ears !== true) return { items: [], error: '耳がOFF' };
+    const paths = whisperPaths(this.deps.userDataDir);
+    if (!whisperReady(paths)) return { items: [], error: 'whisper が未配置(モデル未配置)' };
+
+    let transcript: string;
+    try {
+      transcript = await transcribe(wav, paths, {
+        ...(this.deps.whisperRunner !== undefined ? { runner: this.deps.whisperRunner } : {}),
+      });
+    } catch (err) {
+      return { items: [], error: err instanceof Error ? err.message : String(err) };
+    }
+    if (transcript.trim() === '') return { items: [] };
+
+    const provider = this.deps.visionProvider?.();
+    if (provider === undefined || provider === null) return { items: [], error: 'APIキーが未設定' };
+    try {
+      const items = await extractCommitments(transcript, {
+        provider,
+        onUsage: (input, output) => this.deps.onVisionUsage?.(input, output),
+      });
+      // 生の文字起こしはここで捨てる(帳にも返り値にも残さない)
+      return { items };
+    } catch (err) {
+      return { items: [], error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   // ---- 現況 ----
