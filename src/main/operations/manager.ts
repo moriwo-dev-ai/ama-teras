@@ -5,6 +5,7 @@ import type {
   AppConfig,
   ApprovalBatchItem,
   CommunityCandidate,
+  EvolutionJobSummary,
   IwatoRequestPayload,
   MediaStrategyEntry,
   MetricsSnapshot,
@@ -110,6 +111,12 @@ export interface OperationsManagerDeps {
    * 昇格は従来どおり進化サブシステムの承認制(ここは起票までを自動化する配線)
    */
   enqueueEvolution?: (description: string, expectedIO: string) => Promise<number>;
+  /**
+   * M52: 進化ジョブの実状態。神議はこれを見ずに喋っていたため、**ゲートで落ちたジョブを
+   * 「承認待ち」と呼び**、存在しない滞留のレビューを人間に催促していた(実害)。
+   * 起票だけさせて結果を見せないのは、神議を盲目のまま働かせるのと同じ
+   */
+  evolutionJobs?: () => EvolutionJobSummary[];
   /**
    * M42-2: 「作る前に探す」を神議にも通す。神議は自律実行なので候補カードを見る人間がいない。
    * よって **探すだけ** をここで行い、取り込むかどうかは承認バッチで人間が決める
@@ -756,6 +763,7 @@ export class OperationsManager {
       jobs: this.scheduler.list(),
       currentKeywords: params.keywords,
       project: this.project(),
+      evolutionJobs: this.deps.evolutionJobs?.() ?? [],
     });
     const { text, tokensUsed } = await completeTextWithUsage(provider, 'あなたは運営戦略会議「神議」。', prompt, 8192);
     const parsed = parseKamuhakariOutput(text);

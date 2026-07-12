@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   ApprovalBatch,
   ApprovalBatchItem,
+  EvolutionJobSummary,
   GodClockJob,
   InboxItem,
   MetricsSnapshot,
@@ -60,6 +61,11 @@ export function buildKamuhakariPrompt(input: {
   currentKeywords: string[];
   /** M41-3: 運営対象プロジェクト */
   project: ProjectProfile;
+  /**
+   * M52: 進化ジョブの実状態。**これを渡していなかったため、神議は進化の結果を一切知らず**、
+   * 失敗したジョブを「承認待ち」と呼び、存在しない滞留のレビューを人間に催促していた(実害)。
+   */
+  evolutionJobs?: EvolutionJobSummary[];
 }): string {
   const inboxSummary = input.unread
     .slice(0, 40)
@@ -81,6 +87,19 @@ export function buildKamuhakariPrompt(input: {
   const clocks = input.jobs
     .map((j) => `- ${j.godId}: ${j.enabled ? '稼働' : '停止'} 間隔${j.intervalMin}分 予算${j.dailyTokenBudget}(今日${j.spentToday})`)
     .join('\n');
+  const evolution = (input.evolutionJobs ?? [])
+    .slice(-12)
+    .map((j) => {
+      // 失敗の理由は神議が学ぶための一次情報。要約せず、先頭だけ切って渡す
+      const why =
+        j.status === 'failed' && j.error !== undefined && j.error !== ''
+          ? ` — 失敗理由: ${j.error.replace(/\s+/g, ' ').slice(0, 160)}`
+          : '';
+      const failedGate = j.gates.find((g) => !g.ok);
+      const gate = failedGate === undefined ? '' : ` (落ちたゲート: ${failedGate.name})`;
+      return `- #${j.id} [${j.status}] ${j.description}${gate}${why}`;
+    })
+    .join('\n');
 
   return `あなたは「神議(かむはかり)」— OSSプロジェクト ${input.project.name} の運営戦略会議。
 
@@ -99,6 +118,12 @@ ${posted || '(なし)'}
 
 # 神々の時計と予算
 ${clocks}
+
+# 進化ジョブの実状態(これが唯一の事実。ここに無いジョブは存在しない)
+${evolution || '(なし)'}
+※ status が failed のジョブは**終わっている**。承認待ちではない。
+   「承認待ちが滞留している」等、ここから読み取れない状態を推測で書かないこと。
+   人間に承認・レビューを催促するだけの提案(実体のある行動を伴わないもの)は出さないこと。
 
 # 現在の巡回キーワード
 ${input.currentKeywords.join(', ') || '(未設定)'}

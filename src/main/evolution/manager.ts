@@ -12,6 +12,7 @@ import {
 } from './gates';
 import { runGit } from './git';
 import type { EvolutionJobRunner, EvolutionRequest } from './job';
+import { JobStore } from './jobStore';
 import { assertPromotable, nextJobId, promoteBranch, rollbackMerge } from './promote';
 import { SCOPE_ALLOWLISTS, scopeRequiresRestart } from './scopes';
 import { WorktreeManager } from './worktree';
@@ -50,6 +51,11 @@ export interface EvolutionManagerDeps {
    * 未注入なら衝突チェックはスキップする(配線漏れで新規作成そのものが止まらないようにする)
    */
   existingToolNames?: () => string[];
+  /**
+   * M52: ジョブ履歴の保存先(userData/evolution/jobs.json)。
+   * 未注入ならメモリのみ = 再起動で履歴が消える(テストの既定)
+   */
+  stateFile?: string;
   /** テスト用注入 */
   runGatesFn?: (opts: GateOptions) => Promise<GatesOutcome>;
   runCommand?: CommandRunner;
@@ -63,6 +69,10 @@ export class EvolutionManager {
   private queue: { id: number; req: EvolutionRequest }[] = [];
   private processing = false;
   private lastId = 0;
+  /** M52: ジョブ履歴の保存先(未注入=メモリのみ) */
+  private readonly store: JobStore | null;
+  /** M50: 残骸掃除は起動後の最初の enqueue で1回だけ(履歴復元でlastIdが進むので専用フラグ) */
+  private swept = false;
   /** M25-7: renderer/core昇格がrequestRestartを呼んだら立つ。以降drainはキューを進めない
    *  (5秒後のapp.exit(0)までの間に次のジョブが着手→強制終了で消えるのを防ぐ) */
   private restarting = false;
@@ -72,6 +82,16 @@ export class EvolutionManager {
   constructor(private readonly deps: EvolutionManagerDeps) {
     this.baseRef = deps.baseRef ?? 'main';
     this.worktrees = new WorktreeManager(deps.repoDir, deps.worktreeBase, this.baseRef);
+    this.store = deps.stateFile === undefined ? null : new JobStore(deps.stateFile);
+  }
+
+  /** M52: 保存済みのジョブ履歴を読み戻す(起動時に1回。失敗しても進化は動かす) */
+  async restore(): Promise<void> {
+    if (this.store === null) return;
+    for (const job of await this.store.load().catch(() => [])) {
+      this.jobs.set(job.id, job);
+      this.lastId = Math.max(this.lastId, job.id);
+    }
   }
 
   list(): EvolutionJobSummary[] {
@@ -134,11 +154,13 @@ export class EvolutionManager {
   }
 
   async enqueue(req: EvolutionRequest): Promise<number> {
-    if (this.lastId === 0) {
+    if (!this.swept) {
       // M50: この起動で最初の1件 = ジョブは1件も走っていない。この瞬間にしか残骸掃除はできない
       // (走り出した後に evolve/job-* を消すと、動いているB環境を足元から消すことになる)
+      this.swept = true;
       await this.worktrees.sweepStale().catch(() => []);
-      this.lastId = (await nextJobId(this.deps.repoDir)) - 1;
+      // 復元した履歴の最大IDとgit由来のIDの大きいほう(履歴・タグ・ブランチのどれから見ても未使用)
+      this.lastId = Math.max(this.lastId, (await nextJobId(this.deps.repoDir)) - 1);
     }
     const id = ++this.lastId;
     const job: EvolutionJobSummary = {
@@ -160,6 +182,8 @@ export class EvolutionManager {
 
   private emit(job: EvolutionJobSummary): void {
     this.deps.onEvent({ kind: 'job_update', job: structuredClone(job) });
+    // M52: 状態が動くたびに保存する。落ちる瞬間まで残っていてほしいのは、まさに落ちたジョブの記録
+    if (this.store !== null) void this.store.save(this.list()).catch(() => {});
   }
 
   private update(job: EvolutionJobSummary, patch: Partial<EvolutionJobSummary>): void {

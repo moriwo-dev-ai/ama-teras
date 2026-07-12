@@ -397,6 +397,8 @@ export async function registerIpcHandlers(
       const manager: EvolutionManager = new EvolutionManager({
         repoDir,
         worktreeBase: join(repoDir, '..', 'amateras-evolve'),
+        // M52: ジョブ履歴の永続化。これが無いと、失敗の記録が再起動で消える
+        stateFile: join(app.getPath('userData'), 'evolution', 'jobs.json'),
         // M27-4: importFrom 付きの依頼はLLM生成の代わりにファイルコピー(以降のゲートは同一)
         runner: composeRunners(
           new AgentJobRunner(() => service.createProviderOrThrow()),
@@ -433,12 +435,16 @@ export async function registerIpcHandlers(
         },
         onEvent: hooks.onEvent,
       });
-      // M25-7: 前回起動が進化再起動で強制終了され、まだ着手していなかった依頼が
-      // 残っていれば読み戻して再投入する(セーフモード中はこの分岐自体に入らないため
-      // ファイルは手つかずのまま残り、通常起動に戻ったときに拾われる)
-      for (const req of readAndClearPendingQueue(app.getPath('userData'))) {
-        void manager.enqueue(req);
-      }
+      // M52: 履歴を読み戻してから再投入する(復元前に enqueue すると、過去のジョブが
+      // まだ Map に居ないまま採番・保存が走る)
+      void manager.restore().then(() => {
+        // M25-7: 前回起動が進化再起動で強制終了され、まだ着手していなかった依頼が
+        // 残っていれば読み戻して再投入する(セーフモード中はこの分岐自体に入らないため
+        // ファイルは手つかずのまま残り、通常起動に戻ったときに拾われる)
+        for (const req of readAndClearPendingQueue(app.getPath('userData'))) {
+          void manager.enqueue(req);
+        }
+      });
       return manager;
     },
   });
@@ -731,6 +737,8 @@ export async function registerIpcHandlers(
     getBlueskySecret: () => secrets.get('bluesky'),
     // M38-2: 承認された能力ギャップ(evolve)を進化ジョブへ。昇格は従来どおり承認制
     enqueueEvolution: (description, expectedIO) => service.evolutionEnqueue(description, expectedIO).then((r) => r.jobId),
+    // M52: 起票した進化ジョブがどうなったかを神議に見せる(見せないと失敗を「承認待ち」と誤認する)
+    evolutionJobs: () => service.evolutionList(),
     // M42-6(TUKU-yomi): PC窓観測の神。月読ONかつ pcObserver ON の時だけ生える
     tsukuyomiPcObserver: () => tsukuyomi.pcObserverEnabled(),
     observeWindow: () => tsukuyomi.observeWindow(),
