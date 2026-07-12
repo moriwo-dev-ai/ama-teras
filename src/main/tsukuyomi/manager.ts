@@ -5,6 +5,7 @@ import { TSUKUYOMI_DEFAULTS } from '../config';
 import type { LLMProvider } from '../providers/types';
 import {
   canInterrupt,
+  canSendAudio,
   canSendFrame,
   emptyState,
   framesLeftThisHour,
@@ -13,9 +14,12 @@ import {
   isQuietHour,
   resetIfNewDay,
   spend,
+  spendAudio,
   spendFrame,
+  sttSecondsLeft,
   type TsukuyomiState,
 } from './budget';
+import { transcribeCloud, wavSeconds, type CloudSttRunner } from './cloudTranscriber';
 import { extractCommitments, type ExtractedItem } from './extractor';
 import { understandScene } from './sceneUnderstanding';
 import { finishedRuns, runLabel, speechFor } from './speaker';
@@ -52,6 +56,8 @@ export interface TsukuyomiManagerDeps {
   onVisionUsage?: (inputTokens: number, outputTokens: number) => void;
   /** M42-5: whisper の実行(テストでは偽実装。音声はAPIに出ない) */
   whisperRunner?: WhisperRunner;
+  /** M42-7: クラウド文字起こし(sttMode='cloud' の時だけ使う。未注入=クラウドへ行けない) */
+  cloudStt?: () => CloudSttRunner | null;
   /** M42-6: PC窓観測の spawn(テストでは偽実装。スクリーンショットは撮らない) */
   shellRunner?: ShellRunner;
   nowFn?: () => Date;
@@ -67,6 +73,9 @@ const PRUNE_INTERVAL_MS = 60 * 60 * 1000;
  * 何分も前の音を今さら文字起こししても意味がなく、待つほど音をメモリに抱えることになる
  */
 export const MAX_PENDING_TRANSCRIBES = 3;
+
+/** この時間内に**同じ文字起こし**がもう一度来たら二重取り(押して話す × 常時聴取)とみなす */
+export const DUPLICATE_WINDOW_MS = 60_000;
 
 export class TsukuyomiManager {
   private readonly dir: string;
@@ -86,6 +95,8 @@ export class TsukuyomiManager {
   private transcribeQueue: Promise<unknown> = Promise.resolve();
   /** 待ち行列の長さ(処理中を含む)。上限を超えた発話は捨てる */
   private pendingTranscribes = 0;
+  /** 直前の文字起こし(二重取りの検出用) */
+  private lastTranscript: { key: string; at: number } | null = null;
 
   constructor(private readonly deps: TsukuyomiManagerDeps) {
     this.dir = join(deps.userDataDir, 'tsukuyomi');
@@ -123,6 +134,7 @@ export class TsukuyomiManager {
           frameTimesThisHour: Array.isArray(raw.frameTimesThisHour)
             ? raw.frameTimesThisHour.filter((t): t is string => typeof t === 'string')
             : [],
+          sttSecondsToday: typeof raw.sttSecondsToday === 'number' ? raw.sttSecondsToday : 0,
         },
         this.now(),
       );
@@ -303,16 +315,31 @@ export class TsukuyomiManager {
     return whisperReady(whisperPaths(this.deps.userDataDir));
   }
 
+  /** M42-7: 今この機体の耳がどこで文字起こしするか。UI はこれを必ず表示する */
+  sttMode(): 'local' | 'cloud' {
+    return this.cfg().sttMode === 'cloud' ? 'cloud' : 'local';
+  }
+
   /**
-   * 録音(WAV)→ **ローカル** whisper で文字起こし → 抽出 → **候補を返すだけ**。
+   * 録音(WAV)→ 文字起こし(ローカル whisper / クラウド)→ 抽出 → **候補を返すだけ**。
    *
-   * 音声はAPIに送らない(鉄則2)。一時WAVは文字起こし直後に削除される。
-   * 生の文字起こしもここで捨てる — 返すのは抽出結果だけで、帳に書くのは人間の承認後
+   * クラウド経路では**音声そのものが OpenAI に送られる**(勇太さんの承認で鉄則2を変更・
+   * イヤホンマイク装着が前提)。青天井にしないため、送った音声の分数に日次上限を持つ。
+   * 生の文字起こしはここで捨てる — 返すのは抽出結果だけで、帳に書くのは人間の承認後
    */
   async transcribeAndExtract(wav: Buffer): Promise<{ items: ExtractedItem[]; error?: string }> {
     if (!this.active() || this.cfg().ears !== true) return { items: [], error: '耳がOFF' };
+    const cloud = this.sttMode() === 'cloud' ? (this.deps.cloudStt?.() ?? null) : null;
     const paths = whisperPaths(this.deps.userDataDir);
-    if (!whisperReady(paths)) return { items: [], error: 'whisper が未配置(モデル未配置)' };
+    if (cloud === null && !whisperReady(paths)) {
+      return {
+        items: [],
+        error:
+          this.sttMode() === 'cloud'
+            ? 'クラウド文字起こしのAPIキーが未設定'
+            : 'whisper が未配置(モデル未配置)',
+      };
+    }
 
     // 実機で列が60件まで伸びた(誤検知が20秒に1回・処理は1件20秒 = 永久に追いつかない)。
     // 追いつけない分は**その場で捨てる**。何分も前の音声を今さら文字起こししても意味がないし、
@@ -321,22 +348,43 @@ export class TsukuyomiManager {
       return { items: [], error: '文字起こしが混み合っている(この発話は捨てた)' };
     }
 
+    const seconds = cloud !== null ? wavSeconds(wav) : 0;
+    if (cloud !== null && !canSendAudio(this.state, this.cfg(), this.now(), seconds)) {
+      return { items: [], error: '今日のクラウド文字起こしの上限に達した(この発話は送っていない)' };
+    }
+
     let transcript: string;
     this.pendingTranscribes++;
     try {
-      // 常時聴取では発話が重なる。whisper を多重起動すると CPU を食い潰して全部遅くなるので、
-      // **必ず1件ずつ順番に**処理する(実機で1回20秒級かかるため、これは効く)
-      transcript = await this.enqueueTranscribe(() =>
-        transcribe(wav, paths, {
+      // 常時聴取では発話が重なる。多重起動すると CPU(ローカル)や課金(クラウド)を食い潰すので、
+      // **必ず1件ずつ順番に**処理する
+      transcript = await this.enqueueTranscribe(async () => {
+        if (cloud !== null) {
+          // 音声を送った時点で消費(結果が失敗でも通信は起きている)
+          this.state = spendAudio(this.state, this.now(), seconds);
+          this.saveState();
+          return transcribeCloud(wav, cloud);
+        }
+        return transcribe(wav, paths, {
           ...(this.deps.whisperRunner !== undefined ? { runner: this.deps.whisperRunner } : {}),
-        }),
-      );
+        });
+      });
     } catch (err) {
       return { items: [], error: err instanceof Error ? err.message : String(err) };
     } finally {
       this.pendingTranscribes--;
+      this.emitStatus();
     }
     if (transcript.trim() === '') return { items: [] };
+
+    // 二重取りの保険。押して話すと常時聴取が同じ声を拾うと、同じ文が2回来て候補が2つできる
+    // (renderer 側で PTT 中は聴取を止めているが、切り替わりの隙間もあり得る)
+    const key = transcript.trim();
+    const last = this.lastTranscript;
+    this.lastTranscript = { key, at: this.now().getTime() };
+    if (last !== null && last.key === key && this.now().getTime() - last.at < DUPLICATE_WINDOW_MS) {
+      return { items: [], error: '同じ発話をもう一度拾った(捨てた)' };
+    }
 
     const provider = this.deps.visionProvider?.();
     if (provider === undefined || provider === null) return { items: [], error: 'APIキーが未設定' };
@@ -410,6 +458,8 @@ export class TsukuyomiManager {
       framesLeftThisHour: framesLeftThisHour(this.state, cfg, now),
       framesLeftToday: framesLeftToday(this.state, cfg, now),
       quiet: isQuietHour(now, cfg),
+      sttMode: this.sttMode(),
+      sttMinutesLeft: Math.floor(sttSecondsLeft(this.state, cfg, now) / 60),
     };
   }
 

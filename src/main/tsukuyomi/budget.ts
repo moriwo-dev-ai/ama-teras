@@ -20,10 +20,18 @@ export interface TsukuyomiState {
   framesSpentToday: number;
   /** 直近1時間に送ったフレームの送信時刻(ISO)。1時間より古いものは捨てる */
   frameTimesThisHour: string[];
+  /** M42-7: 今日すでにクラウド文字起こしへ送った音声の秒数(青天井にしない) */
+  sttSecondsToday: number;
 }
 
 export function emptyState(now: Date): TsukuyomiState {
-  return { day: dayKey(now), interruptsSpent: 0, framesSpentToday: 0, frameTimesThisHour: [] };
+  return {
+    day: dayKey(now),
+    interruptsSpent: 0,
+    framesSpentToday: 0,
+    frameTimesThisHour: [],
+    sttSecondsToday: 0,
+  };
 }
 
 /** ローカル日付のキー(UTCではない。生活の1日で畳む) */
@@ -38,7 +46,7 @@ export function dayKey(now: Date): string {
 export function resetIfNewDay(state: TsukuyomiState, now: Date): TsukuyomiState {
   const today = dayKey(now);
   if (state.day === today) return state;
-  return { day: today, interruptsSpent: 0, framesSpentToday: 0, frameTimesThisHour: [] };
+  return emptyState(now);
 }
 
 function minutesOf(hhmm: string): number | null {
@@ -113,4 +121,30 @@ export function spendFrame(state: TsukuyomiState, now: Date): TsukuyomiState {
     framesSpentToday: s.framesSpentToday + 1,
     frameTimesThisHour: [...recentFrames(s, now), now.toISOString()],
   };
+}
+
+/**
+ * M42-7: クラウド文字起こしへ送ってよい音声の残り秒数。
+ * 音声がクラウドに出る経路なので、**送った長さ**で上限を持つ(枚数ではなく分数で数える)
+ */
+export function sttSecondsLeft(state: TsukuyomiState, cfg: TsukuyomiConfig, now: Date): number {
+  const s = resetIfNewDay(state, now);
+  const perDay = cfg.cloudMinutesPerDay ?? TSUKUYOMI_DEFAULTS.cloudMinutesPerDay;
+  return Math.max(0, perDay * 60 - s.sttSecondsToday);
+}
+
+/** その音声(秒)を送れるか。上限を超える発話は送らずに捨てる */
+export function canSendAudio(
+  state: TsukuyomiState,
+  cfg: TsukuyomiConfig,
+  now: Date,
+  seconds: number,
+): boolean {
+  return sttSecondsLeft(state, cfg, now) >= seconds;
+}
+
+/** 送った音声の秒数を足した新しい状態を返す */
+export function spendAudio(state: TsukuyomiState, now: Date, seconds: number): TsukuyomiState {
+  const s = resetIfNewDay(state, now);
+  return { ...s, sttSecondsToday: s.sttSecondsToday + Math.max(0, seconds) };
 }

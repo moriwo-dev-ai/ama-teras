@@ -18,6 +18,7 @@ export function WatchIndicator(): JSX.Element | null {
   const watchRef = useRef<CameraWatch | null>(null);
   const earsRef = useRef<EarsWatch | null>(null);
   const addPending = useTsukuyomiStore((s) => s.addPending);
+  const pushToTalk = useTsukuyomiStore((s) => s.pushToTalk);
   const earsOn = status?.ears === true;
   const cameraOn = status?.camera === true;
   // M42-4: 映像理解(=APIへ選別フレームを送る)は別トグル。OFFなら1枚も送らない
@@ -76,6 +77,11 @@ export function WatchIndicator(): JSX.Element | null {
     };
   }, [earsOn, addPending]);
 
+  // 押して話すの最中は常時聴取を黙らせる(同じ声を2経路で拾うと候補が2つできる)
+  useEffect(() => {
+    earsRef.current?.setPaused(pushToTalk);
+  }, [pushToTalk]);
+
   if (status === null || (!status.camera && !status.ears)) return null;
 
   const stopAll = (): void => {
@@ -90,7 +96,10 @@ export function WatchIndicator(): JSX.Element | null {
   return (
     <div className="flex items-center justify-center gap-3 border-b border-indigo-800 bg-indigo-950/70 px-4 py-1 text-xs text-indigo-200">
       {status.camera && <span>📷 見守り中(カメラ)</span>}
-      {status.ears && <span>👂 聴取中(マイク)</span>}
+      {/* クラウド文字起こしの時は「声がクラウドに出ている」ことを常に見せる(鉄則5) */}
+      {status.ears && (
+        <span>{status.sttMode === 'cloud' ? '👂☁ 聴取中(マイク→クラウド)' : '👂 聴取中(マイク)'}</span>
+      )}
       <button className="rounded border border-indigo-600 px-2 py-0.5 text-indigo-100 hover:bg-indigo-900" onClick={stopAll}>
         停止
       </button>

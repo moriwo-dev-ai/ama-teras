@@ -34,6 +34,7 @@ import { healthCheckAfterPromotion, rebuildAndHealthBoot } from './evolution/sup
 import { defaultRunCommand } from './evolution/gates';
 import { OperationsManager } from './operations/manager';
 import { DEFAULT_UPDATE_CHECK_URL } from '../shared/models';
+import { defaultCloudRunner } from './tsukuyomi/cloudTranscriber';
 import { TsukuyomiManager } from './tsukuyomi/manager';
 import { speakWithPowerShell } from './tsukuyomi/voiceFallback';
 import { checkForUpdate } from './update/check';
@@ -469,6 +470,12 @@ export async function registerIpcHandlers(
     onVisionUsage: (inputTokens, outputTokens) => {
       const cfg = config.get();
       usageMeter.record(cfg.provider, cfg.model, { inputTokens, outputTokens, cacheReadTokens: 0 }, 'tsukuyomi');
+    },
+    // M42-7: クラウド文字起こし(sttMode='cloud' の時だけ使われる)。キーが無ければ null =
+    // クラウドへは行けない(ローカル whisper にも落ちない。UI にエラーを出して黙る)
+    cloudStt: () => {
+      const key = secrets.get('openai');
+      return key === null || key === '' ? null : defaultCloudRunner(key);
     },
   });
   tsukuyomi.start();

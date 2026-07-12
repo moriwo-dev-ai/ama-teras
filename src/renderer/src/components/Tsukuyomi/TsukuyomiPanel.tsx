@@ -158,6 +158,7 @@ function EarSection({ onChange }: { onChange: () => Promise<void> }): JSX.Elemen
   const pending = useTsukuyomiStore((s) => s.pending);
   const addPending = useTsukuyomiStore((s) => s.addPending);
   const removePending = useTsukuyomiStore((s) => s.removePending);
+  const setPushToTalk = useTsukuyomiStore((s) => s.setPushToTalk);
   const [ready, setReady] = useState<boolean | null>(null);
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -173,22 +174,32 @@ function EarSection({ onChange }: { onChange: () => Promise<void> }): JSX.Elemen
 
   const startRec = (): void => {
     if (recording || busy) return;
+    // 押している間は常時聴取を黙らせる。同じ声を2経路で拾うと候補が2つできる(実機で起きた)
+    setPushToTalk(true);
     const rec = new Recorder();
     recorderRef.current = rec;
     void rec.start().then((ok) => {
       if (ok) setRecording(true);
-      else setNotice('マイクを使えませんでした(権限を確認してください)');
+      else {
+        setPushToTalk(false);
+        setNotice('マイクを使えませんでした(権限を確認してください)');
+      }
     });
   };
 
   const stopRec = (): void => {
     if (!recording) return;
     setRecording(false);
+    setPushToTalk(false);
     const wav = recorderRef.current?.stop() ?? null;
     recorderRef.current = null;
     if (wav === null) return;
     setBusy(true);
-    setNotice('文字起こし中(このPCの中だけで処理しています)…');
+    setNotice(
+      status.sttMode === 'cloud'
+        ? '文字起こし中(クラウドへ送っています)…'
+        : '文字起こし中(このPCの中だけで処理しています)…',
+    );
     void window.api
       .tsukuyomiTranscribe(wav)
       .then((r) => {
@@ -200,11 +211,19 @@ function EarSection({ onChange }: { onChange: () => Promise<void> }): JSX.Elemen
 
   return (
     <div className="space-y-1.5 rounded border border-zinc-800 p-2">
-      <p className="text-[10px] text-zinc-500">
-        耳: 押している間だけ録音し、**このPCの中で**文字起こしします(音声はAPIに送りません)。
-        抽出した約束・ToDoは、あなたが承認したときだけ帳に入ります
-      </p>
-      {ready === false && (
+      {/* 音声の行き先を隠さない。cloud の時に「APIに送りません」と書いたら嘘になる */}
+      {status?.sttMode === 'cloud' ? (
+        <p className="text-[10px] text-amber-400">
+          ☁ 耳: 録音は<b>クラウド(OpenAI)へ送られて</b>文字起こしされます。イヤホンマイク推奨。
+          今日の残り {status.sttMinutesLeft} 分。抽出した約束・ToDoは、あなたが承認したときだけ帳に入ります
+        </p>
+      ) : (
+        <p className="text-[10px] text-zinc-500">
+          耳: 押している間だけ録音し、<b>このPCの中で</b>文字起こしします(音声はAPIに送りません)。
+          抽出した約束・ToDoは、あなたが承認したときだけ帳に入ります
+        </p>
+      )}
+      {ready === false && status?.sttMode !== 'cloud' && (
         <p className="text-[10px] text-amber-400">
           whisper が未配置です(userData/tsukuyomi/models に whisper-cli.exe と ggml-small.bin を置いてください)
         </p>

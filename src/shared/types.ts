@@ -680,8 +680,17 @@ export interface TsukuyomiConfig {
   camera?: boolean;
   /** 目: 映像理解(選別した静止フレームをAPIへ送る。既定false・camera前提) */
   cameraUnderstanding?: boolean;
-  /** 耳: 常時聴取(既定false)。音声認識はローカルwhisper。音声はAPIに送らない */
+  /** 耳: 常時聴取(既定false) */
   ears?: boolean;
+  /**
+   * M42-7: 文字起こしの場所。
+   * 'local' = ローカル whisper(音声はPCの外に出ない・遅い)/
+   * 'cloud' = OpenAI へ音声を送る(速い・正確。**音声がクラウドに出る**)。
+   * 既定は 'local'。cloud はイヤホンマイク装着が前提(同席者・テレビを拾いにくくする)
+   */
+  sttMode?: 'local' | 'cloud';
+  /** M42-7: クラウド文字起こしへ送ってよい音声の1日あたりの分数(既定60分) */
+  cloudMinutesPerDay?: number;
   /** PC窓観測(アクティブウィンドウのタイトルとプロセス名のみ。既定false) */
   pcObserver?: boolean;
   /** 自発的な発話の1日あたり上限(既定5)。ユーザー起点の操作は対象外 */
@@ -723,6 +732,10 @@ export interface TsukuyomiStatus {
   framesLeftToday: number;
   /** 静音時間の最中か */
   quiet: boolean;
+  /** M42-7: 文字起こしの場所。UIは必ずこれを表示する(音声の行き先を隠さない) */
+  sttMode: 'local' | 'cloud';
+  /** M42-7: クラウドへ送れる音声の残り(分)。local の時は意味を持たない */
+  sttMinutesLeft: number;
 }
 
 /** M42(TUKU-yomi): main→renderer の通知。remote-ui(スマホ)へは中継しない */

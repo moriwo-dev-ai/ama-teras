@@ -504,8 +504,34 @@ function TsukuyomiSection({
               checked={tsu.ears === true}
               onChange={(e) => save({ ...tsu, ears: e.target.checked })}
             />
-            耳: 常時聴取(既定OFF・**音声はこのPCの中だけで文字起こし**・抽出結果はあなたの承認後に帳へ)
+            耳: 常時聴取(既定OFF・抽出結果はあなたの承認後に帳へ)
           </label>
+          {/* M42-7: 文字起こしの場所。音声の行き先が変わる設定なので、選択肢に明記する
+              (cloud はイヤホンマイク装着が前提。同席者・テレビを拾いにくくするため) */}
+          <label className="flex items-center gap-2 text-xs text-zinc-400">
+            文字起こし
+            <select
+              className="rounded border border-zinc-700 bg-zinc-900 px-1 py-0.5 text-xs"
+              value={tsu.sttMode ?? 'local'}
+              onChange={(e) => save({ ...tsu, sttMode: e.target.value === 'cloud' ? 'cloud' : 'local' })}
+            >
+              <option value="local">このPCの中(whisper・音声を外に出さない・遅い)</option>
+              <option value="cloud">クラウド(OpenAI・音声を送る・速い)</option>
+            </select>
+          </label>
+          {tsu.sttMode === 'cloud' && (
+            <label className="flex items-center gap-2 text-xs text-amber-400">
+              ☁ 録音はOpenAIへ送られます。イヤホンマイク推奨。1日の上限
+              <input
+                type="number"
+                className="w-16 rounded border border-zinc-700 bg-zinc-900 px-1 py-0.5"
+                value={tsu.cloudMinutesPerDay ?? 60}
+                min={0}
+                onChange={(e) => save({ ...tsu, cloudMinutesPerDay: Number(e.target.value) })}
+              />
+              分
+            </label>
+          )}
           {/* M42-6: PC窓観測。神々の時計に載る(運営モードもONが必要)。
               取るのはウィンドウのタイトルとプロセス名だけで、スクリーンショットは撮らない */}
           <label className="flex items-center gap-2 text-xs text-zinc-400">

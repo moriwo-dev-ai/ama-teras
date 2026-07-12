@@ -43,6 +43,8 @@ export const TSUKUYOMI_DEFAULTS = {
   framesPerHour: 6,
   framesPerDay: 50,
   quietHours: { start: '23:00', end: '07:00' },
+  /** M42-7: クラウド文字起こしに送っていい音声の分数/日(青天井にしない) */
+  cloudMinutesPerDay: 60,
 } as const;
 
 /** 'HH:MM' の妥当性(24時間表記。25:00 のような値は静音時間として成立しない) */
@@ -66,13 +68,18 @@ export function parseTsukuyomiConfig(raw: unknown): TsukuyomiConfig | undefined 
   for (const key of ['voiceOutput', 'camera', 'cameraUnderstanding', 'ears', 'pcObserver'] as const) {
     if (typeof rec[key] === 'boolean') out[key] = rec[key];
   }
-  const num = (key: 'interruptBudgetPerDay' | 'framesPerHour' | 'framesPerDay'): void => {
+  const num = (
+    key: 'interruptBudgetPerDay' | 'framesPerHour' | 'framesPerDay' | 'cloudMinutesPerDay',
+  ): void => {
     const v = rec[key];
     if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[key] = Math.floor(v);
   };
   num('interruptBudgetPerDay');
   num('framesPerHour');
   num('framesPerDay');
+  num('cloudMinutesPerDay');
+  // 文字起こしの場所。知らない値はローカル(音声を出さない側)に倒す
+  if (rec['sttMode'] === 'cloud' || rec['sttMode'] === 'local') out.sttMode = rec['sttMode'];
   const quiet = rec['quietHours'];
   if (typeof quiet === 'object' && quiet !== null) {
     const q = quiet as Record<string, unknown>;

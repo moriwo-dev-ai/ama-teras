@@ -18,6 +18,12 @@ interface TsukuyomiState {
   entries: ChoEntry[];
   /** 常時聴取が拾った確認待ち。勝手に帳へ書かない(岩戸の思想) */
   pending: ChoCandidate[];
+  /**
+   * 押して話す(PTT)の最中か。この間は常時聴取を黙らせる —
+   * 同じ声を2経路で拾うと1回の発話から候補が2つできる(実機で起きた)
+   */
+  pushToTalk: boolean;
+  setPushToTalk: (active: boolean) => void;
   refresh: () => Promise<void>;
   refreshEntries: () => Promise<void>;
   addPending: (items: ChoCandidate[]) => void;
@@ -28,6 +34,8 @@ export const useTsukuyomiStore = create<TsukuyomiState>((set) => ({
   status: null,
   entries: [],
   pending: [],
+  pushToTalk: false,
+  setPushToTalk: (active) => set({ pushToTalk: active }),
   refresh: async () => {
     const [status, entries] = await Promise.all([
       window.api.tsukuyomiStatus(),

@@ -26,6 +26,8 @@ export class EarsWatch {
   private stream: MediaStream | null = null;
   private processor: ScriptProcessorNode | null = null;
   private stopped = false;
+  /** PTT中は一時停止(マイクは開いたままだが、区間を切り出さない) */
+  private paused = false;
   private vad: VadState = initialVad();
   /** 発話中に貯めるサンプル(区間が終わったら WAV にして渡し、すぐ捨てる) */
   private buffer: Float32Array[] = [];
@@ -67,8 +69,22 @@ export class EarsWatch {
     this.vad = initialVad();
   }
 
+  /**
+   * 押して話す(PTT)の最中は常時聴取を黙らせる。
+   * 同じ声を2経路で拾うと、1回の発話から候補が2つできる(実機で起きた)。
+   * クラウド文字起こしなら課金も2回になる
+   */
+  setPaused(paused: boolean): void {
+    this.paused = paused;
+    if (paused) {
+      this.buffer = [];
+      this.padding = [];
+      this.vad = initialVad();
+    }
+  }
+
   private onFrame(frame: Float32Array): void {
-    if (this.stopped) return;
+    if (this.stopped || this.paused) return;
     const copy = new Float32Array(frame); // 参照を持ち越さない(次のコールバックで上書きされる)
     const nowMs = this.deps.nowFn?.() ?? performance.now();
     const level = rms(copy);
