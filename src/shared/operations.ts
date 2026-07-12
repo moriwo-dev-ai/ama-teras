@@ -27,6 +27,31 @@ export function hatenaPanelUrl(url: string): string {
   return `https://b.hatena.ne.jp/entry/panel/?url=${encodeURIComponent(url)}`;
 }
 
+/**
+ * M43-1: 発信テキストのプレースホルダ解決。
+ * AMENO-uzume のプロンプトは「リンクは {URL} と書け」と指示するが、**置換する処理が
+ * どこにも無かった**ため、X・Blueskyへ `{URL}` の文字列がそのまま投稿されていた(実害)。
+ * URLが未設定なら、置換ではなく**プレースホルダごと落とす**(意味のない文字列を出さない)
+ */
+export function resolvePostText(body: string, projectUrl: string): string {
+  const replaced =
+    projectUrl === '' ? body.replace(/\s*\{URL\}\s*/g, ' ') : body.replace(/\{URL\}/g, projectUrl);
+  return replaced.replace(/[ \t]{2,}/g, ' ').trim();
+}
+
+/**
+ * M43-1: 未解決のプレースホルダ(`{URL}` `{TAG}` 等)が残っていないか。
+ * 発信の直前にこれを見て、残っていたら**実行しない**(テンプレートを外に出さないための最後の砦)
+ */
+export function hasUnresolvedPlaceholder(text: string): boolean {
+  return /\{[A-Z][A-Z_]{1,}\}/.test(text);
+}
+
+/** リポジトリ名(owner/repo)→ GitHubのURL。{URL} の既定の解決先 */
+export function repoUrl(repo: string | undefined): string {
+  return repo === undefined || repo.trim() === '' ? '' : `https://github.com/${repo.trim()}`;
+}
+
 /** 本文から最初の http(s) URL(はてブ対象の記事URL検出)。無ければ null */
 export function firstUrl(text: string): string | null {
   const m = /https?:\/\/[^\s<>"')\]}、。]+/.exec(text);

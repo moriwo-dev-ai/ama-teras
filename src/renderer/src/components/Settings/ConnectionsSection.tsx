@@ -268,6 +268,17 @@ function OwnerModeSection({
                 save({ ...ops, ...(v !== '' ? { projectName: v } : { projectName: undefined as never }) });
               }}
             />
+            {/* M43-1: 発信文の {URL} の解決先。未設定なら観測対象リポジトリのGitHub URL。
+                どちらも無ければプレースホルダごと落とす(「{URL}」という文字列を投稿しない) */}
+            <input
+              className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
+              defaultValue={ops.projectUrl ?? ''}
+              placeholder="告知したいURL(未設定なら観測対象リポジトリのGitHub URL)"
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                save({ ...ops, ...(v !== '' ? { projectUrl: v } : { projectUrl: undefined as never }) });
+              }}
+            />
             <textarea
               className="h-14 w-full rounded border border-zinc-600 bg-zinc-800 p-2 text-xs"
               defaultValue={ops.projectDescription ?? ''}

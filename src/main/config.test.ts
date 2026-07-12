@@ -440,3 +440,24 @@ describe('M42-1: updateCheckUrl(更新確認)の既定値と正規化', () => {
     expect(new ConfigStore(file).get().updateCheckUrl).toBe('');
   });
 });
+
+describe('M43-1: operations.projectUrl(発信の {URL} 解決先)が保存で消えないこと', () => {
+  const base: AppConfig = {
+    autoApprove: { safe: true, write: false, exec: false },
+    provider: 'anthropic',
+    model: '',
+    scopeMode: 'project',
+  };
+
+  it('http(s) のURLは保持され、不正な値は落とす(投稿に変な文字列を混ぜない)', () => {
+    const store = new ConfigStore(file);
+    store.set({
+      ...base,
+      operations: { enabled: true, repos: [], zennSlugs: [], projectUrl: 'https://github.com/o/r' },
+    });
+    expect(new ConfigStore(file).get().operations?.projectUrl).toBe('https://github.com/o/r');
+
+    store.set({ ...base, operations: { enabled: true, repos: [], zennSlugs: [], projectUrl: 'ふつうの文字列' } });
+    expect(new ConfigStore(file).get().operations?.projectUrl).toBeUndefined();
+  });
+});

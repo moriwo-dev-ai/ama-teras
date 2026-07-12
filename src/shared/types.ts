@@ -370,6 +370,11 @@ export interface OperationsConfig {
    */
   projectName?: string;
   projectDescription?: string;
+  /**
+   * M43-1: 発信テキストの {URL} の解決先(告知したいURL)。未設定なら観測対象リポジトリの
+   * GitHub URL。どちらも無ければ {URL} は**プレースホルダごと落とす**(テンプレートを外に出さない)
+   */
+  projectUrl?: string;
   /** 巡回・X検索のキーワード。未設定なら神議が育てた god-params の値を使う */
   keywords?: string[];
   /** Zenn記事のfrontmatter topics。未設定なら ['ai'] */

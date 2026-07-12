@@ -90,6 +90,10 @@ export function parseOperationsConfig(raw: unknown): OperationsConfig | undefine
   if (typeof rec['projectDescription'] === 'string' && rec['projectDescription'].trim() !== '') {
     out.projectDescription = rec['projectDescription'].trim();
   }
+  // M43-1: 発信の {URL} の解決先。http(s) のみ(投稿に変な文字列を混ぜない)
+  if (typeof rec['projectUrl'] === 'string' && /^https?:\/\//.test(rec['projectUrl'].trim())) {
+    out.projectUrl = rec['projectUrl'].trim();
+  }
   if (Array.isArray(rec['keywords'])) {
     const kws = rec['keywords'].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
     if (kws.length > 0) out.keywords = kws.map((k) => k.trim());

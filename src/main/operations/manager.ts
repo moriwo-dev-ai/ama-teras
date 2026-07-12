@@ -18,9 +18,12 @@ import type {
 import {
   bulkGroupKey,
   firstUrl,
+  hasUnresolvedPlaceholder,
   hatenaPanelUrl,
   isLinkOnlyAdapter,
   mediaOf,
+  repoUrl,
+  resolvePostText,
   xIntentUrl,
   type BulkItemResult,
   type BulkRespondResult,
@@ -860,7 +863,12 @@ export class OperationsManager {
     if (this.drafts === null) return [];
     const cfg = this.opsConfig();
     const items: ApprovalBatchItem[] = [];
-    const pending = this.drafts.list().filter((d) => d.status === 'draft');
+    const url = this.projectUrl();
+    // M43-1: 提案の時点で {URL} を解決する(承認ダイアログに出す全文=実際に出る全文)
+    const pending = this.drafts
+      .list()
+      .filter((d) => d.status === 'draft')
+      .map((d) => ({ ...d, body: resolvePostText(d.body, url) }));
 
     for (const d of pending.slice(0, 10)) {
       const base = { id: randomUUID(), kind: 'exec-action' as const, status: 'pending' as const };
@@ -1038,8 +1046,23 @@ export class OperationsManager {
     }
     const batch = this.thread.getBatch(batchId);
     if (batch === null) return { ok: false, detail: 'バッチが見つからない', results: [] };
-    const items = batch.items.filter((i) => itemIds.includes(i.id) && i.action !== undefined);
-    if (items.length === 0) return { ok: false, detail: '対象項目が無い', results: [] };
+    const selected = batch.items.filter((i) => itemIds.includes(i.id) && i.action !== undefined);
+    if (selected.length === 0) return { ok: false, detail: '対象項目が無い', results: [] };
+
+    // M43-2: 既に出した下書きは二度出さない。実際に同じZenn記事が2回コミットされた
+    // (同じ下書きが別のバッチ項目として残っていて、二度承認された)
+    const already = selected.filter((i) => this.draftAlreadyPosted(i.action!.params));
+    for (const i of already) this.thread.respondBatchItem(batchId, i.id, true);
+    const alreadyResults: BulkItemResult[] = already.map((i) => ({
+      itemId: i.id,
+      target: i.action!.target,
+      ok: false,
+      detail: '投稿済み(重複回避)',
+    }));
+    const items = selected.filter((i) => !already.includes(i));
+    if (items.length === 0) {
+      return { ok: true, detail: `${already.length}件はすでに投稿済み(重複を回避した)`, results: alreadyResults };
+    }
 
     const keys = new Set(items.map((i) => bulkGroupKey(i.action!.adapterId, i.action!.actionName)));
     if (keys.size !== 1) {
@@ -1068,16 +1091,24 @@ export class OperationsManager {
 
     // リンク媒体: アプリは発行しない。URLを返して renderer に開かせる
     if (isLinkOnlyAdapter(adapterId)) {
-      const links = items.map((i) => ({
-        itemId: i.id,
-        label: i.action!.target,
-        url: String(i.action!.params['url'] ?? ''),
-      }));
-      for (const i of items) this.thread.respondBatchItem(batchId, i.id, true);
+      const links: { itemId: string; label: string; url: string }[] = [];
+      const results: BulkItemResult[] = [];
+      for (const i of items) {
+        // M43-1: 古いバッチには {URL} 未解決のリンクが残っている(%7BURL%7D)。開かせない
+        const blocked = this.unresolvedPlaceholderIn(i.action!.preview, i.action!.params);
+        if (blocked !== null) {
+          results.push({ itemId: i.id, target: i.action!.target, ok: false, detail: blocked });
+          continue;
+        }
+        this.thread.respondBatchItem(batchId, i.id, true);
+        links.push({ itemId: i.id, label: i.action!.target, url: String(i.action!.params['url'] ?? '') });
+        results.push({ itemId: i.id, target: i.action!.target, ok: true, detail: 'リンクを開く' });
+      }
+      const okCount = results.filter((r) => r.ok).length;
       return {
-        ok: true,
-        detail: `${items.length}件の投稿画面を開く(投稿ボタンはあなたが押す)`,
-        results: items.map((i) => ({ itemId: i.id, target: i.action!.target, ok: true, detail: 'リンクを開く' })),
+        ok: okCount > 0,
+        detail: `${results.length}件中${okCount}件の投稿画面を開く(投稿ボタンはあなたが押す)`,
+        results: [...results, ...alreadyResults],
         links: links.filter((l) => l.url !== ''),
       };
     }
@@ -1133,9 +1164,21 @@ export class OperationsManager {
     const okCount = out.filter((r) => r.ok).length;
     return {
       ok: gateOk && okCount > 0,
-      detail: gateOk ? `${out.length}件中${okCount}件成功` : '承認されなかったため実行していない',
-      results: out,
+      detail: gateOk
+        ? `${out.length}件中${okCount}件成功${already.length > 0 ? `(${already.length}件は投稿済みのため実行せず)` : ''}`
+        : '承認されなかったため実行していない',
+      results: [...out, ...alreadyResults],
     };
+  }
+
+  /**
+   * M43-2: 提案が指す下書きが既に投稿済みか。同じ下書きが複数のバッチに残ることがあり、
+   * 二度承認すると同じ記事が2回コミットされる(実際に起きた)
+   */
+  private draftAlreadyPosted(params: Record<string, unknown>): boolean {
+    const draftId = params['draftId'];
+    if (typeof draftId !== 'string' || this.drafts === null) return false;
+    return this.drafts.list().find((d) => d.id === draftId)?.status === 'posted';
   }
 
   /** M39: 記事アウトライン → 本文(frontmatter込み)。一括承認の全文プレビュー用にも使う */
@@ -1200,6 +1243,10 @@ export class OperationsManager {
     // (バッチ承認=意図の確認、岩戸=発信内容の最終確認。二重確認は仕様)
     if (item.kind === 'exec-action' && item.action !== undefined) {
       const a = item.action;
+      // M43-2: 同じ下書きを二度出さない(古いバッチに残った項目の再承認)
+      if (this.draftAlreadyPosted(a.params)) {
+        return { ok: false, detail: 'この下書きはすでに投稿済み(重複を回避した)' };
+      }
       return await this.execute(a.adapterId, a.actionName, a.target, a.preview, a.params);
     }
     // M33-6: 能力ギャップの3分岐
@@ -1345,7 +1392,17 @@ export class OperationsManager {
 
   listDrafts(): OperationsDraft[] {
     if (!this.ensureInitialized() || this.drafts === null) return [];
-    return this.drafts.list();
+    // M43-1: UI(コピー・リンク)に渡す時点で {URL} を解決しておく。
+    // ここを通らない経路が無いよう、下書きの読み出しは必ずこのメソッド経由にすること
+    const url = this.projectUrl();
+    return this.drafts.list().map((d) => ({ ...d, body: resolvePostText(d.body, url) }));
+  }
+
+  /** M43-1: {URL} の解決先。設定のプロジェクトURL → 観測対象リポジトリ → 空(=プレースホルダごと落とす) */
+  private projectUrl(): string {
+    const cfg = this.opsConfig();
+    const explicit = (cfg.projectUrl ?? '').trim();
+    return explicit !== '' ? explicit : repoUrl(cfg.repos[0]);
   }
 
   updateDraft(
@@ -1520,6 +1577,29 @@ export class OperationsManager {
     if (!this.ensureInitialized() || this.gate === null) {
       return { ok: false, detail: 'オーナーモードがOFF(運営機能は無効)' };
     }
+    const unresolved = this.unresolvedPlaceholderIn(preview, params);
+    if (unresolved !== null) return { ok: false, detail: unresolved };
     return this.gate.requestExecute(adapterId, action, target, preview, params);
+  }
+
+  /**
+   * M43-1: 最後の砦。テンプレートのプレースホルダ(`{URL}` 等)が残ったまま外に出さない。
+   * 実際に X と Bluesky へ `{URL}` の文字列が投稿された事故を受けて追加した
+   */
+  private unresolvedPlaceholderIn(preview: string, params: Record<string, unknown>): string | null {
+    const texts = [preview, ...Object.values(params).filter((v): v is string => typeof v === 'string')];
+    // URLはエンコード済み(%7BURL%7D)の形でも入るため、デコードして見る
+    for (const t of texts) {
+      let decoded = t;
+      try {
+        decoded = decodeURIComponent(t);
+      } catch {
+        /* デコードできない文字列はそのまま見る */
+      }
+      if (hasUnresolvedPlaceholder(decoded)) {
+        return '未解決のプレースホルダ({URL} 等)が残っているため実行しない。設定の「プロジェクトURL」か観測対象リポジトリを設定するか、下書きを編集してください';
+      }
+    }
+    return null;
   }
 }
