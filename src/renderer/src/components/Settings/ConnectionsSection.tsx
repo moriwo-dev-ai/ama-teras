@@ -496,6 +496,16 @@ function TsukuyomiSection({
               {tsu.framesPerHour ?? 6}枚/時・{tsu.framesPerDay ?? 50}枚/日・送信後に保存しない)
             </label>
           )}
+          {/* M42-5b: 耳。ONの間は必ず「👂 聴取中」が出る(消せない)。停止は1クリック。
+              音声はローカルwhisperだけを通り、APIには送らない */}
+          <label className="flex items-center gap-2 text-xs text-zinc-400">
+            <input
+              type="checkbox"
+              checked={tsu.ears === true}
+              onChange={(e) => save({ ...tsu, ears: e.target.checked })}
+            />
+            耳: 常時聴取(既定OFF・**音声はこのPCの中だけで文字起こし**・抽出結果はあなたの承認後に帳へ)
+          </label>
           <label className="flex items-center gap-2 text-xs">
             1日の声かけ上限
             <input

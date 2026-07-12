@@ -154,12 +154,16 @@ export function TsukuyomiPanel(): JSX.Element {
  */
 function EarSection({ onChange }: { onChange: () => Promise<void> }): JSX.Element | null {
   const status = useTsukuyomiStore((s) => s.status);
+  // M42-5b: 常時聴取が拾った候補もここに並ぶ(押して録音した分と同じ確認UIを通す)
+  const pending = useTsukuyomiStore((s) => s.pending);
+  const addPending = useTsukuyomiStore((s) => s.addPending);
+  const removePending = useTsukuyomiStore((s) => s.removePending);
   const [ready, setReady] = useState<boolean | null>(null);
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [candidates, setCandidates] = useState<{ kind: ChoEntry['kind']; text: string; due?: string }[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const recorderRef = useRef<Recorder | null>(null);
+  const candidates = pending;
 
   useEffect(() => {
     void window.api.tsukuyomiWhisperReady().then(setReady);
@@ -188,7 +192,7 @@ function EarSection({ onChange }: { onChange: () => Promise<void> }): JSX.Elemen
     void window.api
       .tsukuyomiTranscribe(wav)
       .then((r) => {
-        setCandidates(r.items);
+        addPending(r.items);
         setNotice(r.error ?? (r.items.length === 0 ? '約束・決定・ToDoは見つかりませんでした' : null));
       })
       .finally(() => setBusy(false));
@@ -231,7 +235,7 @@ function EarSection({ onChange }: { onChange: () => Promise<void> }): JSX.Elemen
                   void window.api
                     .tsukuyomiAdd({ kind: c.kind, text: c.text, source: 'voice', ...(c.due !== undefined ? { due: c.due } : {}) })
                     .then(() => {
-                      setCandidates((cur) => cur.filter((_, j) => j !== i));
+                      removePending(i);
                       return onChange();
                     });
                 }}
@@ -240,7 +244,7 @@ function EarSection({ onChange }: { onChange: () => Promise<void> }): JSX.Elemen
               </button>
               <button
                 className="shrink-0 rounded border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-800"
-                onClick={() => setCandidates((cur) => cur.filter((_, j) => j !== i))}
+                onClick={() => removePending(i)}
               >
                 捨てる
               </button>

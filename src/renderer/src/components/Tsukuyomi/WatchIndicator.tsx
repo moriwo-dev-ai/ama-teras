@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useTsukuyomiStore } from '../../stores/tsukuyomi';
 import { CameraWatch } from './cameraWatch';
+import { EarsWatch } from './earsWatch';
 
 /**
  * M42-3(TUKU-yomi): 稼働中の可視インジケータ(鉄則5)。
@@ -15,6 +16,9 @@ export function WatchIndicator(): JSX.Element | null {
   const status = useTsukuyomiStore((s) => s.status);
   const refresh = useTsukuyomiStore((s) => s.refresh);
   const watchRef = useRef<CameraWatch | null>(null);
+  const earsRef = useRef<EarsWatch | null>(null);
+  const addPending = useTsukuyomiStore((s) => s.addPending);
+  const earsOn = status?.ears === true;
   const cameraOn = status?.camera === true;
   // M42-4: 映像理解(=APIへ選別フレームを送る)は別トグル。OFFなら1枚も送らない
   const understandOn = status?.cameraUnderstanding === true;
@@ -47,6 +51,30 @@ export function WatchIndicator(): JSX.Element | null {
       watchRef.current = null;
     };
   }, [cameraOn, understandOn, refresh]);
+
+  // M42-5b: 常時聴取。VADで切り出した発話区間だけをローカル文字起こしへ回す
+  useEffect(() => {
+    if (!earsOn) {
+      earsRef.current?.stop();
+      earsRef.current = null;
+      return;
+    }
+    if (earsRef.current !== null) return;
+    const ears = new EarsWatch({
+      onUtterance: (wav) => {
+        void window.api.tsukuyomiTranscribe(wav).then((r) => {
+          // 抽出できたものは「確認待ち」に積む(帳には勝手に入れない=岩戸の思想)
+          if (r.items.length > 0) addPending(r.items);
+        });
+      },
+    });
+    earsRef.current = ears;
+    void ears.start();
+    return () => {
+      ears.stop();
+      earsRef.current = null;
+    };
+  }, [earsOn, addPending]);
 
   if (status === null || (!status.camera && !status.ears)) return null;
 
