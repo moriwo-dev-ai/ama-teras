@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../../shared/types';
 import type { LLMProvider, ProviderEvent } from '../providers/types';
-import { EXTRACT_PROMPT, parseExtraction } from './extractor';
+import { EXTRACT_PROMPT, extractPromptFor, parseExtraction } from './extractor';
 import { MAX_PENDING_TRANSCRIBES, TsukuyomiManager } from './manager';
 import {
   parseWhisperOutput,
@@ -134,6 +134,32 @@ describe('M42-5(TUKU-yomi) 耳: 抽出は「本人の約束」だけ(鉄則1)', 
     expect(parseExtraction('[]')).toEqual([]);
     // 不正な kind・空テキストは落とす
     expect(parseExtraction('[{"kind":"gossip","text":"誰それは遅い"},{"kind":"todo","text":""}]')).toEqual([]);
+  });
+
+  /**
+   * 実機で出た2つの事故:
+   * - 「明日の**13時**にレビュー」が「明日**13日**にレビュー」になった(時刻の取り違え=致命的)
+   * - due に文字列「省略」がそのまま入って帳に保存された(日付欄に日付でないものが入る)
+   */
+  it('数字の言い換えを禁じ、due は日付形式のものだけ通す(「省略」は落とす)', () => {
+    expect(EXTRACT_PROMPT).toContain('数字・時刻・日付・固有名詞は文字起こしのまま写す');
+    expect(EXTRACT_PROMPT).toContain('due のキーごと書かない');
+
+    expect(parseExtraction('[{"kind":"promise","text":"13時にレビュー","due":"省略"}]')).toEqual([
+      { kind: 'promise', text: '13時にレビュー' }, // due は付かない
+    ]);
+    expect(parseExtraction('[{"kind":"promise","text":"レビュー","due":"2026-07-13T13:00"}]')).toEqual([
+      { kind: 'promise', text: 'レビュー', due: '2026-07-13T13:00' },
+    ]);
+    expect(parseExtraction('[{"kind":"todo","text":"資料","due":"2026-07-13"}]')).toEqual([
+      { kind: 'todo', text: '資料', due: '2026-07-13' },
+    ]);
+  });
+
+  it('「明日」を日付に直せるよう、今日の日付をプロンプトに渡す', () => {
+    const p = extractPromptFor(new Date(2026, 6, 12));
+    expect(p).toContain('今日は 2026-07-12');
+    expect(p).toContain('日曜'); // 2026-07-12 は日曜
   });
 
   it('抽出結果は帳に勝手に書かない(候補を返すだけ。承認は人間)', async () => {

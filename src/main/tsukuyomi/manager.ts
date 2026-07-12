@@ -344,6 +344,7 @@ export class TsukuyomiManager {
       const items = await extractCommitments(transcript, {
         provider,
         onUsage: (input, output) => this.deps.onVisionUsage?.(input, output),
+        now: this.now(),
       });
       // 生の文字起こしはここで捨てる(帳にも返り値にも残さない)
       return { items };

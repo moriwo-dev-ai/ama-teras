@@ -23,10 +23,29 @@ export const EXTRACT_PROMPT = [
   '- 他人の人物評・感想・約束は書かない',
   '- 雑談・相槌・意味のない発話は無視する',
   '- 該当が無ければ [] を返す(無理に作らない)',
+  // 実機: 「明日の13時にレビュー」が「明日13日にレビュー」になった。時刻の取り違えは
+  // 記憶の義手として致命的なので、数字は言い換えさせない
+  '- **数字・時刻・日付・固有名詞は文字起こしのまま写す**。言い換え・要約で変えない',
   '',
   '形式(JSON配列のみ。前後に説明を書かない):',
-  '[{"kind":"promise|decision|todo","text":"一文で。主語は本人","due":"2026-07-13T13:00 または省略"}]',
+  '[{"kind":"promise|decision|todo","text":"一文で。主語は本人","due":"2026-07-13T13:00"}]',
+  // 実機: due に文字列「省略」がそのまま入って保存された。空欄はキーごと出させる
+  '- due は分かる時だけ。**分からなければ due のキーごと書かない**(「省略」等と書かない)',
+  '- due は "YYYY-MM-DDTHH:mm" か "YYYY-MM-DD" のどちらかだけ',
 ].join('\n');
+
+/** 「明日の13時」を日付にするには今日が要る。プロンプトの先頭に足す */
+export function extractPromptFor(now: Date): string {
+  const d = [
+    `今日は ${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`,
+    `(${['日', '月', '火', '水', '木', '金', '土'][now.getDay()]}曜)です。`,
+    '「明日」「来週」はこれを基準に due へ変換してください。',
+  ].join('');
+  return `${d}\n\n${EXTRACT_PROMPT}`;
+}
+
+/** due として使える形だけ通す(「省略」「未定」等の文字列を日付欄に入れさせない) */
+const DUE_RE = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?$/;
 
 export type ExtractedItem = Pick<ChoEntry, 'kind' | 'text'> & { due?: string };
 
@@ -54,10 +73,11 @@ export function parseExtraction(raw: string): ExtractedItem[] {
     if (kind !== 'promise' && kind !== 'decision' && kind !== 'todo') continue;
     if (typeof text !== 'string' || text.trim() === '') continue;
     const due = rec['due'];
+    const dueOk = typeof due === 'string' && DUE_RE.test(due.trim());
     out.push({
       kind,
       text: text.trim(),
-      ...(typeof due === 'string' && due.trim() !== '' ? { due: due.trim() } : {}),
+      ...(dueOk ? { due: (due as string).trim() } : {}),
     });
   }
   return out;
@@ -66,6 +86,8 @@ export function parseExtraction(raw: string): ExtractedItem[] {
 export interface ExtractorDeps {
   provider: LLMProvider;
   onUsage?: (inputTokens: number, outputTokens: number) => void;
+  /** 「明日」を日付に直すための基準日 */
+  now?: Date;
 }
 
 /**
@@ -81,7 +103,14 @@ export async function extractCommitments(
   let text = '';
   for await (const event of deps.provider.complete({
     system: 'あなたは月読。本人の記憶の義手です。他人を評価せず、本人の約束だけを静かに書き留めます。',
-    messages: [{ role: 'user', content: [{ type: 'text', text: `${EXTRACT_PROMPT}\n\n---\n${transcript}` }] }],
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: `${extractPromptFor(deps.now ?? new Date())}\n\n---\n${transcript}` },
+        ],
+      },
+    ],
     tools: [],
     maxTokens: 1000,
     signal,
