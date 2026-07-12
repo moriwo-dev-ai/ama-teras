@@ -7,6 +7,7 @@ import type {
   MediaStrategyEntry,
   MetricsSnapshot,
   OperationsDraft,
+  RegistryGodInfo,
   RepoMetrics,
   TriageCard,
 } from '../../../../shared/types';
@@ -96,8 +97,104 @@ function GodClocks(): JSX.Element {
         🔒をクリックすると解錠(🔓)し、神議に予算の調整権限を返す(値はそのまま)。
         間隔の調整は神議が自律で行う(予算引き上げの提案はあなたの承認制)。会話は左の⛩運営スレッドで
       </p>
+      <GodRegistryView />
       <GodDefEditor />
     </div>
+  );
+}
+
+/**
+ * M42-3: レジストリで配布されている神を探して迎える。神は「コード」ではなく定義データなので、
+ * 配布も取り込みも定義JSON1枚で済む。迎え入れは必ず岩戸ゲート(定義JSON全文の確認)を通る。
+ * 自分の神は書き出してレジストリへPRできる(共有の入口)
+ */
+function GodRegistryView(): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [gods, setGods] = useState<RegistryGodInfo[] | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const search = (q: string): void => {
+    setBusy(true);
+    setNotice(null);
+    void window.api
+      .operationsGodRegistry(q === '' ? undefined : q)
+      .then((list) => setGods(list))
+      .catch(() => setGods([]))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <details
+      onToggle={(e) => {
+        const isOpen = (e.target as HTMLDetailsElement).open;
+        setOpen(isOpen);
+        if (isOpen && gods === null) search('');
+      }}
+    >
+      <summary className="cursor-pointer text-[10px] text-zinc-500">⛩ レジストリから神を迎える(コミュニティの神定義)</summary>
+      {open && (
+        <div className="mt-1 space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <input
+              className="flex-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-[11px]"
+              placeholder="どんな神が欲しい?(例: リリース作業を任せたい)"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') search(query.trim());
+              }}
+            />
+            <button
+              className="rounded border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+              disabled={busy}
+              onClick={() => search(query.trim())}
+            >
+              {busy ? '検索中…' : '探す'}
+            </button>
+          </div>
+          {gods !== null && gods.length === 0 && (
+            <p className="text-[10px] text-zinc-500">
+              レジストリに神は見つからなかった(未公開・不達・該当なし)。神議が新設を提案することもある
+            </p>
+          )}
+          {gods?.map((g) => (
+            <div key={g.id} className="rounded border border-zinc-800 p-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] text-zinc-200">
+                  {g.name} <span className="text-zinc-500">({g.id} / engine={g.engine})</span>
+                </span>
+                <button
+                  className="shrink-0 rounded border border-orange-800 px-2 py-0.5 text-[10px] text-orange-300 hover:bg-orange-950 disabled:opacity-50"
+                  disabled={busy}
+                  onClick={() => {
+                    setBusy(true);
+                    setNotice(`「${g.name}」の定義を取得中…(承認ダイアログで全文を確認できる)`);
+                    void window.api
+                      .operationsGodInstall(g.id)
+                      .then((r) => setNotice(`${r.ok ? '✓' : '✗'} ${r.detail}`))
+                      .finally(() => setBusy(false));
+                  }}
+                >
+                  ⛩ 迎える(承認ダイアログ)
+                </button>
+              </div>
+              <p className="mt-0.5 text-[10px] text-zinc-400">{g.description}</p>
+              <p className="mt-0.5 text-[10px] text-zinc-500">
+                {g.verified ? '✅ 検証済み' : '⚠ 未検証'} / 作者: {g.author || '不明'}
+                {g.version !== '' ? ` / v${g.version}` : ''}
+              </p>
+            </div>
+          ))}
+          {notice !== null && <p className="text-[10px] text-zinc-400">{notice}</p>}
+          <p className="text-[10px] text-zinc-500">
+            迎え入れは定義JSONの全文を承認ダイアログで確認してから。自分の神を共有するには
+            下の「神の定義」から書き出して、レジストリへPRする
+          </p>
+        </div>
+      )}
+    </details>
   );
 }
 
@@ -151,6 +248,19 @@ function GodDefEditor(): JSX.Element {
             </button>
             <button className="rounded border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-800" onClick={load}>
               再読込
+            </button>
+            {/* M42-3: レジストリへPRするための書き出し(共有の入口。秘密は定義に含まれない) */}
+            <button
+              className="rounded border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-800"
+              onClick={() => {
+                const id = window.prompt('書き出す神のid(例: saruta-hiko)');
+                if (id === null || id.trim() === '') return;
+                void window.api
+                  .operationsGodExport(id.trim())
+                  .then((r) => setNotice(`${r.ok ? '✓' : '✗'} ${r.message}`));
+              }}
+            >
+              📤 定義を書き出す(レジストリへPR)
             </button>
           </div>
           {notice !== null && <p className="text-[10px] text-zinc-400">{notice}</p>}

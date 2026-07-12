@@ -130,6 +130,13 @@ export function isLocalBaseUrl(baseUrl: string): boolean {
 export const DEFAULT_REGISTRY_URL = 'https://raw.githubusercontent.com/moriwo-dev-ai/amateras-registry/main';
 
 /**
+ * M42-1: 更新確認の既定URL(GitHub Releases API の latest)。
+ * 確認するのは「新しい版があるか」だけで、ダウンロードも書き換えもしない。
+ * 空文字に設定すると更新確認を無効化(オフライン運用・フォーク運用)
+ */
+export const DEFAULT_UPDATE_CHECK_URL = 'https://api.github.com/repos/moriwo-dev-ai/ama-teras/releases/latest';
+
+/**
  * 無料枠APIの学習利用に関する注意文(プリセット共通)。
  * 提供元・プランにより扱いが異なるため断定せず、機密は有料APIへ誘導する
  */

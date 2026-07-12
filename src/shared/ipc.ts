@@ -34,6 +34,7 @@ import type {
   PluginImportStartResult,
   ProviderId,
   ProvisionalInstall,
+  RegistryGodInfo,
   RemoteStatusPayload,
   RunInfo,
   SecretSlot,
@@ -43,6 +44,7 @@ import type {
   SubAgentUpdate,
   ToolExecResultPayload,
   ToolInfo,
+  UpdateInfo,
   UsageSummary,
   WorkspaceGitStatus,
 } from './types';
@@ -175,6 +177,12 @@ export const IpcChannels = {
   /** M33-5: 神の宣言的定義(適用は岩戸ゲート承認必須) */
   operationsGodDefs: 'operations:god-defs',
   operationsGodDefApply: 'operations:god-def-apply',
+  /** M42-3: レジストリで配布されている神の一覧・迎え入れ・書き出し */
+  operationsGodRegistry: 'operations:god-registry',
+  operationsGodInstall: 'operations:god-install',
+  operationsGodExport: 'operations:god-export',
+  /** M42-1: アプリ本体の更新確認(通知だけ。自動更新はしない) */
+  updateCheck: 'update:check',
 } as const;
 
 /** preload が window.api として公開するAPIの型。renderer はこれ経由でしか main と話せない */
@@ -403,4 +411,11 @@ export interface AmaterasApi {
   /** M33-5: 神の定義一覧と変更申請(適用は承認ダイアログ=岩戸ゲートを通る) */
   operationsGodDefs(): Promise<unknown[]>;
   operationsGodDefApply(definition: unknown): Promise<{ ok: boolean; detail: string }>;
+  /** M42-3: レジストリの神を探す / 迎える(迎え入れは岩戸ゲートで定義JSON全文を確認) */
+  operationsGodRegistry(query?: string): Promise<RegistryGodInfo[]>;
+  operationsGodInstall(id: string): Promise<{ ok: boolean; detail: string }>;
+  /** M42-3: 自分の神の定義をファイルに書き出す(レジストリへPRするため) */
+  operationsGodExport(id: string): Promise<{ ok: boolean; message: string }>;
+  /** M42-1: 更新確認。newer=true のときだけUIに出す(nullは未確認・無効・不達) */
+  updateCheck(): Promise<UpdateInfo | null>;
 }

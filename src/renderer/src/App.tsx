@@ -8,6 +8,7 @@ import { LeftPane } from './components/Layout/LeftPane';
 import { RevealMenu } from './components/Layout/RevealMenu';
 import { RightPane } from './components/Layout/RightPane';
 import { SidePane, useIsNarrow, usePaneState } from './components/Layout/SidePane';
+import { UpdateBanner } from './components/Layout/UpdateBanner';
 import { SettingsPanel } from './components/Settings/SettingsPanel';
 import { useApprovalStore } from './stores/approval';
 import { useChatStore } from './stores/chat';
@@ -110,6 +111,8 @@ export default function App(): JSX.Element {
 
   return (
     <div className="flex h-screen flex-col">
+      {/* M42-1: 新しい版のお知らせ(通知のみ。自動更新はしない) */}
+      <UpdateBanner />
       {/* M20: セーフモード(進化再起動の連続クラッシュ検知)バナー */}
       {flags?.safeMode && (
         <div className="flex items-center justify-center gap-3 border-b border-red-700 bg-red-950 px-4 py-1.5 text-xs text-red-200">

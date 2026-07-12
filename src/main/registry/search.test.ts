@@ -2,10 +2,13 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  downloadRegistryGod,
   downloadRegistryPlugin,
+  fetchRegistryGods,
   fetchRegistryIndex,
+  matchGodEntries,
   matchRegistryEntries,
   type RegistryIndexEntry,
 } from './search';
@@ -122,5 +125,58 @@ describe('M28-3: downloadRegistryPlugin', () => {
     );
     expect(r.ok).toBe(false);
     expect(r.message).toContain('404');
+  });
+});
+
+describe('M42-3: 神定義のレジストリ配布', () => {
+  const index = {
+    registryVersion: 1,
+    plugins: [],
+    gods: [
+      {
+        id: 'ishikori-dome',
+        name: 'ISHIKORI-dome(石凝姥命・鏡作り)',
+        description: 'リリースノートの下書きを作る',
+        engine: 'draft-writer',
+        version: '1.0.0',
+        author: 'someone',
+        verified: true,
+        path: 'gods/ishikori-dome',
+        file: 'ishikori-dome.json',
+      },
+      // パストラバーサル・不正idは索引の時点で落とす
+      { id: 'evil', name: 'x', engine: 'e', path: 'gods/evil', file: '../../etc/passwd' },
+      { id: 'BAD_ID', name: 'x', engine: 'e', path: 'gods/x', file: 'x.json' },
+    ],
+  };
+  const jsonFetch = (body: unknown, ok = true): typeof fetch =>
+    vi.fn(async () => ({ ok, json: async () => body })) as unknown as typeof fetch;
+
+  it('gods[] を読む。不正エントリは落とす', async () => {
+    const gods = await fetchRegistryGods('https://reg.example', jsonFetch(index));
+    expect(gods?.map((g) => g.id)).toEqual(['ishikori-dome']);
+  });
+
+  it('gods[] が無い旧レジストリでも空配列(索引の移行を待たずにクライアントを配れる)', async () => {
+    const gods = await fetchRegistryGods('https://reg.example', jsonFetch({ registryVersion: 1, plugins: [] }));
+    expect(gods).toEqual([]);
+    // 不達は null(呼び出し側は静かにスキップ)
+    expect(await fetchRegistryGods('https://reg.example', jsonFetch({}, false))).toBeNull();
+  });
+
+  it('検索: id・名前・説明・エンジン名で当てる', async () => {
+    const gods = (await fetchRegistryGods('https://reg.example', jsonFetch(index))) ?? [];
+    const hits = matchGodEntries(gods, 'リリースノートを作る神が欲しい');
+    expect(hits[0]?.entry.id).toBe('ishikori-dome');
+    expect(matchGodEntries(gods, '全然関係のない話題')).toHaveLength(0);
+  });
+
+  it('定義の取得: 索引と id が食い違うものは受け付けない(別の神を掴まされない)', async () => {
+    const gods = (await fetchRegistryGods('https://reg.example', jsonFetch(index))) ?? [];
+    const entry = gods[0]!;
+    const good = await downloadRegistryGod('https://reg.example', entry, jsonFetch({ id: 'ishikori-dome', engine: 'draft-writer' }));
+    expect(good).toMatchObject({ id: 'ishikori-dome' });
+    const swapped = await downloadRegistryGod('https://reg.example', entry, jsonFetch({ id: 'someone-else' }));
+    expect(swapped).toBeNull();
   });
 });

@@ -11,6 +11,8 @@ import type {
   OperationsConfig,
   OperationsDraft,
   ProjectProfile,
+  RegistryGodInfo,
+  RegistryMatchRef,
   TriageCard,
 } from '../../shared/types';
 import {
@@ -100,6 +102,17 @@ export interface OperationsManagerDeps {
    * 昇格は従来どおり進化サブシステムの承認制(ここは起票までを自動化する配線)
    */
   enqueueEvolution?: (description: string, expectedIO: string) => Promise<number>;
+  /**
+   * M42-2: 「作る前に探す」を神議にも通す。神議は自律実行なので候補カードを見る人間がいない。
+   * よって **探すだけ** をここで行い、取り込むかどうかは承認バッチで人間が決める
+   */
+  findRegistryPlugin?: (query: string) => Promise<RegistryMatchRef | null>;
+  /** M42-2: 承認後の取り込み(ダウンロード→B環境の検証ゲート→昇格承認。ゲートは飛ばさない) */
+  importRegistryPlugin?: (name: string) => Promise<{ ok: boolean; message: string; jobId?: number }>;
+  /** M42-3: レジストリで配布されている神定義の検索 */
+  listRegistryGods?: (query?: string) => Promise<RegistryGodInfo[]>;
+  /** M42-3: 神定義JSONの取得(適用は必ず岩戸ゲートの god-definition executor 経由) */
+  fetchRegistryGod?: (id: string) => Promise<unknown | null>;
   /** テスト用注入 */
   ghRunner?: GhRunner;
   /** M37: zenn-content への commit/push 実行(未注入=実git) */
@@ -756,6 +769,9 @@ export class OperationsManager {
         batch.items.push(...draftItems);
       }
     }
+    // M42-2/3: 「作る前に探す」。生成/新設の提案にレジストリの既存を突き合わせ、
+    // 見つかったら承認バッチの項目自体を「取り込み提案」に変える(判断は人間のまま)
+    if (batch !== null) await this.enrichWithRegistry(batch);
     if (batch !== null) this.thread.addBatch(batch);
 
     // 運営スレッドへ: 分析+自律適用の通知+承認バッチ(1枚)
@@ -769,6 +785,70 @@ export class OperationsManager {
     this.inbox.markRead(unread.map((u) => u.id));
     this.inbox.post({ kind: 'kamuhakari-report', godId: 'kamuhakari', title: `神議: 適用${appliedChanges.length}件/承認待ち${batch?.items.length ?? 0}件`, payload: {} });
     return { analysis: parsed.analysis, appliedChanges, batch, tokensUsed };
+  }
+
+  /**
+   * M42-2/3: 能力ギャップの提案に、レジストリの既存(ツール/神)を突き合わせる。
+   * レジストリ不達・候補なしは何もしない(従来どおり生成/新設の提案として残る)。
+   * ここでは取り込まない — 取り込みは人間が承認バッチで承認したときだけ
+   */
+  private async enrichWithRegistry(batch: ApprovalBatch): Promise<void> {
+    for (const item of batch.items) {
+      if (item.kind !== 'capability-gap' || item.gap === undefined) continue;
+      const query = `${item.title} ${item.detail}`;
+      if (item.gap.branch === 'evolve' && this.deps.findRegistryPlugin !== undefined) {
+        const hit = await this.deps.findRegistryPlugin(query).catch(() => null);
+        if (hit !== null) {
+          item.gap.registry = hit;
+          item.title = `[レジストリに既存] ${item.title}`;
+          item.detail =
+            `${item.detail}\n\n📦 コミュニティに既存のツールがあります: ${hit.displayName}@${hit.version}` +
+            `(${hit.verified ? '✅ 検証済み' : '⚠ 未検証'} / 作者: ${hit.author || '不明'})\n${hit.description}\n` +
+            `承認すると **新規生成ではなく取り込み** に進みます(B環境: typecheck→テスト→スモーク → 昇格承認)`;
+        }
+      }
+      if (item.gap.branch === 'new-god' && this.deps.listRegistryGods !== undefined) {
+        const hit = (await this.deps.listRegistryGods(query).catch(() => []))[0];
+        if (hit !== undefined) {
+          item.gap.godRegistry = {
+            key: hit.id,
+            displayName: hit.name,
+            description: hit.description,
+            version: hit.version,
+            author: hit.author,
+            verified: hit.verified,
+          };
+          item.title = `[レジストリに既存] ${item.title}`;
+          item.detail =
+            `${item.detail}\n\n⛩ コミュニティに既存の神がいます: ${hit.name}(${hit.id} / engine=${hit.engine})` +
+            `(${hit.verified ? '✅ 検証済み' : '⚠ 未検証'} / 作者: ${hit.author || '不明'})\n${hit.description}\n` +
+            `承認すると **その定義をダウンロードし、岩戸ゲートで全文を確認してから** 迎え入れます`;
+        }
+      }
+    }
+  }
+
+  /** M42-3: レジストリで配布されている神の一覧(運営タブの「レジストリから神を迎える」) */
+  async godRegistryList(query?: string): Promise<RegistryGodInfo[]> {
+    if (this.deps.listRegistryGods === undefined) return [];
+    return this.deps.listRegistryGods(query).catch(() => []);
+  }
+
+  /**
+   * M42-3: レジストリの神を迎える。定義JSONを取得 → 岩戸ゲート(全文確認)→ 適用。
+   * ダウンロードしただけで有効化されることはない(承認が無ければ executor に届かない)
+   */
+  async installGodFromRegistry(id: string): Promise<{ ok: boolean; detail: string }> {
+    if (this.deps.fetchRegistryGod === undefined) return { ok: false, detail: 'レジストリが無効' };
+    const def = await this.deps.fetchRegistryGod(id).catch(() => null);
+    if (def === null || def === undefined) return { ok: false, detail: `レジストリから「${id}」を取得できなかった` };
+    return this.requestGodDefinitionApply(def);
+  }
+
+  /** M42-3: 自分の神の定義JSON(レジストリへPRするため人間が書き出す)。秘密は含まない */
+  godDefinitionExport(id: string): string | null {
+    const def = this.gods?.get(id) ?? null;
+    return def === null ? null : JSON.stringify(def, null, 2);
   }
 
   /**
@@ -1124,12 +1204,57 @@ export class OperationsManager {
     }
     // M33-6: 能力ギャップの3分岐
     if (item.kind === 'capability-gap' && item.gap !== undefined) {
-      if (item.gap.branch === 'new-god' && item.gap.godDraft !== undefined) {
-        // 新神の有効化は、さらに岩戸ゲート(定義JSON全文の最終確認ダイアログ)を通る
-        // =無承認の自動有効化は構造的に不可能(gods.test.ts で固定)
-        return await this.requestGodDefinitionApply(item.gap.godDraft);
+      if (item.gap.branch === 'new-god') {
+        // M42-3: レジストリに既存の神がいれば、LLMの下書きではなく **その定義** を迎える
+        // (いずれにせよ岩戸ゲートで定義JSON全文の最終確認を通る)
+        if (item.gap.godRegistry !== undefined) {
+          const r = await this.installGodFromRegistry(item.gap.godRegistry.key);
+          if (r.ok) return r;
+          // レジストリ不調で神議を止めない: 下書きがあれば従来経路へフォールバック
+          if (item.gap.godDraft === undefined) return r;
+          this.thread?.post({
+            role: 'system',
+            kind: 'notice',
+            body: `⛩ レジストリからの取得に失敗(${r.detail})。神議の下書き定義で続行する`,
+          });
+        }
+        if (item.gap.godDraft !== undefined) {
+          // 新神の有効化は、さらに岩戸ゲート(定義JSON全文の最終確認ダイアログ)を通る
+          // =無承認の自動有効化は構造的に不可能(gods.test.ts で固定)
+          return await this.requestGodDefinitionApply(item.gap.godDraft);
+        }
+        return { ok: false, detail: '神の定義が無い(下書きもレジストリ候補も見つからない)' };
       }
       if (item.gap.branch === 'evolve') {
+        // M42-2: レジストリに既存があれば、ゼロから作らずに取り込む(検証ゲートは同じ)
+        if (item.gap.registry !== undefined && this.deps.importRegistryPlugin !== undefined) {
+          const key = item.gap.registry.key;
+          const r = await this.deps.importRegistryPlugin(key).catch((err: unknown) => ({
+            ok: false,
+            message: err instanceof Error ? err.message : String(err),
+          }));
+          if (r.ok) {
+            const jobId = 'jobId' in r ? r.jobId : undefined;
+            this.inbox?.post({
+              kind: 'evolution',
+              godId: 'kamuhakari',
+              title: `レジストリから「${key}」を取り込み中(進化ジョブ #${jobId ?? '?'})`,
+              payload: { jobId: jobId ?? 0 },
+            });
+            this.thread?.post({
+              role: 'system',
+              kind: 'notice',
+              body: `📦 レジストリの既存ツール「${key}」を取り込む(${r.message})。昇格承認は進化タブで`,
+            });
+            return { ok: true, detail: `レジストリから取り込み: ${r.message}` };
+          }
+          // 取り込み失敗はレジストリの不調でしかない → 従来どおり生成へフォールバック
+          this.thread?.post({
+            role: 'system',
+            kind: 'notice',
+            body: `📦 レジストリからの取り込みに失敗(${r.message})。新規生成の起票へ切り替える`,
+          });
+        }
         // M38-2: 承認 → 進化ジョブとして自動起票(従来は「通常チャットで起票して」の手渡しだった)。
         // 起票の引き金は人間の承認バッチのみ。生成物の昇格は進化サブシステムの承認制のまま
         if (this.deps.enqueueEvolution === undefined) {

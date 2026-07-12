@@ -33,6 +33,8 @@ import { clearSentinel, writeSentinel } from './evolution/sentinel';
 import { healthCheckAfterPromotion, rebuildAndHealthBoot } from './evolution/supervisor';
 import { defaultRunCommand } from './evolution/gates';
 import { OperationsManager } from './operations/manager';
+import { DEFAULT_UPDATE_CHECK_URL } from '../shared/models';
+import { checkForUpdate } from './update/check';
 import { composeRunners, ImportJobRunner } from './registry/importRunner';
 import { fetchRevocationList } from './registry/killswitch';
 import { exportPlugin } from './registry/packager';
@@ -612,6 +614,33 @@ export async function registerIpcHandlers(
     getBlueskySecret: () => secrets.get('bluesky'),
     // M38-2: 承認された能力ギャップ(evolve)を進化ジョブへ。昇格は従来どおり承認制
     enqueueEvolution: (description, expectedIO) => service.evolutionEnqueue(description, expectedIO).then((r) => r.jobId),
+    // M42-2: 神議も「作る前に探す」— 探すのは自律、取り込むのは人間の承認後
+    findRegistryPlugin: async (query) => {
+      const e = await service.registryFindPlugin(query);
+      return e === null
+        ? null
+        : {
+            key: e.name,
+            displayName: e.name,
+            description: e.description,
+            version: e.version,
+            author: e.author,
+            verified: e.verified,
+          };
+    },
+    importRegistryPlugin: (name) => service.registryImportPlugin(name),
+    // M42-3: 神定義もレジストリで配布する(神は「コード」ではなく定義データ)
+    listRegistryGods: async (query) =>
+      (await service.registryGodList(query)).map((g) => ({
+        id: g.id,
+        name: g.name,
+        description: g.description,
+        engine: g.engine,
+        version: g.version,
+        author: g.author,
+        verified: g.verified,
+      })),
+    fetchRegistryGod: (id) => service.registryGodFetch(id),
     readHighlightSources: async () => {
       let progressExcerpt = '';
       try {
@@ -754,6 +783,32 @@ export async function registerIpcHandlers(
   ipcMain.handle(IpcChannels.operationsGodDefs, () => operations.godDefinitions());
   ipcMain.handle(IpcChannels.operationsGodDefApply, (_e, definition: unknown) =>
     operations.requestGodDefinitionApply(definition),
+  );
+  // M42-3: 神定義のレジストリ配布(探す・迎える・書き出す)
+  ipcMain.handle(IpcChannels.operationsGodRegistry, (_e, query: unknown) =>
+    operations.godRegistryList(typeof query === 'string' && query !== '' ? query : undefined),
+  );
+  ipcMain.handle(IpcChannels.operationsGodInstall, (_e, id: unknown) => {
+    assertString(id, 'id');
+    return operations.installGodFromRegistry(id);
+  });
+  ipcMain.handle(IpcChannels.operationsGodExport, async (_e, id: unknown) => {
+    assertString(id, 'id');
+    const json = operations.godDefinitionExport(id);
+    if (json === null) return { ok: false, message: `神「${id}」が見つからない` };
+    const result = await dialog.showSaveDialog({
+      title: '神の定義を書き出す(レジストリへPRするため)',
+      defaultPath: `${id}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    });
+    if (result.canceled || result.filePath === undefined) return { ok: false, message: 'キャンセルした' };
+    writeFileSync(result.filePath, json, 'utf8');
+    return { ok: true, message: `書き出した: ${result.filePath}` };
+  });
+
+  // ---- M42-1: 更新確認(通知だけ。自動ダウンロード・自動インストールはしない) ----
+  ipcMain.handle(IpcChannels.updateCheck, () =>
+    checkForUpdate(app.getVersion(), config.get().updateCheckUrl ?? DEFAULT_UPDATE_CHECK_URL),
   );
 
   // ---- 進化 ----

@@ -12,7 +12,7 @@ import {
   parseReviewGate,
 } from './config';
 import type { AppConfig } from '../shared/types';
-import { DEFAULT_REGISTRY_URL } from '../shared/models';
+import { DEFAULT_REGISTRY_URL, DEFAULT_UPDATE_CHECK_URL } from '../shared/models';
 
 let dir: string;
 let file: string;
@@ -413,5 +413,30 @@ describe('M41-5: operations の新フィールドが保存で消えないこと(
     expect(saved.operations?.projectName).toBeUndefined();
     expect(saved.operations?.keywords).toBeUndefined();
     expect(saved.operations?.zennTopics).toBeUndefined();
+  });
+});
+
+describe('M42-1: updateCheckUrl(更新確認)の既定値と正規化', () => {
+  const base: AppConfig = {
+    autoApprove: { safe: true, write: false, exec: false },
+    provider: 'anthropic',
+    model: '',
+    scopeMode: 'project',
+  };
+
+  it('未設定なら既定=公式リリースAPI。空文字=無効は保持、不正形式は既定へ', async () => {
+    expect(new ConfigStore(file).get().updateCheckUrl).toBe(DEFAULT_UPDATE_CHECK_URL);
+    await writeFile(file, JSON.stringify({ ...base, updateCheckUrl: '' }), 'utf8');
+    expect(new ConfigStore(file).get().updateCheckUrl).toBe('');
+    await writeFile(file, JSON.stringify({ ...base, updateCheckUrl: 'ftp://bad' }), 'utf8');
+    expect(new ConfigStore(file).get().updateCheckUrl).toBe(DEFAULT_UPDATE_CHECK_URL);
+  });
+
+  it('set() でも消えない(M41-5の事故を繰り返さない)', () => {
+    const store = new ConfigStore(file);
+    store.set({ ...base, updateCheckUrl: 'https://example.test/latest' });
+    expect(new ConfigStore(file).get().updateCheckUrl).toBe('https://example.test/latest');
+    store.set({ ...base, updateCheckUrl: '' });
+    expect(new ConfigStore(file).get().updateCheckUrl).toBe('');
   });
 });

@@ -67,9 +67,13 @@ import { DEFAULT_OPENAI_MODEL, OpenAIProvider } from '../providers/openai';
 import type { ChatMessage, LLMProvider } from '../providers/types';
 import { inspectImportDir } from '../registry/packager';
 import {
+  downloadRegistryGod,
   downloadRegistryPlugin,
+  fetchRegistryGods,
   fetchRegistryIndex,
+  matchGodEntries,
   matchRegistryEntries,
+  type RegistryGodEntry,
   type RegistryIndexEntry,
 } from '../registry/search';
 import { runReviewGateStep } from '../review/gateRunner';
@@ -2291,6 +2295,62 @@ export class AgentService {
     return {
       jobId: await this.evolution.enqueue({ description, expectedIO, ...(scope !== undefined ? { scope } : {}) }),
     };
+  }
+
+  // ---- M42: 神議のための「作る前に探す」(承認カードを見る人間がいない経路でも使える形) ----
+
+  /**
+   * M42-2: レジストリ索引の最有力候補を1件返すだけ(ダウンロードも取り込みもしない)。
+   * 神議はこれで「既存があるか」だけを調べ、**取り込むかどうかは承認バッチで人間が決める**
+   * (自律実行の最中に承認カードを出しても見る人がいない=神議の思想と噛み合わないため)
+   */
+  async registryFindPlugin(query: string): Promise<RegistryIndexEntry | null> {
+    const registryUrl = this.deps.config.get().registryUrl;
+    if (registryUrl === undefined || registryUrl === '') return null;
+    const entries = await fetchRegistryIndex(registryUrl, this.deps.fetchFn ?? fetch);
+    if (entries === null || entries.length === 0) return null;
+    return matchRegistryEntries(entries, query)[0]?.entry ?? null;
+  }
+
+  /**
+   * M42-2: 名前指定でレジストリのプラグインを取り込む(承認バッチで承認された後に呼ばれる)。
+   * ダウンロード → manifest検査/権限静的解析 → 進化ジョブ(B環境: typecheck→テスト→スモーク)。
+   * **昇格は従来どおり人間承認**(ここはゲートを1段も飛ばさない)
+   */
+  async registryImportPlugin(name: string): Promise<{ ok: boolean; message: string; jobId?: number }> {
+    const registryUrl = this.deps.config.get().registryUrl;
+    if (registryUrl === undefined || registryUrl === '') return { ok: false, message: 'レジストリが無効(registryUrl未設定)' };
+    const fetchFn = this.deps.fetchFn ?? fetch;
+    const entries = await fetchRegistryIndex(registryUrl, fetchFn);
+    const entry = entries?.find((e) => e.name === name);
+    if (entry === undefined) return { ok: false, message: `レジストリに「${name}」が見つからない` };
+    const destDir = join(tmpdir(), `amateras-registry-${randomUUID()}`, entry.name);
+    const dl = await downloadRegistryPlugin(registryUrl, entry, destDir, fetchFn);
+    if (!dl.ok) return { ok: false, message: dl.message };
+    const started = await this.pluginImportStart(destDir);
+    if (!started.ok || started.jobId === undefined) return { ok: false, message: started.message };
+    return { ok: true, message: `進化ジョブ #${started.jobId} として検証ゲートへ`, jobId: started.jobId };
+  }
+
+  /** M42-3: レジストリで配布されている神定義の一覧(query があればスコア順) */
+  async registryGodList(query?: string): Promise<RegistryGodEntry[]> {
+    const registryUrl = this.deps.config.get().registryUrl;
+    if (registryUrl === undefined || registryUrl === '') return [];
+    const gods = await fetchRegistryGods(registryUrl, this.deps.fetchFn ?? fetch);
+    if (gods === null) return [];
+    if (query === undefined || query.trim() === '') return gods;
+    return matchGodEntries(gods, query).map((m) => m.entry);
+  }
+
+  /** M42-3: 神定義JSONの取得(適用はしない。適用は必ず岩戸ゲートの god-definition executor) */
+  async registryGodFetch(id: string): Promise<unknown | null> {
+    const registryUrl = this.deps.config.get().registryUrl;
+    if (registryUrl === undefined || registryUrl === '') return null;
+    const fetchFn = this.deps.fetchFn ?? fetch;
+    const gods = await fetchRegistryGods(registryUrl, fetchFn);
+    const entry = gods?.find((g) => g.id === id);
+    if (entry === undefined) return null;
+    return downloadRegistryGod(registryUrl, entry, fetchFn);
   }
 
   /**

@@ -51,27 +51,99 @@ function parseEntry(raw: unknown): RegistryIndexEntry | null {
   };
 }
 
+/**
+ * M42-3: レジストリで配布される神定義(index.json の gods[])。
+ *   { id, name, description, engine, version, author, verified, path, file }
+ * 神は「コード」ではなく定義データなので、配布もダウンロードも1ファイルで済む。
+ * 取り込みは必ず岩戸ゲート(定義JSON全文の確認)を通る=無承認の追加は構造的に不可能。
+ */
+export interface RegistryGodEntry {
+  id: string;
+  name: string;
+  description: string;
+  engine: string;
+  version: string;
+  author: string;
+  verified: boolean;
+  /** レジストリルートからの相対ディレクトリ(例 "gods/saruta-hiko") */
+  path: string;
+  /** 定義JSONのファイル名(例 "saruta-hiko.json") */
+  file: string;
+}
+
+function parseGodEntry(raw: unknown): RegistryGodEntry | null {
+  if (!isRecord(raw)) return null;
+  const { id, name, description, engine, version, author, verified, path, file } = raw;
+  if (typeof id !== 'string' || !/^[a-z0-9-]{2,40}$/.test(id)) return null;
+  if (typeof name !== 'string' || name === '') return null;
+  if (typeof engine !== 'string' || engine === '') return null;
+  if (typeof path !== 'string' || path === '' || path.includes('..')) return null;
+  // パストラバーサル防止: ファイル名は区切り無しの単純名のみ
+  if (typeof file !== 'string' || file === '' || /[\\/]|\.\./.test(file)) return null;
+  return {
+    id,
+    name,
+    description: typeof description === 'string' ? description : '',
+    engine,
+    version: typeof version === 'string' ? version : '',
+    author: typeof author === 'string' ? author : '',
+    verified: verified === true,
+    path,
+    file,
+  };
+}
+
+/** index.json を1回だけ取得する(plugins と gods は同じ索引に同居する) */
+async function fetchIndexJson(
+  registryUrl: string,
+  fetchFn: typeof fetch,
+  timeoutMs: number,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const base = registryUrl.replace(/\/+$/, '');
+    const res = await fetchFn(`${base}/index.json`, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    return isRecord(body) ? body : null;
+  } catch {
+    return null;
+  }
+}
+
 /** index.json を取得してパースする。失敗は null(静かにスキップ) */
 export async function fetchRegistryIndex(
   registryUrl: string,
   fetchFn: typeof fetch = fetch,
   timeoutMs = 8000,
 ): Promise<RegistryIndexEntry[] | null> {
-  try {
-    const base = registryUrl.replace(/\/+$/, '');
-    const res = await fetchFn(`${base}/index.json`, { signal: AbortSignal.timeout(timeoutMs) });
-    if (!res.ok) return null;
-    const body: unknown = await res.json();
-    if (!isRecord(body) || !Array.isArray(body['plugins'])) return null;
-    const out: RegistryIndexEntry[] = [];
-    for (const raw of body['plugins']) {
-      const e = parseEntry(raw);
-      if (e !== null) out.push(e);
-    }
-    return out;
-  } catch {
-    return null;
+  const body = await fetchIndexJson(registryUrl, fetchFn, timeoutMs);
+  if (body === null || !Array.isArray(body['plugins'])) return null;
+  const out: RegistryIndexEntry[] = [];
+  for (const raw of body['plugins']) {
+    const e = parseEntry(raw);
+    if (e !== null) out.push(e);
   }
+  return out;
+}
+
+/**
+ * M42-3: 神定義の索引。gods[] を持たない旧レジストリでも空配列(エラーにしない=
+ * 索引側の移行を待たずにクライアントを配れる)
+ */
+export async function fetchRegistryGods(
+  registryUrl: string,
+  fetchFn: typeof fetch = fetch,
+  timeoutMs = 8000,
+): Promise<RegistryGodEntry[] | null> {
+  const body = await fetchIndexJson(registryUrl, fetchFn, timeoutMs);
+  if (body === null) return null;
+  if (!Array.isArray(body['gods'])) return [];
+  const out: RegistryGodEntry[] = [];
+  for (const raw of body['gods']) {
+    const e = parseGodEntry(raw);
+    if (e !== null) out.push(e);
+  }
+  return out;
 }
 
 /**
@@ -85,16 +157,36 @@ export function matchRegistryEntries(
   entries: RegistryIndexEntry[],
   query: string,
 ): { entry: RegistryIndexEntry; score: number }[] {
+  return scoreByText(entries, query, (e) => ({ key: e.name, text: `${e.name} ${e.description}` }));
+}
+
+/** M42-3: 神定義の索引にも同じスコアラを使う(id/name/説明/エンジン名で当てる) */
+export function matchGodEntries(
+  entries: RegistryGodEntry[],
+  query: string,
+): { entry: RegistryGodEntry; score: number }[] {
+  return scoreByText(entries, query, (e) => ({
+    key: e.id,
+    text: `${e.id} ${e.name} ${e.description} ${e.engine}`,
+  }));
+}
+
+function scoreByText<T>(
+  entries: T[],
+  query: string,
+  pick: (e: T) => { key: string; text: string },
+): { entry: T; score: number }[] {
   const queryFeatures = new Set(features(query));
-  const scored: { entry: RegistryIndexEntry; score: number }[] = [];
+  const scored: { entry: T; score: number }[] = [];
   const q = query.toLowerCase();
   for (const entry of entries) {
+    const { key, text } = pick(entry);
     let score = 0;
-    for (const f of new Set(features(`${entry.name} ${entry.description}`))) {
+    for (const f of new Set(features(text))) {
       if (queryFeatures.has(f)) score += 1;
     }
-    // ツール名そのものが依頼文に出てくる場合は強いシグナル
-    if (q.includes(entry.name.toLowerCase())) score += 5;
+    // 名前そのものが依頼文に出てくる場合は強いシグナル
+    if (key !== '' && q.includes(key.toLowerCase())) score += 5;
     if (score > 0) scored.push({ entry, score });
   }
   return scored.sort((a, b) => b.score - a.score);
@@ -135,5 +227,29 @@ export async function downloadRegistryPlugin(
     return { ok: true, message: `ダウンロード完了: ${entry.files.length}ファイル` };
   } catch (err) {
     return { ok: false, message: `ダウンロード失敗: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
+ * M42-3: 神定義JSONを取得して返す(ディスクには書かない)。
+ * 呼び出し側は必ず validateGodDefinition で検証し、岩戸ゲートの承認を通してから適用すること。
+ * 索引と定義で id が食い違うものは受け付けない(索引を信じて別の神を入れられない)
+ */
+export async function downloadRegistryGod(
+  registryUrl: string,
+  entry: RegistryGodEntry,
+  fetchFn: typeof fetch = fetch,
+  timeoutMs = 15_000,
+): Promise<unknown | null> {
+  const base = registryUrl.replace(/\/+$/, '');
+  try {
+    const url = `${base}/${entry.path.replace(/^\/+|\/+$/g, '')}/${entry.file}`;
+    const res = await fetchFn(url, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    if (!isRecord(body) || body['id'] !== entry.id) return null;
+    return body;
+  } catch {
+    return null;
   }
 }

@@ -265,6 +265,11 @@ export interface AppConfig {
    */
   registryUrl?: string;
   /**
+   * M42-1: 本体の更新確認(GitHub Releases API)。既定=公式リリース。空文字=無効。
+   * **通知だけ**を行う(自動ダウンロード・自動インストールはしない)
+   */
+  updateCheckUrl?: string;
+  /**
    * M29-5: 自律モード(連続作業)開始時の包括承認の既定値。実行開始UIで上書き可能。
    * none=自動導入なし(既定)/ verified=検証済み+危険権限なしのみ仮導入 /
    * verified-generate=上記+新規生成プラグインも仮導入。
@@ -614,9 +619,49 @@ export interface ApprovalBatchItem {
   /**
    * M33-6: 能力ギャップの3分岐。adhoc=単発カバー(通常チャットで実行)/
    * evolve=request_capability起票案 / new-god=新神定義の下書き(承認→岩戸ゲート→有効化)
+   * M42-2/3: registry / godRegistry が付いていれば「作る前に探す」がレジストリで既存を
+   * 見つけている。承認すると生成ではなく **取り込み** に進む(検証ゲートは同じ)
    */
-  gap?: { branch: 'adhoc' | 'evolve' | 'new-god'; godDraft?: unknown };
+  gap?: {
+    branch: 'adhoc' | 'evolve' | 'new-god';
+    godDraft?: unknown;
+    registry?: RegistryMatchRef;
+    godRegistry?: RegistryMatchRef;
+  };
   status: 'pending' | 'approved' | 'rejected';
+}
+
+/** M42: レジストリで見つかった既存の進化(ツール/神)への参照。UIが候補カードに出す */
+export interface RegistryMatchRef {
+  /** ツールなら name、神なら id */
+  key: string;
+  displayName: string;
+  description: string;
+  version: string;
+  author: string;
+  /** レジストリCI+人間承認を通過したか */
+  verified: boolean;
+}
+
+/** M42-3: レジストリで配布されている神定義(index.json の gods[]) */
+export interface RegistryGodInfo {
+  id: string;
+  name: string;
+  description: string;
+  engine: string;
+  version: string;
+  author: string;
+  verified: boolean;
+}
+
+/** M42-1: アプリ本体の更新確認の結果。newer=true のときだけUIに出す */
+export interface UpdateInfo {
+  current: string;
+  latest: string;
+  /** リリースページのURL(既定ブラウザで開く) */
+  url: string;
+  name: string;
+  newer: boolean;
 }
 
 /** M33-4: 承認バッチ(神議がまとめる1枚のカード。バラバラ通知の禁止) */

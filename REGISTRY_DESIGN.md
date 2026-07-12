@@ -47,6 +47,38 @@ request_capability → レジストリ検索 → ヒット
 }
 ```
 
+## 神定義の配布(M42-3)
+
+神は「コード」ではなく**定義データ**(`{id, name, engine, clock, judgePrompt?, dailyTokenBudget, enabled}`)。
+よってレジストリでの配布もJSON1枚で済み、プラグインと同じ `index.json` に同居させる:
+
+```jsonc
+{
+  "registryVersion": 1,
+  "plugins": [ /* 既存 */ ],
+  "gods": [
+    {
+      "id": "ishikori-dome",           // 英小文字・数字・ハイフン。命名は日本神話(八百万の神)から
+      "name": "ISHIKORI-dome(石凝姥命・鏡作り)",
+      "description": "リリースノートの下書きを作る神",
+      "engine": "draft-writer",         // 本体が実装している5エンジンのいずれか
+      "version": "1.0.0",
+      "author": "...",
+      "verified": true,
+      "path": "gods/ishikori-dome",
+      "file": "ishikori-dome.json"      // 定義JSON本体(区切り文字を含まない単純名のみ)
+    }
+  ]
+}
+```
+
+- `gods[]` が無い旧索引でも空配列として扱う(索引側の移行を待たずにクライアントを配れる)
+- **取り込みは必ず岩戸ゲート**: 定義JSONの全文を承認ダイアログで見せてから適用する。
+  索引の `id` と定義の `id` が食い違うものは受け付けない(別の神を掴まされない)
+- エンジン自体の追加は**本体のコード変更**であり、レジストリでは配れない(神議が new-god を
+  出すときは既存エンジンの組み合わせに落とす。足りなければ本体へのIssue/PR)
+- 共有の入口: 運営タブ →「神の定義」→「📤 定義を書き出す」→ レジストリへPR
+
 ## キュレーション体制
 
 - **機械が門番、人間は最終承認だけ**: レジストリCIで typecheck→テスト→静的解析(宣言と実装の不一致検出)→AMA-teras自身のレビューゲート(severity方式)でLLMレビュー→結果をPRに自動コメント。人間はhigh指摘ゼロのPRだけ見る

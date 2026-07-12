@@ -86,8 +86,10 @@ describe('M37-2: zenn-repo アダプタ(記事の行き先)', () => {
     const stamp = '202607121530';
     expect(articleSlug('Self Evolving Agent', stamp)).toMatch(ZENN_SLUG_RE);
     expect(articleSlug('Self Evolving Agent', stamp)).toContain('self-evolving-agent');
+    // M41-3: 既定の接頭辞はプロジェクト非依存('article')。プロジェクト名は呼び出し側が渡す
     const ja = articleSlug('自己進化エージェントの作り方', stamp);
-    expect(ja).toBe(`ama-teras-${stamp}`);
+    expect(ja).toBe(`article-${stamp}`);
+    expect(articleSlug('自己進化エージェントの作り方', stamp, 'my-tool')).toBe(`my-tool-${stamp}`);
     expect(ja).toMatch(ZENN_SLUG_RE);
     // 短すぎる英数タイトルもスタンプが付いて12文字以上になる
     expect(articleSlug('ab', stamp)).toMatch(ZENN_SLUG_RE);

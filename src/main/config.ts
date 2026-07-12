@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { DEFAULT_REGISTRY_URL } from '../shared/models';
+import { DEFAULT_REGISTRY_URL, DEFAULT_UPDATE_CHECK_URL } from '../shared/models';
 import type {
   AppConfig,
   AutonomousRegistryScope,
@@ -212,6 +212,8 @@ const DEFAULTS: AppConfig = {
   scopeMode: 'project',
   // M29-4: 「作る前に探す」の既定は公式レジストリ(未公開の間は不達=静かにスキップ)
   registryUrl: DEFAULT_REGISTRY_URL,
+  // M42-1: 更新確認の既定は公式リリース。空文字=無効(通知のみ。自動更新はしない)
+  updateCheckUrl: DEFAULT_UPDATE_CHECK_URL,
   // M10: リモートアクセスは既定で無効(有効化はデスクトップの設定UIからのみ)
   remote: { enabled: false, port: 8787 },
 };
@@ -264,6 +266,12 @@ export class ConfigStore {
       if (typeof rec['registryUrl'] === 'string') {
         if (rec['registryUrl'] === '' || /^https?:\/\//.test(rec['registryUrl'])) {
           merged.registryUrl = rec['registryUrl'];
+        }
+      }
+      // M42-1: 更新確認URL。空文字=無効(明示的オプトアウト)。不正形式は既定へフォールバック
+      if (typeof rec['updateCheckUrl'] === 'string') {
+        if (rec['updateCheckUrl'] === '' || /^https?:\/\//.test(rec['updateCheckUrl'])) {
+          merged.updateCheckUrl = rec['updateCheckUrl'];
         }
       }
       if (rec['scopeMode'] === 'project' || rec['scopeMode'] === 'fullPc') merged.scopeMode = rec['scopeMode'];
@@ -339,6 +347,13 @@ export class ConfigStore {
     // M28-3/M29-4: レジストリURLの正規化。空文字=無効は保持、不正形式・未設定は既定へ
     if (clone.registryUrl === undefined || (clone.registryUrl !== '' && !/^https?:\/\//.test(clone.registryUrl))) {
       clone.registryUrl = DEFAULT_REGISTRY_URL;
+    }
+    // M42-1: 更新確認URLの正規化(空文字=無効は保持、不正形式・未設定は既定へ)
+    if (
+      clone.updateCheckUrl === undefined ||
+      (clone.updateCheckUrl !== '' && !/^https?:\/\//.test(clone.updateCheckUrl))
+    ) {
+      clone.updateCheckUrl = DEFAULT_UPDATE_CHECK_URL;
     }
     // M18: 保存時にも正規化(不正形は未設定へ、格上げ回数はクランプ)
     if (clone.modelPolicy !== undefined) {
