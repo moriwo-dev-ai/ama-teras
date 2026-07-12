@@ -43,6 +43,11 @@ export class ApprovalBroker {
     if (settle) settle(decision);
   }
 
+  /** M42-2(TUKU-yomi): 未応答の承認要求の件数(月読が「承認待ちがあるよ」と言うため。読み取りのみ) */
+  pendingCount(): number {
+    return this.pending.size;
+  }
+
   allowForSession(toolName: string): void {
     this.sessionAllowed.add(toolName);
   }

@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AppConfig, ChoEntry, TsukuyomiConfig, TsukuyomiEvent, TsukuyomiStatus } from '../../shared/types';
+import type { AppConfig, ChoEntry, RunInfo, TsukuyomiConfig, TsukuyomiEvent, TsukuyomiStatus } from '../../shared/types';
 import { TSUKUYOMI_DEFAULTS } from '../config';
 import {
   canInterrupt,
@@ -15,6 +15,7 @@ import {
   spendFrame,
   type TsukuyomiState,
 } from './budget';
+import { finishedRuns, runLabel, speechFor } from './speaker';
 import { TsukiNoCho } from './tsukiNoCho';
 
 /**
@@ -46,6 +47,12 @@ export class TsukuyomiManager {
   private state: TsukuyomiState;
   private pruneTimer: NodeJS.Timeout | null = null;
   private stopped = false;
+  /** M42-2: 発話ソース。前回のラン一覧・承認待ち件数(差分でしか喋らない) */
+  private lastRuns: RunInfo[] = [];
+  private lastApprovalCount = 0;
+  /** M42-3: 離席中か。留守中の出来事は溜めて、戻った時にまとめて伝える */
+  private away = false;
+  private whileAway: string[] = [];
 
   constructor(private readonly deps: TsukuyomiManagerDeps) {
     this.dir = join(deps.userDataDir, 'tsukuyomi');
@@ -164,6 +171,55 @@ export class TsukuyomiManager {
     if (!this.active() || this.cfg().voiceOutput !== true) return false;
     this.deps.emit({ type: 'speak', text });
     return true;
+  }
+
+  // ---- M42-2: 発話ソース(実行完了・承認待ち)----
+
+  /**
+   * ラン一覧の変化から「終わったよ」を拾う。開始・進行では喋らない(うるさいので)。
+   * 予算切れ・静音時間なら黙る
+   */
+  onRunsChanged(runs: RunInfo[]): void {
+    const finished = finishedRuns(this.lastRuns, runs);
+    this.lastRuns = runs;
+    if (finished.length === 0) return;
+    // 複数同時に終わっても声かけは1回(まとめて言う)
+    const first = finished[0];
+    if (first === undefined) return;
+    // M42-3: 留守中に終わったものは溜めておき、戻ってきた時にまとめて伝える
+    // (居ないところで喋っても意味がないし、予算の無駄)
+    if (this.away) {
+      for (const r of finished) this.whileAway.push(`${runLabel(r) || '作業'}が終わってた`);
+      return;
+    }
+    const text = speechFor({ kind: 'runs-finished', label: runLabel(first) });
+    if (text !== null) this.trySpeak(text);
+  }
+
+  /** 承認待ちがたまったら1回だけ知らせる(同じ件数で二度言わない) */
+  onApprovalWaiting(count: number): void {
+    if (count === this.lastApprovalCount) return;
+    this.lastApprovalCount = count;
+    const text = speechFor({ kind: 'approval-waiting', count });
+    if (text !== null) this.trySpeak(text);
+  }
+
+  /**
+   * M42-3: 在席イベント(renderer のカメラ監視から。**映像は来ない・一文だけ**)。
+   * 離席→戻りで「おかえり。留守中に〜」。留守中に何も起きていなければ「おかえり」だけ
+   */
+  onPresence(event: 'away' | 'returned', text: string): void {
+    if (!this.active() || this.cfg().camera !== true) return;
+    this.add({ kind: 'observation', text, source: 'camera' });
+    if (event === 'away') {
+      this.away = true;
+      this.whileAway = [];
+      return;
+    }
+    this.away = false;
+    const spoken = speechFor({ kind: 'welcome-back', whileAway: this.whileAway });
+    this.whileAway = [];
+    if (spoken !== null) this.trySpeak(spoken);
   }
 
   // ---- 映像理解のフレーム送信上限 ----

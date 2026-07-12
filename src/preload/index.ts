@@ -166,6 +166,8 @@ const api: AmaterasApi = {
   tsukuyomiAdd: (entry) => ipcRenderer.invoke(IpcChannels.tsukuyomiAdd, entry),
   tsukuyomiSetDone: (id, done) => ipcRenderer.invoke(IpcChannels.tsukuyomiSetDone, id, done),
   tsukuyomiSpeak: (text) => ipcRenderer.invoke(IpcChannels.tsukuyomiSpeak, text),
+  tsukuyomiSpeakFallback: (text) => ipcRenderer.invoke(IpcChannels.tsukuyomiSpeakFallback, text),
+  tsukuyomiPresence: (event, text) => ipcRenderer.invoke(IpcChannels.tsukuyomiPresence, event, text),
   onTsukuyomiEvent: (listener) => subscribe<TsukuyomiEvent>(IpcChannels.tsukuyomiEvent, listener),
 };
 

@@ -9,6 +9,9 @@ import { RevealMenu } from './components/Layout/RevealMenu';
 import { RightPane } from './components/Layout/RightPane';
 import { SidePane, useIsNarrow, usePaneState } from './components/Layout/SidePane';
 import { UpdateBanner } from './components/Layout/UpdateBanner';
+import { speak } from './components/Tsukuyomi/speak';
+import { WatchIndicator } from './components/Tsukuyomi/WatchIndicator';
+import { useTsukuyomiStore } from './stores/tsukuyomi';
 import { SettingsPanel } from './components/Settings/SettingsPanel';
 import { useApprovalStore } from './stores/approval';
 import { useChatStore } from './stores/chat';
@@ -49,6 +52,18 @@ export default function App(): JSX.Element {
     restartedFrom?: string;
   } | null>(null);
   const [restartNoticeClosed, setRestartNoticeClosed] = useState(false);
+  // M42-2(TUKU-yomi): 月読の発話。OSの音声で実際に喋る(APIには何も送らない)。
+  // 日本語の声が無い機体では main の System.Speech へフォールバックする
+  useEffect(() => {
+    return window.api.onTsukuyomiEvent((event) => {
+      if (event.type === 'speak') {
+        if (!speak(event.text)) void window.api.tsukuyomiSpeakFallback(event.text);
+      }
+      if (event.type === 'cho-changed') void useTsukuyomiStore.getState().refreshEntries();
+      if (event.type === 'status') useTsukuyomiStore.setState({ status: event.status });
+    });
+  }, []);
+
   useEffect(() => {
     // ready-to-show後にrestartedFromが立つため少し遅らせて取得
     const t = setTimeout(() => {
@@ -111,6 +126,8 @@ export default function App(): JSX.Element {
 
   return (
     <div className="flex h-screen flex-col">
+      {/* M42-3(TUKU-yomi): 稼働中は必ず見える(鉄則5)。停止は常に1クリック */}
+      <WatchIndicator />
       {/* M42-1: 新しい版のお知らせ(通知のみ。自動更新はしない) */}
       <UpdateBanner />
       {/* M20: セーフモード(進化再起動の連続クラッシュ検知)バナー */}

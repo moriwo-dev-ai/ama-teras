@@ -198,6 +198,10 @@ export const IpcChannels = {
   tsukuyomiAdd: 'tsukuyomi:add',
   tsukuyomiSetDone: 'tsukuyomi:set-done',
   tsukuyomiSpeak: 'tsukuyomi:speak',
+  /** M42-2: rendererに日本語音声が無い時のフォールバック(OSのSystem.Speech) */
+  tsukuyomiSpeakFallback: 'tsukuyomi:speak-fallback',
+  /** M42-3: 在席検知(rendererのカメラ監視から。映像は送られない・一文だけ) */
+  tsukuyomiPresence: 'tsukuyomi:presence',
   tsukuyomiEvent: 'tsukuyomi:event',
 } as const;
 
@@ -453,5 +457,9 @@ export interface AmaterasApi {
   tsukuyomiSetDone(id: string, done: boolean): Promise<ChoEntry | null>;
   /** ユーザー起点の発話(予算を消費しない) */
   tsukuyomiSpeak(text: string): Promise<boolean>;
+  /** M42-2: rendererで喋れなかった時のフォールバック(OS音声。ローカル・APIに送らない) */
+  tsukuyomiSpeakFallback(text: string): Promise<boolean>;
+  /** M42-3: 在席状態の変化(離席/戻り)。**映像は渡さない** */
+  tsukuyomiPresence(event: 'away' | 'returned', text: string): Promise<void>;
   onTsukuyomiEvent(listener: (event: TsukuyomiEvent) => void): () => void;
 }

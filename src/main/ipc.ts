@@ -35,6 +35,7 @@ import { defaultRunCommand } from './evolution/gates';
 import { OperationsManager } from './operations/manager';
 import { DEFAULT_UPDATE_CHECK_URL } from '../shared/models';
 import { TsukuyomiManager } from './tsukuyomi/manager';
+import { speakWithPowerShell } from './tsukuyomi/voiceFallback';
 import { checkForUpdate } from './update/check';
 import { composeRunners, ImportJobRunner } from './registry/importRunner';
 import { fetchRevocationList } from './registry/killswitch';
@@ -462,6 +463,12 @@ export async function registerIpcHandlers(
   });
   tsukuyomi.start();
 
+  // M42-2: 発話ソースはランの完了と承認待ちの2つだけ(開始・進行では喋らない=うるさいので)。
+  // 予算切れ・静音時間なら manager が黙る(鉄則3)
+  bus.subscribe('runs:changed', (runs) => tsukuyomi.onRunsChanged(runs));
+  bus.subscribe('approval:request', () => tsukuyomi.onApprovalWaiting(service.broker.pendingCount()));
+  bus.subscribe('approval:resolved', () => tsukuyomi.onApprovalWaiting(service.broker.pendingCount()));
+
   ipcMain.handle(IpcChannels.tsukuyomiStatus, () => tsukuyomi.status());
   ipcMain.handle(IpcChannels.tsukuyomiList, () => tsukuyomi.list());
   ipcMain.handle(IpcChannels.tsukuyomiAdd, (_e, entry: unknown) => {
@@ -483,6 +490,16 @@ export async function registerIpcHandlers(
     assertString(id, 'id');
     if (typeof done !== 'boolean') throw new Error('IPC payload done が不正');
     return tsukuyomi.setDone(id, done);
+  });
+  ipcMain.handle(IpcChannels.tsukuyomiPresence, (_e, event: unknown, text: unknown) => {
+    assertString(text, 'text');
+    if (event !== 'away' && event !== 'returned') throw new Error('IPC payload event が不正');
+    tsukuyomi.onPresence(event, text);
+  });
+  ipcMain.handle(IpcChannels.tsukuyomiSpeakFallback, (_e, text: unknown) => {
+    assertString(text, 'text');
+    // renderer に日本語音声が無い機体でのみ呼ばれる。OS同梱の合成音声(ローカル)
+    return speakWithPowerShell(text);
   });
   ipcMain.handle(IpcChannels.tsukuyomiSpeak, (_e, text: unknown) => {
     assertString(text, 'text');
