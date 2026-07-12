@@ -7,6 +7,21 @@
  * 音声は renderer のメモリとローカル whisper だけを通る(APIには行かない・鉄則2)。
  */
 
+/**
+ * 常時聴取で開くマイクの条件。
+ *
+ * **autoGainControl を切るのが肝**。既定(`audio: true`)だと Chrome は AGC を有効にし、
+ * 静かな部屋ほどゲインを上げて環境音を「声の大きさ」まで持ち上げてしまう。
+ * 実機で測ったら AGC有りは環境音の21%が下のしきい値を超え(p90=0.033)、
+ * 20秒に1回 whisper が回り続けた。AGCを切ると同じ部屋で 0.0%(p99=0.016)。
+ * 音量を素直に測れないと、しきい値をいくら調整しても意味がない
+ */
+export const MIC_CONSTRAINTS = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: false,
+} as const;
+
 /** これを超えたら「声がある」(0〜1。マイクの生RMS) */
 export const SPEECH_RMS_THRESHOLD = 0.02;
 

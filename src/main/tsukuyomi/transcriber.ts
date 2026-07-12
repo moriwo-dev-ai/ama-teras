@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { cpus, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -31,6 +31,34 @@ export function whisperReady(paths: WhisperPaths): boolean {
 }
 
 export type WhisperRunner = (args: string[], signal: AbortSignal) => Promise<string>;
+
+/** 一時WAVの名前。これで自分が書いたものだけを狙って消す */
+const TMP_PREFIX = 'amateras-tsukuyomi-';
+
+/**
+ * 前回の残骸を掃除する(起動時に1回)。
+ *
+ * 通常運転なら finally が必ず消すが、**文字起こし中にアプリが落ちた/強制終了された**場合は
+ * finally が走らず、録音が tmp に1本残る(実機で確認した)。
+ * 「録音が残るアプリにしない」ためには、落ちた次の起動で拾い直すしかない
+ */
+export function sweepTmpWavs(dir: string = tmpdir()): number {
+  let removed = 0;
+  try {
+    for (const name of readdirSync(dir)) {
+      if (!name.startsWith(TMP_PREFIX) || !name.endsWith('.wav')) continue;
+      try {
+        unlinkSync(join(dir, name));
+        removed++;
+      } catch {
+        /* 使用中なら次回に回す */
+      }
+    }
+  } catch {
+    /* tmp が読めない環境なら何もしない */
+  }
+  return removed;
+}
 
 const TRANSCRIBE_TIMEOUT_MS = 120_000;
 
@@ -123,7 +151,7 @@ export async function transcribe(
   if (!whisperReady(paths)) throw new Error('whisper が未配置(モデル未配置)');
 
   const dir = opts.tmpDir ?? tmpdir();
-  const wavPath = join(dir, `amateras-tsukuyomi-${randomUUID()}.wav`);
+  const wavPath = join(dir, `${TMP_PREFIX}${randomUUID()}.wav`);
   const run = opts.runner ?? defaultRunner(paths.bin);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TRANSCRIBE_TIMEOUT_MS);

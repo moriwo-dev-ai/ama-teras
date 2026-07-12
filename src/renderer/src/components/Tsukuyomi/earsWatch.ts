@@ -1,4 +1,4 @@
-import { initialVad, rms, stepVad, type VadState } from '../../../../shared/tsukuyomiVad';
+import { MIC_CONSTRAINTS, initialVad, rms, stepVad, type VadState } from '../../../../shared/tsukuyomiVad';
 import { downsample, encodeWav } from './record';
 
 /**
@@ -38,7 +38,8 @@ export class EarsWatch {
   async start(): Promise<boolean> {
     if (this.stopped || this.stream !== null) return this.stream !== null;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // audio:true だと AGC が環境音を声の大きさまで持ち上げる(MIC_CONSTRAINTS のコメント参照)
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: { ...MIC_CONSTRAINTS } });
     } catch {
       return false; // 権限拒否。黙って諦める
     }

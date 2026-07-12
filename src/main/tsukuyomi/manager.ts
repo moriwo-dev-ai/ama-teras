@@ -20,7 +20,13 @@ import { extractCommitments, type ExtractedItem } from './extractor';
 import { understandScene } from './sceneUnderstanding';
 import { finishedRuns, runLabel, speechFor } from './speaker';
 import { TsukiNoCho } from './tsukiNoCho';
-import { transcribe, whisperPaths, whisperReady, type WhisperRunner } from './transcriber';
+import {
+  sweepTmpWavs,
+  transcribe,
+  whisperPaths,
+  whisperReady,
+  type WhisperRunner,
+} from './transcriber';
 import { foregroundWindow, windowText, type ShellRunner } from './windowObserver';
 
 /**
@@ -54,6 +60,14 @@ export interface TsukuyomiManagerDeps {
 /** 忘却(observation の7日削除)の実行間隔 */
 const PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 
+/**
+ * 文字起こしの待ち行列の上限(処理中を含む)。
+ * テレビが点いていると常時聴取は音を拾い続ける。処理は1件20秒級・1件ずつなので、
+ * 列は追いつかずに伸び続ける(実機で60件超)。**溢れた発話は捨てる** —
+ * 何分も前の音を今さら文字起こししても意味がなく、待つほど音をメモリに抱えることになる
+ */
+export const MAX_PENDING_TRANSCRIBES = 3;
+
 export class TsukuyomiManager {
   private readonly dir: string;
   private readonly cho: TsukiNoCho;
@@ -70,6 +84,8 @@ export class TsukuyomiManager {
   private lastWindowKey: string | null = null;
   /** M42-5b: whisper の直列化。常時聴取で発話が重なっても多重起動させない */
   private transcribeQueue: Promise<unknown> = Promise.resolve();
+  /** 待ち行列の長さ(処理中を含む)。上限を超えた発話は捨てる */
+  private pendingTranscribes = 0;
 
   constructor(private readonly deps: TsukuyomiManagerDeps) {
     this.dir = join(deps.userDataDir, 'tsukuyomi');
@@ -126,6 +142,8 @@ export class TsukuyomiManager {
   start(): void {
     if (this.stopped || this.pruneTimer !== null) return;
     if (!this.active()) return;
+    // 前回の文字起こし中に落ちていたら録音が tmp に残っている。ここで拾い直す
+    sweepTmpWavs();
     this.cho.prune();
     this.pruneTimer = setInterval(() => {
       if (this.stopped) return;
@@ -296,7 +314,15 @@ export class TsukuyomiManager {
     const paths = whisperPaths(this.deps.userDataDir);
     if (!whisperReady(paths)) return { items: [], error: 'whisper が未配置(モデル未配置)' };
 
+    // 実機で列が60件まで伸びた(誤検知が20秒に1回・処理は1件20秒 = 永久に追いつかない)。
+    // 追いつけない分は**その場で捨てる**。何分も前の音声を今さら文字起こししても意味がないし、
+    // 待たせるほど「聞いた音」をメモリに抱え続けることになる
+    if (this.pendingTranscribes >= MAX_PENDING_TRANSCRIBES) {
+      return { items: [], error: '文字起こしが混み合っている(この発話は捨てた)' };
+    }
+
     let transcript: string;
+    this.pendingTranscribes++;
     try {
       // 常時聴取では発話が重なる。whisper を多重起動すると CPU を食い潰して全部遅くなるので、
       // **必ず1件ずつ順番に**処理する(実機で1回20秒級かかるため、これは効く)
@@ -307,6 +333,8 @@ export class TsukuyomiManager {
       );
     } catch (err) {
       return { items: [], error: err instanceof Error ? err.message : String(err) };
+    } finally {
+      this.pendingTranscribes--;
     }
     if (transcript.trim() === '') return { items: [] };
 
