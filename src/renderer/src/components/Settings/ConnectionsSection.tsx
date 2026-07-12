@@ -544,6 +544,19 @@ function TsukuyomiSection({
               OFFなら押して話す時だけ会話する)
             </label>
           )}
+          {/* M44-1: 声で操作。副作用のある操作は復唱+確認語。外部発信・リリースは声からは動かない */}
+          {tsu.conversation === true && (
+            <label className="flex items-center gap-2 text-xs text-zinc-400">
+              <input
+                type="checkbox"
+                checked={tsu.voiceCommand === true}
+                onChange={(e) => save({ ...tsu, voiceCommand: e.target.checked })}
+              />
+              声で操作: 「承認待ち何件?」「メトリクスの神を動かして」等(既定OFF)。
+              **実行前に必ず復唱して「実行して」の一言を待つ**(「うん」では動かない)。
+              **X/Bluesky/Zennへの投稿・GitHubリリースは声からは実行できない**(画面の承認のみ)
+            </label>
+          )}
           {tsu.conversation === true && tsu.wakeWord !== false && (
             <label className="flex items-center gap-2 text-xs text-zinc-400">
               呼びかけの言葉

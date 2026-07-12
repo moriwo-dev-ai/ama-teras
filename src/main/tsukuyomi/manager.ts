@@ -42,6 +42,15 @@ import {
   type WhisperRunner,
 } from './transcriber';
 import { hasWakeWord, shouldConverse, stripWakeWord } from '../../shared/wakeWord';
+import {
+  CONFIRM_TTL_MS,
+  isCancel,
+  isConfirm,
+  isReadOnly,
+  needsConfirm,
+  type VoiceIntent,
+} from '../../shared/voiceIntent';
+import { detectIntent } from './voiceCommand';
 import { foregroundWindow, windowText, type ShellRunner } from './windowObserver';
 
 /**
@@ -69,6 +78,16 @@ export interface TsukuyomiManagerDeps {
   whisperRunner?: WhisperRunner;
   /** M42-7: クラウド文字起こし(sttMode='cloud' の時だけ使う。未注入=クラウドへ行けない) */
   cloudStt?: () => CloudSttRunner | null;
+  /**
+   * M44-1: 声で届く操作の実体(未注入=声からは何も動かせない)。
+   * ここに無いものは声から動かない — 外部発信・リリースは意図的に含めていない
+   */
+  voiceActions?: {
+    runningCount: () => number;
+    pendingApprovals: () => number;
+    godIds: () => string[];
+    runGod?: (godId: string) => Promise<{ ok: boolean; detail: string }>;
+  };
   /** M42-6: PC窓観測の spawn(テストでは偽実装。スクリーンショットは撮らない) */
   shellRunner?: ShellRunner;
   nowFn?: () => Date;
@@ -109,6 +128,8 @@ export class TsukuyomiManager {
   private pendingTranscribes = 0;
   /** M43-1: 直近の会話(音声なので短く保つ) */
   private history: ConversationTurn[] = [];
+  /** M44-1: 復唱して確認語を待っている操作(TTLを過ぎたら捨てる) */
+  private pendingCommand: { intent: VoiceIntent; at: number } | null = null;
   /** M43-4: 最後に呼ばれた時刻。この後30秒は呼ばずに続けて話せる */
   private lastWakeAt: number | null = null;
   /** 直前の文字起こし(二重取りの検出用) */
@@ -452,7 +473,64 @@ export class TsukuyomiManager {
     // 「つくよみ、明日の予定は?」の呼びかけ部分は用件から外す(そのまま渡すと呼び名に返事をする)
     const said = wake ? (stripWakeWord(transcript, custom) || '呼びました') : transcript;
 
+    // M44-1: 確認待ちの操作があるなら、この発話は**確認語かどうか**だけを見る。
+    // 「うん」等の相槌では動かさない(テレビの音・独り言・言い間違いで本番操作が飛ぶ)
+    if (talk && this.pendingCommand !== null) {
+      const stale = nowMs - this.pendingCommand.at >= CONFIRM_TTL_MS;
+      const intent = this.pendingCommand.intent;
+      if (stale) {
+        this.pendingCommand = null; // 放っておいた確認語で後から動き出すのが一番怖い
+      } else if (isCancel(said)) {
+        this.pendingCommand = null;
+        this.talks.add({ role: 'you', text: transcript });
+        this.speakWithoutBudget('やめておきます。');
+        this.talks.add({ role: 'tsukuyomi', text: 'やめておきます。' });
+        this.deps.emit({ type: 'talk-changed' });
+        return { items: [], reply: 'やめておきます。' };
+      } else if (isConfirm(said)) {
+        this.pendingCommand = null;
+        this.talks.add({ role: 'you', text: transcript });
+        const result = await this.runVoiceAction(intent);
+        this.speakWithoutBudget(result);
+        this.talks.add({ role: 'action', text: `${intent.say} → ${result}` });
+        this.deps.emit({ type: 'talk-changed' });
+        return { items: [], reply: result };
+      }
+      // 確認語でも取り消しでもなければ、確認は保留のまま普通の会話として続ける
+    }
+
     try {
+      // M44-1: 声で操作。話しかけられた時だけ判定する(呼ばれてもいない発話に判定APIを叩かない)
+      const intent =
+        talk && this.cfg().voiceCommand === true
+          ? await detectIntent(said, {
+              provider,
+              entries: this.cho.list(),
+              godIds: this.deps.voiceActions?.godIds() ?? [],
+              onUsage: (input, output) => this.deps.onVisionUsage?.(input, output),
+            })
+          : null;
+
+      if (intent !== null) {
+        this.talks.add({ role: 'you', text: transcript });
+        let reply: string;
+        if (isReadOnly(intent.action)) {
+          // 読み取りだけ。確認は要らない(何も壊れない)
+          reply = await this.runVoiceAction(intent);
+        } else if (needsConfirm(intent.action)) {
+          // 復唱して確認語を待つ。ここで実行はしない(岩戸の思想: 人が決める)
+          this.pendingCommand = { intent, at: nowMs };
+          reply = `${intent.say}。いいですか?`;
+        } else {
+          // blocked.publish: 外部公開は声では実行しない(取り返しがつかない)
+          reply = '外部への発信とリリースは、声では実行しません。画面で承認してください。';
+        }
+        this.talks.add({ role: 'tsukuyomi', text: reply });
+        this.deps.emit({ type: 'talk-changed' });
+        this.speakWithoutBudget(reply);
+        return { items: [], reply };
+      }
+
       // 会話ONなら「返事」と「約束の抽出」を同時に走らせる。
       // 話しながら「明日13時にレビュー」と言えば、返事をしつつ候補も上がる
       const [items, reply] = await Promise.all([
@@ -491,6 +569,55 @@ export class TsukuyomiManager {
       return { items, ...(reply !== '' ? { reply } : {}) };
     } catch (err) {
       return { items: [], error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /**
+   * M44-1: 許可リストの操作を実行する。
+   *
+   * **ここに書いてある操作しか声からは動かない**。外部発信・リリースはそもそも来ない
+   * (detectIntent が blocked.publish に倒す)。実行したことは必ず履歴に残す
+   */
+  private async runVoiceAction(intent: VoiceIntent): Promise<string> {
+    const acts = this.deps.voiceActions;
+    switch (intent.action) {
+      case 'read.status': {
+        const runs = acts?.runningCount() ?? 0;
+        return runs === 0 ? '動いているタスクはありません。' : `${runs}件のタスクが動いています。`;
+      }
+      case 'read.approvals': {
+        const n = acts?.pendingApprovals() ?? 0;
+        return n === 0 ? '承認待ちはありません。' : `承認待ちが${n}件あります。`;
+      }
+      case 'read.cho': {
+        const open = this.cho.list().filter((e) => e.kind !== 'observation' && e.done !== true);
+        if (open.length === 0) return '帳に残っている用事はありません。';
+        return `${open.length}件あります。${open.slice(-3).map((e) => e.text).join('。')}`;
+      }
+      case 'cho.add': {
+        const text = intent.target ?? '';
+        if (text === '') return '何を覚えるのか分かりませんでした。';
+        this.add({ kind: 'todo', text, source: 'voice' });
+        return `帳に入れました。${text}`;
+      }
+      case 'cho.done': {
+        const target = intent.target ?? '';
+        const hit = this.cho
+          .list()
+          .filter((e) => e.kind !== 'observation' && e.done !== true)
+          .find((e) => e.text.includes(target) || target.includes(e.text));
+        if (hit === undefined) return '帳にその項目が見つかりませんでした。';
+        this.setDone(hit.id, true);
+        return `済みにしました。${hit.text}`;
+      }
+      case 'ops.godRun': {
+        const godId = intent.target ?? '';
+        if (acts?.runGod === undefined) return '運営モードが動いていません。';
+        const r = await acts.runGod(godId);
+        return r.ok ? `動かしました。${r.detail}` : `動きませんでした。${r.detail}`;
+      }
+      case 'blocked.publish':
+        return '外部への発信とリリースは、声では実行しません。画面で承認してください。';
     }
   }
 

@@ -456,7 +456,10 @@ export async function registerIpcHandlers(
   bus.subscribe('tsukuyomi:event', (e) => push(IpcChannels.tsukuyomiEvent, e));
 
   // ---- M42(TUKU-yomi): 月読モード ----
-  const tsukuyomi = new TsukuyomiManager({
+  // M44-1: 声で神を動かすために運営マネージャを参照するが、あちらは月読より後に作られる
+  // (月読に依存しているため)。生成後にここへ差し込む
+  let opsRef: OperationsManager | null = null;
+  const tsukuyomi: TsukuyomiManager = new TsukuyomiManager({
     userDataDir: app.getPath('userData'),
     getConfig: () => config.get(),
     hasOwnerKey,
@@ -476,6 +479,22 @@ export async function registerIpcHandlers(
     cloudStt: () => {
       const key = secrets.get('openai');
       return key === null || key === '' ? null : defaultCloudRunner(key);
+    },
+    /**
+     * M44-1: 声で届く操作。**ここに書いたものしか声からは動かない**。
+     * 外部発信(X/Bluesky/Zenn)・GitHubリリースは意図的に入れていない —
+     * 言い間違い・誤認識で本番に出るのが取り返しのつかない事故になる
+     */
+    voiceActions: {
+      runningCount: () => service.runsList().length,
+      pendingApprovals: () => service.broker.pendingCount(),
+      // 運営マネージャは月読より後に作られる(月読に依存しているため)。遅延参照する
+      godIds: () => opsRef?.clocks().map((j) => j.godId) ?? [],
+      runGod: async (godId: string) => {
+        if (opsRef === null) return { ok: false, detail: '運営モードが動いていません' };
+        const r = await opsRef.runGodNow(godId);
+        return { ok: r.ok, detail: r.detail };
+      },
     },
   });
   tsukuyomi.start();
@@ -682,7 +701,7 @@ export async function registerIpcHandlers(
     resolver(approved);
     return true;
   };
-  const operations = new OperationsManager({
+  const operations: OperationsManager = new OperationsManager({
     userDataDir: app.getPath('userData'),
     getConfig: () => config.get(),
     // M46: リリースタグの自動採番と package.json との食い違い検出に使う
@@ -757,6 +776,8 @@ export async function registerIpcHandlers(
       return { progressExcerpt, recentCommits };
     },
   });
+  // M44-1: これで「声で神を今すぐ動かす」が繋がる(復唱+確認語を通ってから実行される)
+  opsRef = operations;
   ipcMain.handle(IpcChannels.operationsStatus, () => operations.status());
   ipcMain.handle(IpcChannels.operationsSnapshot, () => operations.collectSnapshot());
   ipcMain.handle(IpcChannels.operationsHistory, (_e, limit: unknown) =>

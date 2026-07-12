@@ -65,7 +65,7 @@ export function parseTsukuyomiConfig(raw: unknown): TsukuyomiConfig | undefined 
   const rec = raw as Record<string, unknown>;
   if (typeof rec['enabled'] !== 'boolean') return undefined;
   const out: TsukuyomiConfig = { enabled: rec['enabled'] };
-  for (const key of ['voiceOutput', 'camera', 'cameraUnderstanding', 'ears', 'pcObserver', 'conversation', 'wakeWord'] as const) {
+  for (const key of ['voiceOutput', 'camera', 'cameraUnderstanding', 'ears', 'pcObserver', 'conversation', 'wakeWord', 'voiceCommand'] as const) {
     if (typeof rec[key] === 'boolean') out[key] = rec[key];
   }
   const num = (
