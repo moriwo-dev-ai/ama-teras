@@ -17,17 +17,18 @@ const dirname = fileURLToPath(new URL('.', import.meta.url));
  * 「今この瞬間 目/耳がONか」だけ。鍵ファイルが無ければ enabled が保存時に false へ
  * 正規化されているので、鍵なし機体では常に false になる(鉄則4の二重防御)
  */
-function readTsukuyomiPermission(): { camera: boolean; ears: boolean } {
+function readTsukuyomiPermission(): { enabled: boolean; camera: boolean; ears: boolean } {
+  const off = { enabled: false, camera: false, ears: false };
   try {
     const keyPath = join(app.getPath('userData'), 'tsukuyomi', '.owner');
-    if (!existsSync(keyPath)) return { camera: false, ears: false };
+    if (!existsSync(keyPath)) return off;
     const raw = readFileSync(join(app.getPath('userData'), 'config.json'), 'utf8');
     const cfg = JSON.parse(raw) as { tsukuyomi?: { enabled?: boolean; camera?: boolean; ears?: boolean } };
     const t = cfg.tsukuyomi;
-    if (t?.enabled !== true) return { camera: false, ears: false };
-    return { camera: t.camera === true, ears: t.ears === true };
+    if (t?.enabled !== true) return off;
+    return { enabled: true, camera: t.camera === true, ears: t.ears === true };
   } catch {
-    return { camera: false, ears: false };
+    return off;
   }
 }
 
@@ -164,16 +165,19 @@ function createWindow(): void {
     return { action: 'deny' };
   });
 
-  // M42-3(TUKU-yomi): カメラ・マイクの権限。**'media' だけ・月読が目/耳をONにしている時だけ**許可する。
-  // 鍵ファイルが無ければ config 側で enabled が false に落ちるので、ここも自然に拒否になる。
-  // それ以外の権限(位置情報・通知等)は従来どおり全部拒否
+  // M42-3(TUKU-yomi): カメラ・マイクの権限。**'media' だけ**。それ以外(位置情報・通知等)は全部拒否。
+  //
+  // 許可の条件は「月読モードがON」(= 鍵ファイルがあり、設定でONにしてある機体)。
+  // 当初は「camera か ears がONの時だけ」にしていたが、**押している間だけ録音(push-to-talk)は
+  // 耳OFFでも使う**ため、それではマイクが開けなかった(実機で発覚)。
+  // 実際にカメラ/マイクを開くのは月読の各機能だけで、開いている間は必ずインジケータが出る(鉄則5)。
+  // 鍵の無い機体では enabled が false に正規化されるので、ここも自然に拒否になる
   mainWindow.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
     if (permission !== 'media') {
       callback(false);
       return;
     }
-    const tsu = readTsukuyomiPermission();
-    callback(tsu.camera || tsu.ears);
+    callback(readTsukuyomiPermission().enabled);
   });
 
   mainWindow.on('ready-to-show', () => mainWindow?.show());

@@ -59,7 +59,13 @@ function defaultRunner(bin: string): WhisperRunner {
     });
 }
 
-/** whisper-cli の出力からテキストだけを取り出す(タイムスタンプ行を落とす) */
+/**
+ * whisper が無音・雑音に対して出す幻聴。**そのまま通すと帳がゴミで埋まる**
+ * (実機で無音2秒に「(音楽)」が返ってきた)。括弧だけの行は全部落とす
+ */
+const HALLUCINATION_RE = /^[[(【（].*[\])】）]$/;
+
+/** whisper-cli の出力からテキストだけを取り出す(タイムスタンプ行・幻聴を落とす) */
 export function parseWhisperOutput(raw: string): string {
   return raw
     .split('\n')
@@ -68,7 +74,8 @@ export function parseWhisperOutput(raw: string): string {
       const m = /^\[[\d:.]+\s*-->\s*[\d:.]+\]\s*(.*)$/.exec(line.trim());
       return (m?.[1] ?? line).trim();
     })
-    .filter((t) => t !== '' && !/^\[.*\]$/.test(t)) // [BLANK_AUDIO] 等を落とす
+    // 実行ログ("read_audio_data: ..." 等)と幻聴("(音楽)" "[BLANK_AUDIO]")を落とす
+    .filter((t) => t !== '' && !HALLUCINATION_RE.test(t) && !/^\w+_?\w*:\s/.test(t))
     .join(' ')
     .trim();
 }

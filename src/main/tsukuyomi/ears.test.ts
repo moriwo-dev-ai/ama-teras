@@ -82,6 +82,16 @@ describe('M42-5(TUKU-yomi) 耳: 音声はAPIに送らない・一時ファイル
     ].join('\n');
     expect(parseWhisperOutput(raw)).toBe('明日の13時にレビューをやると伝えた 資料は今日中に作る');
   });
+
+  /**
+   * 実機(whisper-cli v1.9.1 + ggml-small)で無音2秒を通したら「(音楽)」が返ってきた。
+   * こういう幻聴と実行ログを通すと帳がゴミで埋まる
+   */
+  it('幻聴(括弧だけの行)と実行ログを落とす', () => {
+    const raw = ['read_audio_data: trying to decode with miniaudio', '', '(音楽)'].join('\n');
+    expect(parseWhisperOutput(raw)).toBe('');
+    expect(parseWhisperOutput('(笑)\n明日レビューやる\n【音楽】')).toBe('明日レビューやる');
+  });
 });
 
 describe('M42-5(TUKU-yomi) 耳: 抽出は「本人の約束」だけ(鉄則1)', () => {
