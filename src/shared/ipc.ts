@@ -148,6 +148,8 @@ export const IpcChannels = {
   operationsDraftRelease: 'operations:draft-release',
   /** M46: 次のリリース版を自動採番するための現況(最新タグ・アプリ版) */
   operationsReleaseInfo: 'operations:release-info',
+  /** M47: package.json の version をリリースに合わせて上げる(承認必須) */
+  operationsBumpVersion: 'operations:bump-version',
   operationsDraftZennArticle: 'operations:draft-zenn-article',
   /** M38-3: 発信の効果測定(投稿→前後メトリクス差分) */
   operationsImpacts: 'operations:impacts',
@@ -355,6 +357,8 @@ export interface AmaterasApi {
     suggestions: { patch: string | null; minor: string | null; major: string | null };
     mismatch: boolean;
   }>;
+  /** M47: package.json の version をタグに合わせて上げ、コミット・pushする(岩戸ゲート経由) */
+  operationsBumpVersion(tag: string): Promise<{ ok: boolean; detail: string }>;
   operationsDraftRelease(
     draftId: string,
     repo: string,

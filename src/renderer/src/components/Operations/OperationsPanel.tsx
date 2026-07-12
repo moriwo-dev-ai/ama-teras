@@ -504,6 +504,8 @@ function ReleaseAction({ draft }: { draft: OperationsDraft }): JSX.Element {
   const [tag, setTag] = useState(/v\d+\.\d+\.\d+/.exec(draft.body)?.[0] ?? '');
   const [result, setResult] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // M47: 既定ON。リリースのたびに package.json を上げるのを人間の記憶に頼らない
+  const [bump, setBump] = useState(true);
   // M46: 前回の版を人間が覚えなくてよくする。GitHubの最新リリースから次の版を機械的に出す
   const [info, setInfo] = useState<{
     latestTag: string | null;
@@ -574,6 +576,11 @@ function ReleaseAction({ draft }: { draft: OperationsDraft }): JSX.Element {
           )}
         </span>
       )}
+      {/* M47: リリースのたびに package.json を上げるのは機械の仕事(忘れると更新通知が壊れる) */}
+      <label className="flex items-center gap-1 text-[10px] text-zinc-400" title="package.json の version をタグに合わせて上げ、コミット・pushする(承認ダイアログで差分を確認できる)">
+        <input type="checkbox" checked={bump} onChange={(e) => setBump(e.target.checked)} />
+        package.json も上げる
+      </label>
       <button
         className="shrink-0 rounded border border-zinc-600 px-2 py-0.5 text-[10px] hover:bg-zinc-800 disabled:opacity-40"
         title="承認ダイアログ(何を・どこへ・全文)を経て、GitHub Release を下書きで作成/更新する。公開はGitHub上であなたが行う"
@@ -581,11 +588,26 @@ function ReleaseAction({ draft }: { draft: OperationsDraft }): JSX.Element {
         onClick={() => {
           setBusy(true);
           setResult(null);
-          void window.api
-            .operationsDraftRelease(draft.id, repo, tag.trim())
-            .then((r) => setResult(r.detail))
-            .catch((e: unknown) => setResult(e instanceof Error ? e.message : String(e)))
-            .finally(() => setBusy(false));
+          const v = tag.trim();
+          void (async () => {
+            try {
+              // 先に version を上げる(承認1回)。拒否・失敗したらリリースへ進まない
+              if (bump) {
+                const b = await window.api.operationsBumpVersion(v);
+                if (!b.ok) {
+                  setResult(`version 更新に失敗/中止: ${b.detail}`);
+                  return;
+                }
+                setResult(b.detail);
+              }
+              const r = await window.api.operationsDraftRelease(draft.id, repo, v);
+              setResult(r.detail);
+            } catch (e: unknown) {
+              setResult(e instanceof Error ? e.message : String(e));
+            } finally {
+              setBusy(false);
+            }
+          })();
         }}
       >
         {busy ? '承認待ち…' : '🐙 GitHub Releaseへ'}

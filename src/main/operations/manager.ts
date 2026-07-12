@@ -40,6 +40,7 @@ import {
 } from './adapters/bluesky';
 import { createGithubAdapter, defaultGhRunner, detectGhPath, GithubReader, type GhRunner } from './adapters/github';
 import { createHatenaAdapter, HatenaReader } from './adapters/hatena';
+import { createRepoVersionAdapter, readPackageVersion, versionFromTag } from './adapters/repoVersion';
 import { createHnAdapter, fetchItem, fetchUserKarma, HnReader, type HnStory } from './adapters/hn';
 import { createXAdapter, buildXSearchSuggestions, type XSearchSuggestion } from './adapters/x';
 import { createZennAdapter, ZennReader, type FetchLike } from './adapters/zenn';
@@ -252,6 +253,12 @@ export class OperationsManager {
         run: this.deps.gitRunner ?? defaultGitRunner(),
       }),
     );
+    // M47: リリース時に package.json の version を上げる(更新確認が壊れないように)。
+    // 対象は作業中のリポジトリ(workspace)。executorは岩戸ゲートに封印される
+    const workspace = this.deps.getConfig().workspace;
+    if (workspace !== undefined && workspace !== '') {
+      gate.register(createRepoVersionAdapter(workspace, this.deps.gitRunner ?? defaultGitRunner()));
+    }
 
     // M33-5: 神の定義レジストリ+定義変更アダプタ。
     // 定義の新設・改造(組織図の自己改変)は岩戸ゲートの承認を通ったexecutorのみが
@@ -1518,6 +1525,33 @@ export class OperationsManager {
       // 直近リリースとアプリの版が食い違っている = package.json の更新を忘れている合図
       mismatch: latestTag !== null && appVersion !== '' && !sameVersion(latestTag, appVersion),
     };
+  }
+
+  /**
+   * M47: リリースの前に package.json の version を上げる(コミット・push まで)。
+   * 岩戸ゲートの承認を通る。ここを忘れると更新確認(M42-1)が壊れるので、
+   * requestRelease から自動で呼ばれる(UIのチェックを外せばスキップできる)
+   */
+  async bumpPackageVersion(tag: string): Promise<{ ok: boolean; detail: string }> {
+    if (!this.ensureInitialized() || this.gate === null) {
+      return { ok: false, detail: 'オーナーモードがOFF(運営機能は無効)' };
+    }
+    const workspace = this.deps.getConfig().workspace;
+    if (workspace === undefined || workspace === '') {
+      return { ok: false, detail: 'workspace が未設定(package.json の場所が分からない)' };
+    }
+    const to = versionFromTag(tag);
+    const from = readPackageVersion(workspace);
+    if (from === null) return { ok: false, detail: 'package.json の version を読めない' };
+    if (from === to) return { ok: true, detail: `package.json はすでに ${to}` };
+    return this.gate.requestExecute(
+      'repo-version',
+      'bump',
+      `${workspace}/package.json の version を ${from} → ${to} に上げてコミット・push`,
+      `- ファイル: ${workspace}/package.json\n- version: "${from}" → "${to}"\n- コミット: chore: bump version to ${to}\n- push先: origin の現在のブランチ\n\n` +
+        `※ ここを上げないと、利用者のアプリに更新通知が出ません(更新確認は package.json の version と最新リリースのタグを比べます)`,
+      { to },
+    );
   }
 
   async requestRelease(draftId: string, repo: string, tag: string): Promise<{ ok: boolean; detail: string }> {

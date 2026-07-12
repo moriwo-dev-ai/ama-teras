@@ -684,6 +684,11 @@ export async function registerIpcHandlers(
     assertString(repo, 'repo');
     return operations.releaseInfo(repo);
   });
+  // M47: リリース前の version 上げ(承認ダイアログで差分を見せる)
+  ipcMain.handle(IpcChannels.operationsBumpVersion, (_e, tag: unknown) => {
+    assertString(tag, 'tag');
+    return operations.bumpPackageVersion(tag);
+  });
   // M37: 下書きの行き先。実行そのものは manager 内で岩戸ゲート(承認)を必ず通る
   ipcMain.handle(
     IpcChannels.operationsDraftRelease,
