@@ -26,9 +26,24 @@ const valueOf = (f) => {
 
 const DRY = has('--dry-run');
 const PUBLISH = has('--publish');
-const REPO = valueOf('--repo') ?? 'moriwo-dev-ai/ama-teras';
 const NOTES_FILE = valueOf('--notes-file');
 const TITLE = valueOf('--title');
+
+/**
+ * リリース先は **自分の origin** から決める(公式リポジトリをハードコードしない)。
+ * フォークやクローンでこのスクリプトが動いても、他人のリポジトリに向かうことはない
+ * (向いたところで権限が無く失敗するが、そもそも向けてはいけない)。
+ * --repo で上書きできるが、origin と違う先には --repo-force を明示しない限り進まない。
+ */
+function repoFromOrigin() {
+  try {
+    const url = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: ROOT, encoding: 'utf8' }).trim();
+    const m = /github\.com[:/]([^/]+)\/(.+?)(?:\.git)?$/.exec(url);
+    return m === null ? null : `${m[1]}/${m[2]}`;
+  } catch {
+    return null;
+  }
+}
 
 const GH_CANDIDATES = ['C:/Program Files/GitHub CLI/gh.exe', 'gh'];
 const gh = GH_CANDIDATES.find((p) => p === 'gh' || existsSync(p));
@@ -53,6 +68,17 @@ if (gh === undefined) fail('gh(GitHub CLI)が見つからない');
 if (NOTES_FILE === undefined || !existsSync(NOTES_FILE)) {
   fail('--notes-file <path> でリリースノート本文(Markdown)を渡すこと');
 }
+
+const origin = repoFromOrigin();
+const REPO = valueOf('--repo') ?? origin;
+if (REPO === null || REPO === undefined) {
+  fail('リリース先が決まらない(origin が GitHub ではない)。--repo owner/name を明示すること');
+}
+// 自分の origin 以外に出そうとしている = ほぼ確実に事故(フォーク元へのリリース等)
+if (origin !== null && REPO !== origin && !has('--repo-force')) {
+  fail(`リリース先(${REPO})が origin(${origin})と違う。意図的なら --repo-force を付けること`);
+}
+console.log(`リリース先: ${REPO}(origin から決定)`);
 
 const dirty = execFileSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' }).trim();
 if (dirty !== '') fail(`作業ツリーが汚れている(コミットしてから実行する):\n${dirty}`);
