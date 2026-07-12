@@ -175,7 +175,7 @@ const DEFAULT_GOD_PARAMS: GodParams = {
 
 /** M33-5: 定義(gods/*.json)→時計ジョブへの写像 */
 /**
- * M45: 未公開機能(月読)に触れた下書きを**生成の時点で捨てる**。
+ * M49: 未公開機能(月読)に触れた下書きを**生成の時点で捨てる**。
  *
  * 実害: 神が月読モードの開発記を書き、承認を通り、Zenn記事として公開リポジトリに push された
  * (published:false でもリポジトリがPUBLICならGitHubでソースが読める)。
@@ -644,7 +644,7 @@ export class OperationsManager {
       'あなたはOSSの広報担当。',
       buildHighlightPrompt({ ...sources, current, previous, project: this.project() }),
     );
-    // M45: 未公開機能(月読)に触れた下書きは**生成の時点で捨てる**。
+    // M49: 未公開機能(月読)に触れた下書きは**生成の時点で捨てる**。
     // 神は何が未公開かを知らない。知らせるのではなく通さない(実害: 月読の開発記が公開リポジトリに出た)
     const created = this.drafts.add(dropUnreleased(parseDrafts(text)));
     for (const d of created) {
@@ -930,7 +930,7 @@ export class OperationsManager {
     const pending = this.drafts
       .list()
       .filter((d) => d.status === 'draft')
-      // M45: 未公開機能に触れた下書きは承認バッチに載せない(承認できてしまうこと自体が事故)
+      // M49: 未公開機能に触れた下書きは承認バッチに載せない(承認できてしまうこと自体が事故)
       .filter((d) => !mentionsUnreleased(`${d.title}
 ${d.body}`))
       .map((d) => ({ ...d, body: resolvePostText(d.body, url) }));
@@ -1819,7 +1819,7 @@ ${d.body}`))
       } catch {
         /* デコードできない文字列はそのまま見る */
       }
-      // M45: 未公開機能(月読)に触れる発信は**実行しない**。最後の砦(三重目)
+      // M49: 未公開機能(月読)に触れる発信は**実行しない**。最後の砦(三重目)
       if (mentionsUnreleased(decoded)) {
         return '未公開の機能(月読モード)に触れているため実行しない。一般公開するまで、この内容は外に出さない';
       }

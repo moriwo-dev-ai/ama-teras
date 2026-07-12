@@ -48,7 +48,7 @@ export function hasUnresolvedPlaceholder(text: string): boolean {
 }
 
 /**
- * M45: **未公開機能の発信ガード**。
+ * M49: **未公開機能の発信ガード**。
  *
  * 実害: 神(AMENO-uzume)が月読モード(未公開機能)の開発記を書き、承認バッチに載せ、
  * Zenn記事として**公開リポジトリに push された**(published:false でも、リポジトリが
