@@ -1166,6 +1166,13 @@ export class OperationsManager {
       const src = prepared.find((p) => p.id === r.itemId);
       if (gateOk && r.ok && src?.draftId !== undefined) {
         this.drafts.update(src.draftId, { status: 'posted', media: mediaOf(adapterId) });
+        // M45: Zennは承認直前に本文(article-body)を起こす。その本文の下書きも投稿済みにする
+        // (残っていると「これ出したっけ?」が再発し、二重コミットの元になる)
+        const markdown = src.params['markdown'];
+        if (typeof markdown === 'string') {
+          const body = this.drafts.list().find((d) => d.kind === 'article-body' && d.body === markdown);
+          if (body !== undefined) this.drafts.update(body.id, { status: 'posted', media: mediaOf(adapterId) });
+        }
       }
     }
     const okCount = out.filter((r) => r.ok).length;
@@ -1471,18 +1478,23 @@ export class OperationsManager {
     const draft = this.drafts.list().find((d) => d.id === draftId);
     if (draft === undefined) return { ok: false, detail: '下書きが見つからない' };
     if (draft.kind !== 'release-note') return { ok: false, detail: 'この下書きはリリースノートではない' };
+    // M45: 単発経路も二度出さない(一括経路と同じガード)
+    if (draft.status === 'posted') return { ok: false, detail: 'この下書きはすでに出している(重複を回避した)' };
     const cleanTag = tag.trim();
     if (!/^[\w.\-+]{1,64}$/.test(cleanTag)) return { ok: false, detail: `タグ名が不正: ${cleanTag}` };
     if (!this.opsConfig().repos.includes(repo)) {
       return { ok: false, detail: `観測対象リポジトリに無い: ${repo}` };
     }
-    return this.gate.requestExecute(
+    const result = await this.gate.requestExecute(
       'github',
       'release',
       `${repo} のリリース ${cleanTag}(下書きとして作成/更新。公開はあなたがGitHub上で行う)`,
       `# ${draft.title}\n\n${draft.body}`,
       { repo, tag: cleanTag, title: draft.title, body: draft.body },
     );
+    // M45: 出せたら投稿済み(一括経路だけがやっていて、単発ボタンは残り続けていた)
+    if (result.ok) this.drafts.update(draftId, { status: 'posted', media: mediaOf('github') });
+    return result;
   }
 
   /**
@@ -1498,6 +1510,8 @@ export class OperationsManager {
     const draft = this.drafts.list().find((d) => d.id === draftId);
     if (draft === undefined) return { ok: false, detail: '下書きが見つからない' };
     if (draft.kind !== 'article-outline') return { ok: false, detail: 'この下書きは記事アウトラインではない' };
+    // M45: 同じ記事を二度コミットしない(実際に別slugで2回コミットされた。M43-2の単発版)
+    if (draft.status === 'posted') return { ok: false, detail: 'この記事はすでにコミット済み(重複を回避した)' };
     if ((this.opsConfig().zennRepoDir ?? '') === '') {
       return { ok: false, detail: 'zenn-contentのパスが未設定(設定→接続→オーナーモード)' };
     }
@@ -1512,6 +1526,12 @@ export class OperationsManager {
       built.markdown,
       { slug: built.slug, markdown: built.markdown },
     );
+    // M45: コミットできたら、アウトラインと本文の両方を投稿済みにする
+    // (本文の下書きが残っていると「これ出したっけ?」が再発する)
+    if (result.ok) {
+      this.drafts.update(draftId, { status: 'posted', media: mediaOf('zenn-repo') });
+      if (saved !== undefined) this.drafts.update(saved.id, { status: 'posted', media: mediaOf('zenn-repo') });
+    }
     return { ...result, ...(saved !== undefined ? { bodyDraftId: saved.id } : {}) };
   }
 
