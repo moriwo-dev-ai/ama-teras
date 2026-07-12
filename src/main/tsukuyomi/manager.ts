@@ -21,6 +21,7 @@ import { understandScene } from './sceneUnderstanding';
 import { finishedRuns, runLabel, speechFor } from './speaker';
 import { TsukiNoCho } from './tsukiNoCho';
 import { transcribe, whisperPaths, whisperReady, type WhisperRunner } from './transcriber';
+import { foregroundWindow, windowText, type ShellRunner } from './windowObserver';
 
 /**
  * M42(TUKU-yomi): 月読モードのライフサイクル。
@@ -45,6 +46,8 @@ export interface TsukuyomiManagerDeps {
   onVisionUsage?: (inputTokens: number, outputTokens: number) => void;
   /** M42-5: whisper の実行(テストでは偽実装。音声はAPIに出ない) */
   whisperRunner?: WhisperRunner;
+  /** M42-6: PC窓観測の spawn(テストでは偽実装。スクリーンショットは撮らない) */
+  shellRunner?: ShellRunner;
   nowFn?: () => Date;
 }
 
@@ -63,6 +66,8 @@ export class TsukuyomiManager {
   /** M42-3: 離席中か。留守中の出来事は溜めて、戻った時にまとめて伝える */
   private away = false;
   private whileAway: string[] = [];
+  /** M42-6: 直前に観測したウィンドウ(同じ行で帳を埋めないため) */
+  private lastWindowKey: string | null = null;
 
   constructor(private readonly deps: TsukuyomiManagerDeps) {
     this.dir = join(deps.userDataDir, 'tsukuyomi');
@@ -311,6 +316,36 @@ export class TsukuyomiManager {
     } catch (err) {
       return { items: [], error: err instanceof Error ? err.message : String(err) };
     }
+  }
+
+  // ---- M42-6: PC窓観測(神々の時計から呼ばれる)----
+
+  /** 神の投入条件。月読ONかつ pcObserver ON の時だけ神が生える(鍵なし機体では生えない) */
+  pcObserverEnabled(): boolean {
+    return this.active() && this.cfg().pcObserver === true;
+  }
+
+  /**
+   * アクティブウィンドウの**タイトルとプロセス名だけ**を帳へ(スクリーンショットは撮らない)。
+   * 同じウィンドウが続いている間は書かない(同じ行で帳を埋めない)。
+   * ついでに忘却(observation の7日削除)もここで回す
+   */
+  async observeWindow(): Promise<string | null> {
+    if (!this.pcObserverEnabled()) return null;
+    const w = await foregroundWindow(this.deps.shellRunner);
+    if (w === null) return null;
+
+    const key = `${w.process}\t${w.title}`;
+    if (key === this.lastWindowKey) {
+      this.cho.prune(); // 変化が無くても忘却は進める
+      return null;
+    }
+    this.lastWindowKey = key;
+
+    const text = windowText(w, this.now());
+    this.add({ kind: 'observation', text, source: 'pc' });
+    this.cho.prune();
+    return text;
   }
 
   // ---- 現況 ----

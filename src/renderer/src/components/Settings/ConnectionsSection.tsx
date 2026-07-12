@@ -506,6 +506,16 @@ function TsukuyomiSection({
             />
             耳: 常時聴取(既定OFF・**音声はこのPCの中だけで文字起こし**・抽出結果はあなたの承認後に帳へ)
           </label>
+          {/* M42-6: PC窓観測。神々の時計に載る(運営モードもONが必要)。
+              取るのはウィンドウのタイトルとプロセス名だけで、スクリーンショットは撮らない */}
+          <label className="flex items-center gap-2 text-xs text-zinc-400">
+            <input
+              type="checkbox"
+              checked={tsu.pcObserver === true}
+              onChange={(e) => save({ ...tsu, pcObserver: e.target.checked })}
+            />
+            PC窓観測: 見ているアプリ名だけを記録(既定OFF・**画面は撮らない**・運営モードONが必要)
+          </label>
           <label className="flex items-center gap-2 text-xs">
             1日の声かけ上限
             <input

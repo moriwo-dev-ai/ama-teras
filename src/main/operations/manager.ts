@@ -122,6 +122,13 @@ export interface OperationsManagerDeps {
   fetchRegistryGod?: (id: string) => Promise<unknown | null>;
   /** M46: 稼働中アプリの版(package.json)。リリースタグとの食い違い検出に使う */
   appVersion?: string;
+  /**
+   * M42-6(TUKU-yomi): PC窓観測。月読モード(オーナー機体限定)がONで pcObserver も
+   * ONの時だけ true。神の投入自体をこれで決める(鍵なし機体には神が生えない)
+   */
+  tsukuyomiPcObserver?: () => boolean;
+  /** M42-6: 実際の観測(アクティブウィンドウのタイトル+プロセス名を帳へ)。返り値は記録した一文 */
+  observeWindow?: () => Promise<string | null>;
   /** テスト用注入 */
   ghRunner?: GhRunner;
   /** M37: zenn-content への commit/push 実行(未注入=実git) */
@@ -265,6 +272,20 @@ export class OperationsManager {
     // applyApproved に到達できる(protocol.ts の封印=承認バイパス不可)
     const gods = new GodRegistry(this.dir);
     gods.ensureDefaults();
+    // M42-6(TUKU-yomi): PC窓観測の神。**月読ONかつ pcObserver ON の時だけ**投入する。
+    // 鍵の無い機体では月読自体がOFFなので、この神は存在しない(テストで固定)
+    if (this.deps.tsukuyomiPcObserver?.() === true) {
+      gods.ensureDefaults([
+        {
+          id: 'tsukuyomi',
+          name: 'TSUKU-yomi(月読の目)',
+          engine: 'tsukuyomi-observer',
+          clock: { intervalMin: 15 },
+          dailyTokenBudget: 0, // LLMを使わない
+          enabled: true,
+        },
+      ]);
+    }
     this.gods = gods;
     gate.register({
       id: 'god-definition',
@@ -462,6 +483,19 @@ export class OperationsManager {
       if (engine === 'kamuhakari' || godId === 'kamuhakari') {
         const result = await this.runKamuhakari();
         return { ok: true, detail: `神議完了(適用${result.appliedChanges.length}/バッチ${result.batch ? 1 : 0})`, tokensUsed: result.tokensUsed };
+      }
+      // M42-6(TUKU-yomi): PC窓観測。LLMを使わない(tokensUsed=0)。
+      // 帳への記録は月読マネージャが行う(月読OFF・鍵なしなら何も起きない)
+      if (engine === 'tsukuyomi-observer') {
+        if (this.deps.observeWindow === undefined) {
+          return { ok: false, detail: '月読が無効(PC窓観測は月読モードでのみ動く)', tokensUsed: 0 };
+        }
+        const text = await this.deps.observeWindow();
+        return {
+          ok: text !== null,
+          detail: text ?? 'ウィンドウを取得できなかった(または月読OFF)',
+          tokensUsed: 0,
+        };
       }
       return { ok: false, detail: `未知の神: ${godId}`, tokensUsed: 0 };
     } catch (err) {

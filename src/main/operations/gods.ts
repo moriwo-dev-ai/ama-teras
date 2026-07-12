@@ -19,6 +19,12 @@ export const GOD_ENGINES = [
   'draft-writer',
   'issue-gatekeeper',
   'kamuhakari',
+  /**
+   * M42-6(TUKU-yomi): PC窓観測。アクティブウィンドウの**タイトルとプロセス名だけ**を
+   * 月の帳に残す(スクリーンショットは撮らない)。LLMを使わないので予算は0。
+   * 月読モード(オーナー機体限定)がONの時だけ投入される
+   */
+  'tsukuyomi-observer',
 ] as const;
 export type GodEngine = (typeof GOD_ENGINES)[number];
 

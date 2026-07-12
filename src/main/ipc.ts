@@ -701,6 +701,9 @@ export async function registerIpcHandlers(
     getBlueskySecret: () => secrets.get('bluesky'),
     // M38-2: 承認された能力ギャップ(evolve)を進化ジョブへ。昇格は従来どおり承認制
     enqueueEvolution: (description, expectedIO) => service.evolutionEnqueue(description, expectedIO).then((r) => r.jobId),
+    // M42-6(TUKU-yomi): PC窓観測の神。月読ONかつ pcObserver ON の時だけ生える
+    tsukuyomiPcObserver: () => tsukuyomi.pcObserverEnabled(),
+    observeWindow: () => tsukuyomi.observeWindow(),
     // M42-2: 神議も「作る前に探す」— 探すのは自律、取り込むのは人間の承認後
     findRegistryPlugin: async (query) => {
       const e = await service.registryFindPlugin(query);
