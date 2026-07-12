@@ -79,6 +79,25 @@ export function parseOperationsConfig(raw: unknown): OperationsConfig | undefine
   if (kamu !== undefined) out.kamuhakariBand = kamu;
   const gods = parseBand(rec['godsBand']);
   if (gods !== undefined) out.godsBand = gods;
+  // M37: Zenn記事のコミット先。ここに無いと保存時に落ちる(=UIで入れても消える)
+  if (typeof rec['zennRepoDir'] === 'string' && rec['zennRepoDir'].trim() !== '') {
+    out.zennRepoDir = rec['zennRepoDir'].trim();
+  }
+  // M41-3: 神々に渡すプロジェクト像(未設定ならリポジトリ名から推測される)
+  if (typeof rec['projectName'] === 'string' && rec['projectName'].trim() !== '') {
+    out.projectName = rec['projectName'].trim();
+  }
+  if (typeof rec['projectDescription'] === 'string' && rec['projectDescription'].trim() !== '') {
+    out.projectDescription = rec['projectDescription'].trim();
+  }
+  if (Array.isArray(rec['keywords'])) {
+    const kws = rec['keywords'].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
+    if (kws.length > 0) out.keywords = kws.map((k) => k.trim());
+  }
+  if (Array.isArray(rec['zennTopics'])) {
+    const topics = rec['zennTopics'].filter((t): t is string => typeof t === 'string' && t.trim() !== '');
+    if (topics.length > 0) out.zennTopics = topics.map((t) => t.trim());
+  }
   return out;
 }
 

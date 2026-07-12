@@ -362,3 +362,56 @@ describe('M29-4: registryUrl の既定値と正規化', () => {
     expect(store.set({ ...base, registryUrl: 'not-a-url' }).registryUrl).toBe(DEFAULT_REGISTRY_URL);
   });
 });
+
+describe('M41-5: operations の新フィールドが保存で消えないこと(実際に起きた事故)', () => {
+  let dir2: string;
+  let file2: string;
+  beforeEach(async () => {
+    dir2 = await mkdtemp(join(tmpdir(), 'cfg-ops-'));
+    file2 = join(dir2, 'config.json');
+  });
+  afterEach(async () => {
+    await rm(dir2, { recursive: true, force: true });
+  });
+
+  const ops = {
+    enabled: true,
+    repos: ['o/r'],
+    zennSlugs: ['my-slug'],
+    // M37/M41: parseOperationsConfig に無いフィールドは set() で消える。
+    // zennRepoDir が落ちていたため「Zenn記事化」がUIで設定しても使えなかった
+    zennRepoDir: 'C:\dev\zenn-content',
+    projectName: 'my-tool',
+    projectDescription: '個人開発のCLIツール',
+    keywords: ['自作エージェント'],
+    zennTopics: ['ai', 'typescript'],
+  };
+
+  it('set() でも read() でも zennRepoDir / プロジェクト像 / キーワード / topics が保持される', async () => {
+    const store = new ConfigStore(file2);
+    const saved = store.set({ ...store.get(), operations: ops });
+    expect(saved.operations?.zennRepoDir).toBe('C:\dev\zenn-content');
+    expect(saved.operations?.projectName).toBe('my-tool');
+    expect(saved.operations?.projectDescription).toBe('個人開発のCLIツール');
+    expect(saved.operations?.keywords).toEqual(['自作エージェント']);
+    expect(saved.operations?.zennTopics).toEqual(['ai', 'typescript']);
+
+    // 再ロード(=アプリ再起動)でも残る
+    const reloaded = new ConfigStore(file2).get();
+    expect(reloaded.operations?.zennRepoDir).toBe('C:\dev\zenn-content');
+    expect(reloaded.operations?.projectName).toBe('my-tool');
+    expect(reloaded.operations?.zennTopics).toEqual(['ai', 'typescript']);
+  });
+
+  it('空文字・空配列は未設定として落とす(嘘の設定値を持たない)', () => {
+    const store = new ConfigStore(file2);
+    const saved = store.set({
+      ...store.get(),
+      operations: { ...ops, zennRepoDir: '  ', projectName: '', keywords: [], zennTopics: [] },
+    });
+    expect(saved.operations?.zennRepoDir).toBeUndefined();
+    expect(saved.operations?.projectName).toBeUndefined();
+    expect(saved.operations?.keywords).toBeUndefined();
+    expect(saved.operations?.zennTopics).toBeUndefined();
+  });
+});

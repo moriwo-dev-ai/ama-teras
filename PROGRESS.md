@@ -43,6 +43,24 @@
 
 テスト: m41.test.ts(10)追加。全1095緑(進化テスト1件は並列負荷のフレーク、単独で19件緑)。
 
+### M41-5: 運営設定が保存で消えていた(M37以来 Zenn導線が一度も動いていなかった真因)
+
+**症状**: 設定UIで `zennRepoDir` を入れても保存すると消える。zenn-repo アダプタは常に
+available:false のままで、「Zenn記事化」ボタンは実装以来一度も成立していなかった。
+
+**原因**: `parseOperationsConfig` がホワイトリスト方式で、M37 で追加した `zennRepoDir` と
+M41-3 の4フィールド(projectName/projectDescription/keywords/zennTopics)を **set() の時点で
+落としていた**。型は通る(Partial 同士の代入)ため typecheck では検出できない。
+
+**修正**: パーサに5フィールドを追加(空文字・空配列は従来どおり落とす)。
+config.test.ts に「新フィールドが set→再load で保持されること」を回帰テストとして固定。
+新しい operations 設定を足すときは **必ずパーサとこのテストの両方**を触ること。
+
+**復旧**: 実機に zennRepoDir / projectName / projectDescription / keywords / zennTopics を投入し、
+zenn-repo available:true を確認。AMENO-uzume の下書き生成と神議を再実行して、
+承認バッチに **行き先つき**(zenn-repo:commit-article / x:open-intent / bluesky:post)の
+提案が載ることを実データで確認した。
+
 ## M40(2026-07-12): リモート(スマホ)からデスクトップ同等の運営操作
 
 出先のスマホだけで運営タブと同じことができる。追加した /api/ops/* は既存のトークン認証配下
