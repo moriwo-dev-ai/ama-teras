@@ -70,8 +70,8 @@ export class EvolutionManager {
   private activeCancel: { id: number; ac: AbortController } | null = null;
 
   constructor(private readonly deps: EvolutionManagerDeps) {
-    this.worktrees = new WorktreeManager(deps.repoDir, deps.worktreeBase);
     this.baseRef = deps.baseRef ?? 'main';
+    this.worktrees = new WorktreeManager(deps.repoDir, deps.worktreeBase, this.baseRef);
   }
 
   list(): EvolutionJobSummary[] {
@@ -134,7 +134,12 @@ export class EvolutionManager {
   }
 
   async enqueue(req: EvolutionRequest): Promise<number> {
-    if (this.lastId === 0) this.lastId = (await nextJobId(this.deps.repoDir)) - 1;
+    if (this.lastId === 0) {
+      // M50: この起動で最初の1件 = ジョブは1件も走っていない。この瞬間にしか残骸掃除はできない
+      // (走り出した後に evolve/job-* を消すと、動いているB環境を足元から消すことになる)
+      await this.worktrees.sweepStale().catch(() => []);
+      this.lastId = (await nextJobId(this.deps.repoDir)) - 1;
+    }
     const id = ++this.lastId;
     const job: EvolutionJobSummary = {
       id,

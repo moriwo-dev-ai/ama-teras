@@ -90,7 +90,7 @@ export async function listEvolveTags(repoDir: string): Promise<EvolveTagInfo[]> 
     repoDir,
   ).catch(() => '');
   if (out === '') return [];
-  return out
+  const tags = out
     .split(RECORD_SEP)
     .map((rec) => rec.replace(/^\n/, ''))
     .filter((rec) => rec.trim() !== '')
@@ -98,6 +98,16 @@ export async function listEvolveTags(repoDir: string): Promise<EvolveTagInfo[]> 
       const [tag = '', commit = '', date = '', subject = '', body = ''] = rec.split(FIELD_SEP);
       return { tag, commit, date, subject, body: body.trim() };
     });
+  // M50: creatordate は秒精度。同じ秒に2件昇格すると git のソートはタイになり、
+  // タグ名の昇順(= evolve/1 が evolve/2 より先)に落ちて「新しい順」が壊れる。
+  // 番号は単調増加するので、タイはIDの降順で決める
+  return tags.sort((a, b) => b.date.localeCompare(a.date) || tagId(b.tag) - tagId(a.tag));
+}
+
+/** 'evolve/12' → 12。番号でないタグは 0(並びの末尾へ) */
+function tagId(tag: string): number {
+  const n = Number.parseInt(tag.replace('evolve/', ''), 10);
+  return Number.isInteger(n) ? n : 0;
 }
 
 /** M23-6: 進化で獲得した能力(スキル/自己書き換え)の一覧項目 */
@@ -169,12 +179,25 @@ export async function rollbackLastEvolve(
   return { ok: true, message: `${latest.tag} を revert した`, tag: latest.tag };
 }
 
-/** 既存の evolve/N タグから次のジョブIDを決める */
+/**
+ * 次のジョブIDを決める。
+ *
+ * M50: 以前は **evolve/N タグだけ** を見ていた。タグは昇格したジョブにしか付かないので、
+ * 失敗・却下されたジョブのIDは次の起動で**再利用される**。そこへ前回の残骸ブランチ
+ * `evolve/job-N` が残っていると `worktree add` が
+ * `fatal: a branch named 'evolve/job-N' already exists` で落ち、ジョブは中身を見られる前に死ぬ
+ * (実害: ジョブ14・15)。掃除(sweepStale)が本命の対策だが、掃除が失敗しても
+ * **使われたIDは二度と使わない**ようにブランチ側も見る。
+ */
 export async function nextJobId(repoDir: string): Promise<number> {
-  const out = await runGit(['tag', '-l', 'evolve/*'], repoDir).catch(() => '');
-  const ids = out
-    .split('\n')
-    .map((t) => Number.parseInt(t.replace('evolve/', ''), 10))
-    .filter((n) => Number.isInteger(n));
+  const tags = await runGit(['tag', '-l', 'evolve/*'], repoDir).catch(() => '');
+  const branches = await runGit(['branch', '--list', 'evolve/job-*'], repoDir).catch(() => '');
+  const ids = [
+    ...tags.split('\n').map((t) => Number.parseInt(t.trim().replace('evolve/', ''), 10)),
+    // `* evolve/job-3` / `+ evolve/job-3`(worktreeで checkout 中)の印を落とす
+    ...branches
+      .split('\n')
+      .map((b) => Number.parseInt(b.replace(/^[*+\s]+/, '').replace('evolve/job-', ''), 10)),
+  ].filter((n) => Number.isInteger(n));
   return ids.length === 0 ? 1 : Math.max(...ids) + 1;
 }
