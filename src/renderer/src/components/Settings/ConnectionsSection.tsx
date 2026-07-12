@@ -544,6 +544,18 @@ function TsukuyomiSection({
               OFFなら押して話す時だけ会話する)
             </label>
           )}
+          {/* M44-2: 気づいて提案。うるさければ電源を切られるので、既定OFF・黙る側に倒してある */}
+          {tsu.conversation === true && tsu.ears === true && (
+            <label className="flex items-center gap-2 text-xs text-zinc-400">
+              <input
+                type="checkbox"
+                checked={tsu.proactive === true}
+                onChange={(e) => save({ ...tsu, proactive: e.target.checked })}
+              />
+              気づいて提案: 帳の予定が変わる話をしていると、向こうから「変えておきましょうか?」と聞く
+              (既定OFF)。**1日の声かけ上限と静音時間を必ず通り、10分に1回まで**。雑談・独り言には反応しない
+            </label>
+          )}
           {/* M44-1: 声で操作。副作用のある操作は復唱+確認語。外部発信・リリースは声からは動かない */}
           {tsu.conversation === true && (
             <label className="flex items-center gap-2 text-xs text-zinc-400">

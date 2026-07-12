@@ -32,6 +32,7 @@ import { converse, MAX_HISTORY_TURNS, type ConversationTurn } from './conversati
 import { extractCommitments, type ExtractedItem } from './extractor';
 import { understandScene } from './sceneUnderstanding';
 import { finishedRuns, runLabel, speechFor } from './speaker';
+import { SUGGEST_COOLDOWN_MS, suggestFrom, worthJudging } from './suggest';
 import { TalkLog } from './talkLog';
 import { TsukiNoCho } from './tsukiNoCho';
 import {
@@ -107,6 +108,9 @@ export const MAX_PENDING_TRANSCRIBES = 3;
 /** この時間内に**同じ文字起こし**がもう一度来たら二重取り(押して話す × 常時聴取)とみなす */
 export const DUPLICATE_WINDOW_MS = 60_000;
 
+/** M44-2: 気づきの材料にする直近の発話の本数(溜め込まない) */
+export const SUGGEST_WINDOW = 6;
+
 export class TsukuyomiManager {
   private readonly dir: string;
   private readonly cho: TsukiNoCho;
@@ -130,6 +134,9 @@ export class TsukuyomiManager {
   private history: ConversationTurn[] = [];
   /** M44-1: 復唱して確認語を待っている操作(TTLを過ぎたら捨てる) */
   private pendingCommand: { intent: VoiceIntent; at: number } | null = null;
+  /** M44-2: 呼ばれていない直近の発話(気づきの材料。溜め込まない) */
+  private recentSaid: string[] = [];
+  private lastSuggestAt: number | null = null;
   /** M43-4: 最後に呼ばれた時刻。この後30秒は呼ばずに続けて話せる */
   private lastWakeAt: number | null = null;
   /** 直前の文字起こし(二重取りの検出用) */
@@ -565,11 +572,48 @@ export class TsukuyomiManager {
         ].slice(-MAX_HISTORY_TURNS);
         this.speakWithoutBudget(reply);
       }
+      // M44-2: 呼ばれていない発話は「気づき」の材料にする(返事はしない)
+      if (!talk && source === 'ears') void this.maybeSuggest(transcript, provider);
+
       // 生の文字起こしはここで捨てる(帳にも返り値にも残さない)
       return { items, ...(reply !== '' ? { reply } : {}) };
     } catch (err) {
       return { items: [], error: err instanceof Error ? err.message : String(err) };
     }
+  }
+
+  /**
+   * M44-2: 呼ばれていない発話から「声をかけるべきか」を判断する。
+   *
+   * **黙るのが既定**。うるさい月読は電源を切られる(そして二度と点けてもらえない)。
+   * 話しかけるのは帳に関わる時だけで、割り込み予算・静音時間を必ず通る(鉄則3)。
+   * LLMを呼ぶ前に足切りする — 呼ばれてもいない発話のたびに判定を叩けば、
+   * 黙っているだけで課金が続く
+   */
+  private async maybeSuggest(transcript: string, provider: LLMProvider): Promise<void> {
+    if (this.cfg().proactive !== true) return;
+    const nowMs = this.now().getTime();
+    // 立て続けに話しかけない(予算とは別の、体感のための間隔)
+    if (this.lastSuggestAt !== null && nowMs - this.lastSuggestAt < SUGGEST_COOLDOWN_MS) return;
+    // 予算切れ・静音時間なら、そもそも判定にお金を使わない
+    if (!canInterrupt(this.state, this.cfg(), this.now())) return;
+
+    this.recentSaid = [...this.recentSaid, transcript].slice(-SUGGEST_WINDOW);
+    if (!worthJudging(this.recentSaid)) return;
+
+    const suggestion = await suggestFrom(this.recentSaid, {
+      provider,
+      entries: this.cho.list(),
+      onUsage: (input, output) => this.deps.onVisionUsage?.(input, output),
+    });
+    if (!suggestion.speak || suggestion.say === undefined) return;
+
+    // ここは**自発的な割り込み**なので、必ず予算を通す(trySpeak)
+    if (!this.trySpeak(suggestion.say)) return;
+    this.lastSuggestAt = nowMs;
+    this.recentSaid = []; // 同じ話題で二度言わない
+    this.talks.add({ role: 'tsukuyomi', text: suggestion.say });
+    this.deps.emit({ type: 'talk-changed' });
   }
 
   /**
