@@ -153,6 +153,7 @@ const api: AmaterasApi = {
   operationsBatchRespond: (batchId, itemId, approved) =>
     ipcRenderer.invoke(IpcChannels.operationsBatchRespond, batchId, itemId, approved),
   operationsKamuhakariRun: () => ipcRenderer.invoke(IpcChannels.operationsKamuhakariRun),
+  operationsGodRun: (godId) => ipcRenderer.invoke(IpcChannels.operationsGodRun, godId),
   operationsGodDefs: () => ipcRenderer.invoke(IpcChannels.operationsGodDefs),
   operationsGodDefApply: (definition) => ipcRenderer.invoke(IpcChannels.operationsGodDefApply, definition),
   operationsGodRegistry: (query) => ipcRenderer.invoke(IpcChannels.operationsGodRegistry, query),

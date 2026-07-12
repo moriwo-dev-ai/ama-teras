@@ -49,6 +49,14 @@ function GodClocks(): JSX.Element {
             {j.enabled ? '● 稼働' : '○ 停止'}
           </button>
           <span className="font-semibold text-zinc-200">{GOD_LABEL[j.godId] ?? j.godId}</span>
+          {/* M42-6: 定刻を待たずに1回動かす(スマホには既にあったが、デスクトップに無かった) */}
+          <button
+            className="rounded border border-zinc-700 px-1.5 py-0.5 text-zinc-400 hover:bg-zinc-800"
+            title="この神を今すぐ1回実行する(定刻を待たない)"
+            onClick={() => void window.api.operationsGodRun(j.godId).then(reload)}
+          >
+            ▶ 今すぐ
+          </button>
           <span className="text-zinc-500">
             {j.dailyTimes !== undefined ? `毎日 ${j.dailyTimes.join('/')}` : `${j.intervalMin}分ごと`}
           </span>

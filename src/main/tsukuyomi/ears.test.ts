@@ -6,7 +6,7 @@ import type { AppConfig } from '../../shared/types';
 import type { LLMProvider, ProviderEvent } from '../providers/types';
 import { EXTRACT_PROMPT, parseExtraction } from './extractor';
 import { TsukuyomiManager } from './manager';
-import { parseWhisperOutput, transcribe, whisperPaths, whisperReady } from './transcriber';
+import { parseWhisperOutput, threadCount, transcribe, whisperArgs, whisperPaths, whisperReady } from './transcriber';
 
 let dir: string;
 let tmp: string;
@@ -146,5 +146,45 @@ describe('M42-5(TUKU-yomi) 耳: 抽出は「本人の約束」だけ(鉄則1)', 
     expect(items).toEqual([]);
     expect(error).toContain('耳がOFF');
     expect(whisperRunner).not.toHaveBeenCalled();
+  });
+});
+
+describe('M42-5b(TUKU-yomi) 耳: 速度と多重起動(実機で測って決めた)', () => {
+  it('スレッド数: 既定4のままだと20コアでも4しか使わない。全コアは奪わない', () => {
+    expect(threadCount(20)).toBe(8); // 上限8(裏方が他の作業を止めない)
+    expect(threadCount(4)).toBe(2);
+    expect(threadCount(1)).toBe(2); // 最低2
+  });
+
+  it('引数: 貪欲デコード(-bs 1)とスレッド指定を含む(実機で29秒→21秒)', () => {
+    const args = whisperArgs('model.bin', 'a.wav', 20);
+    expect(args).toEqual(['-m', 'model.bin', '-f', 'a.wav', '-l', 'ja', '-nt', '--no-prints', '-t', '8', '-bs', '1']);
+  });
+
+  it('常時聴取で発話が重なっても whisper を多重起動しない(1件ずつ順番に)', async () => {
+    placeWhisper();
+    let running = 0;
+    let maxConcurrent = 0;
+    const manager = new TsukuyomiManager({
+      userDataDir: dir,
+      getConfig: () => ({ tsukuyomi: { enabled: true, ears: true } }) as AppConfig,
+      hasOwnerKey: () => true,
+      emit: () => {},
+      visionProvider: () => fakeProvider('[]'),
+      whisperRunner: async () => {
+        running++;
+        maxConcurrent = Math.max(maxConcurrent, running);
+        await new Promise((r) => setTimeout(r, 20));
+        running--;
+        return 'こんにちは\n';
+      },
+    });
+
+    await Promise.all([
+      manager.transcribeAndExtract(Buffer.from('a')),
+      manager.transcribeAndExtract(Buffer.from('b')),
+      manager.transcribeAndExtract(Buffer.from('c')),
+    ]);
+    expect(maxConcurrent).toBe(1); // 同時に走るのは常に1つ
   });
 });

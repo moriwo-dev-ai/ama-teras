@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpus, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -33,6 +33,37 @@ export function whisperReady(paths: WhisperPaths): boolean {
 export type WhisperRunner = (args: string[], signal: AbortSignal) => Promise<string>;
 
 const TRANSCRIBE_TIMEOUT_MS = 120_000;
+
+/**
+ * 使うスレッド数。既定(4)のままだと20コアのPCでも4しか使わず遅い
+ * (実機: 2秒の音声に 29秒 → -t 8 と貪欲デコードで 21秒)。
+ * 全コアは使わない — 月読は裏方であって、他の作業を止めてはいけない
+ */
+export function threadCount(cores: number): number {
+  return Math.max(2, Math.min(8, cores - 2));
+}
+
+/**
+ * whisper の引数。
+ * -nt(タイムスタンプなし)/ --no-prints(ログ抑制)/ -bs 1(貪欲デコード=速い)。
+ * 精度より速度を採る — 拾うのは「約束・ToDo」で、一字一句の正確さは要らない
+ */
+export function whisperArgs(model: string, wavPath: string, cores: number): string[] {
+  return [
+    '-m',
+    model,
+    '-f',
+    wavPath,
+    '-l',
+    'ja',
+    '-nt',
+    '--no-prints',
+    '-t',
+    String(threadCount(cores)),
+    '-bs',
+    '1',
+  ];
+}
 
 function defaultRunner(bin: string): WhisperRunner {
   return (args, signal) =>
@@ -101,10 +132,7 @@ export async function transcribe(
 
   try {
     writeFileSync(wavPath, wav);
-    const raw = await run(
-      ['-m', paths.model, '-f', wavPath, '-l', 'ja', '-nt', '--no-prints'],
-      signal,
-    );
+    const raw = await run(whisperArgs(paths.model, wavPath, cpus().length), signal);
     return parseWhisperOutput(raw);
   } finally {
     clearTimeout(timer);

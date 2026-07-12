@@ -183,6 +183,8 @@ export const IpcChannels = {
   /** M39: 同種(媒体×アクション)の一括承認。岩戸ダイアログは全件まとめて1回 */
   operationsBulkRespond: 'operations:bulk-respond',
   operationsKamuhakariRun: 'operations:kamuhakari-run',
+  /** M42-6: 神を今すぐ実行(デスクトップ。リモートには既に god-run がある) */
+  operationsGodRun: 'operations:god-run',
   /** M33-5: 神の宣言的定義(適用は岩戸ゲート承認必須) */
   operationsGodDefs: 'operations:god-defs',
   operationsGodDefApply: 'operations:god-def-apply',
@@ -446,6 +448,8 @@ export interface AmaterasApi {
   operationsBulkRespond(batchId: string, itemIds: string[], approved: boolean): Promise<BulkRespondResult>;
   /** 神議の手動開催(定刻を待たずに1回) */
   operationsKamuhakariRun(): Promise<{ analysis: string; batchItems: number; applied: number }>;
+  /** M42-6: 神を今すぐ1回実行する(定刻を待たない) */
+  operationsGodRun(godId: string): Promise<{ ok: boolean; detail: string; tokensUsed: number }>;
   /** M33-5: 神の定義一覧と変更申請(適用は承認ダイアログ=岩戸ゲートを通る) */
   operationsGodDefs(): Promise<unknown[]>;
   operationsGodDefApply(definition: unknown): Promise<{ ok: boolean; detail: string }>;

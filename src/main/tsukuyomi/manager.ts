@@ -68,6 +68,8 @@ export class TsukuyomiManager {
   private whileAway: string[] = [];
   /** M42-6: 直前に観測したウィンドウ(同じ行で帳を埋めないため) */
   private lastWindowKey: string | null = null;
+  /** M42-5b: whisper の直列化。常時聴取で発話が重なっても多重起動させない */
+  private transcribeQueue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly deps: TsukuyomiManagerDeps) {
     this.dir = join(deps.userDataDir, 'tsukuyomi');
@@ -296,9 +298,13 @@ export class TsukuyomiManager {
 
     let transcript: string;
     try {
-      transcript = await transcribe(wav, paths, {
-        ...(this.deps.whisperRunner !== undefined ? { runner: this.deps.whisperRunner } : {}),
-      });
+      // 常時聴取では発話が重なる。whisper を多重起動すると CPU を食い潰して全部遅くなるので、
+      // **必ず1件ずつ順番に**処理する(実機で1回20秒級かかるため、これは効く)
+      transcript = await this.enqueueTranscribe(() =>
+        transcribe(wav, paths, {
+          ...(this.deps.whisperRunner !== undefined ? { runner: this.deps.whisperRunner } : {}),
+        }),
+      );
     } catch (err) {
       return { items: [], error: err instanceof Error ? err.message : String(err) };
     }
@@ -346,6 +352,14 @@ export class TsukuyomiManager {
     this.add({ kind: 'observation', text, source: 'pc' });
     this.cho.prune();
     return text;
+  }
+
+  /** whisper を1件ずつ順番に流す(前の文字起こしが終わるまで次を始めない) */
+  private enqueueTranscribe(task: () => Promise<string>): Promise<string> {
+    const next = this.transcribeQueue.then(task, task);
+    // 失敗しても列は詰まらせない(次の発話は普通に処理する)
+    this.transcribeQueue = next.catch(() => undefined);
+    return next;
   }
 
   // ---- 現況 ----
