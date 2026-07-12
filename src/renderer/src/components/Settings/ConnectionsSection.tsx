@@ -3,6 +3,7 @@ import type { AppConfig, GodClockJob, ModelBand, OperationsConfig } from '../../
 import { DEFAULT_REGISTRY_URL, KNOWN_MODELS } from '../../../../shared/models';
 import { estimateOpsCost } from '../../../../shared/opsCost';
 import { useOperationsStore } from '../../stores/operations';
+import { useTsukuyomiStore } from '../../stores/tsukuyomi';
 import { McpSection } from './McpSection';
 import { RemoteAccessSection } from './RemoteAccessSection';
 import { UsageSection } from './UsageSection';
@@ -428,6 +429,73 @@ function OwnerModeSection({
  * M26-5: 設定「接続」タブ — リモートアクセス / MCP / 使用量。
  * M28-3: コミュニティレジストリURL(「作る前に探す」)を追加
  */
+
+/**
+ * M42(TUKU-yomi): 月読モードのトグル。**鍵ファイルがある機体でしか描画しない**(鉄則4)。
+ * 鍵の有無は main が status.ownerKeyPresent で返す(UIの出し分けだけに頼らず、
+ * 鍵が無ければ main 側の設定正規化が enabled を false に落とす)
+ */
+function TsukuyomiSection({
+  config,
+  saveConfig,
+}: {
+  config: AppConfig;
+  saveConfig: (next: AppConfig) => void;
+}): JSX.Element | null {
+  const status = useTsukuyomiStore((s) => s.status);
+  const refresh = useTsukuyomiStore((s) => s.refresh);
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+  const tsu = config.tsukuyomi ?? { enabled: false };
+  const save = (next: typeof tsu): void => {
+    saveConfig({ ...config, tsukuyomi: next });
+    setTimeout(() => void refresh(), 200);
+  };
+  // 鍵が無い機体ではトグル自体を出さない(存在を匂わせない)
+  if (status === null || !status.ownerKeyPresent) return null;
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-semibold text-zinc-300">🌙 月読(TUKU-yomi)— オーナー機体限定・実験的機能</p>
+      <p className="text-xs text-zinc-500">
+        あなた自身の約束・決定・ToDoを覚えておく「記憶の義手」。ONにすると右ペインに「月読」タブが出る。
+        生の音声・映像は保存せず、観察は7日で忘れる。自発的な声かけには1日あたりの上限がある
+      </p>
+      <label className="flex items-center gap-2 text-xs">
+        <input type="checkbox" checked={tsu.enabled} onChange={(e) => save({ ...tsu, enabled: e.target.checked })} />
+        月読モードを有効にする(既定OFF)
+      </label>
+      {tsu.enabled && (
+        <div className="space-y-1 pl-1 pt-1">
+          <label className="flex items-center gap-2 text-xs text-zinc-400">
+            <input
+              type="checkbox"
+              checked={tsu.voiceOutput === true}
+              onChange={(e) => save({ ...tsu, voiceOutput: e.target.checked })}
+            />
+            口: PCのスピーカーから実際に喋る(既定OFF)
+          </label>
+          <label className="flex items-center gap-2 text-xs">
+            1日の声かけ上限
+            <input
+              type="number"
+              min={0}
+              className="w-16 rounded border border-zinc-600 bg-zinc-800 px-1 py-0.5 text-xs"
+              value={tsu.interruptBudgetPerDay ?? 5}
+              onChange={(e) => save({ ...tsu, interruptBudgetPerDay: Math.max(0, Number(e.target.value) || 0) })}
+            />
+            回
+          </label>
+          <p className="text-[10px] text-zinc-500">
+            静音時間 {(tsu.quietHours ?? { start: '23:00', end: '07:00' }).start}〜
+            {(tsu.quietHours ?? { start: '23:00', end: '07:00' }).end} は自発的に喋らない
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ConnectionsSection({
   config,
   saveConfig,
@@ -471,6 +539,8 @@ export function ConnectionsSection({
       </div>
 
       <OwnerModeSection config={config} saveConfig={saveConfig} />
+
+      <TsukuyomiSection config={config} saveConfig={saveConfig} />
 
       <RemoteAccessSection />
       <McpSection />

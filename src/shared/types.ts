@@ -334,6 +334,11 @@ export interface AppConfig {
    */
   operations?: OperationsConfig;
   /**
+   * M42(TUKU-yomi): 月読モード。**オーナー機体限定**(userData/tsukuyomi/.owner が門)。
+   * 鍵の無い機体では main 側が enabled:false に正規化するため、実質存在しないのと同じになる
+   */
+  tsukuyomi?: TsukuyomiConfig;
+  /**
    * M35-5: providerPreset='custom' のときのOpenAI互換エンドポイント(Ollama等)。
    * http(s)のみ。localhost系はキー不要(ダミーキーで接続)
    */
@@ -658,6 +663,73 @@ export interface RegistryGodInfo {
   author: string;
   verified: boolean;
 }
+
+/**
+ * M42(TUKU-yomi): 月読モードの設定。
+ *
+ * 鉄則: 既定は全部OFF。オーナー機体限定(userData/tsukuyomi/.owner の存在が門)。
+ * 鍵が無い機体では main 側が enabled を強制 false に正規化する(UIの出し分けだけに頼らない)。
+ * 一度ONにした目・耳は再起動後も継続するが、稼働中は必ず可視インジケータと1クリック停止が出る。
+ */
+export interface TsukuyomiConfig {
+  /** モード本体。鍵ファイルが無ければ main 側で false に落とされる */
+  enabled: boolean;
+  /** 口: 実PC音声で喋る(既定false) */
+  voiceOutput?: boolean;
+  /** 目: カメラ常時(既定false)。ローカル在席検知のみでAPIには何も送らない */
+  camera?: boolean;
+  /** 目: 映像理解(選別した静止フレームをAPIへ送る。既定false・camera前提) */
+  cameraUnderstanding?: boolean;
+  /** 耳: 常時聴取(既定false)。音声認識はローカルwhisper。音声はAPIに送らない */
+  ears?: boolean;
+  /** PC窓観測(アクティブウィンドウのタイトルとプロセス名のみ。既定false) */
+  pcObserver?: boolean;
+  /** 自発的な発話の1日あたり上限(既定5)。ユーザー起点の操作は対象外 */
+  interruptBudgetPerDay?: number;
+  /** 映像理解のフレーム送信上限(既定: 1時間6枚) */
+  framesPerHour?: number;
+  /** 同上(既定: 1日50枚) */
+  framesPerDay?: number;
+  /** 静音時間(既定 23:00〜07:00)。この間は自発的に喋らない */
+  quietHours?: { start: string; end: string };
+}
+
+/** M42(TUKU-yomi): 月の帳のエントリ。生ログは残さない — 残るのは抽出された一文だけ */
+export interface ChoEntry {
+  id: string;
+  ts: string;
+  kind: 'promise' | 'decision' | 'todo' | 'observation';
+  text: string;
+  source: 'chat' | 'voice' | 'camera' | 'pc' | 'manual';
+  /** 期限(ISO文字列。約束・ToDoのみ) */
+  due?: string;
+  done?: boolean;
+}
+
+/** M42(TUKU-yomi): 月読タブが表示する現況 */
+export interface TsukuyomiStatus {
+  /** 鍵ファイルの有無。false なら設定トグル自体を描画しない */
+  ownerKeyPresent: boolean;
+  enabled: boolean;
+  voiceOutput: boolean;
+  camera: boolean;
+  cameraUnderstanding: boolean;
+  ears: boolean;
+  pcObserver: boolean;
+  /** 今日あと何回まで自発的に喋れるか */
+  interruptsLeft: number;
+  /** 映像理解のフレーム送信の残り(時間・日) */
+  framesLeftThisHour: number;
+  framesLeftToday: number;
+  /** 静音時間の最中か */
+  quiet: boolean;
+}
+
+/** M42(TUKU-yomi): main→renderer の通知。remote-ui(スマホ)へは中継しない */
+export type TsukuyomiEvent =
+  | { type: 'speak'; text: string }
+  | { type: 'cho-changed' }
+  | { type: 'status'; status: TsukuyomiStatus };
 
 /** M42-1: アプリ本体の更新確認の結果。newer=true のときだけUIに出す */
 export interface UpdateInfo {

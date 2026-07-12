@@ -3,9 +3,11 @@ import { SubAgentPanel } from '../Agents/SubAgentPanel';
 import { ToolDebugPanel } from '../Debug/ToolDebugPanel';
 import { EvolutionPanel } from '../Evolution/EvolutionPanel';
 import { OperationsPanel } from '../Operations/OperationsPanel';
+import { TsukuyomiPanel } from '../Tsukuyomi/TsukuyomiPanel';
 import { PlanPanel } from '../Plan/PlanPanel';
 import { useEvolutionStore } from '../../stores/evolution';
 import { useOperationsStore } from '../../stores/operations';
+import { useTsukuyomiStore } from '../../stores/tsukuyomi';
 import { usePreviewStore } from '../../stores/preview';
 import { useRightPaneStore, type RightPaneTab } from '../../stores/rightPane';
 import { useSubAgentStore } from '../../stores/subagents';
@@ -38,6 +40,18 @@ export function RightPane(): JSX.Element {
     if (!operationsEnabled && tab === 'operations') setTab('preview');
   }, [operationsEnabled, tab, setTab]);
 
+  // M42(TUKU-yomi): 月読タブは鍵ファイルがある機体で tsukuyomi.enabled の時だけ存在する
+  // (鍵が無ければ main が enabled:false を返すので、UI側の分岐だけに頼っていない)
+  const tsukuyomiStatus = useTsukuyomiStore((s) => s.status);
+  const refreshTsukuyomi = useTsukuyomiStore((s) => s.refresh);
+  useEffect(() => {
+    void refreshTsukuyomi();
+  }, [refreshTsukuyomi]);
+  const tsukuyomiEnabled = tsukuyomiStatus?.enabled === true;
+  useEffect(() => {
+    if (!tsukuyomiEnabled && tab === 'tsukuyomi') setTab('preview');
+  }, [tsukuyomiEnabled, tab, setTab]);
+
   // プレビューを開いたらプレビュータブへ
   useEffect(() => {
     if (previewResult) setTab('preview');
@@ -49,6 +63,7 @@ export function RightPane(): JSX.Element {
     { id: 'agents', label: 'エージェント', ...(runningAgents > 0 ? { badge: runningAgents } : {}) },
     { id: 'evolution', label: '進化', ...(activeJobs > 0 ? { badge: activeJobs } : {}) },
     ...(operationsEnabled ? [{ id: 'operations' as const, label: '運営' }] : []),
+    ...(tsukuyomiEnabled ? [{ id: 'tsukuyomi' as const, label: '月読' }] : []),
     { id: 'debug', label: 'Debug' },
   ];
 
@@ -89,6 +104,7 @@ export function RightPane(): JSX.Element {
         {tab === 'agents' && <SubAgentPanel />}
         {tab === 'evolution' && <EvolutionPanel />}
         {tab === 'operations' && operationsEnabled && <OperationsPanel />}
+        {tab === 'tsukuyomi' && tsukuyomiEnabled && <TsukuyomiPanel />}
         {tab === 'debug' && <ToolDebugPanel />}
       </div>
     </div>

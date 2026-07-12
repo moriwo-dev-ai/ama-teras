@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, type WebContents } from 'electron';
 import { execFile } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { IpcChannels } from '../shared/ipc';
 import type {
@@ -34,6 +34,7 @@ import { healthCheckAfterPromotion, rebuildAndHealthBoot } from './evolution/sup
 import { defaultRunCommand } from './evolution/gates';
 import { OperationsManager } from './operations/manager';
 import { DEFAULT_UPDATE_CHECK_URL } from '../shared/models';
+import { TsukuyomiManager } from './tsukuyomi/manager';
 import { checkForUpdate } from './update/check';
 import { composeRunners, ImportJobRunner } from './registry/importRunner';
 import { fetchRevocationList } from './registry/killswitch';
@@ -282,7 +283,10 @@ export async function registerIpcHandlers(
 
   const registry = new ToolRegistry(getPluginsDir(), getPluginCacheDir());
   await registry.reload();
-  const config = new ConfigStore(join(app.getPath('userData'), 'config.json'));
+  // M42(TUKU-yomi): オーナー機体の門。鍵ファイルが無ければ設定側で強制OFFになる(鉄則4)。
+  // 毎回 existsSync するのは、鍵を置いた瞬間に効かせるため(再起動を要求しない)
+  const hasOwnerKey = (): boolean => existsSync(join(app.getPath('userData'), 'tsukuyomi', '.owner'));
+  const config = new ConfigStore(join(app.getPath('userData'), 'config.json'), hasOwnerKey);
   const secrets = new SecretStore(
     join(app.getPath('userData'), 'secrets.json'),
     electronSafeStorageCipher(),
@@ -445,6 +449,46 @@ export async function registerIpcHandlers(
   bus.subscribe('agent:sub_update', (u) => push(IpcChannels.subAgentUpdate, u));
   bus.subscribe('autonomous:changed', (p) => push(IpcChannels.autonomousChanged, p));
   bus.subscribe('runs:changed', (runs) => push(IpcChannels.runsChanged, runs));
+  // M42(TUKU-yomi): デスクトップのみへ配る。SSE(remote-ui)は BUS_CHANNELS しか中継しないので
+  // このチャネルはスマホへ届かない(events.test.ts で固定)
+  bus.subscribe('tsukuyomi:event', (e) => push(IpcChannels.tsukuyomiEvent, e));
+
+  // ---- M42(TUKU-yomi): 月読モード ----
+  const tsukuyomi = new TsukuyomiManager({
+    userDataDir: app.getPath('userData'),
+    getConfig: () => config.get(),
+    hasOwnerKey,
+    emit: (event) => bus.publish('tsukuyomi:event', event),
+  });
+  tsukuyomi.start();
+
+  ipcMain.handle(IpcChannels.tsukuyomiStatus, () => tsukuyomi.status());
+  ipcMain.handle(IpcChannels.tsukuyomiList, () => tsukuyomi.list());
+  ipcMain.handle(IpcChannels.tsukuyomiAdd, (_e, entry: unknown) => {
+    if (typeof entry !== 'object' || entry === null) throw new Error('IPC payload entry が不正');
+    const rec = entry as Record<string, unknown>;
+    const kind = rec['kind'];
+    const source = rec['source'];
+    assertString(rec['text'], 'text');
+    if (kind !== 'promise' && kind !== 'decision' && kind !== 'todo' && kind !== 'observation') {
+      throw new Error('IPC payload kind が不正');
+    }
+    if (source !== 'chat' && source !== 'voice' && source !== 'camera' && source !== 'pc' && source !== 'manual') {
+      throw new Error('IPC payload source が不正');
+    }
+    const due = typeof rec['due'] === 'string' && rec['due'] !== '' ? rec['due'] : undefined;
+    return tsukuyomi.add({ kind, text: rec['text'], source, ...(due !== undefined ? { due } : {}) });
+  });
+  ipcMain.handle(IpcChannels.tsukuyomiSetDone, (_e, id: unknown, done: unknown) => {
+    assertString(id, 'id');
+    if (typeof done !== 'boolean') throw new Error('IPC payload done が不正');
+    return tsukuyomi.setDone(id, done);
+  });
+  ipcMain.handle(IpcChannels.tsukuyomiSpeak, (_e, text: unknown) => {
+    assertString(text, 'text');
+    // ユーザーが押したボタンによる発話 = 割り込み予算の対象外(鉄則3)
+    return tsukuyomi.speakWithoutBudget(text);
+  });
 
   // ---- chat ----
   ipcMain.handle(IpcChannels.chatSend, (_e, text: unknown, mode: unknown, images: unknown) => {

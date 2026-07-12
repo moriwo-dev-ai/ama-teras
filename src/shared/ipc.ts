@@ -43,7 +43,10 @@ import type {
   SessionMeta,
   SubAgentUpdate,
   ToolExecResultPayload,
+  ChoEntry,
   ToolInfo,
+  TsukuyomiEvent,
+  TsukuyomiStatus,
   UpdateInfo,
   UsageSummary,
   WorkspaceGitStatus,
@@ -189,6 +192,13 @@ export const IpcChannels = {
   operationsGodExport: 'operations:god-export',
   /** M42-1: アプリ本体の更新確認(通知だけ。自動更新はしない) */
   updateCheck: 'update:check',
+  /** M42(TUKU-yomi): 月読モード。**remote-ui へは中継しない**(鉄則4) */
+  tsukuyomiStatus: 'tsukuyomi:status',
+  tsukuyomiList: 'tsukuyomi:list',
+  tsukuyomiAdd: 'tsukuyomi:add',
+  tsukuyomiSetDone: 'tsukuyomi:set-done',
+  tsukuyomiSpeak: 'tsukuyomi:speak',
+  tsukuyomiEvent: 'tsukuyomi:event',
 } as const;
 
 /** preload が window.api として公開するAPIの型。renderer はこれ経由でしか main と話せない */
@@ -436,4 +446,12 @@ export interface AmaterasApi {
   operationsGodExport(id: string): Promise<{ ok: boolean; message: string }>;
   /** M42-1: 更新確認。newer=true のときだけUIに出す(nullは未確認・無効・不達) */
   updateCheck(): Promise<UpdateInfo | null>;
+  /** M42(TUKU-yomi): 月読モード。鍵の無い機体では enabled:false が返り、タブもトグルも出ない */
+  tsukuyomiStatus(): Promise<TsukuyomiStatus>;
+  tsukuyomiList(): Promise<ChoEntry[]>;
+  tsukuyomiAdd(entry: { kind: ChoEntry['kind']; text: string; source: ChoEntry['source']; due?: string }): Promise<ChoEntry | null>;
+  tsukuyomiSetDone(id: string, done: boolean): Promise<ChoEntry | null>;
+  /** ユーザー起点の発話(予算を消費しない) */
+  tsukuyomiSpeak(text: string): Promise<boolean>;
+  onTsukuyomiEvent(listener: (event: TsukuyomiEvent) => void): () => void;
 }

@@ -7,6 +7,7 @@ import type {
   EvolutionEvent,
   RunInfo,
   SubAgentUpdate,
+  TsukuyomiEvent,
 } from '../../shared/types';
 
 /**
@@ -25,10 +26,20 @@ export interface BusEventMap {
   'autonomous:changed': AutonomousStatePayload;
   /** M22: 実行中ラン一覧の変化(開始/終了のたびに全量を配る) */
   'runs:changed': RunInfo[];
+  /**
+   * M42(TUKU-yomi): 月読の通知(発話・帳の変化・現況)。
+   * **remote-ui(スマホ)へは中継しない**(鉄則4: 発話内容・帳がスマホへ漏れる経路を作らない)。
+   * そのため BUS_CHANNELS(=SSE中継の対象)には入れない
+   */
+  'tsukuyomi:event': TsukuyomiEvent;
 }
 
 export type BusChannel = keyof BusEventMap;
 
+/**
+ * SSE(remote-ui)へ中継するチャネル。**ここに載っているものだけがスマホへ届く**。
+ * 'tsukuyomi:event' を意図的に含めていない(除外は events.test.ts で固定)
+ */
 export const BUS_CHANNELS: readonly BusChannel[] = [
   'chat:event',
   'approval:request',
@@ -38,6 +49,9 @@ export const BUS_CHANNELS: readonly BusChannel[] = [
   'autonomous:changed',
   'runs:changed',
 ] as const;
+
+/** ローカル(デスクトップ)のみに配るチャネル。SSE には絶対に載せない */
+export const LOCAL_ONLY_CHANNELS: readonly BusChannel[] = ['tsukuyomi:event'] as const;
 
 export class EventBus {
   private readonly emitter = new EventEmitter();

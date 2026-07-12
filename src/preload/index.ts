@@ -9,6 +9,7 @@ import type {
   IwatoRequestPayload,
   RunInfo,
   SubAgentUpdate,
+  TsukuyomiEvent,
 } from '../shared/types';
 
 function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
@@ -158,6 +159,14 @@ const api: AmaterasApi = {
   operationsGodInstall: (id) => ipcRenderer.invoke(IpcChannels.operationsGodInstall, id),
   operationsGodExport: (id) => ipcRenderer.invoke(IpcChannels.operationsGodExport, id),
   updateCheck: () => ipcRenderer.invoke(IpcChannels.updateCheck),
+
+  // M42(TUKU-yomi): 月読モード(デスクトップのみ。remote-ui には出さない)
+  tsukuyomiStatus: () => ipcRenderer.invoke(IpcChannels.tsukuyomiStatus),
+  tsukuyomiList: () => ipcRenderer.invoke(IpcChannels.tsukuyomiList),
+  tsukuyomiAdd: (entry) => ipcRenderer.invoke(IpcChannels.tsukuyomiAdd, entry),
+  tsukuyomiSetDone: (id, done) => ipcRenderer.invoke(IpcChannels.tsukuyomiSetDone, id, done),
+  tsukuyomiSpeak: (text) => ipcRenderer.invoke(IpcChannels.tsukuyomiSpeak, text),
+  onTsukuyomiEvent: (listener) => subscribe<TsukuyomiEvent>(IpcChannels.tsukuyomiEvent, listener),
 };
 
 contextBridge.exposeInMainWorld('api', api);

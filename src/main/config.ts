@@ -9,6 +9,7 @@ import type {
   OperationsConfig,
   ProviderPresetId,
   ReviewGateConfig,
+  TsukuyomiConfig,
 } from '../shared/types';
 
 /** M11-1: maxTurns のクランプ範囲。未設定はループ側の既定(30)に委ねる */
@@ -34,6 +35,52 @@ export function parseProviderPreset(raw: unknown): ProviderPresetId | undefined 
 /** M29-5: 自律モードの包括承認範囲(不正値は未設定=none扱い) */
 export function parseAutonomousRegistryScope(raw: unknown): AutonomousRegistryScope | undefined {
   return raw === 'none' || raw === 'verified' || raw === 'verified-generate' ? raw : undefined;
+}
+
+/** M42(TUKU-yomi)の既定値。既定は全部OFF(鉄則6) */
+export const TSUKUYOMI_DEFAULTS = {
+  interruptBudgetPerDay: 5,
+  framesPerHour: 6,
+  framesPerDay: 50,
+  quietHours: { start: '23:00', end: '07:00' },
+} as const;
+
+/** 'HH:MM' の妥当性(24時間表記。25:00 のような値は静音時間として成立しない) */
+function isHhmm(v: unknown): v is string {
+  if (typeof v !== 'string') return false;
+  const m = /^(\d{2}):(\d{2})$/.exec(v);
+  return m !== null && Number(m[1]) <= 23 && Number(m[2]) <= 59;
+}
+
+/**
+ * M42(TUKU-yomi): 月読設定。壊れた形は undefined(=OFF)へフォールバック。
+ * 数値は0以上へクランプ。時刻は 'HH:MM' のみ受け入れる。
+ * **鍵ファイルによる強制OFFはここではやらない**(ファイルI/Oを持たない純関数のため)。
+ * 強制OFFは ConfigStore の read/set が hasOwnerKey 述語で行う
+ */
+export function parseTsukuyomiConfig(raw: unknown): TsukuyomiConfig | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const rec = raw as Record<string, unknown>;
+  if (typeof rec['enabled'] !== 'boolean') return undefined;
+  const out: TsukuyomiConfig = { enabled: rec['enabled'] };
+  for (const key of ['voiceOutput', 'camera', 'cameraUnderstanding', 'ears', 'pcObserver'] as const) {
+    if (typeof rec[key] === 'boolean') out[key] = rec[key];
+  }
+  const num = (key: 'interruptBudgetPerDay' | 'framesPerHour' | 'framesPerDay'): void => {
+    const v = rec[key];
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[key] = Math.floor(v);
+  };
+  num('interruptBudgetPerDay');
+  num('framesPerHour');
+  num('framesPerDay');
+  const quiet = rec['quietHours'];
+  if (typeof quiet === 'object' && quiet !== null) {
+    const q = quiet as Record<string, unknown>;
+    if (isHhmm(q['start']) && isHhmm(q['end'])) out.quietHours = { start: q['start'], end: q['end'] };
+  }
+  // 映像理解はカメラが前提(camera=false のまま理解だけONにはできない)
+  if (out.cameraUnderstanding === true && out.camera !== true) out.cameraUnderstanding = false;
+  return out;
 }
 
 /**
@@ -226,8 +273,34 @@ const DEFAULTS: AppConfig = {
 export class ConfigStore {
   private config: AppConfig;
 
-  constructor(private readonly filePath: string) {
+  /**
+   * @param hasOwnerKey M42(TUKU-yomi): オーナー鍵(userData/tsukuyomi/.owner)の有無を返す述語。
+   *   注入するのは ipc.ts(existsSync)。テストでは偽述語を渡す。
+   *   **未注入なら鍵なし扱い**=月読は常にOFF(既存の呼び出し側の挙動を一切変えない)
+   */
+  constructor(
+    private readonly filePath: string,
+    private readonly hasOwnerKey: () => boolean = () => false,
+  ) {
     this.config = this.read();
+  }
+
+  /**
+   * M42(TUKU-yomi): 鍵ファイルが無い機体では月読を強制OFFにする(鉄則4)。
+   * read/set の両方から呼ぶ — UIの出し分けだけに頼らず、設定の正本で落とす
+   */
+  private normalizeTsukuyomi(cfg: AppConfig): void {
+    if (cfg.tsukuyomi === undefined) return;
+    const parsed = parseTsukuyomiConfig(cfg.tsukuyomi);
+    if (parsed === undefined) {
+      delete cfg.tsukuyomi;
+      return;
+    }
+    cfg.tsukuyomi = parsed;
+    if (!this.hasOwnerKey()) {
+      // 鍵なし = モードごと停止(目・耳・口も道連れ。ONのまま残さない)
+      cfg.tsukuyomi = { ...parsed, enabled: false, camera: false, cameraUnderstanding: false, ears: false, voiceOutput: false, pcObserver: false };
+    }
   }
 
   private read(): AppConfig {
@@ -296,6 +369,9 @@ export class ConfigStore {
       // M32-1: 運営(オーナーモード)。壊れた形は未設定=OFFへフォールバック
       const operations = parseOperationsConfig(rec['operations']);
       if (operations !== undefined) merged.operations = operations;
+      // M42(TUKU-yomi): 壊れた形は未設定=OFFへ。鍵ファイルによる強制OFFは下の normalizeTsukuyomi
+      const tsukuyomi = parseTsukuyomiConfig(rec['tsukuyomi']);
+      if (tsukuyomi !== undefined) merged.tsukuyomi = tsukuyomi;
       // M35-5: カスタム(OpenAI互換)のbaseURL。http(s)のみ(localhostも可)
       if (typeof rec['customBaseUrl'] === 'string' && /^https?:\/\//.test(rec['customBaseUrl'])) {
         merged.customBaseUrl = rec['customBaseUrl'];
@@ -312,6 +388,8 @@ export class ConfigStore {
           merged.remote.tokenHash = r['tokenHash'];
         }
       }
+      // M42(TUKU-yomi): 鍵ファイルが無ければ読み込み時点で強制OFF
+      this.normalizeTsukuyomi(merged);
       return merged;
     } catch {
       return merged;
@@ -377,6 +455,8 @@ export class ConfigStore {
       if (operations) clone.operations = operations;
       else delete clone.operations;
     }
+    // M42(TUKU-yomi): 保存時も鍵ファイルで強制OFF(UIやIPC経由でONにされても通さない)
+    this.normalizeTsukuyomi(clone);
     // M35-5: カスタムbaseURLの正規化(不正形式・空は未設定へ。末尾スラッシュはprovider側で処理)
     if (clone.customBaseUrl !== undefined && !/^https?:\/\//.test(clone.customBaseUrl)) {
       delete clone.customBaseUrl;
