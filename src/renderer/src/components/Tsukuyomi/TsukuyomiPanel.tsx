@@ -163,6 +163,8 @@ function EarSection({ onChange }: { onChange: () => Promise<void> }): JSX.Elemen
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  /** M43-1: 月読の返事(声で鳴るが、聞き逃す・聞き取れない時のために文字でも出す) */
+  const [reply, setReply] = useState<string | null>(null);
   const recorderRef = useRef<Recorder | null>(null);
   const candidates = pending;
 
@@ -178,7 +180,7 @@ function EarSection({ onChange }: { onChange: () => Promise<void> }): JSX.Elemen
     setPushToTalk(true);
     const rec = new Recorder();
     recorderRef.current = rec;
-    void rec.start().then((ok) => {
+    void rec.start(status.micDeviceId).then((ok) => {
       if (ok) setRecording(true);
       else {
         setPushToTalk(false);
@@ -201,10 +203,17 @@ function EarSection({ onChange }: { onChange: () => Promise<void> }): JSX.Elemen
         : '文字起こし中(このPCの中だけで処理しています)…',
     );
     void window.api
-      .tsukuyomiTranscribe(wav)
+      .tsukuyomiTranscribe(wav, 'ptt')
       .then((r) => {
         addPending(r.items);
-        setNotice(r.error ?? (r.items.length === 0 ? '約束・決定・ToDoは見つかりませんでした' : null));
+        // 会話ONなら月読の返事(音声は main が speak イベントで鳴らす。ここは文字で残す)
+        setReply(r.reply ?? null);
+        setNotice(
+          r.error ??
+            (r.items.length === 0 && (r.reply ?? '') === ''
+              ? '約束・決定・ToDoは見つかりませんでした'
+              : null),
+        );
       })
       .finally(() => setBusy(false));
   };
@@ -240,6 +249,12 @@ function EarSection({ onChange }: { onChange: () => Promise<void> }): JSX.Elemen
         {recording ? '● 録音中(離すと文字起こし)' : busy ? '文字起こし中…' : '🎤 押している間だけ録音'}
       </button>
       {notice !== null && <p className="text-[10px] text-zinc-400">{notice}</p>}
+      {/* 声で返ってくるが、聞き逃す・聞き取れないことがあるので文字でも残す */}
+      {reply !== null && reply !== '' && (
+        <p className="rounded border border-indigo-900 bg-indigo-950/40 p-1.5 text-xs text-indigo-200">
+          🌙 {reply}
+        </p>
+      )}
 
       {candidates.length > 0 && (
         <div className="space-y-1">

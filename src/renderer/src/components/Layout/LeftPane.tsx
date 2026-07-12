@@ -4,6 +4,8 @@ import type { SessionMeta } from '../../../../shared/types';
 import { useChatStore } from '../../stores/chat';
 import { useOperationsStore } from '../../stores/operations';
 import { useOpsThreadStore } from '../../stores/opsThread';
+import { useTsukuyomiStore } from '../../stores/tsukuyomi';
+import { useTsukuyomiThreadStore } from '../../stores/tsukuyomiThread';
 import { useRunsStore } from '../../stores/runs';
 
 /**
@@ -48,7 +50,7 @@ function OpsThreadEntry(): JSX.Element | null {
   if (!enabled) return null;
   return (
     <button
-      className={`relative w-full rounded border px-2 py-1.5 text-left text-xs ${
+      className={`relative w-full rounded border px-2 py-1.5 text-center text-xs ${
         open ? 'border-orange-700 bg-orange-950/40 text-orange-200' : 'border-zinc-700 text-zinc-200 hover:bg-zinc-800'
       }`}
       title="運営(Project TAKAMA-gahara)— 神議との会話・承認バッチ"
@@ -58,6 +60,39 @@ function OpsThreadEntry(): JSX.Element | null {
       {pending > 0 && (
         <span className="anim-pulse absolute right-2 top-1.5 rounded-full bg-orange-600 px-1.5 text-[10px] leading-4 text-white">
           {pending}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/**
+ * M43-2: 🌙 TUKU-yomi の常設エントリ(⛩運営と同じ流儀)。
+ * 鍵が無い/月読OFFの機体では main が enabled:false を返すので、自然に消える
+ */
+function TsukuyomiThreadEntry(): JSX.Element | null {
+  const status = useTsukuyomiStore((s) => s.status);
+  const refresh = useTsukuyomiStore((s) => s.refresh);
+  const { open, setOpen } = useTsukuyomiThreadStore();
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+  if (status === null || !status.enabled) return null;
+  return (
+    <button
+      className={`relative w-full rounded border px-2 py-1.5 text-center text-xs ${
+        open
+          ? 'border-indigo-700 bg-indigo-950/40 text-indigo-200'
+          : 'border-zinc-700 text-zinc-200 hover:bg-zinc-800'
+      }`}
+      title="TUKU-yomi — 話した内容と、月読がやったことの履歴"
+      onClick={() => setOpen(!open)}
+    >
+      🌙 TUKU-yomi
+      {/* 聴取中は分かるようにする(鉄則5の延長。左ペインでも稼働が見える) */}
+      {status.ears && (
+        <span className="absolute right-2 top-1.5 text-[10px] leading-4 text-indigo-300">
+          {status.sttMode === 'cloud' ? '👂☁' : '👂'}
         </span>
       )}
     </button>
@@ -177,6 +212,7 @@ export function LeftPane(): JSX.Element {
           + 新しいタスク
         </button>
         <OpsThreadEntry />
+        <TsukuyomiThreadEntry />
         <input
           ref={searchRef}
           id="session-search"

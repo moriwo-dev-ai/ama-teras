@@ -1,3 +1,5 @@
+import { micConstraints } from '../../../../shared/tsukuyomiVad';
+
 /**
  * M42-5(TUKU-yomi): 耳 — 録音(push-to-talk)。
  *
@@ -51,9 +53,10 @@ export class Recorder {
   private processor: ScriptProcessorNode | null = null;
   private chunks: Float32Array[] = [];
 
-  async start(): Promise<boolean> {
+  /** deviceId 未指定 = Windowsの既定マイク(イヤホンを着けていても内蔵マイクのことがある) */
+  async start(deviceId?: string): Promise<boolean> {
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId) });
     } catch {
       return false; // 権限拒否。黙って諦める
     }

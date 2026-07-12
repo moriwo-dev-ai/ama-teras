@@ -488,6 +488,9 @@ export async function registerIpcHandlers(
 
   ipcMain.handle(IpcChannels.tsukuyomiStatus, () => tsukuyomi.status());
   ipcMain.handle(IpcChannels.tsukuyomiList, () => tsukuyomi.list());
+  // M43-2: 会話ログ(左ペインの「TUKU-yomi」)。生の発話が残るので、消す手段も必ず出す
+  ipcMain.handle(IpcChannels.tsukuyomiTalks, () => tsukuyomi.talkList());
+  ipcMain.handle(IpcChannels.tsukuyomiTalkClear, () => tsukuyomi.talkClear());
   ipcMain.handle(IpcChannels.tsukuyomiAdd, (_e, entry: unknown) => {
     if (typeof entry !== 'object' || entry === null) throw new Error('IPC payload entry が不正');
     const rec = entry as Record<string, unknown>;
@@ -509,10 +512,11 @@ export async function registerIpcHandlers(
     return tsukuyomi.setDone(id, done);
   });
   ipcMain.handle(IpcChannels.tsukuyomiWhisperReady, () => tsukuyomi.whisperReady());
-  ipcMain.handle(IpcChannels.tsukuyomiTranscribe, (_e, wav: unknown) => {
+  ipcMain.handle(IpcChannels.tsukuyomiTranscribe, (_e, wav: unknown, source: unknown) => {
     if (!(wav instanceof ArrayBuffer) && !ArrayBuffer.isView(wav)) throw new Error('IPC payload wav が不正');
-    // 音声はここから外に出ない: ローカルwhisperで文字起こし → 一時ファイルは即削除
-    return tsukuyomi.transcribeAndExtract(Buffer.from(wav as ArrayBuffer));
+    // 出どころが分からない音は「常時聴取」扱い(=会話しない)。安全な側に倒す
+    const src = source === 'ptt' ? 'ptt' : 'ears';
+    return tsukuyomi.transcribeAndExtract(Buffer.from(wav as ArrayBuffer), src);
   });
   ipcMain.handle(IpcChannels.tsukuyomiFrame, (_e, jpegBase64: unknown) => {
     assertString(jpegBase64, 'jpegBase64');

@@ -1,6 +1,14 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AppConfig, ChoEntry, RunInfo, TsukuyomiConfig, TsukuyomiEvent, TsukuyomiStatus } from '../../shared/types';
+import type {
+  AppConfig,
+  ChoEntry,
+  RunInfo,
+  TalkEntry,
+  TsukuyomiConfig,
+  TsukuyomiEvent,
+  TsukuyomiStatus,
+} from '../../shared/types';
 import { TSUKUYOMI_DEFAULTS } from '../config';
 import type { LLMProvider } from '../providers/types';
 import {
@@ -20,9 +28,11 @@ import {
   type TsukuyomiState,
 } from './budget';
 import { transcribeCloud, wavSeconds, type CloudSttRunner } from './cloudTranscriber';
+import { converse, MAX_HISTORY_TURNS, type ConversationTurn } from './conversation';
 import { extractCommitments, type ExtractedItem } from './extractor';
 import { understandScene } from './sceneUnderstanding';
 import { finishedRuns, runLabel, speechFor } from './speaker';
+import { TalkLog } from './talkLog';
 import { TsukiNoCho } from './tsukiNoCho';
 import {
   sweepTmpWavs,
@@ -80,6 +90,7 @@ export const DUPLICATE_WINDOW_MS = 60_000;
 export class TsukuyomiManager {
   private readonly dir: string;
   private readonly cho: TsukiNoCho;
+  private readonly talks: TalkLog;
   private state: TsukuyomiState;
   private pruneTimer: NodeJS.Timeout | null = null;
   private stopped = false;
@@ -95,13 +106,37 @@ export class TsukuyomiManager {
   private transcribeQueue: Promise<unknown> = Promise.resolve();
   /** 待ち行列の長さ(処理中を含む)。上限を超えた発話は捨てる */
   private pendingTranscribes = 0;
+  /** M43-1: 直近の会話(音声なので短く保つ) */
+  private history: ConversationTurn[] = [];
   /** 直前の文字起こし(二重取りの検出用) */
   private lastTranscript: { key: string; at: number } | null = null;
 
   constructor(private readonly deps: TsukuyomiManagerDeps) {
     this.dir = join(deps.userDataDir, 'tsukuyomi');
     this.cho = new TsukiNoCho(join(this.dir, 'tsuki-no-cho.jsonl'), () => this.now());
+    this.talks = new TalkLog(join(this.dir, 'talks.jsonl'), () => this.now());
     this.state = this.loadState();
+  }
+
+  // ---- M43-2: 会話ログ(左ペインの「TUKU-yomi」)----
+
+  talkList(): TalkEntry[] {
+    if (!this.active()) return [];
+    return this.talks.list();
+  }
+
+  /** 月読が実行したことも同じ流れに残す(何をされたか後から辿れないと怖い) */
+  talkAction(text: string): void {
+    if (!this.active()) return;
+    this.talks.add({ role: 'action', text });
+    this.deps.emit({ type: 'talk-changed' });
+  }
+
+  talkClear(): void {
+    if (!this.active()) return;
+    this.talks.clear();
+    this.history = [];
+    this.deps.emit({ type: 'talk-changed' });
   }
 
   private now(): Date {
@@ -327,7 +362,15 @@ export class TsukuyomiManager {
    * イヤホンマイク装着が前提)。青天井にしないため、送った音声の分数に日次上限を持つ。
    * 生の文字起こしはここで捨てる — 返すのは抽出結果だけで、帳に書くのは人間の承認後
    */
-  async transcribeAndExtract(wav: Buffer): Promise<{ items: ExtractedItem[]; error?: string }> {
+  async transcribeAndExtract(
+    wav: Buffer,
+    /**
+     * 音の出どころ。'ptt' = 本人がボタンを押して話した / 'ears' = 常時聴取が拾った。
+     * **会話するのは 'ptt' だけ**。常時聴取に返事をさせると、テレビの音や誤認識に
+     * 声で答え始める(実機で「これやばいな、レジ使ってとか」に返事をした)
+     */
+    source: 'ptt' | 'ears' = 'ptt',
+  ): Promise<{ items: ExtractedItem[]; error?: string; reply?: string }> {
     if (!this.active() || this.cfg().ears !== true) return { items: [], error: '耳がOFF' };
     const cloud = this.sttMode() === 'cloud' ? (this.deps.cloudStt?.() ?? null) : null;
     const paths = whisperPaths(this.deps.userDataDir);
@@ -389,13 +432,39 @@ export class TsukuyomiManager {
     const provider = this.deps.visionProvider?.();
     if (provider === undefined || provider === null) return { items: [], error: 'APIキーが未設定' };
     try {
-      const items = await extractCommitments(transcript, {
-        provider,
-        onUsage: (input, output) => this.deps.onVisionUsage?.(input, output),
-        now: this.now(),
-      });
+      // 会話ONなら「返事」と「約束の抽出」を同時に走らせる。
+      // 話しながら「明日13時にレビュー」と言えば、返事をしつつ候補も上がる
+      const [items, reply] = await Promise.all([
+        extractCommitments(transcript, {
+          provider,
+          onUsage: (input, output) => this.deps.onVisionUsage?.(input, output),
+          now: this.now(),
+        }),
+        this.cfg().conversation === true && source === 'ptt'
+          ? converse(transcript, {
+              provider,
+              entries: this.cho.list(),
+              history: this.history,
+              onUsage: (input, output) => this.deps.onVisionUsage?.(input, output),
+            })
+          : Promise.resolve(''),
+      ]);
+
+      if (reply !== '') {
+        // M43-2: 左ペインの履歴に残す(生の発話が残る。userData の中だけ・スマホには流さない)
+        this.talks.add({ role: 'you', text: transcript });
+        this.talks.add({ role: 'tsukuyomi', text: reply });
+        this.deps.emit({ type: 'talk-changed' });
+        // 本人が話しかけた返事なので予算は使わない(鉄則3の対象は「自発的な割り込み」)
+        this.history = [
+          ...this.history,
+          { role: 'user' as const, text: transcript },
+          { role: 'assistant' as const, text: reply },
+        ].slice(-MAX_HISTORY_TURNS);
+        this.speakWithoutBudget(reply);
+      }
       // 生の文字起こしはここで捨てる(帳にも返り値にも残さない)
-      return { items };
+      return { items, ...(reply !== '' ? { reply } : {}) };
     } catch (err) {
       return { items: [], error: err instanceof Error ? err.message : String(err) };
     }
@@ -460,6 +529,8 @@ export class TsukuyomiManager {
       quiet: isQuietHour(now, cfg),
       sttMode: this.sttMode(),
       sttMinutesLeft: Math.floor(sttSecondsLeft(this.state, cfg, now) / 60),
+      conversation: enabled && cfg.conversation === true,
+      ...(cfg.micDeviceId !== undefined ? { micDeviceId: cfg.micDeviceId } : {}),
     };
   }
 

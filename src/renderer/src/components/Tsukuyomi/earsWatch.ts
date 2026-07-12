@@ -1,4 +1,4 @@
-import { MIC_CONSTRAINTS, initialVad, rms, stepVad, type VadState } from '../../../../shared/tsukuyomiVad';
+import { initialVad, micConstraints, rms, stepVad, type VadState } from '../../../../shared/tsukuyomiVad';
 import { downsample, encodeWav } from './record';
 
 /**
@@ -16,6 +16,8 @@ const TARGET_RATE = 16000;
 const PAD_MS = 300;
 
 export interface EarsWatchDeps {
+  /** 使うマイク。未指定だとWindowsの既定(内蔵マイク)を拾ってしまうことがある */
+  deviceId?: string;
   /** 切り出した発話区間(WAV)。main へ渡して文字起こし → 抽出 → 確認UI */
   onUtterance: (wav: ArrayBuffer) => void;
   nowFn?: () => number;
@@ -41,7 +43,7 @@ export class EarsWatch {
     if (this.stopped || this.stream !== null) return this.stream !== null;
     try {
       // audio:true だと AGC が環境音を声の大きさまで持ち上げる(MIC_CONSTRAINTS のコメント参照)
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: { ...MIC_CONSTRAINTS } });
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(this.deps.deviceId) });
     } catch {
       return false; // 権限拒否。黙って諦める
     }

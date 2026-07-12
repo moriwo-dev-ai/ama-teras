@@ -15,6 +15,7 @@ import type {
   MetricsSnapshot,
   OperationsDraft,
   OpsThreadMessage,
+  TalkEntry,
   TriageCard,
   AutonomousRegistryScope,
   AutonomousStatePayload,
@@ -197,6 +198,9 @@ export const IpcChannels = {
   /** M42(TUKU-yomi): 月読モード。**remote-ui へは中継しない**(鉄則4) */
   tsukuyomiStatus: 'tsukuyomi:status',
   tsukuyomiList: 'tsukuyomi:list',
+  /** M43-2: 会話ログ(左ペインの「TUKU-yomi」) */
+  tsukuyomiTalks: 'tsukuyomi:talks',
+  tsukuyomiTalkClear: 'tsukuyomi:talk-clear',
   tsukuyomiAdd: 'tsukuyomi:add',
   tsukuyomiSetDone: 'tsukuyomi:set-done',
   tsukuyomiSpeak: 'tsukuyomi:speak',
@@ -463,6 +467,9 @@ export interface AmaterasApi {
   /** M42(TUKU-yomi): 月読モード。鍵の無い機体では enabled:false が返り、タブもトグルも出ない */
   tsukuyomiStatus(): Promise<TsukuyomiStatus>;
   tsukuyomiList(): Promise<ChoEntry[]>;
+  /** M43-2: 会話ログ(生の発話が残る。スマホには流さない) */
+  tsukuyomiTalks(): Promise<TalkEntry[]>;
+  tsukuyomiTalkClear(): Promise<void>;
   tsukuyomiAdd(entry: { kind: ChoEntry['kind']; text: string; source: ChoEntry['source']; due?: string }): Promise<ChoEntry | null>;
   tsukuyomiSetDone(id: string, done: boolean): Promise<ChoEntry | null>;
   /** ユーザー起点の発話(予算を消費しない) */
@@ -474,7 +481,8 @@ export interface AmaterasApi {
   /** M42-4: 選別した1枚(JPEG base64)を理解へ。上限超過・OFFなら null(送らない) */
   tsukuyomiFrame(jpegBase64: string): Promise<string | null>;
   /** M42-5: 録音を文字起こし(ローカル)→ 抽出候補を返す。**帳にはまだ書かない** */
-  tsukuyomiTranscribe(wav: ArrayBuffer): Promise<{ items: { kind: ChoEntry['kind']; text: string; due?: string }[]; error?: string }>;
+  /** M43-1: source='ptt' の時だけ月読は会話で返す(常時聴取に返事をさせない) */
+  tsukuyomiTranscribe(wav: ArrayBuffer, source?: 'ptt' | 'ears'): Promise<{ items: { kind: ChoEntry['kind']; text: string; due?: string }[]; error?: string; reply?: string }>;
   tsukuyomiWhisperReady(): Promise<boolean>;
   onTsukuyomiEvent(listener: (event: TsukuyomiEvent) => void): () => void;
 }

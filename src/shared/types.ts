@@ -691,6 +691,16 @@ export interface TsukuyomiConfig {
   sttMode?: 'local' | 'cloud';
   /** M42-7: クラウド文字起こしへ送ってよい音声の1日あたりの分数(既定60分) */
   cloudMinutesPerDay?: number;
+  /**
+   * M43-3: 使うマイク(deviceId)。未指定だとWindowsの既定=内蔵マイクを拾い、
+   * イヤホンを着けていても遠くの声を拾って誤認識する(実機で起きた)
+   */
+  micDeviceId?: string;
+  /**
+   * M43-1: 会話(既定false)。押して話すと月読が声で返す。
+   * 答えの根拠は月の帳だけ(帳に無いことは「記録にありません」と言う)
+   */
+  conversation?: boolean;
   /** PC窓観測(アクティブウィンドウのタイトルとプロセス名のみ。既定false) */
   pcObserver?: boolean;
   /** 自発的な発話の1日あたり上限(既定5)。ユーザー起点の操作は対象外 */
@@ -704,6 +714,18 @@ export interface TsukuyomiConfig {
 }
 
 /** M42(TUKU-yomi): 月の帳のエントリ。生ログは残さない — 残るのは抽出された一文だけ */
+/**
+ * M43-2(TUKU-yomi): 会話ログの1行(左ペインの「TUKU-yomi」に出す)。
+ * **生の発話がそのまま残る**(帳と違い抽出前の言葉)。userData の中だけ・スマホには流さない
+ */
+export interface TalkEntry {
+  id: string;
+  ts: string;
+  /** you=本人の声 / tsukuyomi=月読の返事 / action=月読が実行したこと */
+  role: 'you' | 'tsukuyomi' | 'action';
+  text: string;
+}
+
 export interface ChoEntry {
   id: string;
   ts: string;
@@ -736,12 +758,18 @@ export interface TsukuyomiStatus {
   sttMode: 'local' | 'cloud';
   /** M42-7: クラウドへ送れる音声の残り(分)。local の時は意味を持たない */
   sttMinutesLeft: number;
+  /** M43-1: 会話がONか(左ペインの案内文が変わる) */
+  conversation: boolean;
+  /** M43-3: 使うマイク(未設定なら既定デバイス) */
+  micDeviceId?: string;
 }
 
 /** M42(TUKU-yomi): main→renderer の通知。remote-ui(スマホ)へは中継しない */
 export type TsukuyomiEvent =
   | { type: 'speak'; text: string }
   | { type: 'cho-changed' }
+  /** M43-2: 左ペインの会話履歴が変わった */
+  | { type: 'talk-changed' }
   | { type: 'status'; status: TsukuyomiStatus };
 
 /** M42-1: アプリ本体の更新確認の結果。newer=true のときだけUIに出す */

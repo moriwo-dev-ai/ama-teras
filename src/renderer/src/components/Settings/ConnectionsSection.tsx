@@ -519,6 +519,18 @@ function TsukuyomiSection({
               <option value="cloud">クラウド(OpenAI・音声を送る・速い)</option>
             </select>
           </label>
+          {/* M43-3: 使うマイク。既定のままだとイヤホンを着けていても内蔵マイクを拾い、
+              遠くの声を誤認識する(実機で「明日の予定は?」が「一番」になった) */}
+          <MicPicker value={tsu.micDeviceId ?? ''} onChange={(id) => save({ ...tsu, micDeviceId: id })} />
+          {/* M43-1: 会話。押して話すと月読が声で返す。根拠は月の帳だけ(作話させない) */}
+          <label className="flex items-center gap-2 text-xs text-zinc-400">
+            <input
+              type="checkbox"
+              checked={tsu.conversation === true}
+              onChange={(e) => save({ ...tsu, conversation: e.target.checked })}
+            />
+            会話: 話しかけると声で返す(既定OFF・答えの根拠は**月の帳だけ**・帳に無いことは「記録にありません」)
+          </label>
           {tsu.sttMode === 'cloud' && (
             <label className="flex items-center gap-2 text-xs text-amber-400">
               ☁ 録音はOpenAIへ送られます。イヤホンマイク推奨。1日の上限
@@ -612,5 +624,57 @@ export function ConnectionsSection({
       <RemoteAccessSection />
       <McpSection />
     </div>
+  );
+}
+
+/**
+ * M43-3(TUKU-yomi): 使うマイクを選ぶ。
+ *
+ * 既定(未指定)は Windows の既定デバイスになる。イヤホンを着けていても既定が内蔵マイクなら
+ * 内蔵マイクを拾い、遠くの声を誤認識する(実機で「明日の予定は?」が「一番」になった)。
+ * ラベルはマイク権限が無いと空になるので、一度権限を取ってから列挙する
+ */
+function MicPicker({ value, onChange }: { value: string; onChange: (id: string) => void }): JSX.Element {
+  const [mics, setMics] = useState<{ id: string; label: string }[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        // ラベルを得るために一度だけマイクを開いて即閉じる(録音はしない)
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((t) => t.stop());
+      } catch {
+        /* 権限拒否ならラベル無しで並ぶ */
+      }
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      if (cancelled) return;
+      setMics(
+        devices
+          .filter((d) => d.kind === 'audioinput' && d.deviceId !== 'default' && d.deviceId !== 'communications')
+          .map((d) => ({ id: d.deviceId, label: d.label || 'マイク' })),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <label className="flex items-center gap-2 text-xs text-zinc-400">
+      マイク
+      <select
+        className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 px-1 py-0.5 text-xs"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">Windowsの既定(内蔵マイクになることがある)</option>
+        {mics.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

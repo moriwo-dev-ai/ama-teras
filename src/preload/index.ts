@@ -164,13 +164,15 @@ const api: AmaterasApi = {
   // M42(TUKU-yomi): 月読モード(デスクトップのみ。remote-ui には出さない)
   tsukuyomiStatus: () => ipcRenderer.invoke(IpcChannels.tsukuyomiStatus),
   tsukuyomiList: () => ipcRenderer.invoke(IpcChannels.tsukuyomiList),
+  tsukuyomiTalks: () => ipcRenderer.invoke(IpcChannels.tsukuyomiTalks),
+  tsukuyomiTalkClear: () => ipcRenderer.invoke(IpcChannels.tsukuyomiTalkClear),
   tsukuyomiAdd: (entry) => ipcRenderer.invoke(IpcChannels.tsukuyomiAdd, entry),
   tsukuyomiSetDone: (id, done) => ipcRenderer.invoke(IpcChannels.tsukuyomiSetDone, id, done),
   tsukuyomiSpeak: (text) => ipcRenderer.invoke(IpcChannels.tsukuyomiSpeak, text),
   tsukuyomiSpeakFallback: (text) => ipcRenderer.invoke(IpcChannels.tsukuyomiSpeakFallback, text),
   tsukuyomiPresence: (event, text) => ipcRenderer.invoke(IpcChannels.tsukuyomiPresence, event, text),
   tsukuyomiFrame: (jpegBase64) => ipcRenderer.invoke(IpcChannels.tsukuyomiFrame, jpegBase64),
-  tsukuyomiTranscribe: (wav) => ipcRenderer.invoke(IpcChannels.tsukuyomiTranscribe, wav),
+  tsukuyomiTranscribe: (wav, source) => ipcRenderer.invoke(IpcChannels.tsukuyomiTranscribe, wav, source),
   tsukuyomiWhisperReady: () => ipcRenderer.invoke(IpcChannels.tsukuyomiWhisperReady),
   onTsukuyomiEvent: (listener) => subscribe<TsukuyomiEvent>(IpcChannels.tsukuyomiEvent, listener),
 };

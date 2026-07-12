@@ -22,6 +22,22 @@ export const MIC_CONSTRAINTS = {
   autoGainControl: false,
 } as const;
 
+/**
+ * 使うマイクを選ぶ。既定(deviceId 未指定)は**Windowsの既定デバイス**になり、
+ * イヤホンを着けていてもPC内蔵マイクを拾うことがある(実機で起きた。遠くの声を拾って
+ * 「明日の予定は?」が「一番」になった)。だから機体で明示的に選べるようにする
+ */
+export function micConstraints(deviceId?: string): {
+  echoCancellation: boolean;
+  noiseSuppression: boolean;
+  autoGainControl: boolean;
+  deviceId?: { exact: string };
+} {
+  return deviceId !== undefined && deviceId !== ''
+    ? { ...MIC_CONSTRAINTS, deviceId: { exact: deviceId } }
+    : { ...MIC_CONSTRAINTS };
+}
+
 /** これを超えたら「声がある」(0〜1。マイクの生RMS) */
 export const SPEECH_RMS_THRESHOLD = 0.02;
 

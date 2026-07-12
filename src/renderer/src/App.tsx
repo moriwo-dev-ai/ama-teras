@@ -4,6 +4,7 @@ import { IwatoApprovalDialog } from './components/Approval/IwatoApprovalDialog';
 import { ChatView } from './components/Chat/ChatView';
 import { PromotionDialog } from './components/Evolution/EvolutionPanel';
 import { OpsThreadPanel } from './components/Operations/OpsThreadPanel';
+import { TsukuyomiThreadPanel } from './components/Tsukuyomi/TsukuyomiThreadPanel';
 import { LeftPane } from './components/Layout/LeftPane';
 import { RevealMenu } from './components/Layout/RevealMenu';
 import { RightPane } from './components/Layout/RightPane';
@@ -16,6 +17,7 @@ import { SettingsPanel } from './components/Settings/SettingsPanel';
 import { useApprovalStore } from './stores/approval';
 import { useChatStore } from './stores/chat';
 import { useOpsThreadStore } from './stores/opsThread';
+import { useTsukuyomiThreadStore } from './stores/tsukuyomiThread';
 import { useEvolutionStore } from './stores/evolution';
 import { usePreviewStore } from './stores/preview';
 import { useRightPaneStore } from './stores/rightPane';
@@ -30,6 +32,7 @@ export default function App(): JSX.Element {
   const handleSubAgentUpdate = useSubAgentStore((s) => s.handleUpdate);
   const [showSettings, setShowSettings] = useState(false);
   const opsThreadOpen = useOpsThreadStore((s) => s.open);
+  const tsukuyomiThreadOpen = useTsukuyomiThreadStore((s) => s.open);
   // M30-2: エラーカード・モデルバッジ等からの「設定を開く」導線(開くタブ+再発火用nonce)
   const [settingsTab, setSettingsTab] = useState<'basic' | 'models' | 'quality' | 'connect' | 'memory'>('basic');
   const [settingsNonce, setSettingsNonce] = useState(0);
@@ -60,6 +63,8 @@ export default function App(): JSX.Element {
         if (!speak(event.text)) void window.api.tsukuyomiSpeakFallback(event.text);
       }
       if (event.type === 'cho-changed') void useTsukuyomiStore.getState().refreshEntries();
+      // M43-2: 会話履歴(左ペインの🌙 TUKU-yomi)は喋った直後に反映する
+      if (event.type === 'talk-changed') void useTsukuyomiThreadStore.getState().refreshTalks();
       if (event.type === 'status') useTsukuyomiStore.setState({ status: event.status });
     });
   }, []);
@@ -195,7 +200,7 @@ export default function App(): JSX.Element {
         </SidePane>
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* M33-4: ⛩運営スレッド(左ペインの常設エントリで開閉。通常チャットと混ぜない) */}
-          {opsThreadOpen ? <OpsThreadPanel /> : <ChatView />}
+          {opsThreadOpen ? <OpsThreadPanel /> : tsukuyomiThreadOpen ? <TsukuyomiThreadPanel /> : <ChatView />}
         </main>
         <SidePane
           side="right"

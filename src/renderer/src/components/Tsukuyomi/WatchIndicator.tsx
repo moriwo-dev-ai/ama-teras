@@ -19,6 +19,7 @@ export function WatchIndicator(): JSX.Element | null {
   const earsRef = useRef<EarsWatch | null>(null);
   const addPending = useTsukuyomiStore((s) => s.addPending);
   const pushToTalk = useTsukuyomiStore((s) => s.pushToTalk);
+  const micDeviceId = status?.micDeviceId;
   const earsOn = status?.ears === true;
   const cameraOn = status?.camera === true;
   // M42-4: 映像理解(=APIへ選別フレームを送る)は別トグル。OFFなら1枚も送らない
@@ -62,8 +63,9 @@ export function WatchIndicator(): JSX.Element | null {
     }
     if (earsRef.current !== null) return;
     const ears = new EarsWatch({
+      ...(micDeviceId !== undefined ? { deviceId: micDeviceId } : {}),
       onUtterance: (wav) => {
-        void window.api.tsukuyomiTranscribe(wav).then((r) => {
+        void window.api.tsukuyomiTranscribe(wav, 'ears').then((r) => {
           // 抽出できたものは「確認待ち」に積む(帳には勝手に入れない=岩戸の思想)
           if (r.items.length > 0) addPending(r.items);
         });
@@ -75,7 +77,7 @@ export function WatchIndicator(): JSX.Element | null {
       ears.stop();
       earsRef.current = null;
     };
-  }, [earsOn, addPending]);
+  }, [earsOn, addPending, micDeviceId]);
 
   // 押して話すの最中は常時聴取を黙らせる(同じ声を2経路で拾うと候補が2つできる)
   useEffect(() => {

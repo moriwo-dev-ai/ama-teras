@@ -65,7 +65,7 @@ export function parseTsukuyomiConfig(raw: unknown): TsukuyomiConfig | undefined 
   const rec = raw as Record<string, unknown>;
   if (typeof rec['enabled'] !== 'boolean') return undefined;
   const out: TsukuyomiConfig = { enabled: rec['enabled'] };
-  for (const key of ['voiceOutput', 'camera', 'cameraUnderstanding', 'ears', 'pcObserver'] as const) {
+  for (const key of ['voiceOutput', 'camera', 'cameraUnderstanding', 'ears', 'pcObserver', 'conversation'] as const) {
     if (typeof rec[key] === 'boolean') out[key] = rec[key];
   }
   const num = (
@@ -80,6 +80,9 @@ export function parseTsukuyomiConfig(raw: unknown): TsukuyomiConfig | undefined 
   num('cloudMinutesPerDay');
   // 文字起こしの場所。知らない値はローカル(音声を出さない側)に倒す
   if (rec['sttMode'] === 'cloud' || rec['sttMode'] === 'local') out.sttMode = rec['sttMode'];
+  if (typeof rec['micDeviceId'] === 'string' && rec['micDeviceId'].trim() !== '') {
+    out.micDeviceId = rec['micDeviceId'].trim();
+  }
   const quiet = rec['quietHours'];
   if (typeof quiet === 'object' && quiet !== null) {
     const q = quiet as Record<string, unknown>;
