@@ -23,8 +23,10 @@ import {
   isLinkOnlyAdapter,
   marksDraftPosted,
   mediaOf,
+  nextVersion,
   repoUrl,
   resolvePostText,
+  sameVersion,
   xIntentUrl,
   type BulkItemResult,
   type BulkRespondResult,
@@ -117,6 +119,8 @@ export interface OperationsManagerDeps {
   listRegistryGods?: (query?: string) => Promise<RegistryGodInfo[]>;
   /** M42-3: 神定義JSONの取得(適用は必ず岩戸ゲートの god-definition executor 経由) */
   fetchRegistryGod?: (id: string) => Promise<unknown | null>;
+  /** M46: 稼働中アプリの版(package.json)。リリースタグとの食い違い検出に使う */
+  appVersion?: string;
   /** テスト用注入 */
   ghRunner?: GhRunner;
   /** M37: zenn-content への commit/push 実行(未注入=実git) */
@@ -182,6 +186,7 @@ export class OperationsManager {
   private drafts: DraftStore | null = null;
   private candidates: CandidateStore | null = null;
   private ghPath: string | null = null;
+  private ghRun: GhRunner | null = null;
   private triageCache: TriageCard[] = [];
   private inbox: Inbox | null = null;
   private thread: OpsThread | null = null;
@@ -227,6 +232,7 @@ export class OperationsManager {
     const run: GhRunner | null =
       this.deps.ghRunner ?? (this.ghPath !== null ? defaultGhRunner(this.ghPath) : null);
     if (run !== null) this.github = new GithubReader(run);
+    this.ghRun = run; // M46: リリースの版取得(読み取り専用。発行は必ず岩戸ゲート経由)
 
     const gate = new IwatoGate(this.deps.approvalPrompt, this.deps.audit);
     if (run !== null) gate.register(createGithubAdapter(run, () => true));
@@ -1471,6 +1477,49 @@ export class OperationsManager {
    * リリースノート下書き → GitHub Release(下書き)。
    * 承認ダイアログに repo/tag/全文を出し、承認後に gh release create --draft(既存タグなら本文更新)。
    */
+  /**
+   * M46: リリースのバージョン管理を人間の記憶から外す。
+   * GitHubの最新リリースを見て、patch/minor/major の次バージョンを機械的に出す。
+   * appVersion(package.json)と食い違っていたら知らせる — 食い違ったまま出すと、
+   * 利用者の更新バナー(M42-1)が「新しい版がある」と言い続ける/言わなくなる
+   */
+  async releaseInfo(repo: string): Promise<{
+    latestTag: string | null;
+    appVersion: string;
+    suggestions: { patch: string | null; minor: string | null; major: string | null };
+    mismatch: boolean;
+  }> {
+    const appVersion = this.deps.appVersion ?? '';
+    const empty = {
+      latestTag: null,
+      appVersion,
+      suggestions: { patch: null, minor: null, major: null },
+      mismatch: false,
+    };
+    if (!this.ensureInitialized() || this.ghRun === null) return empty;
+    // 最新リリースが無い(初回)なら latestTag は null → UIは appVersion を初期候補にする
+    const out = await this.ghRun(['release', 'view', '-R', repo, '--json', 'tagName']).catch(() => '');
+    let latestTag: string | null = null;
+    try {
+      const parsed: unknown = JSON.parse(out);
+      const t = (parsed as Record<string, unknown> | null)?.['tagName'];
+      if (typeof t === 'string' && t !== '') latestTag = t;
+    } catch {
+      /* リリース無し・gh不在は latestTag=null(手入力へ落とす) */
+    }
+    return {
+      latestTag,
+      appVersion,
+      suggestions: {
+        patch: nextVersion(latestTag, 'patch'),
+        minor: nextVersion(latestTag, 'minor'),
+        major: nextVersion(latestTag, 'major'),
+      },
+      // 直近リリースとアプリの版が食い違っている = package.json の更新を忘れている合図
+      mismatch: latestTag !== null && appVersion !== '' && !sameVersion(latestTag, appVersion),
+    };
+  }
+
   async requestRelease(draftId: string, repo: string, tag: string): Promise<{ ok: boolean; detail: string }> {
     if (!this.ensureInitialized() || this.gate === null || this.drafts === null) {
       return { ok: false, detail: 'オーナーモードがOFF(運営機能は無効)' };

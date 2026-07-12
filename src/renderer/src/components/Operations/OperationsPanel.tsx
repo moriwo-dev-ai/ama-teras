@@ -504,6 +504,26 @@ function ReleaseAction({ draft }: { draft: OperationsDraft }): JSX.Element {
   const [tag, setTag] = useState(/v\d+\.\d+\.\d+/.exec(draft.body)?.[0] ?? '');
   const [result, setResult] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // M46: 前回の版を人間が覚えなくてよくする。GitHubの最新リリースから次の版を機械的に出す
+  const [info, setInfo] = useState<{
+    latestTag: string | null;
+    appVersion: string;
+    suggestions: { patch: string | null; minor: string | null; major: string | null };
+    mismatch: boolean;
+  } | null>(null);
+  useEffect(() => {
+    if (repo === '') return;
+    let alive = true;
+    void window.api.operationsReleaseInfo(repo).then((r) => {
+      if (!alive) return;
+      setInfo(r);
+      // 本文にタグが書かれていなければ patch を既定にする(初回リリースならアプリの版)
+      setTag((cur) => (cur !== '' ? cur : (r.suggestions.patch ?? `v${r.appVersion}`)));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [repo]);
   return (
     <>
       <select
@@ -524,6 +544,36 @@ function ReleaseAction({ draft }: { draft: OperationsDraft }): JSX.Element {
         placeholder="v1.0.1"
         onChange={(e) => setTag(e.target.value)}
       />
+      {/* M46: 直近リリースからの自動採番。押すだけで次の版が入る(手入力も可) */}
+      {info !== null && (
+        <span className="flex items-center gap-1 text-[10px] text-zinc-500">
+          {info.latestTag !== null ? `前回 ${info.latestTag} →` : '初回リリース'}
+          {(['patch', 'minor', 'major'] as const).map((b) => {
+            const v = info.suggestions[b];
+            if (v === null) return null;
+            return (
+              <button
+                key={b}
+                className={`rounded border px-1 py-0.5 font-mono ${
+                  tag === v ? 'border-orange-700 text-orange-300' : 'border-zinc-700 text-zinc-400 hover:bg-zinc-800'
+                }`}
+                title={`${b}: ${v}`}
+                onClick={() => setTag(v)}
+              >
+                {v}
+              </button>
+            );
+          })}
+          {info.mismatch && (
+            <span
+              className="text-amber-400"
+              title={`package.json の version(${info.appVersion})が直近リリース(${info.latestTag})と食い違っています。食い違ったまま出すと、利用者の更新バナーが正しく出ません`}
+            >
+              ⚠ アプリ版 {info.appVersion}
+            </span>
+          )}
+        </span>
+      )}
       <button
         className="shrink-0 rounded border border-zinc-600 px-2 py-0.5 text-[10px] hover:bg-zinc-800 disabled:opacity-40"
         title="承認ダイアログ(何を・どこへ・全文)を経て、GitHub Release を下書きで作成/更新する。公開はGitHub上であなたが行う"

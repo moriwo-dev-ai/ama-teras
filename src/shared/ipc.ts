@@ -146,6 +146,8 @@ export const IpcChannels = {
   operationsDraftUpdate: 'operations:draft-update',
   /** M37: 下書きの行き先(種類ごとに固定)。どちらも岩戸ゲートの承認を通る */
   operationsDraftRelease: 'operations:draft-release',
+  /** M46: 次のリリース版を自動採番するための現況(最新タグ・アプリ版) */
+  operationsReleaseInfo: 'operations:release-info',
   operationsDraftZennArticle: 'operations:draft-zenn-article',
   /** M38-3: 発信の効果測定(投稿→前後メトリクス差分) */
   operationsImpacts: 'operations:impacts',
@@ -346,6 +348,13 @@ export interface AmaterasApi {
     patch: { status?: 'draft' | 'posted' | 'discarded'; body?: string; title?: string; media?: string },
   ): Promise<OperationsDraft | null>;
   /** M37: リリースノート下書き → GitHub Release(下書き。承認ダイアログ経由) */
+  /** M46: 最新リリースと次バージョンの候補(人間が前回の版を覚えなくてよくする) */
+  operationsReleaseInfo(repo: string): Promise<{
+    latestTag: string | null;
+    appVersion: string;
+    suggestions: { patch: string | null; minor: string | null; major: string | null };
+    mismatch: boolean;
+  }>;
   operationsDraftRelease(
     draftId: string,
     repo: string,

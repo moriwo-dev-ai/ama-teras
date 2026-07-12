@@ -67,6 +67,27 @@ export function mediaOf(adapterId: string): string {
 }
 
 /**
+ * M46: 次のバージョンを機械的に決める。人間が「前回いくつだったか」を覚えなくてよくする。
+ * latest が無い(初回リリース)なら現在のアプリ版をそのまま使う。
+ * 解釈できないタグ(nightly 等)は触らない = null を返し、UIは手入力に落とす
+ */
+export function nextVersion(latest: string | null, bump: 'patch' | 'minor' | 'major'): string | null {
+  if (latest === null || latest.trim() === '') return null;
+  const m = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(latest.trim());
+  if (m === null) return null;
+  const [major, minor, patch] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const next =
+    bump === 'major' ? [major + 1, 0, 0] : bump === 'minor' ? [major, minor + 1, 0] : [major, minor, patch + 1];
+  return `v${next.join('.')}`;
+}
+
+/** 'v1.2.3' と '1.2.3' を同じものとして比べる(package.json とタグの食い違い検出) */
+export function sameVersion(a: string, b: string): boolean {
+  const norm = (v: string): string => v.trim().replace(/^v/, '');
+  return norm(a) === norm(b) && norm(a) !== '';
+}
+
+/**
  * M44: この行き先へ出したら、下書きを「投稿済み」にしてよいか。
  * X は規約上リンクを開くまでしかできない(最後のPostは人間)が、**開いた時点で投稿済みにする**
  * — でないと下書きが残り続けて二重送信の元になる(UIから「未投稿に戻す」で取り消せる)。

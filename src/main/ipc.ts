@@ -589,6 +589,8 @@ export async function registerIpcHandlers(
   const operations = new OperationsManager({
     userDataDir: app.getPath('userData'),
     getConfig: () => config.get(),
+    // M46: リリースタグの自動採番と package.json との食い違い検出に使う
+    appVersion: app.getVersion(),
     audit: (e) =>
       audit.append({
         tool: `operations:${e.adapterId}`,
@@ -676,6 +678,11 @@ export async function registerIpcHandlers(
       ...(typeof p['title'] === 'string' ? { title: p['title'] } : {}),
       ...(typeof p['media'] === 'string' ? { media: p['media'] } : {}),
     });
+  });
+  // M46: 次のリリース版の候補(読み取りのみ。発行は岩戸ゲート経由)
+  ipcMain.handle(IpcChannels.operationsReleaseInfo, (_e, repo: unknown) => {
+    assertString(repo, 'repo');
+    return operations.releaseInfo(repo);
   });
   // M37: 下書きの行き先。実行そのものは manager 内で岩戸ゲート(承認)を必ず通る
   ipcMain.handle(
