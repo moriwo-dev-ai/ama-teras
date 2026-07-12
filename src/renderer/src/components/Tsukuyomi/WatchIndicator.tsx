@@ -54,9 +54,16 @@ export function WatchIndicator(): JSX.Element | null {
     };
   }, [cameraOn, understandOn, refresh]);
 
-  // M42-5b: 常時聴取。VADで切り出した発話区間だけをローカル文字起こしへ回す
+  /**
+   * M42-5b: 常時聴取。VADで切り出した発話区間だけを文字起こしへ回す。
+   *
+   * M43-5: **押して話す(PTT)の間はマイクを手放す**。Bluetooth のヘッドセットマイクは
+   * 同時に2回開けない — 常時聴取が掴んだまま押して話すと、録音が**完全な無音**になった
+   * (実機。RMS が 0.0000)。黙らせるだけでは足りず、デバイスの解放が要る。
+   * PTT が終わるとこの effect が再実行され、開き直す
+   */
   useEffect(() => {
-    if (!earsOn) {
+    if (!earsOn || pushToTalk) {
       earsRef.current?.stop();
       earsRef.current = null;
       return;
@@ -77,12 +84,7 @@ export function WatchIndicator(): JSX.Element | null {
       ears.stop();
       earsRef.current = null;
     };
-  }, [earsOn, addPending, micDeviceId]);
-
-  // 押して話すの最中は常時聴取を黙らせる(同じ声を2経路で拾うと候補が2つできる)
-  useEffect(() => {
-    earsRef.current?.setPaused(pushToTalk);
-  }, [pushToTalk]);
+  }, [earsOn, pushToTalk, addPending, micDeviceId]);
 
   if (status === null || (!status.camera && !status.ears)) return null;
 

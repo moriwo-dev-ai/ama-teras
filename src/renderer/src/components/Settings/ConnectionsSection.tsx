@@ -531,6 +531,37 @@ function TsukuyomiSection({
             />
             会話: 話しかけると声で返す(既定OFF・答えの根拠は**月の帳だけ**・帳に無いことは「記録にありません」)
           </label>
+          {/* M43-4: 呼びかけ。常時聴取に返事をさせるのは「呼ばれた時」だけ
+              (呼ばれていない独り言・テレビの音に喋り出したら事故) */}
+          {tsu.conversation === true && (
+            <label className="flex items-center gap-2 text-xs text-zinc-400">
+              <input
+                type="checkbox"
+                checked={tsu.wakeWord !== false}
+                onChange={(e) => save({ ...tsu, wakeWord: e.target.checked })}
+              />
+              呼びかけ: 名前を呼ぶと常時聴取でも会話に入る(呼んだ後30秒は呼び直し不要。
+              OFFなら押して話す時だけ会話する)
+            </label>
+          )}
+          {tsu.conversation === true && tsu.wakeWord !== false && (
+            <label className="flex items-center gap-2 text-xs text-zinc-400">
+              呼びかけの言葉
+              <input
+                className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-xs"
+                placeholder="アマテラス(カンマ区切りで複数可)"
+                defaultValue={tsu.wakeWords ?? ''}
+                onBlur={(e) => save({ ...tsu, wakeWords: e.target.value.trim() })}
+              />
+            </label>
+          )}
+          {tsu.conversation === true && tsu.wakeWord !== false && (
+            <p className="text-[10px] text-zinc-500">
+              文字起こしが**安定して返す語**を選ぶこと。実機で「つくよみ」は「月曜日」「作り」に化けて
+              呼びかけが通らなかった(3音は日本語に似た音が多すぎる)。左ペインの履歴に
+              聞こえた文が残るので、化けた語をそのまま登録するのが確実
+            </p>
+          )}
           {tsu.sttMode === 'cloud' && (
             <label className="flex items-center gap-2 text-xs text-amber-400">
               ☁ 録音はOpenAIへ送られます。イヤホンマイク推奨。1日の上限

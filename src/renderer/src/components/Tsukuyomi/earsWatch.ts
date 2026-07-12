@@ -12,8 +12,12 @@ import { downsample, encodeWav } from './record';
  */
 
 const TARGET_RATE = 16000;
-/** 発話区間の前後に付ける余白(語頭が切れないように) */
-const PAD_MS = 300;
+/**
+ * 発話区間の前に付ける余白。
+ * 300ms だと**呼びかけの語頭が丸ごと落ちた**(「つくよみ、明日の予定は?」が
+ * 「明日の予定は?」になり、呼ばれたと分からない)。声はしきい値を超える前から始まっている
+ */
+const PAD_MS = 800;
 
 export interface EarsWatchDeps {
   /** 使うマイク。未指定だとWindowsの既定(内蔵マイク)を拾ってしまうことがある */

@@ -38,8 +38,15 @@ export function micConstraints(deviceId?: string): {
     : { ...MIC_CONSTRAINTS };
 }
 
-/** これを超えたら「声がある」(0〜1。マイクの生RMS) */
-export const SPEECH_RMS_THRESHOLD = 0.02;
+/**
+ * これを超えたら「声がある」(0〜1。マイクの生RMS)。
+ *
+ * 0.02 だと**イヤホンマイクの声が拾えなかった**(実機の Bluetooth ヘッドセットで
+ * 声のピークが 0.02〜0.04・p90=0.023 = ほぼ届かない)。口元のマイクは環境音が小さいので
+ * (無音時 p50=0.0009)、しきい値を下げても誤爆しない。
+ * 短い物音は「声が700ms続くこと」(MIN_SPEECH_MS)の方で落とす
+ */
+export const SPEECH_RMS_THRESHOLD = 0.01;
 
 /** 無音がこの長さ続いたら発話区間の終わり */
 export const SILENCE_TO_END_MS = 900;

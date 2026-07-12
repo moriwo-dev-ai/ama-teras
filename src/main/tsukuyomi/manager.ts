@@ -41,6 +41,7 @@ import {
   whisperReady,
   type WhisperRunner,
 } from './transcriber';
+import { hasWakeWord, shouldConverse, stripWakeWord } from '../../shared/wakeWord';
 import { foregroundWindow, windowText, type ShellRunner } from './windowObserver';
 
 /**
@@ -108,6 +109,8 @@ export class TsukuyomiManager {
   private pendingTranscribes = 0;
   /** M43-1: 直近の会話(音声なので短く保つ) */
   private history: ConversationTurn[] = [];
+  /** M43-4: 最後に呼ばれた時刻。この後30秒は呼ばずに続けて話せる */
+  private lastWakeAt: number | null = null;
   /** 直前の文字起こし(二重取りの検出用) */
   private lastTranscript: { key: string; at: number } | null = null;
 
@@ -431,6 +434,24 @@ export class TsukuyomiManager {
 
     const provider = this.deps.visionProvider?.();
     if (provider === undefined || provider === null) return { items: [], error: 'APIキーが未設定' };
+
+    /**
+     * M43-4: 常時聴取に返事をさせるのは「呼ばれた時」だけ(+呼ばれた直後の30秒)。
+     * 判定は文字列一致だけで済ませる — 呼ばれてもいない発話のたびに判定APIを叩けば、
+     * 黙っているだけで課金が続く
+     */
+    const nowMs = this.now().getTime();
+    const custom = this.cfg().wakeWords;
+    const wake = this.cfg().wakeWord !== false && hasWakeWord(transcript, custom);
+    const talk =
+      this.cfg().conversation === true &&
+      (source === 'ptt' ||
+        (this.cfg().wakeWord !== false &&
+          shouldConverse('ears', transcript, this.lastWakeAt, nowMs, custom)));
+    if (wake || (talk && source === 'ears')) this.lastWakeAt = nowMs;
+    // 「つくよみ、明日の予定は?」の呼びかけ部分は用件から外す(そのまま渡すと呼び名に返事をする)
+    const said = wake ? (stripWakeWord(transcript, custom) || '呼びました') : transcript;
+
     try {
       // 会話ONなら「返事」と「約束の抽出」を同時に走らせる。
       // 話しながら「明日13時にレビュー」と言えば、返事をしつつ候補も上がる
@@ -440,8 +461,8 @@ export class TsukuyomiManager {
           onUsage: (input, output) => this.deps.onVisionUsage?.(input, output),
           now: this.now(),
         }),
-        this.cfg().conversation === true && source === 'ptt'
-          ? converse(transcript, {
+        talk
+          ? converse(said, {
               provider,
               entries: this.cho.list(),
               history: this.history,
@@ -450,11 +471,14 @@ export class TsukuyomiManager {
           : Promise.resolve(''),
       ]);
 
+      // M43-2: 聞こえた発話は**呼ばれなくても**履歴に残す(userData の中だけ・スマホには流さない)。
+      // 呼びかけが通らなかった時、何と文字起こしされたのかが見えないと直せない
+      this.talks.add({ role: 'you', text: transcript });
       if (reply !== '') {
-        // M43-2: 左ペインの履歴に残す(生の発話が残る。userData の中だけ・スマホには流さない)
-        this.talks.add({ role: 'you', text: transcript });
         this.talks.add({ role: 'tsukuyomi', text: reply });
-        this.deps.emit({ type: 'talk-changed' });
+      }
+      this.deps.emit({ type: 'talk-changed' });
+      if (reply !== '') {
         // 本人が話しかけた返事なので予算は使わない(鉄則3の対象は「自発的な割り込み」)
         this.history = [
           ...this.history,

@@ -35,12 +35,33 @@ export function wavSeconds(wav: Buffer): number {
   return Math.max(0, (wav.length - 44) / byteRate);
 }
 
+/**
+ * 文字起こしに渡す語彙ヒント。
+ * **実機で「つくよみ」が「月曜日」になった**(呼びかけが通らない)。固有名詞を先に教えると
+ * その語に寄せて聞き取ってくれる。曜日の「月曜日」を辞書に足すのは誤爆するので、こちらで直す
+ */
+export const STT_PROMPT = 'アマテラス、つくよみ、月読、TUKU-yomi、AMA-teras';
+
+/**
+ * **語彙ヒントがそのまま文字起こしとして返ってくることがある**(実機で発生)。
+ * 無音・短すぎる音のときに起きる。そのまま通すと、ヒントに含まれる呼びかけ(「アマテラス」)を
+ * 拾って月読が勝手に返事を始める。ヒントとほぼ同じ文は捨てる
+ */
+export function isPromptEcho(text: string, prompt: string = STT_PROMPT): boolean {
+  const norm = (s: string): string => s.replace(/[\s、。,.:：]/g, '').toLowerCase();
+  const t = norm(text);
+  if (t === '') return false;
+  const p = norm(prompt);
+  // ヒントの語がそのまま並んでいるだけ(用件が無い)なら、それは文字起こしではない
+  return p.includes(t) || t.includes(p);
+}
+
 export function defaultCloudRunner(apiKey: string): CloudSttRunner {
   const client = new OpenAI({ apiKey });
   return async (wav, signal) => {
     const file = await toFile(wav, 'utterance.wav', { type: 'audio/wav' });
     const res = await client.audio.transcriptions.create(
-      { file, model: CLOUD_STT_MODEL, language: 'ja' },
+      { file, model: CLOUD_STT_MODEL, language: 'ja', prompt: STT_PROMPT },
       { signal },
     );
     return res.text;
@@ -56,6 +77,7 @@ export async function transcribeCloud(
   runner: CloudSttRunner,
   signal: AbortSignal = new AbortController().signal,
 ): Promise<string> {
-  const text = await runner(wav, signal);
-  return text.trim();
+  const text = (await runner(wav, signal)).trim();
+  // 語彙ヒントのオウム返しは文字起こしではない(呼びかけを含むので、通すと勝手に返事をする)
+  return isPromptEcho(text) ? '' : text;
 }

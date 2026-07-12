@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../../shared/types';
 import type { LLMProvider, ProviderEvent } from '../providers/types';
-import { CLOUD_STT_MODEL, wavSeconds } from './cloudTranscriber';
+import { CLOUD_STT_MODEL, isPromptEcho, STT_PROMPT, wavSeconds } from './cloudTranscriber';
 import { TsukuyomiManager } from './manager';
 import { whisperPaths } from './transcriber';
 
@@ -132,6 +132,28 @@ describe('M42-7(TUKU-yomi) 耳: クラウド文字起こし', () => {
 
   it('使うモデルは日本語の数字・時刻に強い方(実機で「13時」が「13日」に化けた)', () => {
     expect(CLOUD_STT_MODEL).toBe('gpt-4o-mini-transcribe');
+  });
+
+  /** 実機: 呼びかけの「つくよみ」が「月曜日」になり、呼んでも反応しなかった */
+  it('語彙ヒントで固有名詞を教える', () => {
+    expect(STT_PROMPT).toContain('アマテラス');
+    expect(STT_PROMPT).toContain('つくよみ');
+  });
+
+  /**
+   * 実機: 無音を送ったら**語彙ヒントの文章がそのまま文字起こしとして返ってきた**。
+   * ヒントには呼びかけ(「アマテラス」)が入っているので、通すと月読が勝手に返事を始める
+   */
+  it('語彙ヒントのオウム返しは文字起こしとして扱わない', async () => {
+    expect(isPromptEcho(STT_PROMPT)).toBe(true);
+    expect(isPromptEcho('アマテラス、つくよみ、月読')).toBe(true);
+    expect(isPromptEcho('アマテラス、明日の予定は?')).toBe(false); // 用件があるので本物
+    expect(isPromptEcho('')).toBe(false);
+
+    const cloud = vi.fn(async () => STT_PROMPT);
+    const m = manager({ sttMode: 'cloud', conversation: true, voiceOutput: true }, () => cloud);
+    const r = await m.transcribeAndExtract(fakeWav(1), 'ears');
+    expect(r.reply).toBeUndefined(); // ヒントのオウム返しに返事をしない
   });
 
   /**
