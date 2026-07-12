@@ -21,6 +21,7 @@ import {
   hasUnresolvedPlaceholder,
   hatenaPanelUrl,
   isLinkOnlyAdapter,
+  marksDraftPosted,
   mediaOf,
   repoUrl,
   resolvePostText,
@@ -1103,6 +1104,12 @@ export class OperationsManager {
         this.thread.respondBatchItem(batchId, i.id, true);
         links.push({ itemId: i.id, label: i.action!.target, url: String(i.action!.params['url'] ?? '') });
         results.push({ itemId: i.id, target: i.action!.target, ok: true, detail: 'リンクを開く' });
+        // M44: リンクを渡した時点で「投稿済み」にする(残り続けると二重送信の元になる)。
+        // Xは最後のPostが人間なので、実際に投稿しなかった場合はUIの「未投稿に戻す」で取り消す
+        const draftId = i.action!.params['draftId'];
+        if (typeof draftId === 'string' && marksDraftPosted(adapterId)) {
+          this.drafts.update(draftId, { status: 'posted', media: mediaOf(adapterId) });
+        }
       }
       const okCount = results.filter((r) => r.ok).length;
       return {

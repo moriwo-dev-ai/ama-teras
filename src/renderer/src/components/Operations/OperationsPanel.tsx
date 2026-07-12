@@ -586,18 +586,36 @@ function DraftCard({ draft, onUpdate }: { draft: OperationsDraft; onUpdate: () =
         <span className="rounded bg-zinc-700 px-1.5 py-0.5 text-[10px]">{DRAFT_KIND_LABEL[draft.kind]}</span>
         <span className="min-w-0 flex-1 truncate font-semibold text-zinc-200">{draft.title}</span>
         {draft.status === 'posted' && (
-          <span className="text-[10px] text-green-400">✓ 投稿済み({draft.postedAt?.slice(0, 10)})</span>
+          <>
+            <span className="text-[10px] text-green-400">✓ 投稿済み({draft.postedAt?.slice(0, 10)})</span>
+            {/* M44: Xは「開いた=投稿済み」にするが、Postを押さなかった場合はここで取り消す */}
+            <button
+              className="shrink-0 rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-800"
+              title="実際には投稿しなかった場合に戻す(再び行き先ボタンが出る)"
+              onClick={() => {
+                void window.api
+                  .operationsDraftUpdate(draft.id, { status: 'draft', media: undefined as never })
+                  .then(onUpdate);
+              }}
+            >
+              未投稿に戻す
+            </button>
+          </>
         )}
       </div>
       <pre className="mb-1 max-h-40 overflow-auto whitespace-pre-wrap text-zinc-300">{draft.body}</pre>
       <div className="flex flex-wrap items-center gap-1.5">
         <CopyButton text={draft.body} />
         {/* M32-9: 1タップ投稿リンク — 開いた先の投稿/追加ボタンは人間が押す(自動投稿はしない) */}
-        {actions.includes('x-intent') && (
+        {actions.includes('x-intent') && draft.status === 'draft' && (
           <button
             className="shrink-0 rounded border border-zinc-600 px-2 py-0.5 text-[10px] hover:bg-zinc-800"
-            title="X の投稿画面を本文入りで開く(投稿ボタンはあなたが押す)"
-            onClick={() => void window.api.openExternal(xIntentUrl(draft.body))}
+            title="X の投稿画面を本文入りで開く(投稿ボタンはあなたが押す)。開いた時点で投稿済みにする(二重送信防止。押さなかったら「未投稿に戻す」)"
+            onClick={() => {
+              void window.api.openExternal(xIntentUrl(draft.body));
+              // M44: 開いた=投稿済み。残り続けると同じ文面を二度出す事故になる
+              void window.api.operationsDraftUpdate(draft.id, { status: 'posted', media: 'x' }).then(onUpdate);
+            }}
           >
             𝕏 投稿画面を開く
           </button>

@@ -298,13 +298,25 @@ function DraftCard({
         <button onClick={() => void navigator.clipboard.writeText(draft.body).then(() => setNotice('コピーした'))}>
           コピー
         </button>
-        {draft.kind === 'x-post' && (
-          <button onClick={() => window.open(xIntentUrl(draft.body), '_blank', 'noopener,noreferrer')}>
+        {draft.kind === 'x-post' && draft.status === 'draft' && (
+          <button
+            onClick={() => {
+              // M44: 開いた=投稿済み(二重送信防止)。タップと同じ同期処理内で開くこと
+              // (await の後だとポップアップブロックに塞がれる)
+              window.open(xIntentUrl(draft.body), '_blank', 'noopener,noreferrer');
+              void api.opsDraftUpdate(draft.id, { status: 'posted', media: 'x' }).then(() => onDone());
+            }}
+          >
             𝕏 投稿画面
           </button>
         )}
         {draft.kind === 'x-post' && url !== null && (
           <button onClick={() => window.open(hatenaPanelUrl(url), '_blank', 'noopener,noreferrer')}>B! はてブ</button>
+        )}
+        {draft.status === 'posted' && (
+          <button onClick={() => void api.opsDraftUpdate(draft.id, { status: 'draft' }).then(() => onDone())}>
+            未投稿に戻す
+          </button>
         )}
         {draft.kind === 'article-outline' && (
           <button

@@ -66,6 +66,17 @@ export function mediaOf(adapterId: string): string {
   return adapterId === 'zenn-repo' ? 'zenn' : adapterId;
 }
 
+/**
+ * M44: この行き先へ出したら、下書きを「投稿済み」にしてよいか。
+ * X は規約上リンクを開くまでしかできない(最後のPostは人間)が、**開いた時点で投稿済みにする**
+ * — でないと下書きが残り続けて二重送信の元になる(UIから「未投稿に戻す」で取り消せる)。
+ * はてブは同じ下書きの補助(ブックマーク)なので投稿済みにしない
+ * (してしまうと、その下書きのX投稿が「済み」扱いで消える)
+ */
+export function marksDraftPosted(adapterId: string): boolean {
+  return adapterId !== 'hatena';
+}
+
 /** 一括承認の単位キー(媒体×アクション)。異なる媒体・アクションは混ぜない */
 export function bulkGroupKey(adapterId: string, actionName: string): string {
   return `${adapterId}:${actionName}`;
