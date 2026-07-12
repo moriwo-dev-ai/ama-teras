@@ -689,6 +689,12 @@ export async function registerIpcHandlers(
     assertString(tag, 'tag');
     return operations.bumpPackageVersion(tag);
   });
+  // M48: 下書きリリースの公開(配布物の添付を manager が確認してから承認へ回す)
+  ipcMain.handle(IpcChannels.operationsReleasePublish, (_e, repo: unknown, tag: unknown) => {
+    assertString(repo, 'repo');
+    assertString(tag, 'tag');
+    return operations.requestReleasePublish(repo, tag);
+  });
   // M37: 下書きの行き先。実行そのものは manager 内で岩戸ゲート(承認)を必ず通る
   ipcMain.handle(
     IpcChannels.operationsDraftRelease,

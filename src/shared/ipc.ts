@@ -150,6 +150,8 @@ export const IpcChannels = {
   operationsReleaseInfo: 'operations:release-info',
   /** M47: package.json の version をリリースに合わせて上げる(承認必須) */
   operationsBumpVersion: 'operations:bump-version',
+  /** M48: 下書きリリースの公開(全利用者へ更新通知が飛ぶ。岩戸ゲート承認必須) */
+  operationsReleasePublish: 'operations:release-publish',
   operationsDraftZennArticle: 'operations:draft-zenn-article',
   /** M38-3: 発信の効果測定(投稿→前後メトリクス差分) */
   operationsImpacts: 'operations:impacts',
@@ -356,7 +358,10 @@ export interface AmaterasApi {
     appVersion: string;
     suggestions: { patch: string | null; minor: string | null; major: string | null };
     mismatch: boolean;
+    pendingDraft: { tag: string; assets: string[] } | null;
   }>;
+  /** M48: 下書きリリースを公開する(承認ダイアログで「全利用者に通知が出る」ことを明示) */
+  operationsReleasePublish(repo: string, tag: string): Promise<{ ok: boolean; detail: string }>;
   /** M47: package.json の version をタグに合わせて上げ、コミット・pushする(岩戸ゲート経由) */
   operationsBumpVersion(tag: string): Promise<{ ok: boolean; detail: string }>;
   operationsDraftRelease(

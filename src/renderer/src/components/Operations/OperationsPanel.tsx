@@ -512,6 +512,7 @@ function ReleaseAction({ draft }: { draft: OperationsDraft }): JSX.Element {
     appVersion: string;
     suggestions: { patch: string | null; minor: string | null; major: string | null };
     mismatch: boolean;
+    pendingDraft: { tag: string; assets: string[] } | null;
   } | null>(null);
   useEffect(() => {
     if (repo === '') return;
@@ -612,6 +613,28 @@ function ReleaseAction({ draft }: { draft: OperationsDraft }): JSX.Element {
       >
         {busy ? '承認待ち…' : '🐙 GitHub Releaseへ'}
       </button>
+      {/* M48: 公開待ちの下書きがあれば、アプリから公開できる(承認ダイアログを通る)。
+          配布物が付いていない下書きは main 側が弾く(更新通知だけ出て落とすものが無い状態を作らない) */}
+      {info?.pendingDraft != null && (
+        <button
+          className="shrink-0 rounded border border-emerald-800 px-2 py-0.5 text-[10px] text-emerald-300 hover:bg-emerald-950 disabled:opacity-40"
+          title="下書きリリースを公開する。公開すると全利用者のアプリに更新バナーが出る(承認ダイアログで内容を確認できる)"
+          disabled={busy || repo === ''}
+          onClick={() => {
+            const draftTag = info.pendingDraft?.tag;
+            if (draftTag === undefined) return;
+            setBusy(true);
+            setResult(null);
+            void window.api
+              .operationsReleasePublish(repo, draftTag)
+              .then((r) => setResult(r.detail))
+              .catch((e: unknown) => setResult(e instanceof Error ? e.message : String(e)))
+              .finally(() => setBusy(false));
+          }}
+        >
+          🚀 {info.pendingDraft.tag} を公開({info.pendingDraft.assets.length}件添付)
+        </button>
+      )}
       {result !== null && <span className="text-[10px] text-zinc-400">{result}</span>}
     </>
   );

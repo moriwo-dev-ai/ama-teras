@@ -1495,6 +1495,8 @@ export class OperationsManager {
     appVersion: string;
     suggestions: { patch: string | null; minor: string | null; major: string | null };
     mismatch: boolean;
+    /** M48: 公開待ちの下書きリリース(あれば)。assets が空なら公開させない */
+    pendingDraft: { tag: string; assets: string[] } | null;
   }> {
     const appVersion = this.deps.appVersion ?? '';
     const empty = {
@@ -1502,6 +1504,7 @@ export class OperationsManager {
       appVersion,
       suggestions: { patch: null, minor: null, major: null },
       mismatch: false,
+      pendingDraft: null,
     };
     if (!this.ensureInitialized() || this.ghRun === null) return empty;
     // 最新リリースが無い(初回)なら latestTag は null → UIは appVersion を初期候補にする
@@ -1514,6 +1517,21 @@ export class OperationsManager {
     } catch {
       /* リリース無し・gh不在は latestTag=null(手入力へ落とす) */
     }
+    // M48: 公開待ちの下書き(gh release list は下書きも返す)
+    let pendingDraft: { tag: string; assets: string[] } | null = null;
+    try {
+      const listOut = await this.ghRun(['release', 'list', '-R', repo, '--limit', '10', '--json', 'tagName,isDraft']);
+      const rows = JSON.parse(listOut) as { tagName: string; isDraft: boolean }[];
+      const draft = rows.find((r) => r.isDraft);
+      if (draft !== undefined) {
+        const viewOut = await this.ghRun(['release', 'view', draft.tagName, '-R', repo, '--json', 'assets']);
+        const assets = (JSON.parse(viewOut) as { assets?: { name: string }[] }).assets ?? [];
+        pendingDraft = { tag: draft.tagName, assets: assets.map((a) => a.name) };
+      }
+    } catch {
+      /* gh不在・権限なしは「下書きなし」として扱う(公開ボタンを出さない) */
+    }
+
     return {
       latestTag,
       appVersion,
@@ -1524,6 +1542,7 @@ export class OperationsManager {
       },
       // 直近リリースとアプリの版が食い違っている = package.json の更新を忘れている合図
       mismatch: latestTag !== null && appVersion !== '' && !sameVersion(latestTag, appVersion),
+      pendingDraft,
     };
   }
 
@@ -1551,6 +1570,49 @@ export class OperationsManager {
       `- ファイル: ${workspace}/package.json\n- version: "${from}" → "${to}"\n- コミット: chore: bump version to ${to}\n- push先: origin の現在のブランチ\n\n` +
         `※ ここを上げないと、利用者のアプリに更新通知が出ません(更新確認は package.json の version と最新リリースのタグを比べます)`,
       { to },
+    );
+  }
+
+  /**
+   * M48: 下書きリリースの公開。押した瞬間に**全利用者のアプリへ更新通知が飛ぶ**ので、
+   * 岩戸ゲートの承認(何を・どこへ・添付物は何か)を通す。
+   *
+   * 公開前に配布物(インストーラ)の添付を必ず確かめる — 添付を忘れたまま公開すると
+   * 「更新通知は出るのに落とすものが無い」という最悪の壊れ方をする(実際に起きかけた)。
+   */
+  async requestReleasePublish(repo: string, tag: string): Promise<{ ok: boolean; detail: string }> {
+    if (!this.ensureInitialized() || this.gate === null || this.ghRun === null) {
+      return { ok: false, detail: 'オーナーモードがOFF、または gh CLI が無い' };
+    }
+    if (!this.opsConfig().repos.includes(repo)) return { ok: false, detail: `観測対象リポジトリに無い: ${repo}` };
+
+    let assets: string[] = [];
+    let isDraft = false;
+    try {
+      const out = await this.ghRun(['release', 'view', tag, '-R', repo, '--json', 'assets,isDraft,name']);
+      const parsed = JSON.parse(out) as { assets?: { name: string }[]; isDraft?: boolean };
+      assets = (parsed.assets ?? []).map((a) => a.name);
+      isDraft = parsed.isDraft === true;
+    } catch {
+      return { ok: false, detail: `リリース ${tag} が見つからない` };
+    }
+    if (!isDraft) return { ok: true, detail: `${tag} はすでに公開済み` };
+    // 配布物が無いまま公開させない(更新通知だけ出て落とすものが無い状態を作らない)
+    if (!assets.some((a) => /\.(exe|dmg|AppImage|zip)$/i.test(a))) {
+      return {
+        ok: false,
+        detail: `${tag} にインストーラが添付されていない(assets: ${assets.join(', ') || 'なし'})。npm run release で作り直すか、先に添付してください`,
+      };
+    }
+
+    return this.gate.requestExecute(
+      'github',
+      'release-publish',
+      `${repo} のリリース ${tag} を公開する`,
+      `公開すると、**すべての利用者のアプリに更新バナーが出ます**(この操作は取り消しづらい)。\n\n` +
+        `- リポジトリ: ${repo}\n- タグ: ${tag}\n- 添付: ${assets.join(', ')}\n\n` +
+        `利用者はバナー → リリースノート → インストーラを上書きインストール、という流れになります。`,
+      { repo, tag },
     );
   }
 

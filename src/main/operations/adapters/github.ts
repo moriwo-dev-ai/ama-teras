@@ -189,7 +189,7 @@ export function createGithubAdapter(run: GhRunner, ghAvailable: () => boolean): 
       read: true,
       search: true,
       draft: true,
-      execute: ['comment', 'label', 'merge', 'release'],
+      execute: ['comment', 'label', 'merge', 'release', 'release-publish'],
     },
     compliance:
       'GitHub APIの正規利用(gh CLI認証)。コメント/ラベル/マージ/リリースは承認後のみ。リリースは常に下書き(draft)で作成し、公開は人間がGitHub上で行う',
@@ -232,7 +232,16 @@ export function createGithubAdapter(run: GhRunner, ghAvailable: () => boolean): 
           return `${repo} のリリース ${tag} の本文を更新した(公開状態は変更していない)`;
         }
         await run(['release', 'create', tag, '-R', repo, '--title', title, '--notes', body, '--draft']);
-        return `${repo} にリリース ${tag} を下書きで作成した(公開はGitHub上であなたが行う)`;
+        return `${repo} にリリース ${tag} を下書きで作成した(公開は別途「公開」の承認が要る)`;
+      }
+      if (action === 'release-publish') {
+        // M48: 下書きリリースの公開。**押した瞬間に全利用者のアプリへ更新通知が飛ぶ**ため、
+        // 岩戸ゲートの承認(何を・どこへ・添付物は何か)を必ず通る。
+        // 配布物(インストーラ)が付いていない下書きは manager 側で弾く
+        // (「更新通知は出るのに落とすものが無い」が実際に起きた)
+        const tag = String(params['tag'] ?? '');
+        await run(['release', 'edit', tag, '-R', repo, '--draft=false']);
+        return `${repo} のリリース ${tag} を公開した(利用者のアプリに更新通知が出る)`;
       }
       throw new Error(`未知のアクション: ${action}`);
     },
