@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ChoEntry } from '../../../../shared/types';
 import { useTsukuyomiStore } from '../../stores/tsukuyomi';
+import { Recorder } from './record';
 
 /**
  * M42(TUKU-yomi): 月読タブ。
@@ -129,6 +130,8 @@ export function TsukuyomiPanel(): JSX.Element {
       </div>
       {notice !== null && <p className="text-[10px] text-zinc-400">{notice}</p>}
 
+      <EarSection onChange={refresh} />
+
       <ChoList title="覚えていること" entries={open} onChange={refresh} />
       {done.length > 0 && <ChoList title="済んだこと" entries={done} onChange={refresh} dim />}
       {observations.length > 0 && (
@@ -138,6 +141,112 @@ export function TsukuyomiPanel(): JSX.Element {
         <p className="text-[11px] text-zinc-500">
           まだ何も覚えていません。上の欄に書くか、目・耳をONにすると自動で溜まります
         </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * M42-5(TUKU-yomi): 耳 — 押している間だけ録音(push-to-talk)。
+ *
+ * 音声はローカル whisper だけを通り、**APIには送らない**。文字起こし直後に一時ファイルは消える。
+ * 抽出結果は**確認してから帳へ**(勝手に書かない=岩戸の思想)。
+ */
+function EarSection({ onChange }: { onChange: () => Promise<void> }): JSX.Element | null {
+  const status = useTsukuyomiStore((s) => s.status);
+  const [ready, setReady] = useState<boolean | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [candidates, setCandidates] = useState<{ kind: ChoEntry['kind']; text: string; due?: string }[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
+  const recorderRef = useRef<Recorder | null>(null);
+
+  useEffect(() => {
+    void window.api.tsukuyomiWhisperReady().then(setReady);
+  }, []);
+
+  if (status === null || !status.enabled) return null;
+
+  const startRec = (): void => {
+    if (recording || busy) return;
+    const rec = new Recorder();
+    recorderRef.current = rec;
+    void rec.start().then((ok) => {
+      if (ok) setRecording(true);
+      else setNotice('マイクを使えませんでした(権限を確認してください)');
+    });
+  };
+
+  const stopRec = (): void => {
+    if (!recording) return;
+    setRecording(false);
+    const wav = recorderRef.current?.stop() ?? null;
+    recorderRef.current = null;
+    if (wav === null) return;
+    setBusy(true);
+    setNotice('文字起こし中(このPCの中だけで処理しています)…');
+    void window.api
+      .tsukuyomiTranscribe(wav)
+      .then((r) => {
+        setCandidates(r.items);
+        setNotice(r.error ?? (r.items.length === 0 ? '約束・決定・ToDoは見つかりませんでした' : null));
+      })
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="space-y-1.5 rounded border border-zinc-800 p-2">
+      <p className="text-[10px] text-zinc-500">
+        耳: 押している間だけ録音し、**このPCの中で**文字起こしします(音声はAPIに送りません)。
+        抽出した約束・ToDoは、あなたが承認したときだけ帳に入ります
+      </p>
+      {ready === false && (
+        <p className="text-[10px] text-amber-400">
+          whisper が未配置です(userData/tsukuyomi/models に whisper-cli.exe と ggml-small.bin を置いてください)
+        </p>
+      )}
+      <button
+        className={`rounded border px-2 py-1 text-[11px] ${
+          recording ? 'border-red-700 bg-red-950 text-red-200' : 'border-zinc-700 text-zinc-300 hover:bg-zinc-800'
+        } disabled:opacity-40`}
+        disabled={ready !== true || busy}
+        onMouseDown={startRec}
+        onMouseUp={stopRec}
+        onMouseLeave={stopRec}
+      >
+        {recording ? '● 録音中(離すと文字起こし)' : busy ? '文字起こし中…' : '🎤 押している間だけ録音'}
+      </button>
+      {notice !== null && <p className="text-[10px] text-zinc-400">{notice}</p>}
+
+      {candidates.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[10px] text-zinc-400">帳に入れますか?(あなたが承認したものだけが入ります)</p>
+          {candidates.map((c, i) => (
+            <div key={i} className="flex items-center gap-2 rounded border border-zinc-800 p-1.5 text-xs">
+              <span className={`rounded px-1.5 py-0.5 text-[10px] ${KIND_STYLE[c.kind]}`}>{KIND_LABEL[c.kind]}</span>
+              <span className="min-w-0 flex-1 text-zinc-200">{c.text}</span>
+              <button
+                className="shrink-0 rounded border border-indigo-800 px-2 py-0.5 text-[10px] text-indigo-300 hover:bg-indigo-950"
+                onClick={() => {
+                  void window.api
+                    .tsukuyomiAdd({ kind: c.kind, text: c.text, source: 'voice', ...(c.due !== undefined ? { due: c.due } : {}) })
+                    .then(() => {
+                      setCandidates((cur) => cur.filter((_, j) => j !== i));
+                      return onChange();
+                    });
+                }}
+              >
+                帳に入れる
+              </button>
+              <button
+                className="shrink-0 rounded border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-800"
+                onClick={() => setCandidates((cur) => cur.filter((_, j) => j !== i))}
+              >
+                捨てる
+              </button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
