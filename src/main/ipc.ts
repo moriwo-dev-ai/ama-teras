@@ -875,6 +875,13 @@ export async function registerIpcHandlers(
     if (!url) throw new Error('不明なプロバイダ');
     void shell.openExternal(url);
   });
+  // M41-2: 外部URLを既定ブラウザで開く(X投稿画面・はてブ等)。
+  // renderer の window.open はアプリ内ウィンドウを開いてしまい、ログインセッションが無く使えない
+  ipcMain.handle(IpcChannels.openExternal, (_e, url: unknown) => {
+    assertString(url, 'url');
+    if (!/^https?:\/\//.test(url)) throw new Error('http/https 以外は開けない');
+    return shell.openExternal(url);
+  });
   ipcMain.handle(IpcChannels.sessionsLoad, (_e, id: unknown) => {
     assertString(id, 'id');
     return service.sessionLoad(id);

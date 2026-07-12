@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { TriageCard, TriageFinding } from '../../shared/types';
+import type { ProjectProfile } from '../../shared/types';
 import type { GithubIssueSummary, GithubReader } from './adapters/github';
 import { extractJson } from './llm';
 
@@ -9,8 +10,8 @@ import { extractJson } from './llm';
  * LLM実行は manager から注入(reviewer帯)。
  */
 
-export function buildTriagePrompt(item: GithubIssueSummary, diff: string | null): string {
-  return `あなたはOSSプロジェクト AMA-teras の門番(タヂカラオ)。以下の${item.kind === 'pr' ? 'Pull Request' : 'Issue'}をトリアージする。
+export function buildTriagePrompt(item: GithubIssueSummary, diff: string | null, project?: ProjectProfile): string {
+  return `あなたはOSSプロジェクト ${project?.name ?? 'このプロジェクト'}${project?.description !== undefined ? '(' + project.description + ')' : ''} の門番(タヂカラオ)。以下の${item.kind === 'pr' ? 'Pull Request' : 'Issue'}をトリアージする。
 
 # 対象
 #${item.number} ${item.title}(by @${item.author})
@@ -86,7 +87,7 @@ export async function triageRepo(
   repo: string,
   reader: GithubReader,
   llm: (prompt: string) => Promise<string>,
-  options: { maxItems?: number; withCi?: boolean } = {},
+  options: { maxItems?: number; withCi?: boolean; project?: ProjectProfile } = {},
 ): Promise<TriageCard[]> {
   const maxItems = options.maxItems ?? 10;
   const items = (await reader.openItems(repo)).slice(0, maxItems);
@@ -95,7 +96,7 @@ export async function triageRepo(
     const diff = item.kind === 'pr' ? await reader.prDiff(repo, item.number) : null;
     let card: TriageCard | null = null;
     try {
-      card = parseTriage(await llm(buildTriagePrompt(item, diff)), repo, item);
+      card = parseTriage(await llm(buildTriagePrompt(item, diff, options.project)), repo, item);
     } catch {
       card = null;
     }

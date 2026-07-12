@@ -10,6 +10,7 @@ import type {
   MetricsSnapshot,
   OperationsConfig,
   OperationsDraft,
+  ProjectProfile,
   TriageCard,
 } from '../../shared/types';
 import {
@@ -183,6 +184,19 @@ export class OperationsManager {
     return this.deps.getConfig().operations ?? { enabled: false, repos: [], zennSlugs: [] };
   }
 
+  /**
+   * M41-3: 神々のプロンプトに渡すプロジェクト像。未設定なら観測対象リポジトリ名から推測し、
+   * それも無ければ「このプロジェクト」。特定プロジェクト名のハードコードはしない
+   */
+  private project(): ProjectProfile {
+    const cfg = this.opsConfig();
+    const fromRepo = cfg.repos[0]?.split('/')[1];
+    return {
+      name: cfg.projectName?.trim() !== undefined && cfg.projectName.trim() !== '' ? cfg.projectName.trim() : (fromRepo ?? 'このプロジェクト'),
+      description: cfg.projectDescription?.trim() !== undefined && cfg.projectDescription.trim() !== '' ? cfg.projectDescription.trim() : '(説明未設定。設定→接続→オーナーモードで書いておくと神々の下書き精度が上がる)',
+    };
+  }
+
   private get dir(): string {
     return join(this.deps.userDataDir, 'operations');
   }
@@ -340,12 +354,20 @@ export class OperationsManager {
   }
 
   private loadParams(): GodParams {
+    let params: GodParams;
     try {
       const parsed = JSON.parse(readFileSync(this.paramsPath, 'utf8')) as Partial<GodParams>;
-      return { ...DEFAULT_GOD_PARAMS, ...parsed };
+      params = { ...DEFAULT_GOD_PARAMS, ...parsed };
     } catch {
-      return { ...DEFAULT_GOD_PARAMS };
+      params = { ...DEFAULT_GOD_PARAMS };
     }
+    // M41-3: ユーザーが設定でキーワードを与えていればそれを起点にする
+    // (神議はここから自律調整していく。未設定なら従来どおり神議が育てた値)
+    const configured = this.opsConfig().keywords?.filter((k) => k.trim() !== '') ?? [];
+    if (configured.length > 0 && params.keywords === DEFAULT_GOD_PARAMS.keywords) {
+      params = { ...params, keywords: configured };
+    }
+    return params;
   }
 
   private saveParams(params: GodParams): void {
@@ -544,7 +566,7 @@ export class OperationsManager {
     const { text, tokensUsed } = await completeTextWithUsage(
       provider,
       'あなたはOSSの広報担当。',
-      buildHighlightPrompt({ ...sources, current, previous }),
+      buildHighlightPrompt({ ...sources, current, previous, project: this.project() }),
     );
     const created = this.drafts.add(parseDrafts(text));
     for (const d of created) {
@@ -655,6 +677,7 @@ export class OperationsManager {
       postedDrafts: this.drafts.list().filter((d) => d.status === 'posted'),
       jobs: this.scheduler.list(),
       currentKeywords: params.keywords,
+      project: this.project(),
     });
     const { text, tokensUsed } = await completeTextWithUsage(provider, 'あなたは運営戦略会議「神議」。', prompt, 8192);
     const parsed = parseKamuhakariOutput(text);
@@ -1048,12 +1071,14 @@ export class OperationsManager {
         title: draft.title,
         outline: draft.body,
         progressExcerpt: sources.progressExcerpt,
+        project: this.project(),
       }),
     );
     const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 12);
-    const slug = articleSlug(draft.title, stamp);
+    // M41-3: slugのフォールバック接頭辞もプロジェクト名から(他人のプロジェクトが ama-teras-… にならない)
+    const slug = articleSlug(draft.title, stamp, this.project().name);
     const markdown = buildArticleMarkdown(
-      { title: draft.title, emoji: '⛩️', type: 'tech', topics: ['ai', 'electron', 'typescript', 'claude'] },
+      { title: draft.title, emoji: '⛩️', type: 'tech', topics: this.opsConfig().zennTopics ?? ['ai'] },
       body,
     );
     // 承認可否にかかわらず本文の下書きは残す(コピーして手で使える)
@@ -1186,7 +1211,7 @@ export class OperationsManager {
       recentCommits: '',
     };
     const { current, previous } = this.omoi.latestPair();
-    const prompt = buildHighlightPrompt({ ...sources, current, previous });
+    const prompt = buildHighlightPrompt({ ...sources, current, previous, project: this.project() });
     const text = await completeText(this.llm('planner'), 'あなたはOSSの広報担当。', prompt);
     const parsed = parseDrafts(text);
     if (parsed.length === 0) return [];
@@ -1311,7 +1336,7 @@ export class OperationsManager {
     keywords: string[],
   ): Promise<{ x: XSearchSuggestion[]; bluesky: BlueskyPost[]; hn: HnStory[] }> {
     if (!this.ensureInitialized()) return { x: [], bluesky: [], hn: [] };
-    const x = buildXSearchSuggestions(keywords);
+    const x = buildXSearchSuggestions(keywords, this.opsConfig().projectName);
     const query = keywords.filter((k) => k.trim() !== '').join(' ');
     const bluesky = query === '' ? [] : await this.bluesky.searchPosts(query, 10);
     const hn = query === '' ? [] : await this.hn.search(query, 5);
@@ -1348,7 +1373,7 @@ export class OperationsManager {
       const withCi = repo.includes('registry');
       const llm = (prompt: string): Promise<string> =>
         completeText(this.llm('reviewer'), 'あなたはOSSの門番レビュアー。', prompt);
-      cards.push(...(await triageRepo(repo, this.github, llm, { withCi })));
+      cards.push(...(await triageRepo(repo, this.github, llm, { withCi, project: this.project() })));
     }
     this.triageCache = cards;
     return cards;

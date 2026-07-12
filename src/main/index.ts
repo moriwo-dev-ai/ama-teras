@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, shell } from 'electron';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -134,6 +134,14 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+
+  // M41-2: renderer の window.open がアプリ内 BrowserWindow を開くのを禁止し、
+  // 外部URL(http/https)は既定ブラウザへ渡す。X/はてブの投稿画面はログイン済みの
+  // ブラウザで開かないと使えない(アプリ内ウィンドウにはセッションが無い)
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//.test(url)) void shell.openExternal(url);
+    return { action: 'deny' };
   });
 
   mainWindow.on('ready-to-show', () => mainWindow?.show());

@@ -359,6 +359,22 @@ export interface OperationsConfig {
   godsBand?: ModelBand;
   /** M37: Zenn記事リポジトリ(zenn-content)のローカルパス。未設定=「Zenn記事化」は使えない */
   zennRepoDir?: string;
+  /**
+   * M41-3: 運営対象プロジェクトの自己紹介。神々のプロンプト(広報・記事・トリアージ・神議)へ
+   * 差し込む。未設定なら観測対象リポジトリ名から推測する(一般ユーザーが自分のOSSで使える)
+   */
+  projectName?: string;
+  projectDescription?: string;
+  /** 巡回・X検索のキーワード。未設定なら神議が育てた god-params の値を使う */
+  keywords?: string[];
+  /** Zenn記事のfrontmatter topics。未設定なら ['ai'] */
+  zennTopics?: string[];
+}
+
+/** M41-3: 神々のプロンプトに差し込むプロジェクトの自己紹介(manager が config から解決) */
+export interface ProjectProfile {
+  name: string;
+  description: string;
 }
 
 /** アダプタ能力宣言(OPERATIONS_DESIGN.md の規約どおり) */

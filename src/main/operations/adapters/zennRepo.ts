@@ -34,12 +34,13 @@ export const ZENN_SLUG_RE = /^[0-9a-z\-_]{12,50}$/;
  * タイトルからZennのslugを作る。日本語タイトルは英数が残らないので
  * スタンプ(YYYYMMDDHHmm等の数字列)だけの安定した名前に落とす。
  */
-export function articleSlug(title: string, stamp: string): string {
+export function articleSlug(title: string, stamp: string, prefix = 'article'): string {
   const base = title
     .toLowerCase()
     .replace(/[^0-9a-z]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  const fallback = `ama-teras-${stamp}`.slice(0, 50);
+  const safePrefix = prefix.toLowerCase().replace(/[^0-9a-z]+/g, '-').replace(/^-+|-+$/g, '') || 'article';
+  const fallback = `${safePrefix}-${stamp}`.slice(0, 50);
   if (base === '') return fallback;
   const slug = `${base}-${stamp}`.slice(0, 50).replace(/-+$/, '');
   return ZENN_SLUG_RE.test(slug) ? slug : fallback;

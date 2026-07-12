@@ -71,6 +71,7 @@ describe('M33-4: 神議の入出力', () => {
         { id: 'j', godId: 'ameno-uzume', intervalMin: 60, enabled: true, dailyTokenBudget: 10000, spentToday: 500 },
       ],
       currentKeywords: ['AIエージェント'],
+      project: { name: 'テスト製品', description: 'テスト用の説明' },
     });
     expect(prompt).toContain('候補: @alice');
     expect(prompt).toContain('★3');

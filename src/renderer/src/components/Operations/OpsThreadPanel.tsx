@@ -43,7 +43,7 @@ function BulkBar({
 
   const openSome = (links: { label: string; url: string }[]): void => {
     for (const l of links.slice(0, MAX_LINKS_PER_OPEN)) {
-      window.open(l.url, '_blank', 'noopener,noreferrer');
+      void window.api.openExternal(l.url);
     }
     setRest(links.slice(MAX_LINKS_PER_OPEN));
   };
@@ -152,7 +152,7 @@ function BatchCard({ batch, onRespond }: { batch: ApprovalBatch; onRespond: () =
                       item.action !== undefined
                         ? window.api.operationsBulkRespond(batch.id, [item.id], true).then((r) => {
                             for (const l of (r.links ?? []).slice(0, MAX_LINKS_PER_OPEN)) {
-                              window.open(l.url, '_blank', 'noopener,noreferrer');
+                              void window.api.openExternal(l.url);
                             }
                             return r;
                           })

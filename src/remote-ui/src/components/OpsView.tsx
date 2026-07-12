@@ -103,13 +103,9 @@ function BulkBar({
 }): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
-  const [rest, setRest] = useState<{ label: string; url: string }[]>([]);
+  const [links, setLinks] = useState<{ itemId: string; label: string; url: string }[]>([]);
+  const [opened, setOpened] = useState<Set<string>>(new Set());
   const linkOnly = isLinkOnlyAdapter(items[0]?.action?.adapterId ?? '');
-
-  const openSome = (links: { label: string; url: string }[]): void => {
-    for (const l of links.slice(0, MAX_LINKS_PER_OPEN)) window.open(l.url, '_blank', 'noopener,noreferrer');
-    setRest(links.slice(MAX_LINKS_PER_OPEN));
-  };
 
   return (
     <div style={{ borderTop: '1px solid #333', paddingTop: 8, marginTop: 8 }}>
@@ -142,7 +138,10 @@ function BulkBar({
               .opsBulkRespond(batchId, items.map((i) => i.id), true)
               .then((r) => {
                 setNotice(r.detail);
-                if (r.links !== undefined && r.links.length > 0) openSome(r.links);
+                // M41-2: スマホのブラウザは「タップした瞬間」以外の window.open を塞ぐ。
+                // 承認(通信)のあとに自動で開こうとすると必ずブロックされるので、
+                // 開くボタンを並べて1枚ずつタップしてもらう(タップ=ジェスチャ)
+                setLinks(r.links ?? []);
               })
               .catch((e: unknown) => setNotice(e instanceof Error ? e.message : String(e)))
               .finally(() => {
@@ -151,11 +150,28 @@ function BulkBar({
               });
           }}
         >
-          {busy ? '…' : linkOnly ? `まとめて開く(${items.length})` : `⛩ ${items.length}件まとめて承認`}
+          {busy ? '…' : linkOnly ? `${items.length}件を承認して開く` : `⛩ ${items.length}件まとめて承認`}
         </button>
       </div>
-      {rest.length > 0 && (
-        <button onClick={() => openSome(rest)}>続きを開く(残り{rest.length}件)</button>
+      {links.length > 0 && (
+        <div style={{ marginTop: 6 }}>
+          <div className="muted" style={{ fontSize: 11 }}>
+            タップで1枚ずつ開く(投稿ボタンはあなたが押す)
+          </div>
+          {links.map((l, n) => (
+            <button
+              key={l.itemId}
+              style={{ marginRight: 6, marginTop: 4 }}
+              onClick={() => {
+                window.open(l.url, '_blank', 'noopener,noreferrer');
+                setOpened(new Set([...opened, l.itemId]));
+              }}
+            >
+              {opened.has(l.itemId) ? '✓ ' : ''}
+              {n + 1}/{links.length} を開く
+            </button>
+          ))}
+        </div>
       )}
       {notice !== '' && <div className="muted" style={{ fontSize: 11 }}>{notice}</div>}
     </div>
@@ -165,6 +181,7 @@ function BulkBar({
 function BatchCard({ batch, api, onDone }: { batch: ApprovalBatch; api: RemoteApi; onDone: () => void }): JSX.Element {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
+  const [links, setLinks] = useState<{ itemId: string; label: string; url: string }[]>([]);
   const pending = batch.items.filter((i) => i.status === 'pending');
   if (pending.length === 0) return <></>;
 
@@ -181,9 +198,8 @@ function BatchCard({ batch, api, onDone }: { batch: ApprovalBatch; api: RemoteAp
     const p =
       item.action !== undefined
         ? api.opsBulkRespond(batch.id, [item.id], approved).then((r) => {
-            for (const l of (r.links ?? []).slice(0, MAX_LINKS_PER_OPEN)) {
-              window.open(l.url, '_blank', 'noopener,noreferrer');
-            }
+            // M41-2: 自動で開かない(スマホはポップアップを塞ぐ)。開くボタンを出す
+            setLinks(r.links ?? []);
             return r;
           })
         : api.opsBatchRespond(batch.id, item.id, approved);
@@ -221,6 +237,20 @@ function BatchCard({ batch, api, onDone }: { batch: ApprovalBatch; api: RemoteAp
           </div>
         </div>
       ))}
+      {links.length > 0 && (
+        <div style={{ marginTop: 6 }}>
+          <div className="muted" style={{ fontSize: 11 }}>タップで開く(投稿ボタンはあなたが押す)</div>
+          {links.map((l) => (
+            <button
+              key={l.itemId}
+              style={{ marginRight: 6, marginTop: 4 }}
+              onClick={() => window.open(l.url, '_blank', 'noopener,noreferrer')}
+            >
+              {l.label.slice(0, 24)} を開く
+            </button>
+          ))}
+        </div>
+      )}
       {notice !== '' && <div className="muted" style={{ fontSize: 11 }}>{notice}</div>}
     </div>
   );

@@ -361,7 +361,7 @@ function ImpactView(): JSX.Element | null {
                 ·{' '}
                 <button
                   className="underline hover:text-zinc-400"
-                  onClick={() => window.open(e.url ?? '', '_blank', 'noopener,noreferrer')}
+                  onClick={() => void window.api.openExternal(e.url ?? '')}
                 >
                   投稿先URL
                 </button>
@@ -487,7 +487,7 @@ function DraftCard({ draft, onUpdate }: { draft: OperationsDraft; onUpdate: () =
           <button
             className="shrink-0 rounded border border-zinc-600 px-2 py-0.5 text-[10px] hover:bg-zinc-800"
             title="X の投稿画面を本文入りで開く(投稿ボタンはあなたが押す)"
-            onClick={() => window.open(xIntentUrl(draft.body), '_blank', 'noopener,noreferrer')}
+            onClick={() => void window.api.openExternal(xIntentUrl(draft.body))}
           >
             𝕏 投稿画面を開く
           </button>
@@ -496,7 +496,7 @@ function DraftCard({ draft, onUpdate }: { draft: OperationsDraft; onUpdate: () =
           <button
             className="shrink-0 rounded border border-zinc-600 px-2 py-0.5 text-[10px] hover:bg-zinc-800"
             title="本文中のURLをはてなブックマークに追加する画面を開く(追加ボタンはあなたが押す)"
-            onClick={() => window.open(hatenaPanelUrl(url), '_blank', 'noopener,noreferrer')}
+            onClick={() => void window.api.openExternal(hatenaPanelUrl(url))}
           >
             B! はてブ画面を開く
           </button>

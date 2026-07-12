@@ -95,6 +95,7 @@ const api: AmaterasApi = {
 
   usageGet: () => ipcRenderer.invoke(IpcChannels.usageGet),
   openBillingPage: (provider) => ipcRenderer.invoke(IpcChannels.openBillingPage, provider),
+  openExternal: (url) => ipcRenderer.invoke(IpcChannels.openExternal, url),
 
   runtimeFlags: () => ipcRenderer.invoke(IpcChannels.runtimeFlags),
   safeModeClear: () => ipcRenderer.invoke(IpcChannels.safeModeClear),

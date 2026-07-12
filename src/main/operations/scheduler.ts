@@ -113,6 +113,14 @@ export type GodRunner = (godId: string) => Promise<{ ok: boolean; detail: string
 export class GodScheduler {
   private jobs: GodClockJob[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
+  /**
+   * M41-1: 起動待ち(catchUp)のタイマー。stop() でこれを止めていなかったため、
+   * 停止したはずのスケジューラが90秒後に息を吹き返して setInterval を張り、
+   * 設定保存(reset→再init)のたびに幽霊スケジューラが増殖していた
+   * (神議が数十秒間に連続実行され、古いメモリ状態が schedule.json を上書きした)
+   */
+  private startTimer: ReturnType<typeof setTimeout> | null = null;
+  private stopped = false;
   private running = false;
 
   constructor(
@@ -134,6 +142,9 @@ export class GodScheduler {
   }
 
   private save(): void {
+    // M41-1: 停止済みスケジューラは書かない。古いメモリ上のジョブで現行の
+    // schedule.json を上書きする事故(状態の巻き戻し)を構造的に防ぐ
+    if (this.stopped) return;
     try {
       mkdirSync(dirname(this.filePath), { recursive: true });
       writeFileSync(this.filePath, JSON.stringify(this.jobs, null, 1), 'utf8');
@@ -197,20 +208,27 @@ export class GodScheduler {
 
   /** 開始。catchUpDelayMs 後に初回tick(起動直後の負荷集中回避) */
   start(tickMs = 60_000, catchUpDelayMs = 90_000): void {
-    if (this.timer !== null) return;
-    setTimeout(() => {
+    if (this.timer !== null || this.startTimer !== null || this.stopped) return;
+    this.startTimer = setTimeout(() => {
+      this.startTimer = null;
+      if (this.stopped) return; // stop() 済みなら復活させない
       void this.tick();
       this.timer = setInterval(() => void this.tick(), tickMs);
     }, catchUpDelayMs);
   }
 
+  /** 停止。以後 start() しても復活しない(使い捨て=幽霊スケジューラを作らない) */
   stop(): void {
+    this.stopped = true;
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = null;
+    if (this.startTimer !== null) clearTimeout(this.startTimer);
+    this.startTimer = null;
   }
 
   /** 1周期分の実行(テストから直接呼べる) */
   async tick(): Promise<void> {
+    if (this.stopped) return; // M41-1: 停止後のtickは走らせない
     if (this.running) return; // 再入防止(長いジョブ中のtick重複)
     this.running = true;
     try {

@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { MODEL_PRICES } from '../../shared/models';
 import { dirname } from 'node:path';
 import type { UsageBandRow, UsageDelta, UsageSummary, UsageModelRow } from '../../shared/types';
 
@@ -31,24 +32,7 @@ interface UsageFile {
  * M25-4: gpt-5.4系はmini/nanoの方がprefixが長いため、必ず具体的なIDを先に置く
  * (openai/gpt-5.4-mini は openai/gpt-5.4 で始まるため、後者を先に置くと誤照合する)
  */
-const PRICES: { prefix: string; input: number; output: number; cacheReadRatio: number }[] = [
-  { prefix: 'anthropic/claude-fable-5', input: 10, output: 50, cacheReadRatio: 0.1 },
-  { prefix: 'anthropic/claude-opus', input: 5, output: 25, cacheReadRatio: 0.1 },
-  // Sonnet 5 は 2026-08-31 まで導入価格($2/$10)だが、概算は定価で出す(高め=安全側)
-  { prefix: 'anthropic/claude-sonnet', input: 3, output: 15, cacheReadRatio: 0.1 },
-  { prefix: 'anthropic/claude-haiku', input: 1, output: 5, cacheReadRatio: 0.1 },
-  // M30-1: GPT-5.6 世代(2026-07-11 公式確認: Sol $5/$30・Terra $2.5/$15・Luna $1/$6)。
-  // terra/luna を sol より先に置く(前方一致の誤照合防止)。素の 'gpt-5.6'(エイリアス)は
-  // Sol に解決されるため最後の gpt-5.6 で Sol と同額で受ける
-  { prefix: 'openai/gpt-5.6-terra', input: 2.5, output: 15, cacheReadRatio: 0.1 },
-  { prefix: 'openai/gpt-5.6-luna', input: 1, output: 6, cacheReadRatio: 0.1 },
-  { prefix: 'openai/gpt-5.6', input: 5, output: 30, cacheReadRatio: 0.1 },
-  { prefix: 'openai/gpt-5.5', input: 5, output: 30, cacheReadRatio: 0.1 },
-  { prefix: 'openai/gpt-5.4-mini', input: 0.75, output: 4.5, cacheReadRatio: 0.1 },
-  { prefix: 'openai/gpt-5.4-nano', input: 0.2, output: 1.25, cacheReadRatio: 0.1 },
-  { prefix: 'openai/gpt-5.4', input: 2.5, output: 15, cacheReadRatio: 0.1 },
-  { prefix: 'openai/gpt-5.3-codex', input: 1.75, output: 14, cacheReadRatio: 0.1 },
-];
+const PRICES = MODEL_PRICES;
 
 export function estimateCostUsd(key: string, c: { input: number; output: number; cacheRead: number }): number | null {
   const price = PRICES.find((p) => key.startsWith(p.prefix));

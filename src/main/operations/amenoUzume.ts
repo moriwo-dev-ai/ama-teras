@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   CommunityCandidate,
+  ProjectProfile,
   MediaStrategyEntry,
   MetricsSnapshot,
   OperationsDraft,
@@ -75,11 +76,16 @@ export function buildHighlightPrompt(input: {
   recentCommits: string;
   current: MetricsSnapshot | null;
   previous: MetricsSnapshot | null;
+  /** M41-3: 運営対象プロジェクト(未設定ならリポジトリ名から推測された値が入る) */
+  project: ProjectProfile;
 }): string {
   const metricsNote = input.current
     ? JSON.stringify({ current: input.current, previous: input.previous ?? undefined })
     : '(メトリクスなし)';
-  return `あなたはOSSプロジェクト AMA-teras の広報担当(アメノウズメ)。開発記録から「見せ場」を抽出し、発信の下書きを作る。
+  return `あなたはOSSプロジェクト ${input.project.name} の広報担当(アメノウズメ)。開発記録から「見せ場」を抽出し、発信の下書きを作る。
+
+# プロジェクト
+${input.project.name}: ${input.project.description}
 
 # 素材: PROGRESS.md 直近抜粋
 ${input.progressExcerpt.slice(0, 6000)}
@@ -112,8 +118,9 @@ export function buildArticleOutlinePrompt(input: {
   title: string;
   outline: string;
   progressExcerpt: string;
+  project: ProjectProfile;
 }): string {
-  return `あなたはOSSプロジェクト AMA-teras の技術記事ライター。以下のアウトラインからZennの記事本文(Markdown)を書く。
+  return `あなたはOSSプロジェクト ${input.project.name}(${input.project.description})の技術記事ライター。以下のアウトラインからZennの記事本文(Markdown)を書く。
 
 # 記事タイトル
 ${input.title}
@@ -257,7 +264,7 @@ ${pastedText.slice(0, 4000)}
 {
  "verdict": "match" | "no-match" | "unclear",
  "reasons": ["判定理由を1〜4個。テキスト中の根拠を引用しつつ"],
- "replyDraft": "match の場合のみ: その人の直近の話題への返信下書き(日本語・宣伝ではなく内容への具体的な反応。AMA-terasの宣伝文を入れない)"
+ "replyDraft": "match の場合のみ: その人の直近の話題への返信下書き(日本語・宣伝ではなく内容への具体的な反応。プロジェクトの宣伝文を入れない)"
 }`;
 }
 

@@ -7,6 +7,7 @@ import type {
   MetricsSnapshot,
   OperationsDraft,
   ParamChange,
+  ProjectProfile,
 } from '../../shared/types';
 import { extractJson } from './llm';
 
@@ -57,6 +58,8 @@ export function buildKamuhakariPrompt(input: {
   postedDrafts: OperationsDraft[];
   jobs: GodClockJob[];
   currentKeywords: string[];
+  /** M41-3: 運営対象プロジェクト */
+  project: ProjectProfile;
 }): string {
   const inboxSummary = input.unread
     .slice(0, 40)
@@ -79,7 +82,10 @@ export function buildKamuhakariPrompt(input: {
     .map((j) => `- ${j.godId}: ${j.enabled ? '稼働' : '停止'} 間隔${j.intervalMin}分 予算${j.dailyTokenBudget}(今日${j.spentToday})`)
     .join('\n');
 
-  return `あなたは「神議(かむはかり)」— OSSプロジェクト AMA-teras の運営戦略会議。
+  return `あなたは「神議(かむはかり)」— OSSプロジェクト ${input.project.name} の運営戦略会議。
+
+# プロジェクト
+${input.project.name}: ${input.project.description}
 目的: どうすれば本当にAIを楽しむ人々にこのプロジェクトが届くか。誇張やスパムは絶対にしない。
 
 # 受け箱(未読)
@@ -104,7 +110,7 @@ ${input.currentKeywords.join(', ') || '(未設定)'}
 承認された実行も必ず岩戸ゲート(人間の最終確認ダイアログ)を通る。
 
 # 能力ギャップの3分岐(足りない能力を見つけたら branch を選ぶ)
-- adhoc: 単発ならAMA-teras本体がその場でカバー(ユーザーが通常チャットで実行する下書きを detail に)
+- adhoc: 単発ならエージェント本体がその場でカバー(ユーザーが通常チャットで実行する下書きを detail に)
 - evolve: 神への能力追加 = request_capability の起票案(detail に依頼文)
 - new-god: 新しい神の作成 = godDraft に定義JSON({id,name,engine,clock,dailyTokenBudget,enabled}。
   engine は metrics-observer/community-patrol/draft-writer/issue-gatekeeper のみ)

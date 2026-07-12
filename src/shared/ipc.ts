@@ -124,6 +124,8 @@ export const IpcChannels = {
   /** M23-2: 使用量サマリと残高ダッシュボードを開く */
   usageGet: 'usage:get',
   openBillingPage: 'billing:open',
+  /** M41-2: 外部URLを既定ブラウザで開く(X投稿画面・はてブ等。http/https のみ) */
+  openExternal: 'external:open',
   /** M20: 起動時フラグ(セーフモード/進化再起動完了)とセーフモード解除 */
   runtimeFlags: 'runtime:flags',
   safeModeClear: 'safemode:clear',
@@ -282,6 +284,8 @@ export interface AmaterasApi {
   usageGet(): Promise<UsageSummary>;
   /** M27-1: プリセット(gemini等)はAPIキー取得ページを開く(URLはmain側の固定allowlist) */
   openBillingPage(provider: SecretSlot): Promise<void>;
+  /** M41-2: 外部URLを既定ブラウザで開く(アプリ内ウィンドウでは開かない) */
+  openExternal(url: string): Promise<void>;
 
   /** M20: 起動時フラグ(セーフモード/進化再起動完了のバナー用)とセーフモード解除 */
   runtimeFlags(): Promise<{

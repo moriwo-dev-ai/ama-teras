@@ -18,7 +18,7 @@ function searchUrl(query: string): string {
 }
 
 /** 仲間発見・言及観測のための検索URL群を生成(開くのは人間) */
-export function buildXSearchSuggestions(keywords: string[]): XSearchSuggestion[] {
+export function buildXSearchSuggestions(keywords: string[], projectName?: string): XSearchSuggestion[] {
   const suggestions: XSearchSuggestion[] = [];
   for (const kw of keywords) {
     const trimmed = kw.trim();
@@ -34,11 +34,12 @@ export function buildXSearchSuggestions(keywords: string[]): XSearchSuggestion[]
       url: searchUrl(`${trimmed} lang:ja filter:links`),
     });
   }
-  suggestions.push({
-    label: 'AMA-teras への言及',
-    query: '"AMA-teras" OR "ama-teras"',
-    url: searchUrl('"AMA-teras" OR "ama-teras"'),
-  });
+  // M41-3: プロジェクト名は設定から(未設定なら言及検索は出さない=他人のプロジェクト名を検索しない)
+  const name = projectName?.trim() ?? '';
+  if (name !== '') {
+    const query = `"${name}" OR "${name.toLowerCase()}"`;
+    suggestions.push({ label: `${name} への言及`, query, url: searchUrl(query) });
+  }
   return suggestions;
 }
 

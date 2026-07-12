@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import type { AppConfig, ModelBand, OperationsConfig } from '../../../../shared/types';
+import type { AppConfig, GodClockJob, ModelBand, OperationsConfig } from '../../../../shared/types';
 import { DEFAULT_REGISTRY_URL, KNOWN_MODELS } from '../../../../shared/models';
+import { estimateOpsCost } from '../../../../shared/opsCost';
 import { useOperationsStore } from '../../stores/operations';
 import { McpSection } from './McpSection';
 import { RemoteAccessSection } from './RemoteAccessSection';
@@ -168,6 +169,55 @@ function OpsCostToday(): JSX.Element | null {
 }
 
 /** M32-1: オーナーモード(運営タブ)。既定OFF=タブ自体を表示しない */
+/**
+ * M41-4: 想定コストの導線。オーナーモードONの人が「毎日いくら燃えるか」を先に知れるようにする。
+ * 既定値は何も変えない(表示のみ)。実測が出たら OpsCostToday の方が正しい
+ */
+function OpsCostEstimate({ ops, config }: { ops: OperationsConfig; config: AppConfig }): JSX.Element {
+  const [jobs, setJobs] = useState<GodClockJob[]>([]);
+  useEffect(() => {
+    void window.api.operationsClocks().then(setJobs);
+  }, []);
+  // 運営専用帯が未設定なら、通常のモデル方針(planner/worker)で見積もる
+  const policy = config.modelPolicy;
+  const bands = {
+    kamuhakari: ops.kamuhakariBand ?? policy?.planner ?? { provider: config.provider, model: config.model },
+    gods: ops.godsBand ?? policy?.worker ?? { provider: config.provider, model: config.model },
+  };
+  const est = estimateOpsCost(jobs, bands);
+  if (jobs.length === 0) {
+    return (
+      <p className="rounded border border-zinc-800 bg-zinc-950 p-2 text-[10px] text-zinc-500">
+        想定コスト: 神々の時計がまだ無い(次回起動後に算出)。目安として神議(1日2回)+巡回・門番(1時間ごと)で
+        1日10〜30万トークン程度になる。運営専用モデル(下)で安いモデルに寄せられる
+      </p>
+    );
+  }
+  return (
+    <div className="rounded border border-amber-900 bg-zinc-950 p-2 text-[10px] text-zinc-400">
+      <p className="font-semibold text-amber-300">💰 想定コスト(概算・表示のみ)</p>
+      <p>
+        1日 約{est.dailyTokens.toLocaleString()} トークン
+        {est.dailyUsd !== null && est.monthlyUsd !== null ? (
+          <>
+            {' '}
+            → <span className="text-zinc-200">約 ${est.dailyUsd.toFixed(2)}/日(${est.monthlyUsd.toFixed(0)}/月)</span>
+          </>
+        ) : (
+          <>(単価不明のモデルのため金額は出せない)</>
+        )}
+      </p>
+      <p className="text-zinc-500">
+        内訳: {est.perGod.filter((g) => g.tokens > 0).map((g) => `${g.godId} ${(g.tokens / 1000).toFixed(0)}k`).join(' / ') || '(LLMを使う神が無い)'}
+      </p>
+      <p className="text-zinc-500">
+        高いと感じたら: 神議のモデルを安い帯にする / 神の実行間隔を広げる / 使わない神を停止する
+        (運営タブの AMENO-koyane で調整可能)。実測は下の行に出る
+      </p>
+    </div>
+  );
+}
+
 function OwnerModeSection({
   config,
   saveConfig,
@@ -200,6 +250,57 @@ function OwnerModeSection({
       </label>
       {ops.enabled && (
         <div className="space-y-1.5 pl-1 pt-1">
+          {/* M41-4: ONにした人が最初に見るべき「いくらかかるか」。既定値は変えない(表示のみ) */}
+          <OpsCostEstimate ops={ops} config={config} />
+          {/* M41-3: 神々のプロンプトに差し込むプロジェクト像(未設定ならリポジトリ名から推測) */}
+          <div className="space-y-1 rounded border border-zinc-800 p-2">
+            <p className="text-xs font-semibold text-zinc-300">このプロジェクトについて(神々が読む)</p>
+            <p className="text-[10px] text-zinc-500">
+              広報ドラフト・記事・トリアージ・神議のプロンプトに差し込まれる。
+              未設定なら観測対象リポジトリ名から推測する
+            </p>
+            <input
+              className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
+              defaultValue={ops.projectName ?? ''}
+              placeholder="プロジェクト名(例: my-awesome-tool)"
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                save({ ...ops, ...(v !== '' ? { projectName: v } : { projectName: undefined as never }) });
+              }}
+            />
+            <textarea
+              className="h-14 w-full rounded border border-zinc-600 bg-zinc-800 p-2 text-xs"
+              defaultValue={ops.projectDescription ?? ''}
+              placeholder="1〜2文の説明(何ができる道具か。誇張しない)"
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                save({
+                  ...ops,
+                  ...(v !== '' ? { projectDescription: v } : { projectDescription: undefined as never }),
+                });
+              }}
+            />
+            <div className="flex flex-wrap gap-1.5">
+              <input
+                className="min-w-0 flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
+                defaultValue={(ops.keywords ?? []).join(', ')}
+                placeholder="巡回キーワード(カンマ区切り)"
+                onBlur={(e) => {
+                  const keywords = e.target.value.split(',').map((k) => k.trim()).filter((k) => k !== '');
+                  save({ ...ops, ...(keywords.length > 0 ? { keywords } : { keywords: undefined as never }) });
+                }}
+              />
+              <input
+                className="min-w-0 flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
+                defaultValue={(ops.zennTopics ?? []).join(', ')}
+                placeholder="Zenn topics(カンマ区切り・既定 ai)"
+                onBlur={(e) => {
+                  const zennTopics = e.target.value.split(',').map((t) => t.trim()).filter((t) => t !== '');
+                  save({ ...ops, ...(zennTopics.length > 0 ? { zennTopics } : { zennTopics: undefined as never }) });
+                }}
+              />
+            </div>
+          </div>
           <div>
             <p className="mb-0.5 text-xs text-zinc-400">観測対象リポジトリ(owner/repo・改行区切り)</p>
             <textarea
