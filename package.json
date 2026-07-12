@@ -14,7 +14,8 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.remote.json",
     "test": "vitest run",
-    "dist": "electron-vite build && npm run build:remote-ui && electron-builder --win --publish never"
+    "dist": "electron-vite build && npm run build:remote-ui && electron-builder --win --publish never",
+    "release": "node scripts/release.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.57.0",
