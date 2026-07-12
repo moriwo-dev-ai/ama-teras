@@ -19,6 +19,7 @@ import {
   bulkGroupKey,
   firstUrl,
   hasUnresolvedPlaceholder,
+  mentionsUnreleased,
   hatenaPanelUrl,
   isLinkOnlyAdapter,
   marksDraftPosted,
@@ -173,6 +174,17 @@ const DEFAULT_GOD_PARAMS: GodParams = {
 };
 
 /** M33-5: 定義(gods/*.json)→時計ジョブへの写像 */
+/**
+ * M45: 未公開機能(月読)に触れた下書きを**生成の時点で捨てる**。
+ *
+ * 実害: 神が月読モードの開発記を書き、承認を通り、Zenn記事として公開リポジトリに push された
+ * (published:false でもリポジトリがPUBLICならGitHubでソースが読める)。
+ * 神は「何が未公開か」を知らない。プロンプトで教えるのではなく**通さない**
+ */
+function dropUnreleased<T extends { title: string; body: string }>(drafts: T[]): T[] {
+  return drafts.filter((d) => !mentionsUnreleased(`${d.title}\n${d.body}`));
+}
+
 function jobFromDefinition(def: GodDefinition): GodClockJob {
   return {
     id: def.id,
@@ -632,7 +644,9 @@ export class OperationsManager {
       'あなたはOSSの広報担当。',
       buildHighlightPrompt({ ...sources, current, previous, project: this.project() }),
     );
-    const created = this.drafts.add(parseDrafts(text));
+    // M45: 未公開機能(月読)に触れた下書きは**生成の時点で捨てる**。
+    // 神は何が未公開かを知らない。知らせるのではなく通さない(実害: 月読の開発記が公開リポジトリに出た)
+    const created = this.drafts.add(dropUnreleased(parseDrafts(text)));
     for (const d of created) {
       this.inbox.post({ kind: 'draft', godId: 'ameno-uzume', title: `下書き: ${d.title}`, payload: { draftId: d.id, draftKind: d.kind } });
     }
@@ -916,6 +930,9 @@ export class OperationsManager {
     const pending = this.drafts
       .list()
       .filter((d) => d.status === 'draft')
+      // M45: 未公開機能に触れた下書きは承認バッチに載せない(承認できてしまうこと自体が事故)
+      .filter((d) => !mentionsUnreleased(`${d.title}
+${d.body}`))
       .map((d) => ({ ...d, body: resolvePostText(d.body, url) }));
 
     for (const d of pending.slice(0, 10)) {
@@ -1446,7 +1463,7 @@ export class OperationsManager {
     const { current, previous } = this.omoi.latestPair();
     const prompt = buildHighlightPrompt({ ...sources, current, previous, project: this.project() });
     const text = await completeText(this.llm('planner'), 'あなたはOSSの広報担当。', prompt);
-    const parsed = parseDrafts(text);
+    const parsed = dropUnreleased(parseDrafts(text));
     if (parsed.length === 0) return [];
     return this.drafts.add(parsed);
   }
@@ -1801,6 +1818,10 @@ export class OperationsManager {
         decoded = decodeURIComponent(t);
       } catch {
         /* デコードできない文字列はそのまま見る */
+      }
+      // M45: 未公開機能(月読)に触れる発信は**実行しない**。最後の砦(三重目)
+      if (mentionsUnreleased(decoded)) {
+        return '未公開の機能(月読モード)に触れているため実行しない。一般公開するまで、この内容は外に出さない';
       }
       if (hasUnresolvedPlaceholder(decoded)) {
         return '未解決のプレースホルダ({URL} 等)が残っているため実行しない。設定の「プロジェクトURL」か観測対象リポジトリを設定するか、下書きを編集してください';

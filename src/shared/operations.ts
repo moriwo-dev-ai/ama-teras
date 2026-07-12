@@ -47,6 +47,41 @@ export function hasUnresolvedPlaceholder(text: string): boolean {
   return /\{[A-Z][A-Z_]{1,}\}/.test(text);
 }
 
+/**
+ * M45: **未公開機能の発信ガード**。
+ *
+ * 実害: 神(AMENO-uzume)が月読モード(未公開機能)の開発記を書き、承認バッチに載せ、
+ * Zenn記事として**公開リポジトリに push された**(published:false でも、リポジトリが
+ * PUBLIC なら GitHub 上でソースが読める)。カメラ・マイク・VAD・権限設計まで全部書かれていた。
+ *
+ * 神は「何が未公開か」を知らない。**知らせるのではなく、通さない** —
+ * ドラフト生成の時点で捨て、承認バッチにも載せず、発信の直前でも弾く(三重)。
+ */
+const UNRELEASED_TOPICS = [
+  '月読',
+  'つくよみ',
+  'ツクヨミ',
+  'tsukuyomi',
+  'tuku-yomi',
+  'tsuku-yomi',
+  '記憶の義手',
+  '在席検知',
+  '常時聴取',
+  'push-to-talk',
+  'whisper',
+  'ウェイクワード',
+  '月の帳',
+];
+
+/**
+ * 未公開機能(TUKU-yomi)に触れている発信か。
+ * 一般公開するまで、この語を含む下書きは**外に出さない**
+ */
+export function mentionsUnreleased(text: string): boolean {
+  const t = text.toLowerCase();
+  return UNRELEASED_TOPICS.some((w) => t.includes(w.toLowerCase()));
+}
+
 /** リポジトリ名(owner/repo)→ GitHubのURL。{URL} の既定の解決先 */
 export function repoUrl(repo: string | undefined): string {
   return repo === undefined || repo.trim() === '' ? '' : `https://github.com/${repo.trim()}`;
