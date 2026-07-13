@@ -210,23 +210,62 @@ function ReleasePublish({ repos, api, onDone }: { repos: string[]; api: RemoteAp
  */
 function ZennPublish({ api, onDone }: { api: RemoteApi; onDone: () => void }): JSX.Element | null {
   const [articles, setArticles] = useState<{ slug: string; title: string; blocked: string | null }[]>([]);
+  // M77: published:true にしたのにZennが同期していない記事(投稿数の上限などで止まる)
+  const [stuck, setStuck] = useState<{ slug: string; title: string }[]>([]);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState('');
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     void api
       .opsZennPublishable()
       .then((r) => setArticles(r.articles))
       .catch(() => setArticles([]));
+    void api
+      .opsZennStuck()
+      .then((r) => setStuck(r.articles))
+      .catch(() => setStuck([]));
   }, [api]);
+  useEffect(reload, [reload]);
 
-  if (articles.length === 0) return null;
+  if (articles.length === 0 && stuck.length === 0) return null;
 
   return (
     <div style={{ marginTop: 8, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+      {stuck.length > 0 && (
+        <div style={{ marginBottom: 8 }}>
+          <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>
+            ⏳ published: true にしたが、Zennがまだ公開していない(= 誰も読めない)
+          </div>
+          {stuck.map((a) => (
+            <div key={a.slug} style={{ marginBottom: 6 }}>
+              <div style={{ fontSize: 12 }}>{a.title}</div>
+              <button
+                disabled={busy !== ''}
+                onClick={() => {
+                  setBusy(a.slug);
+                  setNotice('');
+                  void api
+                    .opsZennRedeploy(a.slug)
+                    .then((r) => setNotice(r.detail))
+                    .catch((e: unknown) => setNotice(e instanceof Error ? e.message : String(e)))
+                    .finally(() => {
+                      setBusy('');
+                      reload();
+                      onDone();
+                    });
+                }}
+              >
+                {busy === a.slug ? '…' : '🔄 再デプロイ(Zennの同期をやり直す)'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {articles.length > 0 && (
       <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>
         📝 公開待ちのZenn記事(published: false = まだ誰も読めない)
       </div>
+      )}
       {articles.map((a) => (
         <div key={a.slug} style={{ marginBottom: 6 }}>
           <div style={{ fontSize: 12 }}>{a.title}</div>

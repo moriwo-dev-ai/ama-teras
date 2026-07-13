@@ -158,6 +158,8 @@ export const IpcChannels = {
   operationsReleasePublish: 'operations:release-publish',
   operationsZennPublish: 'operations:zenn-publish',
   operationsZennPublishable: 'operations:zenn-publishable',
+  operationsZennRedeploy: 'operations:zenn-redeploy',
+  operationsZennStuck: 'operations:zenn-stuck',
   operationsDraftZennArticle: 'operations:draft-zenn-article',
   /** M38-3: 発信の効果測定(投稿→前後メトリクス差分) */
   operationsImpacts: 'operations:impacts',
@@ -393,6 +395,9 @@ export interface AmaterasApi {
   /** M73: Zenn記事の公開(published: true にして push)。岩戸ゲートで全文確認 */
   operationsZennPublish(slug: string): Promise<{ ok: boolean; detail: string }>;
   operationsZennPublishable(): Promise<{ slug: string; title: string; blocked: string | null }[]>;
+  /** M77: published:true なのにZennで読めない記事の再デプロイ(空コミット+push) */
+  operationsZennRedeploy(slug: string): Promise<{ ok: boolean; detail: string }>;
+  operationsZennStuck(): Promise<{ slug: string; title: string }[]>;
   /** M47: package.json の version をタグに合わせて上げ、コミット・pushする(岩戸ゲート経由) */
   operationsBumpVersion(tag: string): Promise<{ ok: boolean; detail: string }>;
   operationsDraftRelease(

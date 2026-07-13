@@ -108,7 +108,7 @@ export function createZennRepoAdapter(getRepoDir: () => string | null, deps: Zen
     });
   return {
     id: 'zenn-repo',
-    capabilities: { read: false, search: false, draft: false, execute: ['commit-article', 'publish-article'] },
+    capabilities: { read: false, search: false, draft: false, execute: ['commit-article', 'publish-article', 'redeploy-article'] },
     compliance:
       'Zenn記事はGitHub連携リポジトリ(zenn-content)へのコミットで反映される。下書きは published: false でのみコミットする。' +
       '公開(published: true)は publish-article アクションでのみ可能で、岩戸ゲートの承認(全文確認)を必ず通る',
@@ -142,6 +142,19 @@ export function createZennRepoAdapter(getRepoDir: () => string | null, deps: Zen
         await deps.run(['commit', '-m', `publish: ${slug}(published: true)`], repoDir);
         await deps.run(['push'], repoDir);
         return `zenn-content の ${rel} を published: true にして push した(Zennに反映されると誰でも読める)`;
+      }
+
+      if (action === 'redeploy-article') {
+        // M77: published: true なのにZennが同期していない記事を、もう一度デプロイさせる。
+        // Zennはpushを契機に同期するので、空コミットで叩き直す(記事の中身は一切変えない)。
+        // 実機で「投稿数の上限に達したためデプロイされませんでした」が起き、
+        // published: true のまま**誰も読めない**記事が、アプリからは手も足も出なくなった
+        const slug = String(params['slug'] ?? '');
+        if (!ZENN_SLUG_RE.test(slug)) throw new Error(`Zennのslug規則に合わない: ${slug}`);
+        if (!existsSync(join(repoDir, 'articles', `${slug}.md`))) throw new Error(`記事が見つからない: ${slug}`);
+        await deps.run(['commit', '--allow-empty', '-m', `redeploy: ${slug}(Zennの同期をやり直す)`], repoDir);
+        await deps.run(['push'], repoDir);
+        return `${slug} の再デプロイを要求した(空コミット+push)。Zennの同期には数分かかる。投稿数の上限に達している場合は、上限が戻るまで反映されない`;
       }
 
       if (action !== 'commit-article') throw new Error(`未知のアクション: ${action}`);

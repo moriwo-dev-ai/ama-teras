@@ -2117,6 +2117,50 @@ ${d.body}`))
     };
   }
 
+  /**
+   * M77: published: true にして push したのに、Zennが同期していない記事の再デプロイ。
+   * 実機で「投稿数の上限に達したためデプロイされませんでした」が起き、記事が
+   * **published: true のまま誰にも読めない**状態で固まった。アプリからは「すでに公開済み」と
+   * 判定されて公開ボタンも出ず、手も足も出なくなる。空コミットで同期をやり直させる
+   */
+  async requestZennRedeploy(slug: string): Promise<{ ok: boolean; detail: string }> {
+    if (!this.ensureInitialized() || this.gate === null) {
+      return { ok: false, detail: 'オーナーモードがOFF(運営機能は無効)' };
+    }
+    if (await this.zenn.isLive(slug)) return { ok: true, detail: `${slug} はすでにZennで読める(再デプロイ不要)` };
+    const result = await this.gate.requestExecute(
+      'zenn-repo',
+      'redeploy-article',
+      `Zenn記事 ${slug} の同期をやり直す(空コミット+push)`,
+      `記事の中身は一切変えません。Zennにもう一度デプロイさせるだけです。\n\n` +
+        `この記事は published: true で push 済みですが、Zennがまだ公開していません。\n` +
+        `Zennの投稿数上限に達している場合は、上限が戻るまで再デプロイしても反映されません。`,
+      { slug },
+    );
+    return result;
+  }
+
+  /** M77: published: true なのにZennで読めない記事(=同期待ち/失敗。再デプロイの対象) */
+  async zennStuck(): Promise<{ slug: string; title: string }[]> {
+    const dir = this.opsConfig().zennRepoDir ?? '';
+    if (dir === '') return [];
+    const out: { slug: string; title: string }[] = [];
+    try {
+      for (const file of readdirSync(join(dir, 'articles'))) {
+        if (!file.endsWith('.md')) continue;
+        const md = readFileSync(join(dir, 'articles', file), 'utf8');
+        if (!/\npublished:\s*true\s*(\r?\n|$)/.test(md)) continue;
+        const slug = file.replace(/\.md$/, '');
+        if ((await this.zenn.isLive(slug)) === false) {
+          out.push({ slug, title: /^title:\s*"?(.+?)"?\s*$/m.exec(md)?.[1] ?? slug });
+        }
+      }
+    } catch {
+      /* articles ディレクトリが無い */
+    }
+    return out;
+  }
+
   /** M73: 公開できる(=published:false でコミット済みの)記事の一覧。UIの公開ボタン用 */
   zennPublishable(): { slug: string; title: string; blocked: string | null }[] {
     const dir = this.opsConfig().zennRepoDir ?? '';

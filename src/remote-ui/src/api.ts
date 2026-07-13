@@ -207,6 +207,15 @@ export class RemoteApi {
   }
 
   /** M73: 公開できる記事(published:false でコミット済み)。blocked は未公開機能に触れているもの */
+  /** M77: Zennが同期しなかった記事(投稿数の上限など)の再デプロイ */
+  opsZennRedeploy(slug: string): Promise<{ ok: boolean; detail: string }> {
+    return this.req('POST', '/api/ops/zenn-redeploy', { slug });
+  }
+
+  opsZennStuck(): Promise<{ articles: { slug: string; title: string }[] }> {
+    return this.req('GET', '/api/ops/zenn-stuck');
+  }
+
   opsZennPublishable(): Promise<{ articles: { slug: string; title: string; blocked: string | null }[] }> {
     return this.req('GET', '/api/ops/zenn-publishable');
   }

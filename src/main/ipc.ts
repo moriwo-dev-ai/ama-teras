@@ -845,6 +845,12 @@ export async function registerIpcHandlers(
     return operations.requestZennPublish(slug);
   });
   ipcMain.handle(IpcChannels.operationsZennPublishable, () => operations.zennPublishable());
+  // M77: Zennが同期しなかった記事(投稿数上限など)を、もう一度デプロイさせる
+  ipcMain.handle(IpcChannels.operationsZennRedeploy, (_e, slug: unknown) => {
+    assertString(slug, 'slug');
+    return operations.requestZennRedeploy(slug);
+  });
+  ipcMain.handle(IpcChannels.operationsZennStuck, () => operations.zennStuck());
   // M37: 下書きの行き先。実行そのものは manager 内で岩戸ゲート(承認)を必ず通る
   ipcMain.handle(
     IpcChannels.operationsDraftRelease,
@@ -1222,6 +1228,8 @@ export async function registerIpcHandlers(
         // M73: Zennも同じ道を通す(記事化=コミットまで、公開=ここ)
         zennPublish: (slug) => operations.requestZennPublish(slug),
         zennPublishable: () => operations.zennPublishable(),
+        zennRedeploy: (slug) => operations.requestZennRedeploy(slug),
+        zennStuck: () => operations.zennStuck(),
         releaseInfo: (repo) => operations.releaseInfo(repo),
         history: (limit) => operations.history(limit),
         adapterStatus: async () => {

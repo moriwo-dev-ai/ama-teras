@@ -135,6 +135,9 @@ export interface RemoteOperationsFacade {
    */
   zennPublish(slug: string): Promise<{ ok: boolean; detail: string }>;
   zennPublishable(): { slug: string; title: string; blocked: string | null }[];
+  /** M77: published:true なのにZennが同期していない記事の再デプロイ */
+  zennRedeploy(slug: string): Promise<{ ok: boolean; detail: string }>;
+  zennStuck(): Promise<{ slug: string; title: string }[]>;
   /**
    * リリースの版情報(前回タグ・次の版の候補・package.jsonとのズレ・**公開待ちの下書きリリース**)。
    * pendingDraft.assets が空なら公開させない(中身の無いリリースを世に出さないため)
@@ -602,6 +605,19 @@ export class RemoteServer {
         const slug = body['slug'];
         if (typeof slug !== 'string') throw new HttpError(400, 'slug(string) が必要');
         return sendJson(res, 200, await this.deps.operations.zennPublish(slug));
+      }
+
+      case 'POST /api/ops/zenn-redeploy': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        const body = await readJsonBody(req);
+        const slug = body['slug'];
+        if (typeof slug !== 'string') throw new HttpError(400, 'slug(string) が必要');
+        return sendJson(res, 200, await this.deps.operations.zennRedeploy(slug));
+      }
+
+      case 'GET /api/ops/zenn-stuck': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        return sendJson(res, 200, { articles: await this.deps.operations.zennStuck() });
       }
 
       case 'GET /api/ops/zenn-publishable': {

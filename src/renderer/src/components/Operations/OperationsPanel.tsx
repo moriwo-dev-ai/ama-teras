@@ -685,6 +685,8 @@ function ZennArticleAction({ draft, onUpdate }: { draft: OperationsDraft; onUpda
  */
 function ZennPublishSection(): JSX.Element | null {
   const [articles, setArticles] = useState<{ slug: string; title: string; blocked: string | null }[]>([]);
+  // M77: published:true にしたのにZennが同期していない記事(投稿数の上限などで止まる)
+  const [stuck, setStuck] = useState<{ slug: string; title: string }[]>([]);
   const [result, setResult] = useState<string | null>(null);
   const [busy, setBusy] = useState('');
 
@@ -693,15 +695,52 @@ function ZennPublishSection(): JSX.Element | null {
       .operationsZennPublishable()
       .then(setArticles)
       .catch(() => setArticles([]));
+    void window.api
+      .operationsZennStuck()
+      .then(setStuck)
+      .catch(() => setStuck([]));
   };
   useEffect(reload, []);
-  if (articles.length === 0) return null;
+  if (articles.length === 0 && stuck.length === 0) return null;
 
   return (
     <div className="mt-2 rounded border border-zinc-800 p-2">
+      {stuck.length > 0 && (
+        <div className="mb-2">
+          <div className="mb-1 text-[10px] text-amber-400">
+            ⏳ published: true にしたが、Zennがまだ公開していない(= 誰も読めない)
+          </div>
+          {stuck.map((a) => (
+            <div key={a.slug} className="flex items-center gap-2 py-0.5">
+              <span className="truncate text-[11px] text-zinc-300">{a.title}</span>
+              <button
+                className="shrink-0 rounded border border-amber-800 px-2 py-0.5 text-[10px] text-amber-300 hover:bg-amber-950 disabled:opacity-40"
+                title="空コミット+pushでZennの同期をやり直させる(記事の中身は変えない)。投稿数の上限中は、上限が戻るまで反映されない"
+                disabled={busy !== ''}
+                onClick={() => {
+                  setBusy(a.slug);
+                  setResult(null);
+                  void window.api
+                    .operationsZennRedeploy(a.slug)
+                    .then((r) => setResult(r.detail))
+                    .catch((e: unknown) => setResult(e instanceof Error ? e.message : String(e)))
+                    .finally(() => {
+                      setBusy('');
+                      reload();
+                    });
+                }}
+              >
+                {busy === a.slug ? '承認待ち…' : '🔄 再デプロイ'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {articles.length > 0 && (
       <div className="mb-1 text-[10px] text-zinc-400">
         📝 公開待ちのZenn記事(published: false = まだ誰も読めない)
       </div>
+      )}
       {articles.map((a) => (
         <div key={a.slug} className="flex items-center gap-2 py-0.5">
           <span className="truncate text-[11px] text-zinc-300">{a.title}</span>

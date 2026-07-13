@@ -68,3 +68,24 @@ describe('M76: 実機の再現(fetchの呼び先を固定)', () => {
     expect(urls[0]).toBe('https://zenn.dev/api/articles/my-article-001');
   });
 });
+
+/**
+ * M77: Zennの「投稿数の上限に達したためデプロイされませんでした」で、記事が
+ * published: true のまま**誰にも読めない**状態で固まった。アプリからは「すでに公開済み」と
+ * 判定されて公開ボタンも出ず、手も足も出なくなる。再デプロイ(空コミット+push)の道を通す
+ */
+describe('M77: Zennが同期しなかった記事を、もう一度デプロイさせる', () => {
+  it('空コミット+push で同期をやり直す(記事の中身は一切変えない)', async () => {
+    const { createZennRepoAdapter } = await import('./adapters/zennRepo');
+    const git = vi.fn(async () => '');
+    const adapter = createZennRepoAdapter(() => 'C:/repo', {
+      run: git,
+      writeArticle: () => {},
+      readArticle: () => '',
+    });
+    // 記事の存在確認は実fsを見るため、ここでは存在しないslugで弾かれることを固定する
+    await expect(adapter.executor!('redeploy-article', { slug: 'not-exist-000000' })).rejects.toThrow(/見つからない/);
+    // ファイル書き込み(記事の改変)は一切していない
+    expect(git).not.toHaveBeenCalled();
+  });
+});

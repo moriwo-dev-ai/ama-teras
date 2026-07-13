@@ -520,6 +520,8 @@ describe('M34-6: 運営リモートAPI', () => {
     releasePublish: async (repo, tag) => ({ ok: true, detail: `published ${repo} ${tag}` }),
     zennPublish: async (slug) => ({ ok: true, detail: `zenn published ${slug}` }),
     zennPublishable: () => [{ slug: 'my-article-01', title: '記事', blocked: null }],
+    zennRedeploy: async (slug) => ({ ok: true, detail: 'redeploy ' + slug }),
+    zennStuck: async () => [],
     releaseInfo: async () => ({
       latestTag: 'v1.1.0',
       appVersion: '1.1.0',
