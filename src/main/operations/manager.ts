@@ -39,6 +39,7 @@ import type { LLMProvider } from '../providers/types';
 import {
   createBlueskyAdapter,
   parseBlueskyCredentials,
+  makeTokenProvider,
   BlueskyReader,
   type BlueskyPost,
 } from './adapters/bluesky';
@@ -227,7 +228,13 @@ export class OperationsManager {
 
   constructor(private readonly deps: OperationsManagerDeps) {
     this.zenn = new ZennReader(deps.fetchImpl);
-    this.bluesky = new BlueskyReader(deps.fetchImpl);
+    // M58: Blueskyの検索は認証必須になった(無認証は全クエリ403)。投稿用と同じapp passwordで
+    // ログインしてから検索する。資格情報が無ければトークンはnull=検索は403で失敗し、
+    // 巡回の神が「認証が必要」と報告する(黙って0件を返さない)
+    this.bluesky = new BlueskyReader(
+      deps.fetchImpl,
+      makeTokenProvider(() => parseBlueskyCredentials(deps.getBlueskySecret?.() ?? null), deps.fetchImpl),
+    );
     this.hn = new HnReader(deps.fetchImpl);
   }
 
@@ -609,13 +616,26 @@ export class OperationsManager {
     let matched = 0;
     const seenUris = new Set(params.seenUris);
     const seenHandles = new Set(params.seenHandles);
+    let searchError: string | null = null;
+    let searched = 0;
     for (const keyword of params.keywords.slice(0, 4)) {
-      const posts = await this.bluesky.searchPosts(keyword, 10);
+      // M58: 検索の失敗を握りつぶさない。403(認証必須化)を空配列にしていたせいで、
+      // この神は「巡回完了(評価0/候補0)」と**成功を報告しながら、何も見ていなかった**
+      let posts;
+      try {
+        posts = await this.bluesky.searchPosts(keyword, 10);
+        searched++;
+      } catch (err) {
+        searchError = err instanceof Error ? err.message : String(err);
+        break; // 1本落ちるなら残りも落ちる(同じAPI)。無駄に叩かない
+      }
       for (const post of posts) {
+        if (evaluated >= 5) break; // 1回の巡回で評価は最大5件(予算保護)
+        // M58: 上限で打ち切る**前**に既読へ入れていたため、6件目以降は
+        // 一度も評価されないまま「見た」ことにされ、二度と評価されなかった
         if (seenUris.has(post.uri) || seenHandles.has(post.handle)) continue; // 重複排除
         seenUris.add(post.uri);
         seenHandles.add(post.handle);
-        if (evaluated >= 5) break; // 1回の巡回で評価は最大5件(予算保護)
         evaluated++;
         const pasted = `@${post.handle} (${post.author})\n${post.text}`;
         const { text, tokensUsed: t } = await completeTextWithUsage(
@@ -638,7 +658,17 @@ export class OperationsManager {
       }
     }
     this.saveParams({ ...params, seenUris: [...seenUris], seenHandles: [...seenHandles] });
-    return { ok: true, detail: `巡回完了(評価${evaluated}/候補${matched})`, tokensUsed };
+    if (searchError !== null) {
+      // 受け箱にも出す。神が働けていないことは、人間が知らなければならない
+      this.inbox.post({
+        kind: 'god-failure',
+        godId: 'ameno-uzume',
+        title: `巡回できない: ${searchError}`,
+        payload: {},
+      });
+      return { ok: false, detail: `巡回失敗: ${searchError}`, tokensUsed };
+    }
+    return { ok: true, detail: `巡回完了(検索${searched}件/評価${evaluated}/候補${matched})`, tokensUsed };
   }
 
   /** AMENO-uzume 下書き(1日1回): worker帯で見せ場→下書き→受け箱 */

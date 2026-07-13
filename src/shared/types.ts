@@ -594,7 +594,13 @@ export type InboxItemKind =
   /** M34-2: HNの新着コメント・自コメントへの返信(payload.fullText に全文) */
   | 'hn-reply'
   /** M38-2: 承認された能力ギャップから進化ジョブを起票した通知 */
-  | 'evolution';
+  | 'evolution'
+  /**
+   * M58: 神が**仕事をできなかった**という報告。
+   * 巡回の神はBluesky検索が403(認証必須化)を返しても「巡回完了(評価0)」と
+   * 成功を報告し続けていた。働けない神は、働けないと言わなければならない
+   */
+  | 'god-failure';
 
 export interface InboxItem {
   id: string;

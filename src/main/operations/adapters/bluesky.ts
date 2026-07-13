@@ -17,31 +17,52 @@ export interface BlueskyPost {
 }
 
 export class BlueskyReader {
-  constructor(private readonly fetchImpl: FetchLike = (url) => fetch(url)) {}
+  constructor(
+    private readonly fetchImpl: FetchLike = (url) => fetch(url),
+    /**
+     * M58: 検索用のアクセストークン(app passwordでログインして得る)。
+     * Blueskyの公開検索APIは**認証必須になり、無認証は全クエリ403**を返すようになった
+     */
+    private readonly accessToken?: () => Promise<string | null>,
+  ) {}
 
-  /** 公開検索API(認証不要)。不達は空配列 */
+  /**
+   * 投稿検索。
+   *
+   * M58: 以前は「公開検索API(認証不要)。不達は空配列」だった。ところが Bluesky は
+   * 無認証の検索を止めており、**全クエリが403**。`if (!res.ok) return []` が
+   * それを握りつぶし、巡回の神(AMENO-uzume)は「巡回完了(評価0/候補0)」と
+   * **成功を報告し続けていた**。動いていない神が、動いているように見えていた。
+   *
+   * 不達は空配列ではなく**例外**にする。仕事ができない神は、できないと言わなければならない。
+   */
   async searchPosts(query: string, limit = 10): Promise<BlueskyPost[]> {
-    try {
-      const url = `https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(query)}&limit=${limit}`;
-      const res = await this.fetchImpl(url);
-      if (!res.ok) return [];
-      const data = (await res.json()) as Record<string, unknown>;
-      const posts = data['posts'];
-      if (!Array.isArray(posts)) return [];
-      return posts.map((p) => {
-        const rec = p as Record<string, unknown>;
-        const author = (rec['author'] ?? {}) as Record<string, unknown>;
-        const record = (rec['record'] ?? {}) as Record<string, unknown>;
-        return {
-          author: String(author['displayName'] ?? ''),
-          handle: String(author['handle'] ?? ''),
-          text: String(record['text'] ?? ''),
-          uri: String(rec['uri'] ?? ''),
-        };
-      });
-    } catch {
-      return [];
+    const url = `https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(query)}&limit=${limit}`;
+    const token = this.accessToken === undefined ? null : await this.accessToken().catch(() => null);
+    const res = await this.fetchImpl(url, {
+      headers: token === null ? {} : { authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      throw new Error(
+        res.status === 403 || res.status === 401
+          ? `Bluesky検索に認証が必要(HTTP ${res.status})。設定→接続でBlueskyのapp passwordを登録すると巡回できる`
+          : `Bluesky検索に失敗(HTTP ${res.status})`,
+      );
     }
+    const data = (await res.json()) as Record<string, unknown>;
+    const posts = data['posts'];
+    if (!Array.isArray(posts)) return [];
+    return posts.map((p) => {
+      const rec = p as Record<string, unknown>;
+      const author = (rec['author'] ?? {}) as Record<string, unknown>;
+      const record = (rec['record'] ?? {}) as Record<string, unknown>;
+      return {
+        author: String(author['displayName'] ?? ''),
+        handle: String(author['handle'] ?? ''),
+        text: String(record['text'] ?? ''),
+        uri: String(rec['uri'] ?? ''),
+      };
+    });
   }
 }
 
@@ -70,6 +91,35 @@ export function parseBlueskyCredentials(raw: string | null | undefined): Bluesky
 export type JsonFetchLike = FetchLike;
 
 const PDS = 'https://bsky.social';
+
+/**
+ * M58: 検索用のアクセストークンを取る(読むだけ。書き込みはしない)。
+ * 資格情報が無ければ null = 検索できない(巡回の神はその旨を報告する)。
+ * 15分だけ使い回す(巡回は1時間に1回。毎キーワードでログインし直す必要は無い)
+ */
+export function makeTokenProvider(
+  creds: () => BlueskyCredentials | null,
+  fetchImpl: JsonFetchLike = (url, init) => fetch(url, init),
+  nowFn: () => number = () => Date.now(),
+): () => Promise<string | null> {
+  let cached: { token: string; until: number } | null = null;
+  return async () => {
+    if (cached !== null && cached.until > nowFn()) return cached.token;
+    const c = creds();
+    if (c === null) return null;
+    const res = await fetchImpl(`${PDS}/xrpc/com.atproto.server.createSession`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ identifier: c.identifier, password: c.appPassword }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as Record<string, unknown>;
+    const token = String(data['accessJwt'] ?? '');
+    if (token === '') return null;
+    cached = { token, until: nowFn() + 15 * 60_000 };
+    return token;
+  };
+}
 
 /**
  * AT Protocol の書き込みクライアント。呼び出しは岩戸ゲートの executor からのみ
