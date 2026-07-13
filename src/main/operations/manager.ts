@@ -215,6 +215,26 @@ export function stripUnreleasedLines(text: string): string {
   return out.join('\n');
 }
 
+/**
+ * M61: 神議に見せる「発信」の数え方。
+ *
+ * Zenn記事1本は `article-outline`(アウトライン)と `article-body`(本文)の**2レコード**になる。
+ * 本文はアウトラインから起こした同じ記事なのに、どちらも投稿済みとして記録されるため、
+ * 記事2本が「zenn 4件の投下」に見えていた。神議はそれを見て
+ * 「7/12だけでzenn5件・x4件を投下 = 物量過多」と誤診し、さらに「同一内容が二重投稿されている」
+ * という(実在しない)不具合の修正まで提案してきた。**神の誤読を、我々のデータ構造が誘発していた。**
+ *
+ * 外に出た「1つの発信」= 記事1本。本文レコードは数えない。
+ */
+function outward(drafts: OperationsDraft[], status: 'posted' | 'staged'): OperationsDraft[] {
+  return drafts.filter(
+    (d) =>
+      d.status === status &&
+      d.kind !== 'article-body' && // アウトラインと同じ記事。二重に数えない
+      !mentionsUnreleased(`${d.title}\n${d.body}`),
+  );
+}
+
 function dropUnreleased<T extends { title: string; body: string }>(drafts: T[]): T[] {
   return drafts.filter((d) => !mentionsUnreleased(`${d.title}\n${d.body}`));
 }
@@ -841,15 +861,11 @@ export class OperationsManager {
       // 見せると神議はそれを「効いた発信」として数え、続編を書こうとする(実際、
       // 削除済みの月読記事を「閲覧を作れている読み物」として分析に持ち出した)。
       // 出さない話題は、出した記録も持たせない
-      postedDrafts: this.drafts
-        .list()
-        .filter((d) => d.status === 'posted' && !mentionsUnreleased(`${d.title}\n${d.body}`)),
+      postedDrafts: outward(this.drafts.list(), 'posted'),
       // M57: 「準備できたが未公開」を分けて渡す。混ぜていたせいで、神議は誰にも読まれていない
       // Zenn記事(published:false)を「投下した発信」として数え、反応が無いことを
       // 「物量>質」のせいだと誤診していた。公開待ちは**露出ゼロ**であって、失敗した発信ではない
-      stagedDrafts: this.drafts
-        .list()
-        .filter((d) => d.status === 'staged' && !mentionsUnreleased(`${d.title}\n${d.body}`)),
+      stagedDrafts: outward(this.drafts.list(), 'staged'),
       jobs: this.scheduler.list(),
       currentKeywords: params.keywords,
       project: this.project(),
@@ -1599,7 +1615,8 @@ ${d.body}`))
    */
   impacts(windowHours = 24): ImpactEntry[] {
     if (!this.ensureInitialized() || this.drafts === null || this.omoi === null) return [];
-    const posted = this.drafts.list().filter((d) => d.status === 'posted');
+    // M61: 記事1本が outline+body の2レコードになるため、同じ記事の効果を2回測っていた
+    const posted = this.drafts.list().filter((d) => d.status === 'posted' && d.kind !== 'article-body');
     return computeImpacts(posted, this.omoi.history(200), new Date(), windowHours);
   }
 

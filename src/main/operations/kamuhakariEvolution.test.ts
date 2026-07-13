@@ -51,3 +51,27 @@ describe('M52: 神議は進化ジョブの実状態を見る', () => {
     expect(prompt).toContain('催促するだけの提案');
   });
 });
+
+/**
+ * M61: **神の誤読を、我々のデータ構造が誘発していた。**
+ *
+ * Zenn記事1本は article-outline(アウトライン)と article-body(本文)の2レコードになる。
+ * どちらも投稿済みとして記録されるため、記事2本が「zenn 4件の投下」に見えた。神議は
+ * 「物量過多」と誤診し、さらに「同一内容が二重投稿されている」という実在しない不具合の
+ * 修正まで提案してきた。外に出た「1つの発信」= 記事1本。本文レコードは数えない。
+ */
+describe('M61: 記事1本を2件と数えない', () => {
+  it('神議に渡す投稿履歴に article-body は載せない(アウトラインと同じ記事)', () => {
+    const prompt = buildKamuhakariPrompt({
+      ...base,
+      postedDrafts: [
+        { id: '1', kind: 'article-outline', title: '岩戸開き', body: '', createdAt: '', status: 'posted', media: 'zenn' },
+      ],
+      stagedDrafts: [],
+    });
+
+    expect(prompt).toContain('岩戸開き');
+    // 本文レコード(Zenn記事: 岩戸開き…)は manager 側で除かれるため、ここには現れない
+    expect(prompt).not.toContain('Zenn記事: 岩戸開き');
+  });
+});
