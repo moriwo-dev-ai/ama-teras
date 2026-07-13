@@ -19,16 +19,21 @@ import { extractJson } from './llm';
 // ---- 発信ドラフト ----
 
 /**
- * M57: 既存データの是正。Zenn(published:false)とGitHub Release(draft)へ出した下書きは
- * 「投稿済み」として記録されていたが、**どちらも外からは誰も読めない**。
- * 実機には zenn 4件がこの状態で残っており、神議はそれを「投下した発信」として数え、
- * 反応の無さを「物量>質」と誤診していた。読み込み時に staged(公開待ち)へ倒す。
+ * M78: ここには migrateStaged があった。
+ *
+ * M57の時点では「Zenn記事とGitHub Releaseは**アプリからは公開できない**(人間が別途
+ * ボタンを押す)」ので、zenn/github の下書きが posted であることは常に嘘だった。
+ * だから読み込みのたびに posted → staged へ倒していた。
+ *
+ * ところが M73 でZennの公開がアプリからできるようになり、M76 で**Zennの公開APIに
+ * 実際に読めるか聞く**ようになった。それでもこの一括変換が残っていたため、
+ * **本当に公開された記事の下書きを、読み込むたびに「公開待ち」へ巻き戻していた**。
+ * M76が真実を書いても、次の list() が上書きする。神議は公開済みの記事を4本の
+ * 「公開待ち」として数え続けた。
+ *
+ * 公開されたかどうかは、もう憶測で倒す必要がない。**Zennに聞けば分かる**
+ * (OperationsManager.reconcileZennLedger が isLive() の結果で status を決める)。
  */
-function migrateStaged(d: OperationsDraft): OperationsDraft {
-  const notPublic = d.media === 'zenn' || d.media === 'github';
-  return d.status === 'posted' && notPublic ? { ...d, status: 'staged' } : d;
-}
-
 export class DraftStore {
   private readonly path: string;
 
@@ -40,7 +45,7 @@ export class DraftStore {
   list(): OperationsDraft[] {
     try {
       const parsed: unknown = JSON.parse(readFileSync(this.path, 'utf8'));
-      return Array.isArray(parsed) ? (parsed as OperationsDraft[]).map(migrateStaged) : [];
+      return Array.isArray(parsed) ? (parsed as OperationsDraft[]) : [];
     } catch {
       return [];
     }
