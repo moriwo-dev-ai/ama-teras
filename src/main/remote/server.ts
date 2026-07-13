@@ -120,6 +120,30 @@ export interface RemoteOperationsFacade {
   ): import('../../shared/types').GodClockJob | null;
   /** 神を今すぐ1回動かす(観測・下書き生成・トリアージ・神議) */
   godRun(godId: string): Promise<{ ok: boolean; detail: string; tokensUsed: number }>;
+
+  // ---- M60: スマホからも「公開」まで届かせる ----
+  /**
+   * 下書きリリースの公開。**staged(公開待ち)を実際に外へ出す唯一の操作**。
+   * スマホから公開できないせいで、Zenn2本・Release2件が誰にも読まれないまま
+   * 埋もれていた(神議も「公開作業の未実施がボトルネック」と診断した)。
+   * 押した瞬間に全利用者へ更新通知が飛ぶので、岩戸ゲートを必ず通る
+   */
+  releasePublish(repo: string, tag: string): Promise<{ ok: boolean; detail: string }>;
+  /**
+   * リリースの版情報(前回タグ・次の版の候補・package.jsonとのズレ・**公開待ちの下書きリリース**)。
+   * pendingDraft.assets が空なら公開させない(中身の無いリリースを世に出さないため)
+   */
+  releaseInfo(repo: string): Promise<{
+    latestTag: string | null;
+    appVersion: string;
+    suggestions: { patch: string | null; minor: string | null; major: string | null };
+    mismatch: boolean;
+    pendingDraft: { tag: string; assets: string[] } | null;
+  }>;
+  /** メトリクスの時系列(前回比を出すために複数点が要る。PCは30件見ている) */
+  history(limit: number): import('../../shared/types').MetricsSnapshot[];
+  /** アダプタの稼働状況(gh未検出などの警告がスマホから見えない問題) */
+  adapterStatus(): Promise<{ enabled: boolean; ghDetected: boolean; adapters: { id: string; available: boolean }[] }>;
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -542,6 +566,36 @@ export class RemoteServer {
         const body = await readJsonBody(req);
         if (typeof body['godId'] !== 'string') throw new HttpError(400, 'godId(string) が必要');
         return sendJson(res, 200, await this.deps.operations.godRun(body['godId']));
+      }
+
+      // ---- M60: 公開と、その判断に要る情報をスマホへ ----
+      case 'POST /api/ops/release-publish': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        const body = await readJsonBody(req);
+        const repo = body['repo'];
+        const tag = body['tag'];
+        if (typeof repo !== 'string' || typeof tag !== 'string') throw new HttpError(400, 'repo/tag(string) が必要');
+        return sendJson(res, 200, await this.deps.operations.releasePublish(repo, tag));
+      }
+
+      case 'GET /api/ops/release-info': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        const repo = url.searchParams.get('repo') ?? '';
+        if (repo === '') throw new HttpError(400, 'repo が必要');
+        return sendJson(res, 200, await this.deps.operations.releaseInfo(repo));
+      }
+
+      case 'GET /api/ops/history': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        const limit = Number(url.searchParams.get('limit') ?? '30');
+        return sendJson(res, 200, {
+          snapshots: this.deps.operations.history(Number.isFinite(limit) ? limit : 30),
+        });
+      }
+
+      case 'GET /api/ops/adapters': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        return sendJson(res, 200, await this.deps.operations.adapterStatus());
       }
 
       case 'POST /api/ops/iwato-respond': {

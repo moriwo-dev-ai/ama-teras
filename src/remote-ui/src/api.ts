@@ -196,6 +196,26 @@ export class RemoteApi {
   }
 
   /** 神を今すぐ1回動かす(観測/下書き生成/トリアージ/神議) */
+  /** M60: 下書きリリースの公開(staged → 世に出る)。岩戸ゲートの承認カードがスマホに出る */
+  opsReleasePublish(repo: string, tag: string): Promise<{ ok: boolean; detail: string }> {
+    return this.req('POST', '/api/ops/release-publish', { repo, tag });
+  }
+
+  opsReleaseInfo(repo: string): Promise<{
+    latestTag: string | null;
+    appVersion: string;
+    suggestions: { patch: string | null; minor: string | null; major: string | null };
+    mismatch: boolean;
+    pendingDraft: { tag: string; assets: string[] } | null;
+  }> {
+    return this.req('GET', `/api/ops/release-info?repo=${encodeURIComponent(repo)}`);
+  }
+
+  /** M60: 時系列(前回比を出すには複数点が要る。スマホは合計値しか見えていなかった) */
+  opsHistory(limit = 30): Promise<{ snapshots: import('../../shared/types').MetricsSnapshot[] }> {
+    return this.req('GET', `/api/ops/history?limit=${limit}`);
+  }
+
   opsGodRun(godId: string): Promise<{ ok: boolean; detail: string; tokensUsed: number }> {
     return this.req('POST', '/api/ops/god-run', { godId });
   }

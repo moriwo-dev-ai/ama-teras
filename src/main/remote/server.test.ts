@@ -516,6 +516,17 @@ describe('M34-6: 運営リモートAPI', () => {
       return null;
     },
     godRun: async (godId) => ({ ok: true, detail: `ran ${godId}`, tokensUsed: 0 }),
+    // M60: スマホから公開まで届かせる(公開できないせいで staged が埋もれていた)
+    releasePublish: async (repo, tag) => ({ ok: true, detail: `published ${repo} ${tag}` }),
+    releaseInfo: async () => ({
+      latestTag: 'v1.1.0',
+      appVersion: '1.1.0',
+      suggestions: { patch: 'v1.1.1', minor: 'v1.2.0', major: 'v2.0.0' },
+      mismatch: false,
+      pendingDraft: { tag: 'v1.2.0', assets: ['AMA-teras.Setup.1.2.0.exe'] },
+    }),
+    history: () => [],
+    adapterStatus: async () => ({ enabled: true, ghDetected: true, adapters: [{ id: 'github', available: true }] }),
   };
 
   it('operations 未注入なら /api/ops/* は404', async () => {
@@ -597,6 +608,31 @@ describe('M34-6: 運営リモートAPI', () => {
     const run = await rawPost(port, '/api/ops/god-run', { godId: 'omoi-kami' }, authed());
     expect(JSON.parse(run.body).detail).toBe('ran omoi-kami');
     expect((await rawPost(port, '/api/ops/god-run', {}, authed())).status).toBe(400);
+  });
+
+  /**
+   * M60: **公開まで届かない**のが最大の詰まりだった。スマホから公開できないせいで
+   * Zenn2本・GitHub Release2件が誰にも読まれないまま埋もれ、神議は「反応が無い」を
+   * コンテンツの問題だと誤診し続けた(実際の原因は「公開ボタンが押されていない」)。
+   */
+  it('M60: 下書きリリースの公開・版情報・時系列がスマホから届く(認証必須)', async () => {
+    await startServer({ operations: opsStub });
+
+    // 認証なしは通さない(公開は不可逆・全利用者へ更新通知が飛ぶ)
+    expect((await rawPost(port, '/api/ops/release-publish', { repo: 'o/r', tag: 'v1.2.0' })).status).toBe(401);
+
+    const pub = await rawPost(port, '/api/ops/release-publish', { repo: 'o/r', tag: 'v1.2.0' }, authed());
+    expect(JSON.parse(pub.body).detail).toBe('published o/r v1.2.0');
+    // repo/tag が無ければ実行しない(取り違えた公開ほど怖いものはない)
+    expect((await rawPost(port, '/api/ops/release-publish', { repo: 'o/r' }, authed())).status).toBe(400);
+
+    const info = await rawGet(port, '/api/ops/release-info?repo=o/r', authed());
+    expect(JSON.parse(info.body).pendingDraft.tag).toBe('v1.2.0');
+    expect((await rawGet(port, '/api/ops/release-info', authed())).status).toBe(400);
+
+    // 前回比を出すには複数点が要る(スマホは合計値しか見えていなかった)
+    expect((await rawGet(port, '/api/ops/history?limit=2', authed())).status).toBe(200);
+    expect((await rawGet(port, '/api/ops/adapters', authed())).status).toBe(200);
   });
 });
 

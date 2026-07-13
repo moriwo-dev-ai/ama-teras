@@ -1195,6 +1195,19 @@ export async function registerIpcHandlers(
         draftZennArticle: (draftId) => operations.requestZennArticle(draftId),
         clockUpdate: (id, patch) => operations.updateClock(id, patch),
         godRun: (godId) => operations.runGodNow(godId),
+        // M60: スマホから「公開」まで届かせる。公開できないせいで、Zenn2本・Release2件が
+        // 誰にも読まれないまま埋もれていた(神議も「公開作業の未実施がボトルネック」と診断)
+        releasePublish: (repo, tag) => operations.requestReleasePublish(repo, tag),
+        releaseInfo: (repo) => operations.releaseInfo(repo),
+        history: (limit) => operations.history(limit),
+        adapterStatus: async () => {
+          const s = await operations.status();
+          return {
+            enabled: s.enabled,
+            ghDetected: s.ghDetected,
+            adapters: s.adapters.map((a) => ({ id: a.id, available: a.available })),
+          };
+        },
       },
       remoteSettings: {
         get: sanitizedConfig,

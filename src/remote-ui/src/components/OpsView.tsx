@@ -85,6 +85,32 @@ function signed(n: number): string {
   return n >= 0 ? `+${n}` : `${n}`;
 }
 
+const totals = (s: MetricsSnapshot): { stars: number; liked: number; hatena: number; views: number; downloads: number } => ({
+  stars: Object.values(s.github).reduce((a, m) => a + m.stars, 0),
+  liked: Object.values(s.zenn).reduce((a, m) => a + m.liked, 0),
+  hatena: s.hatena === undefined ? 0 : Object.values(s.hatena).reduce((a, c) => a + c, 0),
+  views: Object.values(s.github).reduce((a, m) => a + (m.views ?? 0), 0),
+  downloads: Object.values(s.github).reduce((a, m) => a + (m.downloads ?? 0), 0),
+});
+
+function diffTotals(cur: MetricsSnapshot, prev: MetricsSnapshot): ReturnType<typeof totals> {
+  const c = totals(cur);
+  const p = totals(prev);
+  return { stars: c.stars - p.stars, liked: c.liked - p.liked, hatena: c.hatena - p.hatena, views: c.views - p.views, downloads: c.downloads - p.downloads };
+}
+
+/** 数字と前回比。0のときは差分を出さない(「動いていない」ことが一目で分かるように) */
+function Metric({ label, value, delta }: { label: string; value: number; delta?: number }): JSX.Element {
+  return (
+    <span>
+      {label} {value}
+      {delta !== undefined && delta !== 0 && (
+        <span style={{ color: delta > 0 ? 'var(--green)' : 'var(--red)', fontSize: 12 }}> {signed(delta)}</span>
+      )}
+    </span>
+  );
+}
+
 /**
  * M55: 長文は既定で4行に畳む。以前は maxHeight + overflow:auto の枠内スクロールで、
  * ページを指でスクロールしている最中に枠へ入るとスクロールが吸われていた(スクロールトラップ)。
@@ -101,6 +127,75 @@ function LongText({ text }: { text: string }): JSX.Element {
           {open ? '畳む' : 'つづきを読む'}
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * M60: 下書きリリースの公開。**staged を実際に世に出す唯一の操作**で、これがスマホから
+ * できないせいで Zenn2本・Release2件が誰にも読まれないまま埋もれていた
+ * (神議も「公開作業の未実施がボトルネック」と診断した)。
+ * 配布物(assets)が空のリリースは公開させない — 中身の無いリリースを世に出さないため
+ */
+function ReleasePublish({ repos, api, onDone }: { repos: string[]; api: RemoteApi; onDone: () => void }): JSX.Element {
+  const [repo, setRepo] = useState(repos[0] ?? '');
+  const [info, setInfo] = useState<{ tag: string; assets: string[] } | null>(null);
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (repo === '') return;
+    void api
+      .opsReleaseInfo(repo)
+      .then((r) => setInfo(r.pendingDraft))
+      .catch(() => setInfo(null));
+  }, [api, repo]);
+
+  return (
+    <div style={{ marginTop: 8, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+      <div className="row">
+        <select value={repo} onChange={(e) => setRepo(e.target.value)}>
+          {repos.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+      </div>
+      {info === null ? (
+        <p className="muted" style={{ fontSize: 11 }}>公開待ちの下書きリリースは無い</p>
+      ) : (
+        <>
+          <div style={{ fontSize: 12 }}>
+            🐙 {info.tag}{' '}
+            <span className="muted">
+              ({info.assets.length > 0 ? `${info.assets.length}個の配布物` : '配布物なし'})
+            </span>
+          </div>
+          <button
+            className="publish"
+            disabled={busy || info.assets.length === 0}
+            title={info.assets.length === 0 ? '配布物が無いリリースは公開できない' : ''}
+            onClick={() => {
+              setBusy(true);
+              void api
+                .opsReleasePublish(repo, info.tag)
+                .then((r) => setNotice(r.detail))
+                .catch((e: unknown) => setNotice(e instanceof Error ? e.message : String(e)))
+                .finally(() => {
+                  setBusy(false);
+                  onDone();
+                });
+            }}
+          >
+            {busy ? '…' : `⛩ ${info.tag} を公開する`}
+          </button>
+          <p className="muted" style={{ fontSize: 11 }}>
+            押した瞬間に全利用者のアプリへ更新通知が飛ぶ。承認カードがこの画面に出る
+          </p>
+        </>
+      )}
+      {notice !== '' && <div className="muted" style={{ fontSize: 11 }}>{notice}</div>}
     </div>
   );
 }
@@ -531,6 +626,8 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
   const [clocks, setClocks] = useState<GodClockJob[]>([]);
   const [inbox, setInbox] = useState<(InboxItem & { read: boolean })[]>([]);
   const [latest, setLatest] = useState<MetricsSnapshot | null>(null);
+  // M60: 前回のスナップショット(前回比のため)。合計値だけでは動いているかが読めない
+  const [prev, setPrev] = useState<MetricsSnapshot | null>(null);
   const [iwato, setIwato] = useState<IwatoRequestPayload[]>([]);
   const [batches, setBatches] = useState<ApprovalBatch[]>([]);
   const [messages, setMessages] = useState<OpsThreadMessage[]>([]);
@@ -565,6 +662,12 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
       .catch(() => setEnabled(false));
     void api.opsBatches().then((b) => setBatches(b.batches)).catch(() => {});
     void api.opsThread().then((t) => setMessages(t.messages)).catch(() => {});
+    // M60: 直近2点あれば前回比が出せる。history は**古い順**に返す(slice(-limit))ので、
+    // 2件なら [前回, 最新]。index 0 が前回
+    void api
+      .opsHistory(2)
+      .then((h) => setPrev(h.snapshots.length >= 2 ? (h.snapshots[0] ?? null) : null))
+      .catch(() => setPrev(null));
     void api
       .opsDrafts()
       .then((d) => {
@@ -593,6 +696,9 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
   const stars = latest ? Object.values(latest.github).reduce((a, m) => a + m.stars, 0) : null;
   const liked = latest ? Object.values(latest.zenn).reduce((a, m) => a + m.liked, 0) : null;
   const hatena = latest?.hatena !== undefined ? Object.values(latest.hatena).reduce((a, c) => a + c, 0) : null;
+  const views = latest ? Object.values(latest.github).reduce((a, m) => a + (m.views ?? 0), 0) : null;
+  const downloads = latest ? Object.values(latest.github).reduce((a, m) => a + (m.downloads ?? 0), 0) : null;
+  const delta = latest !== null && prev !== null ? diffTotals(latest, prev) : null;
   const activeDrafts = drafts.filter((d) => d.status === 'draft');
   // M55: 投稿済みも出す。以前は status==='draft' だけを描いていたため、
   // 「未投稿に戻す」ボタンが**永久に描画されず**、X投稿画面を開いて(=posted化)から
@@ -618,13 +724,21 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
       {/* 主要数字 */}
       <div className="card">
         <h3>📊 いまの数字</h3>
+        {/* M60: 合計値だけでは「動いているのか止まっているのか」が読めない。
+            PCは前回比を出している。スマホにも同じものを出す */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 14 }}>
-          {stars !== null && <span>★ {stars}</span>}
-          {liked !== null && <span>Zenn♥ {liked}</span>}
-          {hatena !== null && <span>B! {hatena}</span>}
-          {latest?.hn?.karma !== undefined && <span>HN karma {latest.hn.karma}</span>}
+          {stars !== null && <Metric label="★" value={stars} delta={delta?.stars} />}
+          {liked !== null && <Metric label="Zenn♥" value={liked} delta={delta?.liked} />}
+          {hatena !== null && <Metric label="B!" value={hatena} delta={delta?.hatena} />}
+          {views !== null && <Metric label="閲覧" value={views} delta={delta?.views} />}
+          {downloads !== null && <Metric label="DL" value={downloads} delta={delta?.downloads} />}
         </div>
-        {latest !== null && <div className="muted" style={{ fontSize: 11 }}>観測: {latest.ts.slice(5, 16)}</div>}
+        {latest !== null && (
+          <div className="muted" style={{ fontSize: 11 }}>
+            観測: {latest.ts.slice(5, 16)}
+            {prev !== null && ` (前回 ${prev.ts.slice(5, 16)} との差)`}
+          </div>
+        )}
         {impacts.length > 0 && (
           <div style={{ marginTop: 8 }}>
             <div style={{ fontSize: 12, fontWeight: 600 }}>発信の効果(前後差分)</div>
@@ -671,10 +785,13 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
             <div key={d.id} style={{ fontSize: 12, margin: '6px 0' }}>
               <span className="muted">[{d.media ?? '?'}]</span> {d.title}
               <div className="muted" style={{ fontSize: 11 }}>
-                {d.media === 'zenn' ? 'Zennの記事管理で published: true にする' : 'GitHubのReleaseでPublishを押す'}
+                {d.media === 'zenn' ? 'Zennの記事管理で published: true にする(スマホからは公開できない)' : '↓ ここから公開できる'}
               </div>
             </div>
           ))}
+          {/* M60: GitHub Release だけはスマホから公開できる(岩戸ゲートの承認カードが出る)。
+              Zennは記事管理画面での操作が要るので、ここでは案内だけ */}
+          <ReleasePublish repos={repos} api={api} onDone={reload} />
         </div>
       )}
 
