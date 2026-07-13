@@ -7,8 +7,26 @@ const MAX_JOBS = 30;
 /** 1ジョブあたりに残すログ行数(生成ログは長い。末尾=結論に近い側を残す) */
 const MAX_LOG_LINES = 40;
 
-/** 起動時に「実行中」で残っていたジョブ = 前回の終了で中断された */
-const RUNNING: string[] = ['queued', 'preparing_worktree', 'generating', 'verifying', 'awaiting_promotion'];
+/** 起動時に「実行中」で残っていたジョブ = 前回の終了で中断された(成果は残っていない) */
+const RUNNING: string[] = ['queued', 'preparing_worktree', 'generating', 'verifying'];
+
+/**
+ * M70: awaiting_promotion を RUNNING に入れていたため、**全ゲートを通過して人間の承認だけを
+ * 待っていたジョブ**が、再起動のたびに「アプリ終了により中断された」失敗として上書きされていた。
+ * 中断されたのは承認待ちの待機だけで、生成物はブランチに残っている。同じ「失敗」でも、
+ * 捨てるしかないものと、拾い直せるものを混ぜない
+ */
+function restoreStatus(job: EvolutionJobSummary): EvolutionJobSummary {
+  if (job.status === 'awaiting_promotion') {
+    const branch = `evolve/job-${job.id}`;
+    return {
+      ...job,
+      status: 'failed',
+      error: `アプリ終了で昇格の承認待ちが失われた。検証ゲートは全て通過しており、成果はブランチ ${branch} に残っている(同じ要求を出し直すか、手動でマージできる)`,
+    };
+  }
+  return RUNNING.includes(job.status) ? { ...job, status: 'failed', error: 'アプリ終了により中断された' } : job;
+}
 
 /**
  * M52: 進化ジョブの履歴を永続化する。
@@ -32,12 +50,8 @@ export class JobStore {
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter((j): j is EvolutionJobSummary => typeof j === 'object' && j !== null && 'id' in j)
-      .map((j) =>
-        // 前回の終了で中断されたジョブを「実行中」のまま復元すると、永遠に終わらないジョブに見える
-        RUNNING.includes(j.status)
-          ? { ...j, status: 'failed' as const, error: 'アプリ終了により中断された' }
-          : j,
-      );
+      // 前回の終了で中断されたジョブを「実行中」のまま復元すると、永遠に終わらないジョブに見える
+      .map(restoreStatus);
   }
 
   async save(jobs: EvolutionJobSummary[]): Promise<void> {

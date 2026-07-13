@@ -47,12 +47,28 @@ describe('M52: 進化ジョブ履歴の永続化', () => {
 
   it('前回の終了で中断された「実行中」ジョブは failed として復元する(永遠に走り続けて見えないように)', async () => {
     const store = new JobStore(file);
-    await store.save([job({ id: 3, status: 'generating' }), job({ id: 4, status: 'awaiting_promotion' })]);
+    await store.save([job({ id: 3, status: 'generating' })]);
 
     const restored = await store.load();
 
-    expect(restored.map((j) => j.status)).toEqual(['failed', 'failed']);
+    expect(restored.map((j) => j.status)).toEqual(['failed']);
     expect(restored[0]!.error).toContain('中断');
+  });
+
+  /**
+   * M70: 全ゲートを通過して人間の承認だけを待っていたジョブを、「中断された」と一括りにして
+   * いた。中断されたのは待機だけで、生成物はブランチに残っている。捨てるしかない失敗と、
+   * 拾い直せる失敗を混ぜない
+   */
+  it('昇格の承認待ちだったジョブは、成果がブランチに残っていることを理由に書く', async () => {
+    const store = new JobStore(file);
+    await store.save([job({ id: 16, status: 'awaiting_promotion' })]);
+
+    const [restored] = await store.load();
+
+    expect(restored!.status).toBe('failed');
+    expect(restored!.error).toContain('evolve/job-16');
+    expect(restored!.error).toContain('検証ゲートは全て通過');
   });
 
   it('ログは末尾40行だけ残す(生成ログは長い。結論に近い側を残す)', async () => {
