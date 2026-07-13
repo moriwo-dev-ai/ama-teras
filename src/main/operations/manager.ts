@@ -976,7 +976,15 @@ export class OperationsManager {
       this.thread.post({ role: 'kamuhakari', kind: 'approval-batch', body: `承認バッチ(${batch.items.length}件)`, batchId: batch.id });
     }
     this.inbox.markRead(unread.map((u) => u.id));
-    this.inbox.post({ kind: 'kamuhakari-report', godId: 'kamuhakari', title: `神議: 適用${appliedChanges.length}件/承認待ち${batch?.items.length ?? 0}件`, payload: {} });
+    // M65: 「承認待ちN件」とだけ書いていたため、次の回の神議がこれを進化ジョブの承認待ちと
+    // 取り違え、「進化ジョブの実状態(なし)と矛盾する。報告経路の不整合が疑われる」と
+    // 自作自演の異常報告を書いた。何の承認かを名前で区別する
+    this.inbox.post({
+      kind: 'kamuhakari-report',
+      godId: 'kamuhakari',
+      title: `神議: 自律適用${appliedChanges.length}件/承認カード${batch?.items.length ?? 0}件(運営の提案。進化ジョブとは別)`,
+      payload: {},
+    });
     return { analysis: parsed.analysis, appliedChanges, batch, tokensUsed };
   }
 
