@@ -229,6 +229,15 @@ export function getPluginCacheDir(): string {
 }
 
 /**
+ * M71: 導入したプラグインの置き場。同梱先(resources/plugins)は配布版では
+ * Program Files 配下=書き込めない。**導入したツールを置ける場所がどこにも無かった**ため、
+ * 配布版のレジストリ導入は構造的に成立していなかった
+ */
+export function getUserPluginsDir(): string {
+  return join(app.getPath('userData'), 'plugins');
+}
+
+/**
  * remote-ui のビルド出力。開発時はリポジトリの out/remote-ui、パッケージ版は
  * asar 内の out/remote-ui(electron-builder の files に out/** が含まれ、
  * electron の fs は asar 内パスを透過的に読める)。
@@ -284,7 +293,8 @@ export async function registerIpcHandlers(
     if (wc && !wc.isDestroyed()) wc.send(channel, payload);
   };
 
-  const registry = new ToolRegistry(getPluginsDir(), getPluginCacheDir());
+  // M71: 同梱プラグイン + 導入したプラグイン(userData/plugins)。組み込みが先=同名は組み込みが勝つ
+  const registry = new ToolRegistry([getPluginsDir(), getUserPluginsDir()], getPluginCacheDir());
   await registry.reload();
   // M42(TUKU-yomi): オーナー機体の門。鍵ファイルが無ければ設定側で強制OFFになる(鉄則4)。
   // 毎回 existsSync するのは、鍵を置いた瞬間に効かせるため(再起動を要求しない)
@@ -321,6 +331,9 @@ export async function registerIpcHandlers(
     config,
     secrets,
     audit,
+    // M71: 配布版は進化パイプラインを持てないので、プラグイン導入は git 非依存の経路を使う
+    packaged: app.isPackaged,
+    userPluginsDir: getUserPluginsDir(),
     defaultWorkspace: () => app.getAppPath(),
     denyPaths: {
       userDataDir: app.getPath('userData'),
@@ -373,10 +386,12 @@ export async function registerIpcHandlers(
           list: () => [],
           enqueue: async () => {
             throw new Error(
-              '配布版ではコア自己進化(新ツールの生成・インポート)は動作しません' +
-                '(ソースコードとgitリポジトリが必要です)。プラグインはコミュニティ' +
-                'レジストリから導入できるようになる予定です(準備中)。' +
-                '今すぐ使うには開発版(git clone → npm install → npm start)をご利用ください',
+              '配布版では新しいツールの**生成**(コードを書き起こす自己進化)は動作しません' +
+                '(ソースコードとgitリポジトリが必要です)。' +
+                'ただし、既存プラグインの**導入**は可能です: 設定→ツール→「プラグインを読み込む」' +
+                '(またはコミュニティレジストリ)から入れられます。検査と全文確認・承認を経て' +
+                'すぐ使えるようになります。ツールを新規に生成したい場合は開発版' +
+                '(git clone → npm install → npm start)をご利用ください',
             );
           },
         };

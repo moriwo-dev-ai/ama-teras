@@ -67,6 +67,13 @@ import { DEFAULT_OPENAI_MODEL, OpenAIProvider } from '../providers/openai';
 import type { ChatMessage, LLMProvider } from '../providers/types';
 import { inspectImportDir } from '../registry/packager';
 import {
+  installPlugin,
+  installPreview,
+  pluginDangerWarnings,
+  preparePluginInstall,
+  uninstallPlugin,
+} from '../tools/install';
+import {
   downloadRegistryGod,
   downloadRegistryPlugin,
   fetchRegistryGods,
@@ -209,6 +216,13 @@ export interface AgentServiceDeps {
    * M26-4: band(帯ラベル)付きで記録し、帯別のコスト可視化に使う
    */
   usage?: { record(provider: string, model: string, delta: UsageDelta, band?: string): void };
+  /**
+   * M71: 配布版(app.isPackaged)。進化パイプラインの前提(ソースツリー+.git+devDeps)が
+   * 無いため、プラグイン導入は git 非依存の経路(検査→承認→userData/pluginsへ配置)に切り替える
+   */
+  packaged?: boolean;
+  /** M71: 導入したプラグインの置き場(userData/plugins)。配布版には書き込める置き場が無かった */
+  userPluginsDir?: string;
 }
 
 // M26-9(T9): 帯名と解決規則は bands.ts へ抽出(従来のimport元互換のため再export)
@@ -2358,7 +2372,71 @@ export class AgentService {
    * 合格なら進化ジョブとして enqueue する(以降は既存の検証ゲート→承認→昇格と同一経路。
    * ゲートの省略は不可)。既存ツールと同名なら「既存修正(targetTool)」として扱う
    */
-  async pluginImportStart(dir: string): Promise<PluginImportStartResult> {
+  /**
+   * M71: 進化パイプライン(git worktree → typecheck → vitest → 昇格マージ)を通せない環境
+   * =配布版での導入。実機の配布版で確認したところ、ファイルからもレジストリからも
+   * ツールを入れられなかった(enqueue が「配布版では動作しません」で必ず失敗する)。
+   * 検査 → 危険警告 → 全文を見せて承認 → userData/plugins へ配置 → リロード →
+   * 読み込めなければ撤去、という git 非依存の経路を通す。
+   */
+  private async pluginInstallDirect(dir: string, origin: string): Promise<PluginImportStartResult> {
+    const userDir = this.deps.userPluginsDir;
+    if (userDir === undefined) return { ok: false, message: 'プラグインの導入先が未設定(userPluginsDir未注入)' };
+    const prepared = await preparePluginInstall(dir);
+    if (!prepared.ok) return { ok: false, message: `インポート検査に失敗:\n${prepared.errors.join('\n')}` };
+    const { plugin } = prepared;
+
+    const warnings = [...pluginDangerWarnings(plugin.code, plugin.manifest), ...prepared.warnings];
+    const approved = await this.requestInstallApproval(plugin.name, installPreview(plugin, origin), warnings);
+    if (!approved) return { ok: false, message: `「${plugin.name}」の導入は承認されなかった(何も配置していない)` };
+
+    await installPlugin(dir, userDir, plugin.name);
+    await this.deps.registry.reload();
+    if (this.deps.registry.get(plugin.name) === undefined) {
+      // 置いたが読めない = 壊れている。入れっぱなしにせず撤去する(ツール一覧に死体を残さない)
+      await uninstallPlugin(userDir, plugin.name);
+      await this.deps.registry.reload();
+      const why = this.deps.registry.errors.find((e) => e.filePath.includes(plugin.name))?.message ?? '読み込みに失敗';
+      return { ok: false, message: `「${plugin.name}」は読み込めなかったため撤去した: ${why}` };
+    }
+    this.deps.audit.append({
+      tool: 'plugin-install',
+      scope: 'system',
+      paths: [userDir],
+      event: 'result',
+      detail: `プラグイン導入(承認済み): ${plugin.name} v${plugin.manifest.version} (${origin})`,
+    });
+    return {
+      ok: true,
+      message: `「${plugin.name}」を導入した(承認済み。すぐ使える)`,
+      manifest: plugin.manifest,
+      warnings,
+    };
+  }
+
+  /** 導入の承認。昇格ダイアログと同じ経路(全文+危険警告)を使う。jobIdは負値=進化ジョブと衝突しない */
+  private requestInstallApproval(toolName: string, preview: string, warnings: string[]): Promise<boolean> {
+    const jobId = this.nextInstallApprovalId--;
+    return new Promise<boolean>((resolve) => {
+      this.pendingPromotions.set(jobId, resolve);
+      const event: PromotionRequestEvent = {
+        kind: 'promotion_request',
+        jobId,
+        toolName,
+        diff: preview,
+        warnings,
+        scope: 'tool',
+      };
+      this.pendingPromotionEvents.set(jobId, event);
+      this.deps.bus.publish('evolution:event', event);
+    });
+  }
+
+  private nextInstallApprovalId = -1;
+
+  async pluginImportStart(dir: string, origin = 'ローカルファイル'): Promise<PluginImportStartResult> {
+    // 配布版(進化不可)は git を使わない導入経路へ。開発版は従来どおり検証ゲートを通す
+    if (this.deps.packaged === true) return await this.pluginInstallDirect(dir, origin);
     const inspection = await inspectImportDir(dir);
     if (!inspection.ok || inspection.manifest === undefined) {
       return { ok: false, message: `インポート検査に失敗:\n${inspection.errors.join('\n')}` };

@@ -15,7 +15,8 @@ export class ToolRegistry {
   private revokedNames = new Map<string, string>();
 
   constructor(
-    private readonly pluginsDir: string,
+    /** M71: 複数可。先頭が優先(組み込み → userData/plugins の順で渡す) */
+    private readonly pluginsDir: string | string[],
     private readonly cacheDir: string,
   ) {}
 

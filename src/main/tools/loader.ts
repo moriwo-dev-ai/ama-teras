@@ -135,15 +135,38 @@ async function apiVersionBlockReason(filePath: string): Promise<string | null> {
   }
 }
 
-/** dir 直下の *.ts(テストを除く)を全ロード。壊れたプラグインはスキップして errors に積む */
-export async function loadPlugins(dir: string, cacheDir: string): Promise<LoadResult> {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const files = entries
-    .filter((e) => e.isFile() && e.name.endsWith('.ts') && !e.name.endsWith('.test.ts'))
-    .map((e) => join(dir, e.name));
+/**
+ * dir 直下の *.ts(テストを除く)を全ロード。壊れたプラグインはスキップして errors に積む。
+ *
+ * M71: dir は複数取れる。配布版には**書き込めるプラグイン置き場が無かった**
+ * (同梱先は Program Files 配下の resources/plugins)ため、導入したツールを置く場所が
+ * どこにも無く、レジストリからの導入が構造的に成立していなかった。
+ * userData/plugins を第2の置き場として読む。組み込みと同名のものは**組み込みが勝つ**
+ * (導入物が組み込みを乗っ取れない。理由はツール一覧のエラー欄に出す)
+ */
+export async function loadPlugins(dirs: string | string[], cacheDir: string): Promise<LoadResult> {
+  const dirList = typeof dirs === 'string' ? [dirs] : dirs;
+  const files: string[] = [];
+  const errors: PluginLoadError[] = [];
+  const seen = new Set<string>();
+  for (const dir of dirList) {
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    for (const e of entries) {
+      if (!e.isFile() || !e.name.endsWith('.ts') || e.name.endsWith('.test.ts')) continue;
+      const filePath = join(dir, e.name);
+      if (seen.has(e.name)) {
+        errors.push({
+          filePath,
+          message: `同名のツールが先に読み込まれているため無効(組み込み/先に登録されたものが優先): ${e.name.replace(/\.ts$/, '')}`,
+        });
+        continue;
+      }
+      seen.add(e.name);
+      files.push(filePath);
+    }
+  }
 
   const plugins: LoadedPlugin[] = [];
-  const errors: PluginLoadError[] = [];
   for (const filePath of files) {
     try {
       // M27-5: 範囲外プラグインは import せず無効化(理由はツール一覧のエラー欄に出る)
