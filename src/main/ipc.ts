@@ -34,6 +34,7 @@ import { healthCheckAfterPromotion, rebuildAndHealthBoot } from './evolution/sup
 import { defaultRunCommand } from './evolution/gates';
 import { OperationsManager } from './operations/manager';
 import { DEFAULT_UPDATE_CHECK_URL } from '../shared/models';
+import { isRemoteSettable, pickRemoteSettings } from '../shared/remoteSettings';
 import { defaultCloudRunner } from './tsukuyomi/cloudTranscriber';
 import { TsukuyomiManager } from './tsukuyomi/manager';
 import { speakWithPowerShell } from './tsukuyomi/voiceFallback';
@@ -1155,22 +1156,11 @@ export async function registerIpcHandlers(
     remoteLastError = undefined;
     const rc = getRemoteConfig();
     if (!rc.enabled) return; // 無効時は一切 listen しない
-    // M23-3: スマホから変更してよい設定のホワイトリスト。workspace/scopeMode/
-    // fullPcAllowSession/postEditHook(任意コマンド)/remote(自身)は変更不可
-    const REMOTE_SETTABLE = new Set([
-      'provider',
-      'model',
-      'maxTurns',
-      'subAgentMaxTurns',
-      'subAgentMaxParallel',
-      'autoApprove',
-      'modelPolicy',
-      'fallback',
-    ]);
-    const sanitizedConfig = (): Record<string, unknown> => {
-      const { remote: _remote, ...rest } = config.get();
-      return rest;
-    };
+    // M23-3/M53: スマホから触れてよい設定は shared/remoteSettings の1リストに集約。
+    // workspace/scopeMode/fullPcAllowSession/postEditHook(任意コマンド)/remote(自身)/
+    // tsukuyomi/operations は**読み取りも含めて**リモートへ出さない
+    const sanitizedConfig = (): Record<string, unknown> =>
+      pickRemoteSettings(config.get() as unknown as Record<string, unknown>);
     const server = new RemoteServer({
       facade: service,
       bus,
@@ -1210,7 +1200,7 @@ export async function registerIpcHandlers(
         get: sanitizedConfig,
         set: (patch) => {
           for (const key of Object.keys(patch)) {
-            if (!REMOTE_SETTABLE.has(key)) throw new Error(`リモートから変更できない項目: ${key}`);
+            if (!isRemoteSettable(key)) throw new Error(`リモートから変更できない項目: ${key}`);
           }
           const next: Record<string, unknown> = { ...config.get() };
           for (const [key, value] of Object.entries(patch)) {
