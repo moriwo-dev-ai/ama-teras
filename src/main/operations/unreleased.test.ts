@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { alreadyOut, draftStatusAfter, mentionsUnreleased } from '../../shared/operations';
+import { stripUnreleasedLines } from './manager';
 
 /**
  * M49: 未公開機能の発信ガード。
@@ -68,5 +69,29 @@ describe('M57: 公開された発信と、公開待ちを分ける', () => {
     expect(alreadyOut('posted')).toBe(true);
     expect(alreadyOut('draft')).toBe(false);
     expect(alreadyOut('discarded')).toBe(false);
+  });
+});
+
+/**
+ * M59: 出力を捨てるだけでは足りなかった。神はPROGRESS.mdと直近コミットを読んで
+ * 「一番面白いこと」を書く — 今それは月読だ。実機では2571トークンで生成された3件が
+ * **全部月読の話**で、ガードが全部捨てた。神は毎回同じことを書いてトークンを捨て続ける。
+ * **見せなければ書けない。**
+ */
+describe('M59: 発信の素材からも未公開話題を抜く', () => {
+  it('月読に触れる行だけを落とし、公開してよい行は残す', () => {
+    const progress = [
+      '## M57: 「出した」と「出す準備ができた」を分ける',
+      '## M42(月読): 記憶の義手 — 常時聴取のVAD調整',
+      '## M50: 進化ジョブの残骸B環境とID再利用の衝突',
+      '- whisper.cpp をローカルで動かす',
+    ].join('\n');
+
+    const stripped = stripUnreleasedLines(progress);
+
+    expect(stripped).toContain('M57');
+    expect(stripped).toContain('M50');
+    expect(stripped).not.toContain('月読');
+    expect(stripped).not.toContain('whisper');
   });
 });

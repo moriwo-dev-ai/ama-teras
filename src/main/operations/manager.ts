@@ -191,6 +191,30 @@ const DEFAULT_GOD_PARAMS: GodParams = {
  * (published:false でもリポジトリがPUBLICならGitHubでソースが読める)。
  * 神は「何が未公開か」を知らない。プロンプトで教えるのではなく**通さない**
  */
+/**
+ * M59: 発信の**素材**から未公開話題の行を落とす。
+ *
+ * 出力を捨てるだけでは足りなかった。神はPROGRESS.mdと直近コミットを読んで
+ * 「一番面白いこと」を書く — そして今、一番面白いのは月読だ。実機では2571トークン使って
+ * 生成された3件が**全部月読の話**で、ガードが全部捨てた。神は毎回同じことを書き続ける。
+ * 見せなければ書けない。行単位で落とす(段落ごと消すと文脈が壊れて読めない素材になる)
+ */
+export function stripUnreleasedLines(text: string): string {
+  const out: string[] = [];
+  // 見出しが未公開話題なら、その**節ごと**落とす。行単位だけでは、
+  // 「## M42(月読): 記憶の義手」を消しても中身(Stage 5b 耳・誤爆の実測値…)が残り、
+  // 神はそれを読んで「見守り判定の作り方」を書いてしまう(実機で起きた)
+  let skipping = false;
+  for (const line of text.split('\n')) {
+    const heading = /^#{1,6}\s/.test(line) || /^Stage\s/i.test(line);
+    if (heading) skipping = mentionsUnreleased(line);
+    if (skipping) continue;
+    if (mentionsUnreleased(line)) continue;
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
 function dropUnreleased<T extends { title: string; body: string }>(drafts: T[]): T[] {
   return drafts.filter((d) => !mentionsUnreleased(`${d.title}\n${d.body}`));
 }
@@ -676,7 +700,15 @@ export class OperationsManager {
     if (this.drafts === null || this.omoi === null || this.inbox === null) return { ok: false, detail: '未初期化', tokensUsed: 0 };
     const provider = this.cheapLLM();
     if (typeof provider === 'string') return { ok: false, detail: provider, tokensUsed: 0 };
-    const sources = (await this.deps.readHighlightSources?.()) ?? { progressExcerpt: '', recentCommits: '' };
+    const raw = (await this.deps.readHighlightSources?.()) ?? { progressExcerpt: '', recentCommits: '' };
+    // M59: **素材の側から未公開話題を抜く**。
+    // 実機で2571トークン使って生成された3件は**全部が月読の話**で、ガードが全部捨てた。
+    // 神はPROGRESS.mdと直近コミットを見て「一番面白いこと」を書く。いま一番面白いのは月読だ。
+    // 出力を捨てるだけでは、神は毎回同じことを書いてトークンを捨て続ける。見せなければ書けない
+    const sources = {
+      progressExcerpt: stripUnreleasedLines(raw.progressExcerpt),
+      recentCommits: stripUnreleasedLines(raw.recentCommits),
+    };
     const { current, previous } = this.omoi.latestPair();
     const { text, tokensUsed } = await completeTextWithUsage(
       provider,
@@ -685,11 +717,25 @@ export class OperationsManager {
     );
     // M49: 未公開機能(月読)に触れた下書きは**生成の時点で捨てる**。
     // 神は何が未公開かを知らない。知らせるのではなく通さない(実害: 月読の開発記が公開リポジトリに出た)
-    const created = this.drafts.add(dropUnreleased(parseDrafts(text)));
+    const parsed = parseDrafts(text);
+    const kept = dropUnreleased(parsed);
+    const created = this.drafts.add(kept);
     for (const d of created) {
       this.inbox.post({ kind: 'draft', godId: 'ameno-uzume', title: `下書き: ${d.title}`, payload: { draftId: d.id, draftKind: d.kind } });
     }
-    return { ok: true, detail: `下書き${created.length}件`, tokensUsed };
+    // M59: 「下書き0件」だけでは、生成に失敗したのかガードが捨てたのか分からない。
+    // 実機で2650トークン使って0件になり、原因が読めなかった。**黙って捨てない**
+    const dropped = parsed.length - kept.length;
+    if (dropped > 0) {
+      this.inbox.post({
+        kind: 'god-failure',
+        godId: 'ameno-uzume',
+        title: `未公開機能に触れる下書き${dropped}件を破棄した(月読は公開前。書けることが無くなったら、他の話題を指示してください)`,
+        payload: {},
+      });
+    }
+    const why = parsed.length === 0 ? '(生成が空。プロンプトかモデルの問題)' : dropped > 0 ? `(未公開話題を${dropped}件破棄)` : '';
+    return { ok: true, detail: `下書き${created.length}件${why}`, tokensUsed };
   }
 
   /** TEDIKA-rao(1時間ごと): Issue/PRの差分チェック→新着のみトリアージ→受け箱 */
