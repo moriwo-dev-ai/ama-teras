@@ -63,3 +63,33 @@ describe('M58: Bluesky検索の失敗を握りつぶさない', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });
+
+/**
+ * M72: **テストは全部 fetch を注入していた。本番だけが既定値を使っていた。**
+ * その既定値が `(url) => fetch(url)` で、init(=Authorizationヘッダ)を捨てていたため、
+ * ログインは成功してトークンも取れているのに、検索リクエストだけ無認証で bsky.social へ飛び 401。
+ * それを「app passwordが失効している」と誤診し、ユーザーに再発行を依頼していた(濡れ衣)。
+ * 注入なしの経路(=実アプリが通る経路)を固定する。
+ */
+describe('M72: 注入なし(実アプリの経路)でもヘッダが届く', () => {
+  it('既定の fetch は init を捨てない — Authorization が実際に送られる', async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = ((url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return Promise.resolve(res(200, postsBody));
+    }) as typeof fetch;
+    try {
+      // fetchImpl を渡さない = 実アプリと同じ構成
+      const reader = new BlueskyReader(undefined, () => Promise.resolve('jwt-token'));
+
+      await reader.searchPosts('AIエージェント');
+
+      const headers = calls[0]!.init?.headers as Record<string, string> | undefined;
+      expect(headers?.['authorization']).toBe('Bearer jwt-token');
+      expect(headers?.['atproto-proxy']).toBe('did:web:api.bsky.app#bsky_appview');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});

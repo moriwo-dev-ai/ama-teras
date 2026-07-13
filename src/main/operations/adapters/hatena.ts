@@ -8,7 +8,7 @@ import type { FetchLike } from './zenn';
  */
 
 export class HatenaReader {
-  constructor(private readonly fetchImpl: FetchLike = (url) => fetch(url)) {}
+  constructor(private readonly fetchImpl: FetchLike = (url, init) => fetch(url, init)) {}
 
   /** 複数URLのブクマ数を一括取得(不達URLは欠落)。APIは url→count のJSONを返す */
   async counts(urls: string[]): Promise<Record<string, number>> {

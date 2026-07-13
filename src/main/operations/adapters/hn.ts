@@ -18,7 +18,7 @@ export interface HnStory {
 }
 
 export class HnReader {
-  constructor(private readonly fetchImpl: FetchLike = (url) => fetch(url)) {}
+  constructor(private readonly fetchImpl: FetchLike = (url, init) => fetch(url, init)) {}
 
   /** キーワード検索(言及の観測・Show HN後の反応追跡用) */
   async search(query: string, limit = 10): Promise<HnStory[]> {

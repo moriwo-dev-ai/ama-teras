@@ -14,7 +14,7 @@ export type FetchLike = (
 ) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
 export class ZennReader {
-  constructor(private readonly fetchImpl: FetchLike = (url) => fetch(url)) {}
+  constructor(private readonly fetchImpl: FetchLike = (url, init) => fetch(url, init)) {}
 
   async articleMetrics(slug: string): Promise<ZennMetrics | null> {
     try {

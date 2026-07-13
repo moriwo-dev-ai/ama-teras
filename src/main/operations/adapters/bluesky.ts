@@ -18,7 +18,13 @@ export interface BlueskyPost {
 
 export class BlueskyReader {
   constructor(
-    private readonly fetchImpl: FetchLike = (url) => fetch(url),
+    /**
+     * M72: 既定が `(url) => fetch(url)` で **init(=headers)を捨てていた**。
+     * 実アプリは fetchImpl を注入していないためこの既定が使われ、認証トークンは取れているのに
+     * Authorization ヘッダが乗らないまま bsky.social へ飛び、検索だけが 401。
+     * それを「app passwordが失効している」と誤診し、ユーザーに再発行をお願いしていた(濡れ衣)
+     */
+    private readonly fetchImpl: FetchLike = (url, init) => fetch(url, init),
     /**
      * M58: 検索用のアクセストークン(app passwordでログインして得る)。
      * Blueskyの公開検索APIは**認証必須になり、無認証は全クエリ403**を返すようになった

@@ -994,10 +994,10 @@ export class OperationsManager {
           .listBatches()
           .flatMap((b) => b.items)
           .filter((i) => i.status === 'pending')
-          .map((i) => `${i.kind} ${i.title}`),
+          .map((i) => `${i.kind}|${i.title}`),
       );
       const before = batch.items.length;
-      batch.items = batch.items.filter((i) => !pending.has(`${i.kind} ${i.title}`));
+      batch.items = batch.items.filter((i) => !pending.has(`${i.kind}|${i.title}`));
       const dropped = before - batch.items.length;
       if (dropped > 0) {
         this.thread.post({
