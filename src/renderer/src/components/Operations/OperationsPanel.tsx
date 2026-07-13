@@ -678,6 +678,63 @@ function ZennArticleAction({ draft, onUpdate }: { draft: OperationsDraft; onUpda
   );
 }
 
+/**
+ * M73: 公開待ちのZenn記事(published: false)を公開する。
+ * 「記事化」はコミットまでしかせず、そこから先は誰の手も届かないままだった
+ * (記事2本が丸一日以上、露出ゼロで放置された)。GitHub Release と同じく岩戸ゲートを通す
+ */
+function ZennPublishSection(): JSX.Element | null {
+  const [articles, setArticles] = useState<{ slug: string; title: string; blocked: string | null }[]>([]);
+  const [result, setResult] = useState<string | null>(null);
+  const [busy, setBusy] = useState('');
+
+  const reload = (): void => {
+    void window.api
+      .operationsZennPublishable()
+      .then(setArticles)
+      .catch(() => setArticles([]));
+  };
+  useEffect(reload, []);
+  if (articles.length === 0) return null;
+
+  return (
+    <div className="mt-2 rounded border border-zinc-800 p-2">
+      <div className="mb-1 text-[10px] text-zinc-400">
+        📝 公開待ちのZenn記事(published: false = まだ誰も読めない)
+      </div>
+      {articles.map((a) => (
+        <div key={a.slug} className="flex items-center gap-2 py-0.5">
+          <span className="truncate text-[11px] text-zinc-300">{a.title}</span>
+          {a.blocked !== null ? (
+            <span className="shrink-0 text-[10px] text-amber-400">🚫 {a.blocked}</span>
+          ) : (
+            <button
+              className="shrink-0 rounded border border-emerald-800 px-2 py-0.5 text-[10px] text-emerald-300 hover:bg-emerald-950 disabled:opacity-40"
+              title="published: true にして push する。承認ダイアログで公開される全文を確認できる"
+              disabled={busy !== ''}
+              onClick={() => {
+                setBusy(a.slug);
+                setResult(null);
+                void window.api
+                  .operationsZennPublish(a.slug)
+                  .then((r) => setResult(r.detail))
+                  .catch((e: unknown) => setResult(e instanceof Error ? e.message : String(e)))
+                  .finally(() => {
+                    setBusy('');
+                    reload();
+                  });
+              }}
+            >
+              {busy === a.slug ? '承認待ち…' : '⛩ 公開する'}
+            </button>
+          )}
+        </div>
+      ))}
+      {result !== null && <div className="text-[10px] text-zinc-400">{result}</div>}
+    </div>
+  );
+}
+
 function DraftCard({ draft, onUpdate }: { draft: OperationsDraft; onUpdate: () => void }): JSX.Element {
   const [media, setMedia] = useState(draft.media ?? 'x');
   // M37: 行き先は種類ごとにコードで固定(Xに載らない種類にXボタンを出さない)
@@ -1040,6 +1097,8 @@ export function OperationsPanel(): JSX.Element {
             ))}
           </div>
         )}
+        {/* M73: 記事化(コミット)の先=公開。ここが無かったせいで記事が露出ゼロのまま埋もれた */}
+        <ZennPublishSection />
 
         <details>
           <summary className="cursor-pointer text-xs text-zinc-400">📋 メディア戦略ボード</summary>

@@ -130,6 +130,12 @@ export interface RemoteOperationsFacade {
    */
   releasePublish(repo: string, tag: string): Promise<{ ok: boolean; detail: string }>;
   /**
+   * M73: Zenn記事の公開(published: false → true)。Releaseと同じく岩戸ゲート(全文確認)を通る。
+   * 「記事化」ボタンはコミットまでしかせず、公開だけが人間の手作業として残っていた
+   */
+  zennPublish(slug: string): Promise<{ ok: boolean; detail: string }>;
+  zennPublishable(): { slug: string; title: string; blocked: string | null }[];
+  /**
    * リリースの版情報(前回タグ・次の版の候補・package.jsonとのズレ・**公開待ちの下書きリリース**)。
    * pendingDraft.assets が空なら公開させない(中身の無いリリースを世に出さないため)
    */
@@ -587,6 +593,20 @@ export class RemoteServer {
         const tag = body['tag'];
         if (typeof repo !== 'string' || typeof tag !== 'string') throw new HttpError(400, 'repo/tag(string) が必要');
         return sendJson(res, 200, await this.deps.operations.releasePublish(repo, tag));
+      }
+
+      // M73: Zennの公開もスマホから(Releaseと同じ岩戸ゲート)
+      case 'POST /api/ops/zenn-publish': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        const body = await readJsonBody(req);
+        const slug = body['slug'];
+        if (typeof slug !== 'string') throw new HttpError(400, 'slug(string) が必要');
+        return sendJson(res, 200, await this.deps.operations.zennPublish(slug));
+      }
+
+      case 'GET /api/ops/zenn-publishable': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        return sendJson(res, 200, { articles: this.deps.operations.zennPublishable() });
       }
 
       case 'GET /api/ops/release-info': {

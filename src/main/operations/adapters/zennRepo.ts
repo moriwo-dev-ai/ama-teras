@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AdapterRuntime } from '../protocol';
 
@@ -74,12 +74,30 @@ export interface ZennRepoDeps {
   run: GitRunner;
   /** テスト用の書き出しフック(既定は fs) */
   writeArticle?: (path: string, content: string) => void;
+  /** M73: テスト用の読み出しフック(既定は fs) */
+  readArticle?: (path: string) => string;
 }
 
 /**
  * repoDir が未設定/非gitなら availability=false(UIで設定へ誘導)。
  * executor は commit-article のみ: articles/<slug>.md を書いて commit + push。
  */
+/**
+ * M73: 記事の公開(published: false → true)。
+ *
+ * これまで公開は「人間がZennの管理画面で押すもの」として構造的に禁じていた。だが
+ * GitHub Release は**まったく同じ危険度なのにスマホから公開できる**(岩戸ゲートで
+ * 全文と影響を確認したうえで)。同じ設計を Zenn にも通す: このアクションも executor は
+ * 岩戸ゲートに封印されており、**人間が全文を読んで承認したときだけ**到達できる。
+ *
+ * frontmatter の published 行だけを差し替える(本文には触らない)
+ */
+export function publishArticleMarkdown(markdown: string): string | null {
+  const m = /^(---\r?\n[\s\S]*?)^published:\s*false\s*$([\s\S]*)/m.exec(markdown);
+  if (m === null) return null; // すでに true / frontmatter が無い
+  return `${m[1]}published: true${m[2]}`;
+}
+
 export function createZennRepoAdapter(getRepoDir: () => string | null, deps: ZennRepoDeps): AdapterRuntime {
   const write =
     deps.writeArticle ??
@@ -89,9 +107,10 @@ export function createZennRepoAdapter(getRepoDir: () => string | null, deps: Zen
     });
   return {
     id: 'zenn-repo',
-    capabilities: { read: false, search: false, draft: false, execute: ['commit-article'] },
+    capabilities: { read: false, search: false, draft: false, execute: ['commit-article', 'publish-article'] },
     compliance:
-      'Zenn記事はGitHub連携リポジトリ(zenn-content)へのコミットで反映される。published: false(非公開)でのみコミットし、公開は人間が行う',
+      'Zenn記事はGitHub連携リポジトリ(zenn-content)へのコミットで反映される。下書きは published: false でのみコミットする。' +
+      '公開(published: true)は publish-article アクションでのみ可能で、岩戸ゲートの承認(全文確認)を必ず通る',
     availability: () => {
       // 設定はいつでも変わりうるので、パスは登録時に固定せず毎回引く
       const dir = getRepoDir();
@@ -104,9 +123,27 @@ export function createZennRepoAdapter(getRepoDir: () => string | null, deps: Zen
       );
     },
     executor: async (action, params) => {
-      if (action !== 'commit-article') throw new Error(`未知のアクション: ${action}`);
       const repoDir = getRepoDir();
       if (repoDir === null || repoDir.trim() === '') throw new Error('zenn-contentのパスが未設定');
+
+      if (action === 'publish-article') {
+        // M73: 公開。ここへ来られるのは岩戸ゲートの承認(全文確認)を通ったときだけ
+        const slug = String(params['slug'] ?? '');
+        if (!ZENN_SLUG_RE.test(slug)) throw new Error(`Zennのslug規則に合わない: ${slug}`);
+        const rel = `articles/${slug}.md`;
+        const abs = join(repoDir, 'articles', `${slug}.md`);
+        if (!existsSync(abs)) throw new Error(`記事が見つからない: ${rel}`);
+        const current = deps.readArticle?.(abs) ?? readFileSync(abs, 'utf8');
+        const published = publishArticleMarkdown(current);
+        if (published === null) throw new Error(`${rel} は published: false ではない(すでに公開済みの可能性)`);
+        write(abs, published);
+        await deps.run(['add', rel], repoDir);
+        await deps.run(['commit', '-m', `publish: ${slug}(published: true)`], repoDir);
+        await deps.run(['push'], repoDir);
+        return `zenn-content の ${rel} を published: true にして push した(Zennに反映されると誰でも読める)`;
+      }
+
+      if (action !== 'commit-article') throw new Error(`未知のアクション: ${action}`);
       const slug = String(params['slug'] ?? '');
       const markdown = String(params['markdown'] ?? '');
       if (!ZENN_SLUG_RE.test(slug)) throw new Error(`Zennのslug規則に合わない: ${slug}`);

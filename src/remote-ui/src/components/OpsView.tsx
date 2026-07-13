@@ -203,6 +203,67 @@ function ReleasePublish({ repos, api, onDone }: { repos: string[]; api: RemoteAp
 }
 
 /**
+ * M73: Zenn記事の公開。「記事化」は published: false でコミットするだけで、**そこから先が
+ * 誰の手も届かないまま**だった(実際に記事2本が丸一日以上、露出ゼロで放置された)。
+ * GitHub Release と同じ条件——岩戸ゲートで全文を読んで承認——で、公開まで通す。
+ * 未公開機能(月読)に触れる記事は blocked として出し、押させない
+ */
+function ZennPublish({ api, onDone }: { api: RemoteApi; onDone: () => void }): JSX.Element | null {
+  const [articles, setArticles] = useState<{ slug: string; title: string; blocked: string | null }[]>([]);
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState('');
+
+  useEffect(() => {
+    void api
+      .opsZennPublishable()
+      .then((r) => setArticles(r.articles))
+      .catch(() => setArticles([]));
+  }, [api]);
+
+  if (articles.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 8, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+      <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>
+        📝 公開待ちのZenn記事(published: false = まだ誰も読めない)
+      </div>
+      {articles.map((a) => (
+        <div key={a.slug} style={{ marginBottom: 6 }}>
+          <div style={{ fontSize: 12 }}>{a.title}</div>
+          {a.blocked !== null ? (
+            <p className="muted" style={{ fontSize: 11 }}>🚫 {a.blocked}</p>
+          ) : (
+            <button
+              className="publish"
+              disabled={busy !== ''}
+              onClick={() => {
+                setBusy(a.slug);
+                setNotice('');
+                void api
+                  .opsZennPublish(a.slug)
+                  .then((r) => setNotice(r.detail))
+                  .catch((e: unknown) => setNotice(e instanceof Error ? e.message : String(e)))
+                  .finally(() => {
+                    setBusy('');
+                    void api.opsZennPublishable().then((r) => setArticles(r.articles)).catch(() => {});
+                    onDone();
+                  });
+              }}
+            >
+              {busy === a.slug ? '…' : '⛩ この記事を公開する'}
+            </button>
+          )}
+        </div>
+      ))}
+      <p className="muted" style={{ fontSize: 11 }}>
+        公開すると誰でも読める状態になる。承認カード(全文)がこの画面に出る
+      </p>
+      {notice !== '' && <div className="muted" style={{ fontSize: 11 }}>{notice}</div>}
+    </div>
+  );
+}
+
+/**
  * M62: PC専用だった操作(仲間候補・トリアージ・週報)。
  * 出先で「見て・判断して・返す」が完結しないと、結局PCの前に戻るまで運営が止まる。
  * 外部への発信を伴うもの(返信の送信等)は従来どおり岩戸ゲート経由でしか出ない
@@ -877,9 +938,9 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
               </div>
             </div>
           ))}
-          {/* M60: GitHub Release だけはスマホから公開できる(岩戸ゲートの承認カードが出る)。
-              Zennは記事管理画面での操作が要るので、ここでは案内だけ */}
+          {/* M60/M73: GitHub Release も Zenn 記事も、スマホから公開できる(岩戸ゲートで全文確認) */}
           <ReleasePublish repos={repos} api={api} onDone={reload} />
+          <ZennPublish api={api} onDone={reload} />
         </div>
       )}
 

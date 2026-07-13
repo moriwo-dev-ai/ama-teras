@@ -201,6 +201,16 @@ export class RemoteApi {
     return this.req('POST', '/api/ops/release-publish', { repo, tag });
   }
 
+  /** M73: Zenn記事の公開(published: true にして push)。岩戸ゲートの承認カードが出る */
+  opsZennPublish(slug: string): Promise<{ ok: boolean; detail: string }> {
+    return this.req('POST', '/api/ops/zenn-publish', { slug });
+  }
+
+  /** M73: 公開できる記事(published:false でコミット済み)。blocked は未公開機能に触れているもの */
+  opsZennPublishable(): Promise<{ articles: { slug: string; title: string; blocked: string | null }[] }> {
+    return this.req('GET', '/api/ops/zenn-publishable');
+  }
+
   opsReleaseInfo(repo: string): Promise<{
     latestTag: string | null;
     appVersion: string;

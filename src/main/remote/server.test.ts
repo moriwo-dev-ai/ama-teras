@@ -518,6 +518,8 @@ describe('M34-6: 運営リモートAPI', () => {
     godRun: async (godId) => ({ ok: true, detail: `ran ${godId}`, tokensUsed: 0 }),
     // M60: スマホから公開まで届かせる(公開できないせいで staged が埋もれていた)
     releasePublish: async (repo, tag) => ({ ok: true, detail: `published ${repo} ${tag}` }),
+    zennPublish: async (slug) => ({ ok: true, detail: `zenn published ${slug}` }),
+    zennPublishable: () => [{ slug: 'my-article-01', title: '記事', blocked: null }],
     releaseInfo: async () => ({
       latestTag: 'v1.1.0',
       appVersion: '1.1.0',

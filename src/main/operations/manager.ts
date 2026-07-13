@@ -25,6 +25,7 @@ import {
   draftStatusAfter,
   hatenaPanelUrl,
   isLinkOnlyAdapter,
+  isStaged,
   marksDraftPosted,
   mediaOf,
   nextVersion,
@@ -1925,6 +1926,83 @@ ${d.body}`))
         `利用者はバナー → リリースノート → インストーラを上書きインストール、という流れになります。`,
       { repo, tag },
     );
+  }
+
+  /**
+   * M73: Zenn記事の公開(published: false → true)。
+   *
+   * これまで「公開は人間がZennの管理画面で押すもの」として、アプリからは構造的に不可能に
+   * していた。だが GitHub Release は同じ危険度なのにスマホから公開できる(M60)。
+   * 一貫していないうえ、実際に**記事2本が丸一日以上、誰にも読めないまま放置された**。
+   * 岩戸ゲート(全文確認)を通すという条件は同じにして、Zennにも公開の道を通す。
+   *
+   * 未公開機能(月読)に触れる記事は、この経路でも**構造的に公開できない**(承認を求めることすらしない)
+   */
+  async requestZennPublish(slug: string): Promise<{ ok: boolean; detail: string }> {
+    if (!this.ensureInitialized() || this.gate === null || this.drafts === null) {
+      return { ok: false, detail: 'オーナーモードがOFF(運営機能は無効)' };
+    }
+    const dir = this.opsConfig().zennRepoDir ?? '';
+    if (dir === '') return { ok: false, detail: 'zenn-contentのパスが未設定(設定→接続→オーナーモード)' };
+
+    const path = join(dir, 'articles', `${slug}.md`);
+    let markdown: string;
+    try {
+      markdown = readFileSync(path, 'utf8');
+    } catch {
+      return { ok: false, detail: `記事が見つからない: articles/${slug}.md` };
+    }
+    if (/\npublished:\s*true\s*(\r?\n|$)/.test(markdown)) {
+      return { ok: true, detail: `${slug} はすでに公開済み` };
+    }
+    // 未公開機能に触れる記事を世に出さない。ここで止めるので承認ダイアログも出ない
+    if (mentionsUnreleased(markdown)) {
+      return {
+        ok: false,
+        detail: `この記事は未公開機能(月読)に触れている。公開できない(公開して良い状態になるまで、この経路は開かない)`,
+      };
+    }
+
+    const result = await this.gate.requestExecute(
+      'zenn-repo',
+      'publish-article',
+      `Zenn記事 ${slug} を公開する(published: true にして push)`,
+      `公開すると、**この記事は誰でも読めるようになります**(Zennに反映される)。\n\n` +
+        `- 記事: articles/${slug}.md\n- 取り消し: published: false に戻せば非公開に戻せます\n\n` +
+        `--- 以下、公開される全文 ---\n\n${markdown}`,
+      { slug },
+    );
+    if (result.ok) {
+      // 台帳側も「公開待ち」から「公開済み」へ。これをやらないと神議が延々と催促し続ける
+      for (const d of this.drafts.list()) {
+        if (isStaged(d.status) && d.media === 'zenn' && (d.title.includes(slug) || d.body.includes(slug))) {
+          this.drafts.update(d.id, { status: 'posted' });
+        }
+      }
+    }
+    return result;
+  }
+
+  /** M73: 公開できる(=published:false でコミット済みの)記事の一覧。UIの公開ボタン用 */
+  zennPublishable(): { slug: string; title: string; blocked: string | null }[] {
+    const dir = this.opsConfig().zennRepoDir ?? '';
+    if (dir === '') return [];
+    const out: { slug: string; title: string; blocked: string | null }[] = [];
+    try {
+      for (const file of readdirSync(join(dir, 'articles'))) {
+        if (!file.endsWith('.md')) continue;
+        const md = readFileSync(join(dir, 'articles', file), 'utf8');
+        if (!/\npublished:\s*false\s*(\r?\n|$)/.test(md)) continue;
+        out.push({
+          slug: file.replace(/\.md$/, ''),
+          title: /^title:\s*"?(.+?)"?\s*$/m.exec(md)?.[1] ?? file,
+          blocked: mentionsUnreleased(md) ? '未公開機能(月読)に触れているため公開できない' : null,
+        });
+      }
+    } catch {
+      /* articles ディレクトリが無い = 公開できる記事も無い */
+    }
+    return out;
   }
 
   async requestRelease(draftId: string, repo: string, tag: string): Promise<{ ok: boolean; detail: string }> {

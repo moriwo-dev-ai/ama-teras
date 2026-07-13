@@ -116,6 +116,8 @@ const api: AmaterasApi = {
   operationsReleaseInfo: (repo) => ipcRenderer.invoke(IpcChannels.operationsReleaseInfo, repo),
   operationsBumpVersion: (tag) => ipcRenderer.invoke(IpcChannels.operationsBumpVersion, tag),
   operationsReleasePublish: (repo, tag) => ipcRenderer.invoke(IpcChannels.operationsReleasePublish, repo, tag),
+  operationsZennPublish: (slug) => ipcRenderer.invoke(IpcChannels.operationsZennPublish, slug),
+  operationsZennPublishable: () => ipcRenderer.invoke(IpcChannels.operationsZennPublishable),
   operationsDraftRelease: (draftId, repo, tag) =>
     ipcRenderer.invoke(IpcChannels.operationsDraftRelease, draftId, repo, tag),
   operationsDraftZennArticle: (draftId) =>

@@ -839,6 +839,12 @@ export async function registerIpcHandlers(
     assertString(tag, 'tag');
     return operations.requestReleasePublish(repo, tag);
   });
+  // M73: Zenn記事の公開。Releaseと同じく岩戸ゲート(全文確認)を通る
+  ipcMain.handle(IpcChannels.operationsZennPublish, (_e, slug: unknown) => {
+    assertString(slug, 'slug');
+    return operations.requestZennPublish(slug);
+  });
+  ipcMain.handle(IpcChannels.operationsZennPublishable, () => operations.zennPublishable());
   // M37: 下書きの行き先。実行そのものは manager 内で岩戸ゲート(承認)を必ず通る
   ipcMain.handle(
     IpcChannels.operationsDraftRelease,
@@ -1213,6 +1219,9 @@ export async function registerIpcHandlers(
         // M60: スマホから「公開」まで届かせる。公開できないせいで、Zenn2本・Release2件が
         // 誰にも読まれないまま埋もれていた(神議も「公開作業の未実施がボトルネック」と診断)
         releasePublish: (repo, tag) => operations.requestReleasePublish(repo, tag),
+        // M73: Zennも同じ道を通す(記事化=コミットまで、公開=ここ)
+        zennPublish: (slug) => operations.requestZennPublish(slug),
+        zennPublishable: () => operations.zennPublishable(),
         releaseInfo: (repo) => operations.releaseInfo(repo),
         history: (limit) => operations.history(limit),
         adapterStatus: async () => {

@@ -156,6 +156,8 @@ export const IpcChannels = {
   operationsBumpVersion: 'operations:bump-version',
   /** M48: 下書きリリースの公開(全利用者へ更新通知が飛ぶ。岩戸ゲート承認必須) */
   operationsReleasePublish: 'operations:release-publish',
+  operationsZennPublish: 'operations:zenn-publish',
+  operationsZennPublishable: 'operations:zenn-publishable',
   operationsDraftZennArticle: 'operations:draft-zenn-article',
   /** M38-3: 発信の効果測定(投稿→前後メトリクス差分) */
   operationsImpacts: 'operations:impacts',
@@ -388,6 +390,9 @@ export interface AmaterasApi {
   }>;
   /** M48: 下書きリリースを公開する(承認ダイアログで「全利用者に通知が出る」ことを明示) */
   operationsReleasePublish(repo: string, tag: string): Promise<{ ok: boolean; detail: string }>;
+  /** M73: Zenn記事の公開(published: true にして push)。岩戸ゲートで全文確認 */
+  operationsZennPublish(slug: string): Promise<{ ok: boolean; detail: string }>;
+  operationsZennPublishable(): Promise<{ slug: string; title: string; blocked: string | null }[]>;
   /** M47: package.json の version をタグに合わせて上げ、コミット・pushする(岩戸ゲート経由) */
   operationsBumpVersion(tag: string): Promise<{ ok: boolean; detail: string }>;
   operationsDraftRelease(
