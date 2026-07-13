@@ -900,6 +900,17 @@ export class OperationsManager {
       }
     }
 
+    // M63: 神議が「分析だけ」を出して何もしない回が3回続いた。人間からは、
+    // 熟慮の末に何もしないと決めたのか、ただ黙っただけなのかが区別できない。
+    // 何も出さなかったこと自体を、はっきり残す
+    if (parsed.paramChanges.length === 0 && parsed.proposals.length === 0) {
+      this.thread.post({
+        role: 'system',
+        kind: 'notice',
+        body: '⛩ 神議は今回、変更も提案も出さなかった(上の所見が全て)。承認待ちが積んでいる間は、新しい提案より人間の判断が先だと判断した可能性がある',
+      });
+    }
+
     let batch = buildApprovalBatch(parsed.analysis, approvalChanges, parsed.proposals);
 
     // M35-4: 仲間候補のフォロー提案(LLM任せにせず決定的に生成)。承認→岩戸ゲート→実行の結線
