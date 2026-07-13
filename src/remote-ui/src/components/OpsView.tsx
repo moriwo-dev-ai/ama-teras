@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   ApprovalBatch,
   ApprovalBatchItem,
@@ -57,6 +57,54 @@ const GROUP_LABEL: Record<string, string> = {
   'zenn-repo:commit-article': '📝 Zenn記事(published: false)',
 };
 
+/** 投稿先の媒体(PC側と同じ7つ)。効果測定は media 別に集計されるので、空で記録させない */
+const MEDIA_OPTIONS = ['x', 'zenn', 'hatena', 'hn', 'reddit', 'bluesky', 'github'];
+
+/** 種類から素直に決まる既定の媒体(選び直せる) */
+const DEFAULT_MEDIA: Record<OperationsDraft['kind'], string> = {
+  'x-post': 'x',
+  'article-outline': 'zenn',
+  'article-body': 'zenn',
+  'release-note': 'github',
+  reply: 'github',
+  'weekly-report': 'zenn',
+};
+
+/** 受け箱の種別アイコン(PC側には出ていて、スマホには無かった) */
+const INBOX_ICON: Record<string, string> = {
+  metrics: '📊',
+  candidate: '🔮',
+  triage: '💪',
+  draft: '💃',
+  evolution: '🧬',
+  notice: '📣',
+};
+
+/** 差分は符号を付けないと「増えたのか減ったのか」が読めない */
+function signed(n: number): string {
+  return n >= 0 ? `+${n}` : `${n}`;
+}
+
+/**
+ * M55: 長文は既定で4行に畳む。以前は maxHeight + overflow:auto の枠内スクロールで、
+ * ページを指でスクロールしている最中に枠へ入るとスクロールが吸われていた(スクロールトラップ)。
+ * 神議の分析は長文で、1件で画面数枚ぶん流れる
+ */
+function LongText({ text }: { text: string }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 140;
+  return (
+    <div>
+      <div className={long && !open ? 'longtext clamp' : 'longtext'}>{text}</div>
+      {long && (
+        <button className="morebtn" onClick={() => setOpen(!open)}>
+          {open ? '畳む' : 'つづきを読む'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function IwatoCard({ req, api, onDone }: { req: IwatoRequestPayload; api: RemoteApi; onDone: () => void }): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -76,12 +124,18 @@ function IwatoCard({ req, api, onDone }: { req: IwatoRequestPayload; api: Remote
       <h3>⛩ 外部への発信: {req.adapterId} / {req.action}</h3>
       <div className="warn-banner">この操作はアプリの外(公開の場)に発信されます</div>
       <div className="muted" style={{ fontSize: 12 }}>どこへ: {req.target}</div>
-      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12 }}>{req.preview}</pre>
+      <LongText text={req.preview} />
       <div className="muted" style={{ fontSize: 11 }}>📜 {req.compliance}</div>
       {error && <div className="error-banner">{error}</div>}
       <div className="row">
-        <button disabled={busy} onClick={() => void respond(false)}>拒否</button>
-        <button disabled={busy} className="primary" onClick={() => void respond(true)}>発信を承認</button>
+        {/* M55: 「拒否」と「発信を承認」が同じ見た目だった(.primary はCSSに存在すらしなかった)。
+            外へ出る不可逆な操作だけは警告色にして、押す前に一拍置かせる */}
+        <button className="reject" disabled={busy} onClick={() => void respond(false)}>
+          拒否
+        </button>
+        <button className="publish" disabled={busy} onClick={() => void respond(true)}>
+          ⛩ 発信を承認
+        </button>
       </div>
     </div>
   );
@@ -105,6 +159,7 @@ function BulkBar({
   const [notice, setNotice] = useState('');
   const [links, setLinks] = useState<{ itemId: string; label: string; url: string }[]>([]);
   const [opened, setOpened] = useState<Set<string>>(new Set());
+  const [showAll, setShowAll] = useState(false);
   const linkOnly = isLinkOnlyAdapter(items[0]?.action?.adapterId ?? '');
 
   return (
@@ -156,21 +211,28 @@ function BulkBar({
       {links.length > 0 && (
         <div style={{ marginTop: 6 }}>
           <div className="muted" style={{ fontSize: 11 }}>
-            タップで1枚ずつ開く(投稿ボタンはあなたが押す)
+            タップで1枚ずつ開く(投稿ボタンはあなたが押す)。{opened.size}/{links.length} 開封済み
           </div>
-          {links.map((l, n) => (
+          {/* M55: 以前は「1/5 を開く」で、どの投稿を開くのか判別できなかった。
+              一度に開くのは MAX_LINKS_PER_OPEN 件まで(PC側と同じ。開きすぎて迷子にならない) */}
+          {links.slice(0, showAll ? links.length : MAX_LINKS_PER_OPEN).map((l) => (
             <button
               key={l.itemId}
-              style={{ marginRight: 6, marginTop: 4 }}
+              style={{ display: 'block', width: '100%', marginTop: 4, textAlign: 'left' }}
               onClick={() => {
                 window.open(l.url, '_blank', 'noopener,noreferrer');
                 setOpened(new Set([...opened, l.itemId]));
               }}
             >
-              {opened.has(l.itemId) ? '✓ ' : ''}
-              {n + 1}/{links.length} を開く
+              {opened.has(l.itemId) ? '✓ ' : '↗ '}
+              {l.label}
             </button>
           ))}
+          {!showAll && links.length > MAX_LINKS_PER_OPEN && (
+            <button className="morebtn" onClick={() => setShowAll(true)}>
+              残り{links.length - MAX_LINKS_PER_OPEN}件を表示
+            </button>
+          )}
         </div>
       )}
       {notice !== '' && <div className="muted" style={{ fontSize: 11 }}>{notice}</div>}
@@ -214,7 +276,7 @@ function BatchCard({ batch, api, onDone }: { batch: ApprovalBatch; api: RemoteAp
   return (
     <div className="card">
       <h3>⛩ 神議の承認バッチ({batch.ts.slice(5, 16)})</h3>
-      <p className="muted" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{batch.analysis}</p>
+      <LongText text={batch.analysis} />
       {[...groups.entries()]
         .filter(([, items]) => items.length >= 2)
         .map(([key, items]) => (
@@ -223,12 +285,8 @@ function BatchCard({ batch, api, onDone }: { batch: ApprovalBatch; api: RemoteAp
       {pending.map((item) => (
         <div key={item.id} style={{ borderTop: '1px solid #333', paddingTop: 8, marginTop: 8 }}>
           <div style={{ fontWeight: 600, fontSize: 13 }}>{item.title}</div>
-          <div className="muted" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{item.detail}</div>
-          {item.action !== undefined && (
-            <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 11, maxHeight: 120, overflow: 'auto' }}>
-              {item.action.preview}
-            </pre>
-          )}
+          <LongText text={item.detail} />
+          {item.action !== undefined && <LongText text={item.action.preview} />}
           <div className="row">
             <button disabled={busy !== null} onClick={() => respondOne(item, false)}>却下</button>
             <button disabled={busy !== null} className="primary" onClick={() => respondOne(item, true)}>
@@ -272,6 +330,7 @@ function DraftCard({
   const [notice, setNotice] = useState('');
   const [tag, setTag] = useState(/v\d+\.\d+\.\d+/.exec(draft.body)?.[0] ?? '');
   const [repo, setRepo] = useState(repos[0] ?? '');
+  const [media, setMedia] = useState(draft.media ?? DEFAULT_MEDIA[draft.kind]);
   const url = firstUrl(draft.body);
 
   const run = (label: string, p: Promise<{ ok: boolean; detail: string }>): void => {
@@ -291,9 +350,7 @@ function DraftCard({
       <div style={{ fontSize: 12 }}>
         <span className="muted">[{DRAFT_KIND_LABEL[draft.kind]}]</span> <b>{draft.title}</b>
       </div>
-      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12, maxHeight: 160, overflow: 'auto' }}>
-        {draft.body}
-      </pre>
+      <LongText text={draft.body} />
       <div className="row">
         <button onClick={() => void navigator.clipboard.writeText(draft.body).then(() => setNotice('コピーした'))}>
           コピー
@@ -355,12 +412,21 @@ function DraftCard({
       )}
       {draft.status === 'draft' && (
         <div className="row">
+          {/* M55: 媒体を送っていなかった。APIは元から受け付けるのに、スマホから投稿済みにすると
+              media が空のまま記録され、効果測定の媒体別集計が壊れていた */}
+          <select value={media} onChange={(e) => setMedia(e.target.value)} style={{ maxWidth: 110 }}>
+            {MEDIA_OPTIONS.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
           <button
             disabled={busy}
             onClick={() => {
               setBusy(true);
               void api
-                .opsDraftUpdate(draft.id, { status: 'posted' })
+                .opsDraftUpdate(draft.id, { status: 'posted', media })
                 .finally(() => {
                   setBusy(false);
                   onDone();
@@ -473,6 +539,18 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
   const [repos, setRepos] = useState<string[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  const send = (): void => {
+    setSending(true);
+    void api
+      .opsThreadSend(input.trim())
+      .then((t) => {
+        setMessages(t.messages);
+        setInput('');
+      })
+      .finally(() => setSending(false));
+  };
 
   const reload = useCallback((): void => {
     void api
@@ -504,6 +582,11 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
     return () => clearInterval(timer);
   }, [reload]);
 
+  // M55: 新しい発言が来たら最下部へ(PC側は元からやっている)
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: 'end' });
+  }, [messages.length]);
+
   if (enabled === null) return <p className="muted">読込中…</p>;
   if (!enabled) return <p className="muted">オーナーモードがOFF(デスクトップの設定→接続で有効化)</p>;
 
@@ -511,10 +594,17 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
   const liked = latest ? Object.values(latest.zenn).reduce((a, m) => a + m.liked, 0) : null;
   const hatena = latest?.hatena !== undefined ? Object.values(latest.hatena).reduce((a, c) => a + c, 0) : null;
   const activeDrafts = drafts.filter((d) => d.status === 'draft');
+  // M55: 投稿済みも出す。以前は status==='draft' だけを描いていたため、
+  // 「未投稿に戻す」ボタンが**永久に描画されず**、X投稿画面を開いて(=posted化)から
+  // 投稿を取りやめても、スマホからは取り消せなかった
+  const postedDrafts = drafts.filter((d) => d.status === 'posted');
 
   return (
-    <div>
-      {/* 承認待ち(最優先で上に) */}
+    // M55: OpsView だけ .content を付け忘れていた。他のタブは全て付いている。
+    // 結果、左右パディングが消え、内部スクロールコンテナが無いため
+    // **タブバーごと画面外へスクロールアウト**していた(タブを切り替えるのに全画面戻る必要があった)
+    <div className="content ops">
+      {/* 承認待ち(最優先で上に。畳まない) */}
       {iwato.map((req) => (
         <IwatoCard key={req.id} req={req} api={api} onDone={reload} />
       ))}
@@ -535,12 +625,30 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
         {impacts.length > 0 && (
           <div style={{ marginTop: 8 }}>
             <div style={{ fontSize: 12, fontWeight: 600 }}>発信の効果(前後差分)</div>
+            {/* M55: 媒体・投稿先・B!・DL の差分は API に既に載っていたのに、★と♥しか描いていなかった */}
             {impacts.slice(0, 5).map((e) => (
-              <div key={e.draftId} className="muted" style={{ fontSize: 11 }}>
-                {e.postedAt.slice(5, 16)} {e.title}:{' '}
-                {e.measurable && e.delta !== null
-                  ? `★${e.delta.stars >= 0 ? '+' : ''}${e.delta.stars} / ♥${e.delta.zennLiked >= 0 ? '+' : ''}${e.delta.zennLiked}`
-                  : e.note}
+              <div key={e.draftId} style={{ fontSize: 11, margin: '4px 0' }}>
+                <div className="muted">
+                  {e.postedAt.slice(5, 16)} {e.media !== null && `[${e.media}] `}
+                  {e.url !== null ? (
+                    <a href={e.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--blue)' }}>
+                      {e.title}
+                    </a>
+                  ) : (
+                    e.title
+                  )}
+                </div>
+                <div style={{ paddingLeft: 8 }}>
+                  {e.measurable && e.delta !== null ? (
+                    <span>
+                      ★{signed(e.delta.stars)} / ♥{signed(e.delta.zennLiked)} / B!{signed(e.delta.hatena)} / DL
+                      {signed(e.delta.downloads)} / 閲覧{signed(e.delta.views)}
+                      <span className="muted"> ({e.windowHours}h窓)</span>
+                    </span>
+                  ) : (
+                    <span className="muted">{e.note}</span>
+                  )}
+                </div>
               </div>
             ))}
             <div className="muted" style={{ fontSize: 10 }}>※相関であって因果ではない</div>
@@ -548,72 +656,88 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
         )}
       </div>
 
-      {/* AMENO-koyane: 神々の時計(操作つき) */}
-      <div className="card">
-        <h3>🕐 AMENO-koyane(神々の時計)</h3>
-        {clocks.map((j) => (
-          <ClockRow key={j.id} job={j} api={api} onDone={reload} />
-        ))}
-        <div className="muted" style={{ fontSize: 11 }}>
-          予算0=無制限。🔒はあなたの設定が神議より優先。APIキー等の設定変更はPC側から
+      {/* 発信ドラフト(1枚ずつ操作)。未処理があるときは開いた状態で始める */}
+      <details open={activeDrafts.length > 0}>
+        <summary>
+          💃 発信ドラフト <span className="count">未処理{activeDrafts.length} / 投稿済み{postedDrafts.length}</span>
+        </summary>
+        <div className="body">
+          {activeDrafts.length === 0 && <p className="muted">未処理の下書きは無い</p>}
+          {activeDrafts.map((d) => (
+            <DraftCard key={d.id} draft={d} repos={repos} api={api} onDone={reload} />
+          ))}
+          {postedDrafts.length > 0 && (
+            <details>
+              <summary>
+                投稿済み <span className="count">{postedDrafts.length}件(取り消しはここから)</span>
+              </summary>
+              <div className="body">
+                {postedDrafts.slice(0, 10).map((d) => (
+                  <DraftCard key={d.id} draft={d} repos={repos} api={api} onDone={reload} />
+                ))}
+              </div>
+            </details>
+          )}
+          <div className="muted" style={{ fontSize: 11 }}>
+            X/はてブは投稿画面を開くまで(投稿ボタンはあなたが押す)。Zenn/GitHubは岩戸ゲートの承認後に発行
+          </div>
         </div>
-      </div>
+      </details>
 
-      {/* AMENO-uzume: 発信ドラフト(1枚ずつ操作) */}
-      <div className="card">
-        <h3>💃 発信ドラフト({activeDrafts.length})</h3>
-        {activeDrafts.length === 0 && <p className="muted">未処理の下書きは無い</p>}
-        {activeDrafts.map((d) => (
-          <DraftCard key={d.id} draft={d} repos={repos} api={api} onDone={reload} />
-        ))}
-        <div className="muted" style={{ fontSize: 11 }}>
-          X/はてブは投稿画面を開くまで(投稿ボタンはあなたが押す)。Zenn/GitHubは岩戸ゲートの承認後に発行
+      {/* AMENO-koyane: 神々の時計(操作つき) */}
+      <details>
+        <summary>
+          🕐 AMENO-koyane(神々の時計) <span className="count">{clocks.filter((c) => c.enabled).length}/{clocks.length} 稼働</span>
+        </summary>
+        <div className="body">
+          {clocks.map((j) => (
+            <ClockRow key={j.id} job={j} api={api} onDone={reload} />
+          ))}
+          <div className="muted" style={{ fontSize: 11 }}>
+            予算0=無制限。🔒はあなたの設定が神議より優先。APIキー等の設定変更はPC側から
+          </div>
         </div>
-      </div>
+      </details>
 
       {/* 受け箱 */}
-      <div className="card">
-        <h3>📥 受け箱</h3>
-        {inbox.length === 0 && <p className="muted">空</p>}
-        {inbox.slice(0, 15).map((i) => (
-          <div key={i.id} className="muted" style={{ fontSize: 12, opacity: i.read ? 0.5 : 1 }}>
-            {i.ts.slice(5, 16)} {i.title}
-          </div>
-        ))}
-      </div>
+      <details>
+        <summary>
+          📥 受け箱 <span className="count">未読{inbox.filter((i) => !i.read).length}</span>
+        </summary>
+        <div className="body">
+          {inbox.length === 0 && <p className="muted">空</p>}
+          {inbox.slice(0, 15).map((i) => (
+            <div key={i.id} style={{ fontSize: 12, opacity: i.read ? 0.5 : 1, margin: '4px 0' }}>
+              {INBOX_ICON[i.kind] ?? '•'} <span className="muted">{i.ts.slice(5, 16)}</span> {i.title}
+            </div>
+          ))}
+        </div>
+      </details>
 
-      {/* ⛩スレッド */}
+      {/* ⛩スレッド。入力欄はカード内に貼り付ける(以前は最下部にあり、一言送るのに全画面スクロールしていた) */}
       <div className="card">
         <h3>⛩ 運営スレッド</h3>
-        {messages.slice(-20).map((m) => (
-          <div key={m.id} style={{ marginBottom: 6, fontSize: 13 }}>
-            <span className="muted" style={{ fontSize: 11 }}>
-              {m.role === 'user' ? 'あなた' : m.role === 'kamuhakari' ? '🧠 神議' : '⚙'} {m.ts.slice(5, 16)}
-            </span>
-            <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.body}</div>
-          </div>
-        ))}
-        <div className="row">
+        <div style={{ maxHeight: '50vh', overflowY: 'auto' }}>
+          {messages.slice(-20).map((m) => (
+            <div key={m.id} style={{ marginBottom: 6, fontSize: 13 }}>
+              <span className="muted" style={{ fontSize: 11 }}>
+                {m.role === 'user' ? 'あなた' : m.role === 'kamuhakari' ? '🧠 神議' : '⚙'} {m.ts.slice(5, 16)}
+              </span>
+              <LongText text={m.body} />
+            </div>
+          ))}
+          <div ref={bottomRef} />
+        </div>
+        <div className="thread-composer">
           <input
-            style={{ flex: 1, minWidth: 0 }}
             placeholder="神議への相談・指示"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-          />
-          <button
-            disabled={sending || input.trim() === ''}
-            className="primary"
-            onClick={() => {
-              setSending(true);
-              void api
-                .opsThreadSend(input.trim())
-                .then((t) => {
-                  setMessages(t.messages);
-                  setInput('');
-                })
-                .finally(() => setSending(false));
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && input.trim() !== '' && !sending) send();
             }}
-          >
+          />
+          <button disabled={sending || input.trim() === ''} className="primary" onClick={send}>
             {sending ? '…' : '送信'}
           </button>
         </div>

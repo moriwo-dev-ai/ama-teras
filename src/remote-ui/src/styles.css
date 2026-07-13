@@ -282,3 +282,79 @@ pre.preview {
 [data-theme='light'] .new-chat {
   background: transparent; color: var(--text); border: 1px solid var(--border);
 }
+
+/* ---- M55: 運営画面のボタンと密度(スマホで「押し間違えない」ための最低線) ----
+   これまで OpsView は className="primary" を8箇所で使っていたが、**CSSに .primary は
+   存在しなかった**。結果すべてがブラウザ既定のボタンになり、「拒否」と
+   「発信を承認」(=公開の場へ不可逆に発信)が見た目で区別できず、タップ領域も
+   UA既定(20-24px)でiOS推奨44pxを大きく下回っていた。 */
+.card button,
+.ops button {
+  min-height: 44px; /* 指で押す最小サイズ。数字の根拠は iOS HIG */
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  padding: 8px 12px;
+}
+.card button.primary,
+.ops button.primary {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+  font-weight: 600;
+}
+/* 不可逆・外向きの操作(発信・公開)は青ではなく警告色。押す前に一拍置かせる */
+.card button.publish,
+.ops button.publish {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: #fff;
+  font-weight: 600;
+}
+.card button.reject,
+.ops button.reject {
+  background: transparent;
+  color: var(--muted);
+}
+.card button:disabled,
+.ops button:disabled { opacity: 0.4; }
+
+/* 4コントロールを横1列に詰めると狭幅で潰れる(神の時計の予算入力・🔒が典型) */
+.card .row { flex-wrap: wrap; }
+.card .row > label { flex: 1 1 100%; }
+
+/* 折りたたみ。運営画面は承認→バッチ→数字→時計→ドラフト→受け箱→スレッドの
+   縦一列で、一言送るのに全部スクロールする必要があった */
+.ops details { border: 1px solid var(--border); border-radius: 10px; margin: 8px 0; background: var(--panel); }
+.ops details > summary {
+  list-style: none; cursor: pointer; padding: 12px; font-size: 14px; font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+}
+.ops details > summary::-webkit-details-marker { display: none; }
+.ops details > summary::after { content: '▾'; margin-left: auto; color: var(--muted); }
+.ops details[open] > summary::after { content: '▴'; }
+.ops details > summary .count {
+  font-size: 11px; color: var(--muted); font-weight: 400;
+}
+.ops details > .body { padding: 0 12px 12px; }
+
+/* 長文は枠内スクロールにせず、既定で畳む(ページスクロール中に指が吸われるのを避ける) */
+.ops .longtext {
+  white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.6;
+  color: var(--text); margin: 6px 0;
+}
+.ops .clamp {
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.ops .morebtn {
+  min-height: 0; padding: 2px 0; background: none; border: none; color: var(--blue); font-size: 12px;
+}
+
+/* 神議への一言。最下部まで潜らずに送れるよう、スレッドカードの中で下に貼り付ける */
+.ops .thread-composer {
+  position: sticky; bottom: 0; background: var(--panel);
+  display: flex; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border);
+}
+.ops .thread-composer input { flex: 1; min-width: 0; }
