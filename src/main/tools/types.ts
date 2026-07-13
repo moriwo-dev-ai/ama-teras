@@ -84,7 +84,8 @@ export interface ToolContext {
       expectedIO: string,
       signal: AbortSignal,
     ): Promise<
-      | { outcome: 'imported'; jobId: number; name: string }
+      // M71: 配布版の導入は進化ジョブを起票しない(検査→承認→配置で完結)
+      | { outcome: 'imported'; jobId?: number; name: string }
       | { outcome: 'declined'; name: string }
       | { outcome: 'none' }
     >;

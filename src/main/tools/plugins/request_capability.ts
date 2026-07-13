@@ -63,6 +63,14 @@ export default {
     if (resolvedScope === 'tool' && target_tool === undefined && ctx.evolution?.searchRegistryAndImport) {
       const found = await ctx.evolution.searchRegistryAndImport(description, expected_io, ctx.signal);
       if (found.outcome === 'imported') {
+        // M71: 配布版は進化ジョブを持たない(検査→承認→配置でその場で完結する)
+        if (found.jobId === undefined) {
+          return {
+            content:
+              `コミュニティの既存プラグイン「${found.name}」を導入した(ユーザー承認済み・すでに利用可能)。` +
+              `このツールを使って作業を続行せよ。`,
+          };
+        }
         return {
           content:
             `コミュニティの既存プラグイン「${found.name}」が見つかり、インポートを開始した(ジョブ#${found.jobId})。` +

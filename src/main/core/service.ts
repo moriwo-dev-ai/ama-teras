@@ -989,7 +989,8 @@ export class AgentService {
     signal: AbortSignal,
     origin?: ConvState,
   ): Promise<
-    | { outcome: 'imported'; jobId: number; name: string }
+    // M71: 配布版の導入は進化ジョブを起票しない(検査→承認→配置で完結)ため jobId を持たない
+    | { outcome: 'imported'; jobId?: number; name: string }
     | { outcome: 'declined'; name: string }
     | { outcome: 'none' }
   > {
@@ -1040,10 +1041,15 @@ export class AgentService {
     const dangerous = perms.network || perms.childProcess;
     if (best.verified && !dangerous) {
       // 包括承認の範囲内 → 無人で検証ゲートへ。昇格は仮導入として自動承認され、終了後に棚卸し
-      const started = await this.pluginImportStart(dl.dir);
-      if (!started.ok || started.jobId === undefined) {
+      const started = await this.pluginImportStart(dl.dir, 'コミュニティレジストリ');
+      if (!started.ok) {
         this.emitInfoTo(origin, `レジストリ候補「${best.name}」の検査に失敗: ${started.message} — 従来の生成フローへ進みます`);
         return { outcome: 'none' };
+      }
+      // M71: 配布版はジョブを起票せず、その場で承認ダイアログ→配置まで済んでいる
+      if (started.jobId === undefined) {
+        this.emitInfoTo(origin, `📦 コミュニティプラグイン「${best.name}」を導入しました(承認済み)`);
+        return { outcome: 'imported', name: best.name };
       }
       this.provisionalCandidates.set(started.jobId, { origin: 'registry' });
       this.emitInfoTo(
@@ -1064,12 +1070,14 @@ export class AgentService {
     );
     if (decision === 'deny') return { outcome: 'declined', name: best.name };
     // 個別承認あり → 通常インポート(仮導入ではない=昇格は従来どおり人間承認)
-    const started = await this.pluginImportStart(dl.dir);
-    if (!started.ok || started.jobId === undefined) {
+    const started = await this.pluginImportStart(dl.dir, 'コミュニティレジストリ');
+    if (!started.ok) {
       this.emitInfoTo(origin, `レジストリ候補「${best.name}」の検査に失敗: ${started.message} — 従来の生成フローへ進みます`);
       return { outcome: 'none' };
     }
-    return { outcome: 'imported', jobId: started.jobId, name: best.name };
+    return started.jobId === undefined
+      ? { outcome: 'imported', name: best.name }
+      : { outcome: 'imported', jobId: started.jobId, name: best.name };
   }
 
   /** 候補一式をダウンロードして検査まで行う。失敗は情報カード+null(生成へフォールバック) */
@@ -1102,15 +1110,17 @@ export class AgentService {
     entry: RegistryIndexEntry,
     fetchFn: typeof fetch,
     origin?: ConvState,
-  ): Promise<{ outcome: 'imported'; jobId: number; name: string } | { outcome: 'none' }> {
+  ): Promise<{ outcome: 'imported'; jobId?: number; name: string } | { outcome: 'none' }> {
     const dl = await this.downloadCandidate(registryUrl, entry, fetchFn, origin);
     if (dl === null) return { outcome: 'none' };
-    const started = await this.pluginImportStart(dl.dir);
-    if (!started.ok || started.jobId === undefined) {
+    const started = await this.pluginImportStart(dl.dir, 'コミュニティレジストリ');
+    if (!started.ok) {
       this.emitInfoTo(origin, `レジストリ候補「${entry.name}」の検査に失敗: ${started.message} — 従来の生成フローへ進みます`);
       return { outcome: 'none' };
     }
-    return { outcome: 'imported', jobId: started.jobId, name: entry.name };
+    return started.jobId === undefined
+      ? { outcome: 'imported', name: entry.name }
+      : { outcome: 'imported', jobId: started.jobId, name: entry.name };
   }
 
   /** 依頼元会話へ情報カードを流す(会話が無ければ捨てる) */
@@ -2341,8 +2351,11 @@ export class AgentService {
     const destDir = join(tmpdir(), `amateras-registry-${randomUUID()}`, entry.name);
     const dl = await downloadRegistryPlugin(registryUrl, entry, destDir, fetchFn);
     if (!dl.ok) return { ok: false, message: dl.message };
-    const started = await this.pluginImportStart(destDir);
-    if (!started.ok || started.jobId === undefined) return { ok: false, message: started.message };
+    const started = await this.pluginImportStart(destDir, 'コミュニティレジストリ');
+    if (!started.ok) return { ok: false, message: started.message };
+    // M71: 配布版はジョブを起票しない(承認→配置で完結。ここで jobId を必須にしていたため、
+    // 成功が「検査に失敗」として扱われていた)
+    if (started.jobId === undefined) return { ok: true, message: started.message };
     return { ok: true, message: `進化ジョブ #${started.jobId} として検証ゲートへ`, jobId: started.jobId };
   }
 
