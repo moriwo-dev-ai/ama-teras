@@ -60,4 +60,35 @@ describe('M68: 承認待ちに同じカードを積み増さない', () => {
     // 2回目は同じカードなので積み増さない(実機では8枚まで増えていた)
     expect(pendingTitles()).toHaveLength(1);
   });
+
+  it('M69: すでに積み上がった同一カードは、1枚への回答が双子にも及ぶ', async () => {
+    // M68以前の状態を再現: まったく同じカードが3枚、別バッチに未処理で載っている
+    const item = (id: string) => ({
+      id,
+      kind: 'exec-action' as const,
+      title: '同じ提案',
+      detail: 'd',
+      status: 'pending' as const,
+    });
+    const batches: ApprovalBatch[] = [
+      { id: 'b1', ts: '2026-07-13T00:00:00Z', analysis: 'a', items: [item('i1')] },
+      { id: 'b2', ts: '2026-07-13T00:15:00Z', analysis: 'a', items: [item('i2')] },
+      { id: 'b3', ts: '2026-07-13T00:30:00Z', analysis: 'a', items: [item('i3')] },
+    ];
+    mkdirSync(join(dir, 'operations'), { recursive: true });
+    writeFileSync(join(dir, 'operations', 'batches.json'), JSON.stringify(batches), 'utf8');
+
+    const manager = new OperationsManager({
+      userDataDir: dir,
+      getConfig: () => ({ operations: { enabled: true, repos: [], zennSlugs: [] } }) as unknown as AppConfig,
+      audit: () => {},
+      approvalPrompt: () => Promise.resolve(false),
+      bandProvider: () => fakeProvider(),
+    });
+    await manager.status();
+
+    const r = await manager.batchRespond('b1', 'i1', false);
+    expect(r.detail).toContain('2枚も却下');
+    expect(pendingTitles()).toHaveLength(0); // 同じ画面を3回押させない
+  });
 });

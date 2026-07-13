@@ -1489,7 +1489,22 @@ ${d.body}`))
       approved,
       detail: approved ? '承認' : '却下',
     });
-    if (!approved) return { ok: true, detail: '却下した' };
+    // M69: M68以前に積み上がった同一カード(実機で3種×8枚)の後始末。まったく同じ提案は
+    // まったく同じ判断になるはずで、同じ画面を8回押させる意味は無い。1枚への回答を
+    // 未処理の双子にも及ぼす(実行はこの1枚だけ。双子は判断の記録のみ)
+    const twins = this.thread
+      .listBatches()
+      .flatMap((b) => b.items.map((i) => ({ b, i })))
+      .filter(({ b, i }) => i.status === 'pending' && i.kind === item.kind && i.title === item.title && !(b.id === batchId && i.id === itemId));
+    for (const { b, i } of twins) this.thread.respondBatchItem(b.id, i.id, approved);
+    if (twins.length > 0) {
+      this.thread.post({
+        role: 'system',
+        kind: 'notice',
+        body: `⛩ 同じ内容の承認待ちカード${twins.length}枚にも同じ判断(${approved ? '承認' : '却下'})を反映した(神議が15分ごとに作り直していた重複。M68で再発は止めた)`,
+      });
+    }
+    if (!approved) return { ok: true, detail: twins.length > 0 ? `却下した(同一内容の${twins.length}枚も却下)` : '却下した' };
     if (item.kind === 'param-approval' && item.change !== undefined) {
       // 人間承認済みの変更を適用(予算引き上げ・判定プロンプト等)
       if (item.change.kind === 'budget-increase') {
