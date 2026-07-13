@@ -272,4 +272,51 @@ describe('M39-2: 一括の単位と行き先(媒体×アクション)', () => {
   it('リンクの開きすぎ防止: 上限は5件(超過分はUIが「続きを開く」で刻む)', () => {
     expect(MAX_LINKS_PER_OPEN).toBe(5);
   });
+
+  /**
+   * M74: 実害。スマホの承認ボタンは1枚でも bulkRespond を通るため、M69(batchRespond側の
+   * 双子まとめ)が効いていなかった。神議が15分ごとに作り直した同じカードを人間が続けて叩き、
+   * **5秒間に3本 Zenn へコミットされ、同じ記事が2本 公開リポジトリに載った**。
+   * 本文生成に数秒かかる間、下書きの「投稿済み」印はまだ付かないので、
+   * M43-2の重複ガードは競合で素通りできた。
+   */
+  it('同じ内容のカードが複数あっても、実行は1回だけ(双子には判断だけを反映)', async () => {
+    const repoDir = join(dir, 'zenn-content');
+    mkdirSync(join(repoDir, '.git'), { recursive: true });
+    const git = vi.fn<GitRunner>(async () => '');
+    const manager = makeManager({ zennRepoDir: repoDir, gitRunner: git });
+    await manager.status();
+    const store = new DraftStore(join(dir, 'operations'));
+    const [draft] = store.add([{ kind: 'article-outline', title: '同じ記事', body: '## 章' }]);
+    // 神議が3回作り直した、まったく同じカード
+    const card = (id: string) => ({
+      id,
+      kind: 'exec-action' as const,
+      title: 'Zenn記事化: 「同じ記事」',
+      detail: '',
+      action: {
+        adapterId: 'zenn-repo',
+        actionName: 'commit-article',
+        target: 'zenn-content/articles/',
+        preview: '## 章',
+        params: { draftId: draft!.id },
+      },
+      status: 'pending' as const,
+    });
+    new OpsThread(join(dir, 'operations')).addBatch(batchWith([card('i1'), card('i2'), card('i3')]));
+
+    // スマホの挙動を再現: 1枚ずつ、待たずに続けて叩く(指の速さで競合する)
+    const [r1, r2, r3] = await Promise.all([
+      manager.bulkRespond('b1', ['i1'], true),
+      manager.bulkRespond('b1', ['i2'], true),
+      manager.bulkRespond('b1', ['i3'], true),
+    ]);
+
+    // コミットは1回だけ(実機では3回走り、公開リポジトリに重複記事が残った)
+    const commits = git.mock.calls.filter((c) => c[0]?.[0] === 'commit');
+    expect(commits).toHaveLength(1);
+    expect(git.mock.calls.filter((c) => c[0]?.[0] === 'push')).toHaveLength(1);
+    // 残りは「実行された」と嘘をつかない
+    expect([r1, r2, r3].filter((r) => r.results.some((x) => x.ok)).length).toBe(1);
+  });
 });

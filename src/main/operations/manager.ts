@@ -1289,6 +1289,19 @@ ${d.body}`))
    *   (投稿/追加ボタンは人間が押す。規約=大原則)
    */
   async bulkRespond(batchId: string, itemIds: string[], approved: boolean): Promise<BulkRespondResult> {
+    // M74: 発信は1本ずつ直列に流す。**下書きの「投稿済み」印は実行が終わってから付く**ため、
+    // Zenn記事のように本文生成に数秒かかるものは、その数秒の間に次の承認が重複ガードを
+    // すり抜けられた。実際に5秒間で3本コミットされ、同じ記事が2本 公開リポジトリに載った
+    // (スマホは同じカードを1枚ずつ叩けるので、人間の指の速さで簡単に競合する)
+    this.respondChain = this.respondChain
+      .catch(() => undefined)
+      .then(() => this.bulkRespondSerial(batchId, itemIds, approved));
+    return this.respondChain;
+  }
+
+  private respondChain: Promise<BulkRespondResult> = Promise.resolve({ ok: true, detail: '', results: [] });
+
+  private async bulkRespondSerial(batchId: string, itemIds: string[], approved: boolean): Promise<BulkRespondResult> {
     if (!this.ensureInitialized() || this.thread === null || this.gate === null || this.drafts === null) {
       return { ok: false, detail: '未初期化', results: [] };
     }
@@ -1297,9 +1310,29 @@ ${d.body}`))
     const selected = batch.items.filter((i) => itemIds.includes(i.id) && i.action !== undefined);
     if (selected.length === 0) return { ok: false, detail: '対象項目が無い', results: [] };
 
+    // M74: 同じ内容のカード(神議が15分ごとに作り直したもの)は、1枚だけ実行して残りは
+    // 判断だけを反映する。M69で batchRespond には入れたが、**スマホの承認ボタンは1枚でも
+    // この bulkRespond を通る**ため効いておらず、同じ記事が3回コミットされた
+    const seenTitles = new Set<string>();
+    const uniqueSelected = selected.filter((i) => {
+      const key = `${i.kind}|${i.title}`;
+      if (seenTitles.has(key)) return false;
+      seenTitles.add(key);
+      return true;
+    });
+    const twins = this.thread
+      .listBatches()
+      .flatMap((b) => b.items.map((i) => ({ b, i })))
+      .filter(
+        ({ b, i }) =>
+          i.status === 'pending' &&
+          uniqueSelected.some((u) => u.kind === i.kind && u.title === i.title) &&
+          !(b.id === batchId && itemIds.includes(i.id)),
+      );
+
     // M43-2: 既に出した下書きは二度出さない。実際に同じZenn記事が2回コミットされた
     // (同じ下書きが別のバッチ項目として残っていて、二度承認された)
-    const already = selected.filter((i) => this.draftAlreadyPosted(i.action!.params));
+    const already = uniqueSelected.filter((i) => this.draftAlreadyPosted(i.action!.params));
     for (const i of already) this.thread.respondBatchItem(batchId, i.id, true);
     const alreadyResults: BulkItemResult[] = already.map((i) => ({
       itemId: i.id,
@@ -1307,8 +1340,33 @@ ${d.body}`))
       ok: false,
       detail: '投稿済み(重複回避)',
     }));
-    const items = selected.filter((i) => !already.includes(i));
+    const items = uniqueSelected.filter((i) => !already.includes(i));
+
+    // 双子(未処理の同一カード)には、実行せず判断だけを反映する。
+    // 選択の中にあった重複(selected − uniqueSelected)も同じ扱い
+    const settleTwins = (): number => {
+      let n = 0;
+      for (const { b, i } of twins) {
+        this.thread!.respondBatchItem(b.id, i.id, approved);
+        n++;
+      }
+      for (const i of selected) {
+        if (uniqueSelected.includes(i)) continue;
+        this.thread!.respondBatchItem(batchId, i.id, approved);
+        n++;
+      }
+      if (n > 0) {
+        this.thread!.post({
+          role: 'system',
+          kind: 'notice',
+          body: `⛩ 同じ内容の承認待ちカード${n}枚にも同じ判断(${approved ? '承認' : '却下'})を反映した(実行したのは1枚だけ)`,
+        });
+      }
+      return n;
+    };
+
     if (items.length === 0) {
+      settleTwins();
       return { ok: true, detail: `${already.length}件はすでに投稿済み(重複を回避した)`, results: alreadyResults };
     }
 
@@ -1321,12 +1379,15 @@ ${d.body}`))
 
     if (!approved) {
       for (const i of items) this.thread.respondBatchItem(batchId, i.id, false);
+      const settled = settleTwins();
       return {
         ok: true,
-        detail: `${items.length}件を却下した`,
+        detail: settled > 0 ? `${items.length}件を却下した(同一内容の${settled}枚も却下)` : `${items.length}件を却下した`,
         results: items.map((i) => ({ itemId: i.id, target: i.action!.target, ok: false, detail: '却下' })),
       };
     }
+    // 承認: 実行するのは items(重複排除済み)だけ。双子は判断だけ反映する
+    settleTwins();
 
     this.deps.audit({
       kind: 'operations-execute',

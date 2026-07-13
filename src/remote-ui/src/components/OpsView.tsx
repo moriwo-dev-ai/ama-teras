@@ -392,12 +392,15 @@ function BulkBar({
   items,
   api,
   onDone,
+  onLinks,
 }: {
   batchId: string;
   groupKey: string;
   items: ApprovalBatchItem[];
   api: RemoteApi;
   onDone: () => void;
+  // M74: リンクはカードの外(LinkTray)へ。承認するとこのバーごと消えるため
+  onLinks: (links: { itemId: string; label: string; url: string }[]) => void;
 }): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
@@ -441,6 +444,7 @@ function BulkBar({
                 // 承認(通信)のあとに自動で開こうとすると必ずブロックされるので、
                 // 開くボタンを並べて1枚ずつタップしてもらう(タップ=ジェスチャ)
                 setLinks(r.links ?? []);
+                onLinks(r.links ?? []);
               })
               .catch((e: unknown) => setNotice(e instanceof Error ? e.message : String(e)))
               .finally(() => {
@@ -484,7 +488,65 @@ function BulkBar({
   );
 }
 
-function BatchCard({ batch, api, onDone }: { batch: ApprovalBatch; api: RemoteApi; onDone: () => void }): JSX.Element {
+/**
+ * M74: 承認して受け取ったリンク(X/はてブ)を**カードの外**に置く。
+ * 以前はリンクを承認したカード自身の中に出していたが、承認した瞬間その項目は pending から
+ * 外れ、`pending.length === 0` でカードごと消える → **リンクボタンは一瞬も表示されなかった**。
+ * 「Xの投稿ボタンを押したのにXが立ち上がらない」の正体。開き終えるまでここに残す
+ */
+function LinkTray({
+  links,
+  onClear,
+}: {
+  links: { itemId: string; label: string; url: string }[];
+  onClear: () => void;
+}): JSX.Element | null {
+  const [opened, setOpened] = useState<Set<string>>(new Set());
+  const [showAll, setShowAll] = useState(false);
+  if (links.length === 0) return null;
+  return (
+    <div className="card">
+      <h3>↗ 開いて投稿する({opened.size}/{links.length})</h3>
+      <div className="muted" style={{ fontSize: 11 }}>
+        承認済み。タップで1枚ずつ開く(**投稿ボタンはあなたが押す**)。スマホはタップ以外の
+        window.open を塞ぐので、自動では開けない
+      </div>
+      {links.slice(0, showAll ? links.length : MAX_LINKS_PER_OPEN).map((l) => (
+        <button
+          key={l.itemId}
+          style={{ display: 'block', width: '100%', marginTop: 4, textAlign: 'left' }}
+          onClick={() => {
+            window.open(l.url, '_blank', 'noopener,noreferrer');
+            setOpened(new Set([...opened, l.itemId]));
+          }}
+        >
+          {opened.has(l.itemId) ? '✓ ' : '↗ '}
+          {l.label}
+        </button>
+      ))}
+      {!showAll && links.length > MAX_LINKS_PER_OPEN && (
+        <button className="morebtn" onClick={() => setShowAll(true)}>
+          残り{links.length - MAX_LINKS_PER_OPEN}件を表示
+        </button>
+      )}
+      <button className="morebtn" onClick={onClear}>
+        閉じる
+      </button>
+    </div>
+  );
+}
+
+function BatchCard({
+  batch,
+  api,
+  onDone,
+  onLinks,
+}: {
+  batch: ApprovalBatch;
+  api: RemoteApi;
+  onDone: () => void;
+  onLinks: (links: { itemId: string; label: string; url: string }[]) => void;
+}): JSX.Element {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const [links, setLinks] = useState<{ itemId: string; label: string; url: string }[]>([]);
@@ -505,7 +567,9 @@ function BatchCard({ batch, api, onDone }: { batch: ApprovalBatch; api: RemoteAp
       item.action !== undefined
         ? api.opsBulkRespond(batch.id, [item.id], approved).then((r) => {
             // M41-2: 自動で開かない(スマホはポップアップを塞ぐ)。開くボタンを出す
+            // M74: カードの外(LinkTray)に出す。承認した瞬間このカードは消えるため
             setLinks(r.links ?? []);
+            onLinks(r.links ?? []);
             return r;
           })
         : api.opsBatchRespond(batch.id, item.id, approved);
@@ -524,7 +588,7 @@ function BatchCard({ batch, api, onDone }: { batch: ApprovalBatch; api: RemoteAp
       {[...groups.entries()]
         .filter(([, items]) => items.length >= 2)
         .map(([key, items]) => (
-          <BulkBar key={key} batchId={batch.id} groupKey={key} items={items} api={api} onDone={onDone} />
+          <BulkBar key={key} batchId={batch.id} groupKey={key} items={items} api={api} onDone={onDone} onLinks={onLinks} />
         ))}
       {pending.map((item) => (
         <div key={item.id} style={{ borderTop: '1px solid #333', paddingTop: 8, marginTop: 8 }}>
@@ -778,6 +842,8 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
   // M60: 前回のスナップショット(前回比のため)。合計値だけでは動いているかが読めない
   const [prev, setPrev] = useState<MetricsSnapshot | null>(null);
   const [iwato, setIwato] = useState<IwatoRequestPayload[]>([]);
+  // M74: 承認で受け取ったリンクは、承認したカードが消えても残す(消えるせいでXが開けなかった)
+  const [openLinks, setOpenLinks] = useState<{ itemId: string; label: string; url: string }[]>([]);
   const [batches, setBatches] = useState<ApprovalBatch[]>([]);
   const [messages, setMessages] = useState<OpsThreadMessage[]>([]);
   const [drafts, setDrafts] = useState<OperationsDraft[]>([]);
@@ -866,8 +932,16 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
       {iwato.map((req) => (
         <IwatoCard key={req.id} req={req} api={api} onDone={reload} />
       ))}
+      {/* M74: 承認済みの「開くリンク」。カードが消えても残る場所に置く */}
+      <LinkTray links={openLinks} onClear={() => setOpenLinks([])} />
       {batches.map((b) => (
-        <BatchCard key={b.id} batch={b} api={api} onDone={reload} />
+        <BatchCard
+          key={b.id}
+          batch={b}
+          api={api}
+          onDone={reload}
+          onLinks={(l) => setOpenLinks((prev) => [...prev.filter((p) => !l.some((x) => x.itemId === p.itemId)), ...l])}
+        />
       ))}
 
       {/* 主要数字 */}
