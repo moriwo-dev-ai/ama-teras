@@ -984,6 +984,30 @@ export class OperationsManager {
         batch.items.push(...draftItems);
       }
     }
+    // M68: 神議は15分ごとに、まだ誰も承認していない同じカードを作り直していた。
+    // 実機では未処理54枚のうち、同一タイトルのカードが3種×8枚。人間が判断していないだけの
+    // ものを積み増しても、承認画面(特にスマホ)が埋まって本当に見るべきものが埋もれるだけ。
+    // すでに未処理で載っているものは、載せ直さない
+    if (batch !== null) {
+      const pending = new Set(
+        this.thread
+          .listBatches()
+          .flatMap((b) => b.items)
+          .filter((i) => i.status === 'pending')
+          .map((i) => `${i.kind} ${i.title}`),
+      );
+      const before = batch.items.length;
+      batch.items = batch.items.filter((i) => !pending.has(`${i.kind} ${i.title}`));
+      const dropped = before - batch.items.length;
+      if (dropped > 0) {
+        this.thread.post({
+          role: 'system',
+          kind: 'notice',
+          body: `⛩ 承認待ちに同じカードが既にあるため、${dropped}件を積み増さなかった(未処理は増やさない)`,
+        });
+      }
+      if (batch.items.length === 0) batch = null;
+    }
     // M42-2/3: 「作る前に探す」。生成/新設の提案にレジストリの既存を突き合わせ、
     // 見つかったら承認バッチの項目自体を「取り込み提案」に変える(判断は人間のまま)
     if (batch !== null) await this.enrichWithRegistry(batch);
