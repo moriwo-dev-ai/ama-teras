@@ -216,6 +216,26 @@ export class RemoteApi {
     return this.req('GET', `/api/ops/history?limit=${limit}`);
   }
 
+  // ---- M62: PCにあってスマホに無かったもの ----
+  opsWeeklyReport(): Promise<{ draft: import('../../shared/types').OperationsDraft | null }> {
+    return this.req('POST', '/api/ops/weekly-report');
+  }
+
+  opsTriage(): Promise<{ cards: import('../../shared/types').TriageCard[] }> {
+    return this.req('GET', '/api/ops/triage');
+  }
+
+  opsCandidates(): Promise<{ candidates: import('../../shared/types').CommunityCandidate[] }> {
+    return this.req('GET', '/api/ops/candidates');
+  }
+
+  opsCandidateResolve(
+    id: string,
+    status: 'kept' | 'discarded',
+  ): Promise<{ candidate: import('../../shared/types').CommunityCandidate | null }> {
+    return this.req('POST', '/api/ops/candidate-resolve', { id, status });
+  }
+
   opsGodRun(godId: string): Promise<{ ok: boolean; detail: string; tokensUsed: number }> {
     return this.req('POST', '/api/ops/god-run', { godId });
   }

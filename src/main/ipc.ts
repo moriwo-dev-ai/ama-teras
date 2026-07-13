@@ -1208,6 +1208,12 @@ export async function registerIpcHandlers(
             adapters: s.adapters.map((a) => ({ id: a.id, available: a.available })),
           };
         },
+        // M62: 出先でも「見て・判断して・返す」が完結するように(PC専用だった4つ)
+        weeklyReport: () => operations.weeklyReport(),
+        triage: () => operations.triage(),
+        candidates: () => operations.listCandidates(),
+        candidateResolve: (id, status) => operations.resolveCandidate(id, status),
+        strategyBoard: () => operations.strategyBoard(),
       },
       remoteSettings: {
         get: sanitizedConfig,

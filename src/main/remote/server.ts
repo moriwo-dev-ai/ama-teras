@@ -144,6 +144,17 @@ export interface RemoteOperationsFacade {
   history(limit: number): import('../../shared/types').MetricsSnapshot[];
   /** アダプタの稼働状況(gh未検出などの警告がスマホから見えない問題) */
   adapterStatus(): Promise<{ enabled: boolean; ghDetected: boolean; adapters: { id: string; available: boolean }[] }>;
+
+  // ---- M62: PCにあってスマホに無かったもの(出先で判断が止まる) ----
+  /** 週報の生成(下書きとして残る) */
+  weeklyReport(): Promise<import('../../shared/types').OperationsDraft | null>;
+  /** Issue/PRのトリアージ(所見・CI状態・返信下書き) */
+  triage(): Promise<import('../../shared/types').TriageCard[]>;
+  /** 仲間候補の一覧と、残す/破棄 */
+  candidates(): import('../../shared/types').CommunityCandidate[];
+  candidateResolve(id: string, status: 'kept' | 'discarded'): import('../../shared/types').CommunityCandidate | null;
+  /** 媒体ごとの戦略ボード(どこに効いているか) */
+  strategyBoard(): import('../../shared/types').MediaStrategyEntry[];
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -596,6 +607,38 @@ export class RemoteServer {
       case 'GET /api/ops/adapters': {
         if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
         return sendJson(res, 200, await this.deps.operations.adapterStatus());
+      }
+
+      // ---- M62: 出先でも「見て・判断して・返す」が完結するように ----
+      case 'POST /api/ops/weekly-report': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        return sendJson(res, 200, { draft: await this.deps.operations.weeklyReport() });
+      }
+
+      case 'GET /api/ops/triage': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        return sendJson(res, 200, { cards: await this.deps.operations.triage() });
+      }
+
+      case 'GET /api/ops/candidates': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        return sendJson(res, 200, { candidates: this.deps.operations.candidates() });
+      }
+
+      case 'POST /api/ops/candidate-resolve': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        const body = await readJsonBody(req);
+        const id = body['id'];
+        const status = body['status'];
+        if (typeof id !== 'string' || (status !== 'kept' && status !== 'discarded')) {
+          throw new HttpError(400, 'id(string) と status(kept|discarded) が必要');
+        }
+        return sendJson(res, 200, { candidate: this.deps.operations.candidateResolve(id, status) });
+      }
+
+      case 'GET /api/ops/strategy': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        return sendJson(res, 200, { entries: this.deps.operations.strategyBoard() });
       }
 
       case 'POST /api/ops/iwato-respond': {

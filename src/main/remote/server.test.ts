@@ -527,6 +527,14 @@ describe('M34-6: 運営リモートAPI', () => {
     }),
     history: () => [],
     adapterStatus: async () => ({ enabled: true, ghDetected: true, adapters: [{ id: 'github', available: true }] }),
+    // M62: PC専用だった4つ(週報・トリアージ・仲間候補・戦略ボード)
+    weeklyReport: async () => null,
+    triage: async () => [],
+    candidates: () => [
+      { id: 'c1', source: 'bluesky:AIエージェント', profile: '@alice', reason: '自作エージェントの話', verdict: 'match', status: 'new', ts: '', replyDraft: '' } as never,
+    ],
+    candidateResolve: (id, status) => ({ id, status } as never),
+    strategyBoard: () => [],
   };
 
   it('operations 未注入なら /api/ops/* は404', async () => {

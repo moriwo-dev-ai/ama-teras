@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   ApprovalBatch,
   ApprovalBatchItem,
+  CommunityCandidate,
   GodClockJob,
   ImpactEntry,
   InboxItem,
@@ -9,6 +10,7 @@ import type {
   MetricsSnapshot,
   OperationsDraft,
   OpsThreadMessage,
+  TriageCard,
 } from '../../../shared/types';
 import {
   bulkGroupKey,
@@ -196,6 +198,92 @@ function ReleasePublish({ repos, api, onDone }: { repos: string[]; api: RemoteAp
         </>
       )}
       {notice !== '' && <div className="muted" style={{ fontSize: 11 }}>{notice}</div>}
+    </div>
+  );
+}
+
+/**
+ * M62: PC専用だった操作(仲間候補・トリアージ・週報)。
+ * 出先で「見て・判断して・返す」が完結しないと、結局PCの前に戻るまで運営が止まる。
+ * 外部への発信を伴うもの(返信の送信等)は従来どおり岩戸ゲート経由でしか出ない
+ */
+function ExtraOps({ api }: { api: RemoteApi }): JSX.Element {
+  const [candidates, setCandidates] = useState<CommunityCandidate[]>([]);
+  const [cards, setCards] = useState<TriageCard[]>([]);
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState('');
+
+  const load = useCallback((): void => {
+    void api.opsCandidates().then((r) => setCandidates(r.candidates.filter((c) => c.status === 'new'))).catch(() => {});
+  }, [api]);
+  useEffect(load, [load]);
+
+  return (
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 600, margin: '4px 0' }}>🔮 仲間候補({candidates.length})</div>
+      {candidates.length === 0 && <p className="muted" style={{ fontSize: 12 }}>候補なし(巡回が動いていない可能性もある — 受け箱を見る)</p>}
+      {candidates.slice(0, 5).map((c) => (
+        <div key={c.id} style={{ borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 600 }}>{c.profile.slice(0, 60)}</div>
+          <LongText text={c.reasons.join(' / ')} />
+          <div className="row">
+            <button
+              className="reject"
+              onClick={() => void api.opsCandidateResolve(c.id, 'discarded').then(load)}
+            >
+              破棄
+            </button>
+            <button className="primary" onClick={() => void api.opsCandidateResolve(c.id, 'kept').then(load)}>
+              残す
+            </button>
+          </div>
+        </div>
+      ))}
+
+      <div style={{ fontSize: 13, fontWeight: 600, margin: '10px 0 4px' }}>💪 Issue/PR トリアージ</div>
+      <button
+        disabled={busy !== ''}
+        onClick={() => {
+          setBusy('triage');
+          void api
+            .opsTriage()
+            .then((r) => {
+              setCards(r.cards);
+              if (r.cards.length === 0) setNotice('新着のIssue/PRは無い');
+            })
+            .catch((e: unknown) => setNotice(String(e)))
+            .finally(() => setBusy(''));
+        }}
+      >
+        {busy === 'triage' ? '確認中…' : '新着を確認'}
+      </button>
+      {cards.map((c) => (
+        <div key={c.id} style={{ borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 600 }}>
+            {c.kind === 'pr' ? '🔀' : '🐛'} {c.repo}#{c.number} {c.title}
+          </div>
+          <LongText text={c.summary} />
+          {c.recommendation !== '' && (
+            <div className="muted" style={{ fontSize: 11 }}>推奨: {c.recommendation}</div>
+          )}
+        </div>
+      ))}
+
+      <div style={{ fontSize: 13, fontWeight: 600, margin: '10px 0 4px' }}>📝 週報</div>
+      <button
+        disabled={busy !== ''}
+        onClick={() => {
+          setBusy('weekly');
+          void api
+            .opsWeeklyReport()
+            .then((r) => setNotice(r.draft === null ? '生成できなかった' : `週報を下書きに追加した: ${r.draft.title}`))
+            .catch((e: unknown) => setNotice(String(e)))
+            .finally(() => setBusy(''));
+        }}
+      >
+        {busy === 'weekly' ? '生成中…' : '週報を生成'}
+      </button>
+      {notice !== '' && <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>{notice}</div>}
     </div>
   );
 }
@@ -835,6 +923,17 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
           <div className="muted" style={{ fontSize: 11 }}>
             予算0=無制限。🔒はあなたの設定が神議より優先。APIキー等の設定変更はPC側から
           </div>
+        </div>
+      </details>
+
+      {/* M62: PC専用だったもの。出先で「見て・判断して・返す」が完結しないと、
+          結局PCの前に戻るまで運営が止まる */}
+      <details>
+        <summary>
+          🔮 仲間候補・💪 Issue/PR・📝 週報 <span className="count">PC専用だったもの</span>
+        </summary>
+        <div className="body">
+          <ExtraOps api={api} />
         </div>
       </details>
 
