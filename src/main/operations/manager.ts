@@ -1510,13 +1510,19 @@ ${d.body}`))
     if (this.drafts === null) return null;
     const draft = this.drafts.list().find((d) => d.id === draftId);
     if (draft === undefined || draft.kind !== 'article-outline') return null;
-    const sources = (await this.deps.readHighlightSources?.()) ?? { progressExcerpt: '', recentCommits: '' };
+    const raw = (await this.deps.readHighlightSources?.()) ?? { progressExcerpt: '', recentCommits: '' };
+    // M75: **記事本文の生成にだけ、未公開ガードが1枚も無かった**。
+    // 下書き生成(runUzumeDrafts)はM59で素材から未公開話題を抜いているのに、こちらは
+    // PROGRESS.md を生で渡していた。PROGRESS.md は月読の開発記そのものなので、
+    // LLMは当然それを書き、**公開リポジトリ(zenn-content)に月読の内容がpushされた**(実害)。
+    // 見せなければ書けない
+    const sources = { progressExcerpt: stripUnreleasedLines(raw.progressExcerpt) };
     const body = await completeText(
       this.llm('planner'),
-      'あなたは技術記事のライター。事実だけを書く。',
+      'あなたは技術記事のライター。事実だけを書く。未公開機能には一切触れない。',
       buildArticleOutlinePrompt({
         title: draft.title,
-        outline: draft.body,
+        outline: stripUnreleasedLines(draft.body),
         progressExcerpt: sources.progressExcerpt,
         project: this.project(),
       }),
@@ -1524,9 +1530,20 @@ ${d.body}`))
     const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 12);
     // M41-3: slugのフォールバック接頭辞もプロジェクト名から(他人のプロジェクトが ama-teras-… にならない)
     const slug = articleSlug(draft.title, stamp, this.project().name);
+    // M75: 素材を抜いても、LLMは自分の知識から書いてしまう(実際に「月読(TUKU-yomi)」と
+    // 実名で書いた)。出力側でも落とす。落としてもまだ残るなら、その記事は**作らない**
+    const cleaned = stripUnreleasedLines(body);
+    if (mentionsUnreleased(cleaned)) {
+      this.thread?.post({
+        role: 'system',
+        kind: 'notice',
+        body: `🚫 記事「${draft.title}」の本文に未公開機能(月読)への言及が残ったため、記事化を中止した(下書きも作らない)`,
+      });
+      return null;
+    }
     const markdown = buildArticleMarkdown(
       { title: draft.title, emoji: '⛩️', type: 'tech', topics: this.opsConfig().zennTopics ?? ['ai'] },
-      body,
+      cleaned,
     );
     // 承認可否にかかわらず本文の下書きは残す(コピーして手で使える)
     this.drafts.add([

@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { mentionsUnreleased } from '../../../shared/operations';
 import type { AdapterRuntime } from '../protocol';
 
 /**
@@ -150,6 +151,15 @@ export function createZennRepoAdapter(getRepoDir: () => string | null, deps: Zen
       if (!/^---\r?\n/.test(markdown) || !/\npublished: false\r?\n/.test(markdown)) {
         // published: true の記事をこの経路で出すことは構造的に許さない
         throw new Error('記事に published: false のfrontmatterが無い(この経路では公開できない)');
+      }
+      // M75: **zenn-content は公開リポジトリ**。published: false は Zenn 上で非公開にするだけで、
+      // GitHub上のファイルは誰でも読める。実際に月読(未公開機能)の内容がここから公開された。
+      // 最後の砦として、未公開話題を含む記事は**コミットさせない**(承認済みでも通さない)
+      if (mentionsUnreleased(markdown)) {
+        throw new Error(
+          '記事に未公開機能(月読)への言及が含まれている。zenn-contentは公開リポジトリのため、' +
+            'published: false でもGitHub上で誰でも読める。この経路では出せない',
+        );
       }
       const rel = `articles/${slug}.md`;
       write(join(repoDir, 'articles', `${slug}.md`), markdown);
