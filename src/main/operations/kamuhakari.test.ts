@@ -3,6 +3,7 @@ import {
   buildApprovalBatch,
   buildKamuhakariPrompt,
   classifyParamChange,
+  formatPublishState,
   parseKamuhakariOutput,
   reclassifyBudgetChange,
   type ParamChange,
@@ -51,6 +52,45 @@ describe('M33-4: 2段階制の分類', () => {
   it('間隔はユーザー保護の下限を越えられない(クランプはscheduler側で強制)', () => {
     expect(clampIntervalMin(0)).toBe(INTERVAL_MIN_FLOOR);
     expect(clampIntervalMin(-100)).toBe(INTERVAL_MIN_FLOOR);
+  });
+});
+
+describe('M64: 公開状態の一次情報', () => {
+  it('公開済み/未公開を実測どおりに書き分け、取得できなかったものは隠さない', () => {
+    const text = formatPublishState({
+      releases: [
+        { repo: 'o/r', tag: 'v1.1.0', draft: false },
+        { repo: 'o/r', tag: 'v1.2.0', draft: true },
+      ],
+      zennArticles: [
+        { slug: 'live-one', published: true },
+        { slug: 'hidden-one', published: false },
+      ],
+      unavailable: ['x のことは分からない'],
+    });
+    expect(text).toContain('v1.1.0: 公開済み');
+    expect(text).toContain('v1.2.0: **draft');
+    expect(text).toContain('live-one: 公開済み');
+    expect(text).toContain('hidden-one: **published: false');
+    expect(text).toContain('x のことは分からない');
+  });
+
+  it('一次情報が無いときは「取得していない」と明示する(推測させない)', () => {
+    expect(formatPublishState(undefined)).toContain('断定しないこと');
+  });
+
+  it('プロンプトに実状態が載り、「draftで作られる」という一般論は載らない', () => {
+    const prompt = buildKamuhakariPrompt({
+      unread: [],
+      history: [],
+      postedDrafts: [],
+      jobs: [],
+      currentKeywords: [],
+      project: { name: 'p', description: 'd' },
+      publishState: { releases: [{ repo: 'o/r', tag: 'v1.1.0', draft: false }], zennArticles: [], unavailable: [] },
+    });
+    expect(prompt).toContain('v1.1.0: 公開済み');
+    expect(prompt).not.toContain('GitHub Release は draft で作られる');
   });
 });
 

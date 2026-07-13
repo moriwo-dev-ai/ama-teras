@@ -76,6 +76,7 @@ import {
   reclassifyBudgetChange,
   type ApprovalBatch,
   type ParamChange,
+  type PublishState,
 } from './kamuhakari';
 import { completeText, completeTextWithUsage } from './llm';
 import { OmoiKami } from './omoiKami';
@@ -84,7 +85,7 @@ import { GodRegistry, type GodDefinition } from './gods';
 import { GodScheduler, type GodClockJob } from './scheduler';
 import { OpsThread, type OpsThreadMessage } from './thread';
 import { triageRepo } from './tedikaRao';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 /**
  * M32: 運営マネージャ(Project TAKAMA-gahara の配線)。
@@ -854,6 +855,7 @@ export class OperationsManager {
 
     const unread = this.inbox.unread();
     const params = this.loadParams();
+    const publishState = await this.publishState();
     const prompt = buildKamuhakariPrompt({
       unread,
       history: this.omoi.history(14),
@@ -870,6 +872,7 @@ export class OperationsManager {
       currentKeywords: params.keywords,
       project: this.project(),
       evolutionJobs: this.deps.evolutionJobs?.() ?? [],
+      publishState,
     });
     const { text, tokensUsed } = await completeTextWithUsage(provider, 'あなたは運営戦略会議「神議」。', prompt, 8192);
     const parsed = parseKamuhakariOutput(text);
@@ -1723,6 +1726,50 @@ ${d.body}`))
       mismatch: latestTag !== null && appVersion !== '' && !sameVersion(latestTag, appVersion),
       pendingDraft,
     };
+  }
+
+  /**
+   * M64: 「実際に公開されているか」を一次情報から引く。
+   * 神議は公開済みのリリースを「draftのまま止まっている」と断定したことがある。
+   * アプリ内の下書き台帳(staged)は**こちらが出した記録**にすぎず、人間がGitHub/Zennで
+   * 公開ボタンを押した事実は反映されない。世に出ているかどうかは gh と記事の
+   * frontmatter だけが知っている
+   */
+  async publishState(): Promise<PublishState> {
+    const state: PublishState = { releases: [], zennArticles: [], unavailable: [] };
+    const cfg = this.opsConfig();
+
+    if (this.ghRun === null) {
+      state.unavailable.push('gh CLI が無く、GitHubリリースの公開状態を確認できない');
+    } else {
+      for (const repo of cfg.repos) {
+        try {
+          const out = await this.ghRun(['release', 'list', '-R', repo, '--limit', '10', '--json', 'tagName,isDraft']);
+          for (const r of JSON.parse(out) as { tagName: string; isDraft: boolean }[]) {
+            state.releases.push({ repo, tag: r.tagName, draft: r.isDraft });
+          }
+        } catch (e) {
+          state.unavailable.push(`${repo} のリリース一覧を取得できない: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    }
+
+    const dir = this.opsConfig().zennRepoDir ?? '';
+    if (dir === '') {
+      state.unavailable.push('zenn-content のパスが未設定で、記事の公開状態を確認できない');
+    } else {
+      try {
+        const articlesDir = join(dir, 'articles');
+        for (const file of readdirSync(articlesDir)) {
+          if (!file.endsWith('.md')) continue;
+          const md = readFileSync(join(articlesDir, file), 'utf8');
+          state.zennArticles.push({ slug: file.replace(/\.md$/, ''), published: /\npublished:\s*true\s*(\r?\n|$)/.test(md) });
+        }
+      } catch (e) {
+        state.unavailable.push(`zenn-content の記事を読めない: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    return state;
   }
 
   /**

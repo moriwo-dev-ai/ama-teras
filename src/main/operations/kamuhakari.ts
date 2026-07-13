@@ -52,6 +52,27 @@ export interface KamuhakariRunResult {
   tokensUsed: number;
 }
 
+/** M64: gh / zenn-content から引いた「実際に公開されているか」の一次情報 */
+export interface PublishState {
+  releases: { repo: string; tag: string; draft: boolean }[];
+  zennArticles: { slug: string; published: boolean }[];
+  /** 一次情報を引けなかった理由(gh不在・パス未設定など)。引けていないことを隠さない */
+  unavailable: string[];
+}
+
+export function formatPublishState(state: PublishState | undefined): string {
+  if (state === undefined) return '(取得していない — 公開状態について断定しないこと)';
+  const lines: string[] = [];
+  for (const r of state.releases) {
+    lines.push(`- GitHub ${r.repo} ${r.tag}: ${r.draft ? '**draft(誰も落とせない)**' : '公開済み(世に出ている)'}`);
+  }
+  for (const a of state.zennArticles) {
+    lines.push(`- Zenn ${a.slug}: ${a.published ? '公開済み(読める)' : '**published: false(誰も読めない)**'}`);
+  }
+  for (const u of state.unavailable) lines.push(`- (不明) ${u}`);
+  return lines.length === 0 ? '(該当なし)' : lines.join('\n');
+}
+
 /** 神議プロンプト(planner帯) */
 export function buildKamuhakariPrompt(input: {
   unread: InboxItem[];
@@ -71,6 +92,13 @@ export function buildKamuhakariPrompt(input: {
    * 失敗したジョブを「承認待ち」と呼び、存在しない滞留のレビューを人間に催促していた(実害)。
    */
   evolutionJobs?: EvolutionJobSummary[];
+  /**
+   * M64: 公開状態の一次情報。プロンプトに「GitHub Release は draft で作られる」という
+   * 一般論しか無かったため、神議は実際には公開済み(draft=false)のリリースを
+   * 「draftのまま止まっている」と断定した。推測させないために、gh と zenn-content から
+   * 引いた実状態をそのまま渡す
+   */
+  publishState?: PublishState;
 }): string {
   const inboxSummary = input.unread
     .slice(0, 40)
@@ -126,10 +154,14 @@ ${posted || '(なし)'}
 
 # 公開待ち(準備はできたが**まだ誰も読めない**)
 ${staged || '(なし)'}
-※ Zenn記事は published: false でコミットされ、GitHub Release は draft で作られる。
-   どちらも**外からは読めない**。ここに並ぶものは「反応が無かった発信」ではなく、
-   **露出ゼロ**。人間がZenn管理画面/GitHubで公開ボタンを押すまで何も起きない。
-   反応の少なさをこれらのせいにしないこと。むしろ、公開されていない事実自体を指摘すること。
+※ ここに並ぶものは「反応が無かった発信」ではなく**露出ゼロ**。人間が公開ボタンを
+   押すまで何も起きない。反応の少なさをこれらのせいにせず、未公開の事実自体を指摘すること。
+
+# 公開状態の一次情報(gh / zenn-content から今引いた実測。**推測禁止**)
+${formatPublishState(input.publishState)}
+※ 何が公開済みで何が未公開かは、この一覧だけが根拠。ここに載っていないものについて
+   「まだdraftのはず」「公開されていないはず」と断定してはいけない(実際に、公開済みの
+   リリースを「draftのまま止まっている」と誤って断定した回がある)。
 
 # 神々の時計と予算
 ${clocks}
