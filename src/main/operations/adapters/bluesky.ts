@@ -37,16 +37,31 @@ export class BlueskyReader {
    * 不達は空配列ではなく**例外**にする。仕事ができない神は、できないと言わなければならない。
    */
   async searchPosts(query: string, limit = 10): Promise<BlueskyPost[]> {
-    const url = `https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(query)}&limit=${limit}`;
     const token = this.accessToken === undefined ? null : await this.accessToken().catch(() => null);
+    // 認証があるときは**自分のPDS**へ投げる(PDSがAppViewへ代理する)。
+    // app password のトークンは公開AppView(public.api.bsky.app)では受け付けられない
+    const host = token === null ? 'https://public.api.bsky.app' : 'https://bsky.social';
+    const url = `${host}/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(query)}&limit=${limit}`;
     const res = await this.fetchImpl(url, {
-      headers: token === null ? {} : { authorization: `Bearer ${token}` },
+      headers:
+        token === null
+          ? {}
+          : {
+              authorization: `Bearer ${token}`,
+              // PDSは app.bsky.* を自分では処理しない。AppViewへ代理させる宛先を明示する
+              // (これが無いと 401。認証は通っているのに検索だけ弾かれる、で30分溶かした)
+              'atproto-proxy': 'did:web:api.bsky.app#bsky_appview',
+            },
     });
     if (!res.ok) {
+      // 「資格情報が無い」と「認証したのに拒否された」は原因も対処も違う。混ぜない
+      const auth = res.status === 401 || res.status === 403;
       throw new Error(
-        res.status === 403 || res.status === 401
-          ? `Bluesky検索に認証が必要(HTTP ${res.status})。設定→接続でBlueskyのapp passwordを登録すると巡回できる`
-          : `Bluesky検索に失敗(HTTP ${res.status})`,
+        !auth
+          ? `Bluesky検索に失敗(HTTP ${res.status})`
+          : token === null
+            ? 'Bluesky検索は認証必須になった。設定→接続でBlueskyのapp passwordを登録すると巡回できる'
+            : `Blueskyに認証したが検索を拒否された(HTTP ${res.status})。app passwordが失効している可能性がある(Bluesky設定で作り直す)`,
       );
     }
     const data = (await res.json()) as Record<string, unknown>;

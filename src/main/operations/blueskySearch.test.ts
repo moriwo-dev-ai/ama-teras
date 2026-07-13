@@ -23,18 +23,20 @@ describe('M58: Bluesky検索の失敗を握りつぶさない', () => {
   it('403(認証必須)は空配列ではなく例外。しかも何をすればいいかを言う', async () => {
     const reader = new BlueskyReader(() => Promise.resolve(res(403, {})));
 
-    await expect(reader.searchPosts('AIエージェント')).rejects.toThrow(/認証が必要.*app password/s);
+    await expect(reader.searchPosts('AIエージェント')).rejects.toThrow(/認証必須.*app password/s);
   });
 
-  it('トークンがあれば Authorization を付けて検索する', async () => {
-    const fetchImpl = vi.fn(() => Promise.resolve(res(200, postsBody)));
+  it('トークンがあれば、自分のPDS経由で Authorization を付けて検索する', async () => {
+    const fetchImpl = vi.fn((_url: string, _init?: RequestInit) => Promise.resolve(res(200, postsBody)));
     const reader = new BlueskyReader(fetchImpl, () => Promise.resolve('jwt-token'));
 
     const posts = await reader.searchPosts('AIエージェント');
 
     expect(posts[0]?.handle).toBe('alice.bsky.social');
-    const init = fetchImpl.mock.calls[0]![1] as RequestInit;
-    expect((init.headers as Record<string, string>)['authorization']).toBe('Bearer jwt-token');
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    // app password のトークンは公開AppViewでは受け付けられない。PDSが代理する
+    expect(url).toContain('bsky.social');
+    expect((init!.headers as Record<string, string>)['authorization']).toBe('Bearer jwt-token');
   });
 
   it('資格情報が無ければトークンはnull(=認証なしで叩き、403で失敗する=正しく気付ける)', async () => {
