@@ -1932,8 +1932,53 @@ ${d.body}`))
       } catch (e) {
         state.unavailable.push(`zenn-content の記事を読めない: ${e instanceof Error ? e.message : String(e)}`);
       }
+      // M76: **published: true にして push しても、Zennが同期しなければ誰も読めない**。
+      // 実際に1本が Zenn 側で 403 のまま(=存在するが非公開)なのに「投稿済み」と記録された。
+      // 出したつもりと、出ていることは別。Zennの公開APIに聞く
+      for (const a of state.zennArticles) {
+        if (!a.published) continue;
+        a.live = await this.zenn.isLive(a.slug);
+        if (a.live === false) {
+          state.unavailable.push(
+            `${a.slug} は published: true で push 済みだが、Zennでまだ読めない(同期未完または失敗。Zennのデプロイ状況を確認)`,
+          );
+        }
+      }
     }
+    // 台帳(こちらの申告)を、実際に読めるかどうかで上書きする
+    this.reconcileZennLedger(state);
     return state;
+  }
+
+  /**
+   * M76: 下書き台帳は「こちらが出したつもり」の記録でしかない。実際には
+   * - 公開済みの記事の下書きが staged(公開待ち)のまま残り、神議が延々と催促し
+   * - Zennが同期していない記事の下書きが posted(投稿済み)になっていた
+   * 記事のタイトルで突き合わせ、**Zennで実際に読めるものだけ**を posted にする
+   */
+  private reconcileZennLedger(state: PublishState): void {
+    if (this.drafts === null) return;
+    const dir = this.opsConfig().zennRepoDir ?? '';
+    if (dir === '') return;
+    for (const a of state.zennArticles) {
+      let title: string;
+      try {
+        const md = readFileSync(join(dir, 'articles', `${a.slug}.md`), 'utf8');
+        title = /^title:\s*"?(.+?)"?\s*$/m.exec(md)?.[1] ?? '';
+      } catch {
+        continue;
+      }
+      if (title === '') continue;
+      const live = a.published && a.live !== false;
+      for (const d of this.drafts.list()) {
+        if (d.media !== 'zenn' || d.status === 'discarded') continue;
+        const matches = d.title === title || d.title.includes(title) || d.title.includes(a.slug);
+        if (!matches) continue;
+        if (live && isStaged(d.status)) this.drafts.update(d.id, { status: 'posted' });
+        // 「出したつもり」で posted になっているが世に出ていないものは、公開待ちへ戻す
+        if (!live && d.status === 'posted') this.drafts.update(d.id, { status: 'staged' });
+      }
+    }
   }
 
   /**
@@ -2050,15 +2095,26 @@ ${d.body}`))
         `--- 以下、公開される全文 ---\n\n${markdown}`,
       { slug },
     );
-    if (result.ok) {
-      // 台帳側も「公開待ち」から「公開済み」へ。これをやらないと神議が延々と催促し続ける
-      for (const d of this.drafts.list()) {
-        if (isStaged(d.status) && d.media === 'zenn' && (d.title.includes(slug) || d.body.includes(slug))) {
-          this.drafts.update(d.id, { status: 'posted' });
-        }
-      }
-    }
-    return result;
+    if (!result.ok) return result;
+
+    // M76: push しただけで「公開した」と言わない。**Zennが同期して初めて誰かに読める**。
+    // 実際に、published: true で push 済みなのに Zenn 側は 403(存在するが非公開)のままの
+    // 記事が「投稿済み」として記録された。台帳はこちらの申告ではなく、実際に読めるかで決める
+    const live = await this.zenn.isLive(slug);
+    this.reconcileZennLedger(await this.publishState());
+    if (live === true) return { ok: true, detail: `${slug} を公開した(Zennで読める状態になった)` };
+    this.thread?.post({
+      role: 'system',
+      kind: 'notice',
+      body: `⏳ ${slug} は published: true で push したが、Zennではまだ読めない(同期待ち、または同期失敗)。Zennのデプロイ状況を確認してほしい`,
+    });
+    return {
+      ok: true,
+      detail:
+        live === false
+          ? `${slug} を published: true にして push した。ただし**Zennではまだ読めない**(同期待ち/失敗)。Zennのデプロイ状況を確認してほしい`
+          : `${slug} を published: true にして push した(Zenn側の反映は未確認)`,
+    };
   }
 
   /** M73: 公開できる(=published:false でコミット済みの)記事の一覧。UIの公開ボタン用 */

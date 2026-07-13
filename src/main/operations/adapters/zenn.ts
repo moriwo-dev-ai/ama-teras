@@ -16,6 +16,22 @@ export type FetchLike = (
 export class ZennReader {
   constructor(private readonly fetchImpl: FetchLike = (url, init) => fetch(url, init)) {}
 
+  /**
+   * M76: **その記事が今この瞬間、誰かに読めるか**。
+   * published: true にして push しても、Zennが同期しなければ誰も読めない
+   * (実機で1本がこの状態のまま「投稿済み」と記録された)。
+   * Zennは「存在しない」=404、「存在するが非公開」=403 を返し分けるので、
+   * 200 だけを「読める」と見なす。ネットワーク不達は null(不明。嘘をつかない)
+   */
+  async isLive(slug: string): Promise<boolean | undefined> {
+    try {
+      const res = await this.fetchImpl(`https://zenn.dev/api/articles/${encodeURIComponent(slug)}`);
+      return res.ok;
+    } catch {
+      return undefined; // 不達は「公開されていない」ではない
+    }
+  }
+
   async articleMetrics(slug: string): Promise<ZennMetrics | null> {
     try {
       const res = await this.fetchImpl(`https://zenn.dev/api/articles/${encodeURIComponent(slug)}`);

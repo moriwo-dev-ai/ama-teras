@@ -55,7 +55,13 @@ export interface KamuhakariRunResult {
 /** M64: gh / zenn-content から引いた「実際に公開されているか」の一次情報 */
 export interface PublishState {
   releases: { repo: string; tag: string; draft: boolean }[];
-  zennArticles: { slug: string; published: boolean }[];
+  /**
+   * published = zenn-content の frontmatter が published: true か(=こちらが出したつもり)。
+   * live = **Zennの公開APIで実際に読めるか**(=世界がそう認めているか)。
+   * M76: published:true にして push したのに Zenn 側が同期せず、**誰も読めないまま
+   * 「投稿済み」と記録された**記事が実際に出た。出したつもりと、出ていることは別
+   */
+  zennArticles: { slug: string; published: boolean; live?: boolean }[];
   /** 一次情報を引けなかった理由(gh不在・パス未設定など)。引けていないことを隠さない */
   unavailable: string[];
 }
@@ -67,7 +73,15 @@ export function formatPublishState(state: PublishState | undefined): string {
     lines.push(`- GitHub ${r.repo} ${r.tag}: ${r.draft ? '**draft(誰も落とせない)**' : '公開済み(世に出ている)'}`);
   }
   for (const a of state.zennArticles) {
-    lines.push(`- Zenn ${a.slug}: ${a.published ? '公開済み(読める)' : '**published: false(誰も読めない)**'}`);
+    // 「published: true にした」と「Zennで実際に読める」は別。後者だけが露出
+    const status = !a.published
+      ? '**published: false(誰も読めない)**'
+      : a.live === false
+        ? '**published: true にしたが、Zennではまだ読めない(同期未完/失敗)。露出ゼロ**'
+        : a.live === true
+          ? '公開済み(Zennで実際に読める)'
+          : '公開済み(published: true。Zenn側は未確認)';
+    lines.push(`- Zenn ${a.slug}: ${status}`);
   }
   for (const u of state.unavailable) lines.push(`- (不明) ${u}`);
   return lines.length === 0 ? '(該当なし)' : lines.join('\n');
