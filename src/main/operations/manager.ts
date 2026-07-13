@@ -874,10 +874,32 @@ export class OperationsManager {
       evolutionJobs: this.deps.evolutionJobs?.() ?? [],
       publishState,
     });
-    const { text, tokensUsed } = await completeTextWithUsage(provider, 'あなたは運営戦略会議「神議」。', prompt, 8192);
-    const parsed = parseKamuhakariOutput(text);
+    const first = await completeTextWithUsage(provider, 'あなたは運営戦略会議「神議」。', prompt, 8192);
+    let text = first.text;
+    let tokensUsed = first.tokensUsed;
+    let parsed = parseKamuhakariOutput(text);
     if (parsed === null) {
-      this.thread.post({ role: 'system', kind: 'notice', body: '神議の出力を解釈できなかった(次回に持ち越し)' });
+      // M67: 解釈できなかった回に「解釈できなかった」としか出しておらず、原因(長すぎて
+      // 途中で切れたのか、JSON以外を喋ったのか)が誰にも分からないまま planner のトークンだけ消えていた。
+      // 一次情報(長さ・末尾)を残し、その場で一度だけ言い直させる
+      const truncated = !text.trimEnd().endsWith('}');
+      this.thread.post({
+        role: 'system',
+        kind: 'notice',
+        body: `神議の出力をJSONとして解釈できなかった(${text.length}文字・${truncated ? '末尾が } で終わっていない=長すぎて途中で切れた疑い' : '構造不正'})。言い直しを1回だけ求める / 末尾: …${text.slice(-120).replace(/\n/g, ' ')}`,
+      });
+      const retry = await completeTextWithUsage(
+        provider,
+        'あなたは運営戦略会議「神議」。出力はJSONオブジェクトのみ。前置き・後書き・コードフェンスを書いてはいけない。',
+        `${prompt}\n\n# 直前の失敗\n直前の応答はJSONとして解釈できなかった。analysis は800文字以内に収め、**JSONオブジェクトだけ**を返せ。`,
+        8192,
+      );
+      text = retry.text;
+      tokensUsed += retry.tokensUsed;
+      parsed = parseKamuhakariOutput(text);
+    }
+    if (parsed === null) {
+      this.thread.post({ role: 'system', kind: 'notice', body: '神議の出力を解釈できなかった(言い直しも失敗。次回に持ち越し)' });
       return { analysis: '', appliedChanges: [], batch: null, tokensUsed };
     }
 
