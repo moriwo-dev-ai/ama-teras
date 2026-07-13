@@ -688,6 +688,13 @@ function DraftCard({ draft, onUpdate }: { draft: OperationsDraft; onUpdate: () =
       <div className="mb-1 flex flex-wrap items-center gap-2">
         <span className="rounded bg-zinc-700 px-1.5 py-0.5 text-[10px]">{DRAFT_KIND_LABEL[draft.kind]}</span>
         <span className="min-w-0 flex-1 truncate font-semibold text-zinc-200">{draft.title}</span>
+        {/* M57: staged = コミット/Release作成はできたが**まだ非公開**。緑の「✓投稿済み」で
+            出してしまうと、誰にも読まれていない記事を「出した」と勘違いし続ける(実際した) */}
+        {draft.status === 'staged' && (
+          <span className="text-[10px] text-amber-400" title="Zennは published:false、GitHub Releaseは draft。公開はあなたが押す">
+            📤 公開待ち — まだ誰も読めない({draft.media === 'zenn' ? 'Zennで published: true に' : 'GitHubでPublish'})
+          </span>
+        )}
         {draft.status === 'posted' && (
           <>
             <span className="text-[10px] text-green-400">✓ 投稿済み({draft.postedAt?.slice(0, 10)})</span>

@@ -57,6 +57,11 @@ export function buildKamuhakariPrompt(input: {
   unread: InboxItem[];
   history: MetricsSnapshot[];
   postedDrafts: OperationsDraft[];
+  /**
+   * M57: 出す準備はできたが**まだ公開されていない**もの(Zennの published:false /
+   * GitHubのdraft release)。posted と混ぜると「発信したのに反応が無い」と誤診する
+   */
+  stagedDrafts?: OperationsDraft[];
   jobs: GodClockJob[];
   currentKeywords: string[];
   /** M41-3: 運営対象プロジェクト */
@@ -84,6 +89,9 @@ export function buildKamuhakariPrompt(input: {
     })
     .join('\n');
   const posted = input.postedDrafts.map((d) => `- ${d.postedAt ?? ''} [${d.media ?? '?'}] ${d.title}`).join('\n');
+  const staged = (input.stagedDrafts ?? [])
+    .map((d) => `- ${d.postedAt ?? ''} [${d.media ?? '?'}] ${d.title}`)
+    .join('\n');
   const clocks = input.jobs
     .map((j) => `- ${j.godId}: ${j.enabled ? '稼働' : '停止'} 間隔${j.intervalMin}分 予算${j.dailyTokenBudget}(今日${j.spentToday})`)
     .join('\n');
@@ -113,8 +121,15 @@ ${inboxSummary || '(なし)'}
 # メトリクス時系列(直近)
 ${series || '(なし)'}
 
-# 投下履歴(投稿済み発信)
+# 投下履歴(**実際に公開された**発信。これだけが人の目に触れている)
 ${posted || '(なし)'}
+
+# 公開待ち(準備はできたが**まだ誰も読めない**)
+${staged || '(なし)'}
+※ Zenn記事は published: false でコミットされ、GitHub Release は draft で作られる。
+   どちらも**外からは読めない**。ここに並ぶものは「反応が無かった発信」ではなく、
+   **露出ゼロ**。人間がZenn管理画面/GitHubで公開ボタンを押すまで何も起きない。
+   反応の少なさをこれらのせいにしないこと。むしろ、公開されていない事実自体を指摘すること。
 
 # 神々の時計と予算
 ${clocks}

@@ -133,6 +133,40 @@ export function marksDraftPosted(adapterId: string): boolean {
   return adapterId !== 'hatena';
 }
 
+/**
+ * M57: **「出した」と「出す準備ができた」は違う**。
+ *
+ * 実害: Zenn記事は `published: false` でコミットされ、GitHub Release は draft で作られる。
+ * どちらも**外からは誰も読めない**。にもかかわらずアプリは下書きを「投稿済み」として記録し、
+ * 神議はそれを「発信した」と数え、「7/12だけでzenn5件・x4件を投下したのに反応が無い =
+ * 物量>質が問題」と結論した。**実際に公開されていたZenn記事は1本だけ**だった。
+ * 効果測定も、誰にも読まれていない記事の「効果」を測っていた。
+ *
+ * 反応が無いのは当たり前で、原因は物量でも質でもなく「**公開ボタンが押されていない**」。
+ * 神に嘘のデータを与えると、神は嘘の結論を出す。
+ *
+ * - posted: 本当に外に出た(X・はてブ・Bluesky。最後のクリックが人間でも、出れば公開)
+ * - staged: 出す準備までできたが**まだ非公開**(Zennの published:false、GitHubのdraft release)。
+ *   公開するには人間がもう一手(Zenn管理画面 / GitHubのPublish)を打つ必要がある
+ */
+export function draftStatusAfter(adapterId: string): 'posted' | 'staged' {
+  return adapterId === 'zenn-repo' || adapterId === 'github' ? 'staged' : 'posted';
+}
+
+/** staged = 準備できたが未公開。人間があと1手打つまで、誰にも読まれていない */
+export function isStaged(status: string): boolean {
+  return status === 'staged';
+}
+
+/**
+ * もうこの下書きは外へ出す処理を通したか(二重投稿ガード用)。
+ * staged も「出した」側 — 未公開でも**コミット済み・Release作成済み**なので、
+ * もう一度通すと二重コミット・二重Releaseになる(M45で実際に起きた事故)
+ */
+export function alreadyOut(status: string): boolean {
+  return status === 'posted' || status === 'staged';
+}
+
 /** 一括承認の単位キー(媒体×アクション)。異なる媒体・アクションは混ぜない */
 export function bulkGroupKey(adapterId: string, actionName: string): string {
   return `${adapterId}:${actionName}`;

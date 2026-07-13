@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mentionsUnreleased } from '../../shared/operations';
+import { alreadyOut, draftStatusAfter, mentionsUnreleased } from '../../shared/operations';
 
 /**
  * M49: 未公開機能の発信ガード。
@@ -40,5 +40,33 @@ describe('M54: 神議の入力(投稿履歴)からも未公開話題を外す', 
       '②今度は目の前を通り過ぎただけで「おかえり」。#AMAteras';
 
     expect(mentionsUnreleased(`「通り過ぎただけで、おかえり」と言われた話\n${body}`)).toBe(true);
+  });
+});
+
+/**
+ * M57: **「出した」と「出す準備ができた」は違う**。
+ *
+ * 実害: Zenn記事は published:false でコミットされ、GitHub Release は draft で作られる。
+ * どちらも外からは誰も読めない。にもかかわらずアプリは「投稿済み」と記録し、神議は
+ * 「7/12だけでzenn5件・x4件を投下したのに反応が無い = 物量>質が問題」と結論した。
+ * 実際に公開されていたZenn記事は**1本だけ**。反応が無いのは当たり前で、原因は物量でも
+ * 質でもなく「公開ボタンが押されていない」だった。神に嘘のデータを与えると嘘の結論が返る。
+ */
+describe('M57: 公開された発信と、公開待ちを分ける', () => {
+  it('Zenn(published:false)とGitHub Release(draft)は staged = まだ誰も読めない', () => {
+    expect(draftStatusAfter('zenn-repo')).toBe('staged');
+    expect(draftStatusAfter('github')).toBe('staged');
+  });
+
+  it('X・Blueskyは posted = 出れば公開されている(最後のクリックが人間でも)', () => {
+    expect(draftStatusAfter('x')).toBe('posted');
+    expect(draftStatusAfter('bluesky')).toBe('posted');
+  });
+
+  it('staged も「もう外へ出す処理を通した」側 = 二度コミットしない', () => {
+    expect(alreadyOut('staged')).toBe(true);
+    expect(alreadyOut('posted')).toBe(true);
+    expect(alreadyOut('draft')).toBe(false);
+    expect(alreadyOut('discarded')).toBe(false);
   });
 });

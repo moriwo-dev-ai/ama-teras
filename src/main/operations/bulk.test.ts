@@ -239,9 +239,11 @@ describe('M39-2: 一括の単位と行き先(媒体×アクション)', () => {
     expect(r.ok).toBe(true);
     expect(r.detail).toBe('1件中1件成功');
     expect(git.mock.calls.map((c) => c[0][0])).toEqual(['add', 'commit', 'push']);
-    // 出せたものだけ「投稿済み」= 効果測定の起点になる
+    // M57: Zennは published:false でのコミット = **まだ誰も読めない**。
+    // posted(=公開された)ではなく staged(=公開待ち)。混ぜていたせいで、
+    // 神議が「発信したのに反応が無い」と誤診していた
     const after = manager.listDrafts().find((d) => d.id === draft!.id);
-    expect(after?.status).toBe('posted');
+    expect(after?.status).toBe('staged');
     expect(after?.media).toBe('zenn');
     // 本文の下書き(article-body)も残る
     expect(manager.listDrafts().some((d) => d.kind === 'article-body')).toBe(true);

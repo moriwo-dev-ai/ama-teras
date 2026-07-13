@@ -506,7 +506,13 @@ export interface OperationsDraft {
   title: string;
   body: string;
   createdAt: string;
-  status: 'draft' | 'posted' | 'discarded';
+  /**
+   * M57: staged = 出す準備までできたが**まだ非公開**(Zennの published:false /
+   * GitHubのdraft release)。公開には人間があと1手打つ必要がある。
+   * posted と混ぜてはいけない — 混ぜていたせいで、誰にも読まれていない記事を
+   * 「発信した」と数え、神議が「物量過多」と誤診していた
+   */
+  status: 'draft' | 'staged' | 'posted' | 'discarded';
   /** 「投稿済み」マークの日時(OMOI-kamiの反応突き合わせ用) */
   postedAt?: string;
   /** 投稿先媒体(x / zenn / hatena / hn / reddit / bluesky 等) */

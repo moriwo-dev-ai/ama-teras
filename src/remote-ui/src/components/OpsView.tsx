@@ -598,6 +598,9 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
   // 「未投稿に戻す」ボタンが**永久に描画されず**、X投稿画面を開いて(=posted化)から
   // 投稿を取りやめても、スマホからは取り消せなかった
   const postedDrafts = drafts.filter((d) => d.status === 'posted');
+  // M57: 公開待ち = Zennに published:false でコミット済み / GitHub Release が draft のまま。
+  // **誰にも読まれていない**。人間があと1手打つまで、この記事は存在しないのと同じ
+  const stagedDrafts = drafts.filter((d) => d.status === 'staged');
 
   return (
     // M55: OpsView だけ .content を付け忘れていた。他のタブは全て付いている。
@@ -655,6 +658,25 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
           </div>
         )}
       </div>
+
+      {/* M57: 公開待ち。放置すると「発信したのに反応が無い」と誤解し続けることになるので、
+          ドラフトより上に、畳まずに出す */}
+      {stagedDrafts.length > 0 && (
+        <div className="card">
+          <h3>📤 公開待ち({stagedDrafts.length})— まだ誰も読めない</h3>
+          <div className="warn-banner">
+            Zenn記事は published: false、GitHub Release は draft で作られる。あなたが公開ボタンを押すまで外からは読めない
+          </div>
+          {stagedDrafts.map((d) => (
+            <div key={d.id} style={{ fontSize: 12, margin: '6px 0' }}>
+              <span className="muted">[{d.media ?? '?'}]</span> {d.title}
+              <div className="muted" style={{ fontSize: 11 }}>
+                {d.media === 'zenn' ? 'Zennの記事管理で published: true にする' : 'GitHubのReleaseでPublishを押す'}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* 発信ドラフト(1枚ずつ操作)。未処理があるときは開いた状態で始める */}
       <details open={activeDrafts.length > 0}>

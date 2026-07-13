@@ -18,6 +18,17 @@ import { extractJson } from './llm';
 
 // ---- 発信ドラフト ----
 
+/**
+ * M57: 既存データの是正。Zenn(published:false)とGitHub Release(draft)へ出した下書きは
+ * 「投稿済み」として記録されていたが、**どちらも外からは誰も読めない**。
+ * 実機には zenn 4件がこの状態で残っており、神議はそれを「投下した発信」として数え、
+ * 反応の無さを「物量>質」と誤診していた。読み込み時に staged(公開待ち)へ倒す。
+ */
+function migrateStaged(d: OperationsDraft): OperationsDraft {
+  const notPublic = d.media === 'zenn' || d.media === 'github';
+  return d.status === 'posted' && notPublic ? { ...d, status: 'staged' } : d;
+}
+
 export class DraftStore {
   private readonly path: string;
 
@@ -29,7 +40,7 @@ export class DraftStore {
   list(): OperationsDraft[] {
     try {
       const parsed: unknown = JSON.parse(readFileSync(this.path, 'utf8'));
-      return Array.isArray(parsed) ? (parsed as OperationsDraft[]) : [];
+      return Array.isArray(parsed) ? (parsed as OperationsDraft[]).map(migrateStaged) : [];
     } catch {
       return [];
     }
