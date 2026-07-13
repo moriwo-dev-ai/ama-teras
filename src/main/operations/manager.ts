@@ -759,7 +759,13 @@ export class OperationsManager {
     const prompt = buildKamuhakariPrompt({
       unread,
       history: this.omoi.history(14),
-      postedDrafts: this.drafts.list().filter((d) => d.status === 'posted'),
+      // M54: 未公開機能(月読)に触れる投稿履歴は神議に見せない。
+      // 見せると神議はそれを「効いた発信」として数え、続編を書こうとする(実際、
+      // 削除済みの月読記事を「閲覧を作れている読み物」として分析に持ち出した)。
+      // 出さない話題は、出した記録も持たせない
+      postedDrafts: this.drafts
+        .list()
+        .filter((d) => d.status === 'posted' && !mentionsUnreleased(`${d.title}\n${d.body}`)),
       jobs: this.scheduler.list(),
       currentKeywords: params.keywords,
       project: this.project(),
