@@ -21,6 +21,16 @@ extraResources:
     to: plugin-api/main/tools/types.ts
   - from: src/shared/types.ts
     to: plugin-api/shared/types.ts
+  # M91: TypeScript の標準ライブラリ(lib.*.d.ts)。asar 内の typescript/lib は
+  # バンドル済み main からは辿れず、型検査が「Cannot find global type 'Array'」で全滅する
+  # (配布版で実測)。推測させず、ここに置いたものを明示的に渡す
+  - from: node_modules/typescript/lib
+    to: ts-lib
+    filter:
+      - 'lib*.d.ts'
+  # 同じ理由で @types/node も外に出す(asar 内の型定義は TS のファイル解決から見えなかった)
+  - from: node_modules/@types/node
+    to: ts-types/node
 # esbuild はネイティブバイナリを持つため asar から展開しないと実行できない
 asarUnpack:
   - node_modules/esbuild/**

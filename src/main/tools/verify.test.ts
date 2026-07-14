@@ -136,6 +136,48 @@ describe('verifyPlugin', () => {
     expect(r.gates.at(-1)?.detail).toContain('爆発');
   }, 60_000);
 
+  it('toMatchObject など、よく使うマッチャが動く(実行機の欠落でテストを落とさない)', async () => {
+    await writeFile(
+      join(dir, 'sum_numbers.test.ts'),
+      `import { describe, expect, it } from 'vitest';
+import plugin, { sum } from './sum_numbers';
+
+describe('sum_numbers', () => {
+  it('部分一致で見る', async () => {
+    const r = await plugin.execute({ numbers: [1, 2] }, {} as never);
+    expect(r).toMatchObject({ isError: false });
+    expect(r).toHaveProperty('content', '3');
+  });
+  it('数値', () => {
+    expect(sum([1, 2])).toBeCloseTo(3);
+    expect(sum([])).not.toBeNaN();
+  });
+});
+`,
+      'utf8',
+    );
+    const r = await run();
+    expect(r.ok).toBe(true);
+    expect(r.gates.find((g) => g.name === 'test')?.detail).toContain('2件');
+  }, 60_000);
+
+  it('未対応のマッチャは「関数が無い」ではなく、使える名前を挙げて落ちる', async () => {
+    await writeFile(
+      join(dir, 'sum_numbers.test.ts'),
+      `import { expect, it } from 'vitest';
+import { sum } from './sum_numbers';
+it('未対応', () => {
+  (expect(sum([1])) as never as { toMatchSnapshot: () => void }).toMatchSnapshot();
+});
+`,
+      'utf8',
+    );
+    const r = await run();
+    expect(r.ok).toBe(false);
+    // 「toMatchSnapshot is not a function」だけでは、作り直しても同じ場所で落ち続ける
+    expect(r.gates.at(-1)?.detail).toContain('使えるマッチャ');
+  }, 60_000);
+
   it('宣言していない権限(child_process)を使えば検査で落ちる', async () => {
     await writeFile(
       join(dir, 'sum_numbers.ts'),

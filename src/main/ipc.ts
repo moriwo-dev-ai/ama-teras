@@ -260,7 +260,20 @@ export function getPluginApiTypesRoot(): string {
 
 /** 型検査ゲートが使う @types のルート(配布版では asar 内。Electron の fs は asar を透過的に読む) */
 export function getTypeRootsDir(): string {
+  // 配布版は extraResources(asar の外)。asar 内の @types は TS のファイル解決から見えず、
+  // 「Cannot find type definition file for node」で型検査が落ちた(実測)
+  if (app.isPackaged) return join(process.resourcesPath, 'ts-types');
   return join(app.getAppPath(), 'node_modules', '@types');
+}
+
+/**
+ * M91: TypeScript の標準ライブラリ(lib.es2022.d.ts 等)。配布版で実測したところ、
+ * バンドル済み main からは asar 内の typescript/lib を辿れず、型検査が
+ * 「Cannot find global type 'Array'」で必ず落ちた。だから extraResources に同梱して明示的に渡す
+ */
+export function getTsLibDir(): string {
+  if (app.isPackaged) return join(process.resourcesPath, 'ts-lib');
+  return join(app.getAppPath(), 'node_modules', 'typescript', 'lib');
 }
 
 /**
@@ -440,6 +453,7 @@ export async function registerIpcHandlers(
           userPluginsDir: getUserPluginsDir(),
           typesRoot: getPluginApiTypesRoot(),
           typeRoots: getTypeRootsDir(),
+          libDir: getTsLibDir(),
           stateFile: join(app.getPath('userData'), 'evolution', 'jobs.json'),
           runner: composeRunners(
             new LocalToolJobRunner(

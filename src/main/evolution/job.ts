@@ -2,6 +2,7 @@ import type { LLMProvider } from '../providers/types';
 import { runAgentLoop } from '../agent/loop';
 import { executeToolWithApproval } from '../tools/executor';
 import { ToolRegistry } from '../tools/registry';
+import type { ToolPlugin } from '../tools/types';
 import { ApprovalBroker } from '../agent/approval';
 import { assertSafeToolName } from '../tools/name';
 import { join } from 'node:path';
@@ -123,11 +124,15 @@ const LOCAL_TOOL_JOB_SYSTEM_PROMPT = `あなたはAMA-terasの進化ジョブ。
 - src/main/tools/plugins/<name>.ts        … プラグイン本体
 - src/main/tools/plugins/<name>.test.ts   … vitest 形式のユニットテスト(必須。最低2ケース)
 
-プラグイン規約:
+プラグイン規約(ここを外すと型検査ゲートで必ず落ちる。実測で多い間違いを挙げる):
 - export default { name, description, inputSchema, risk, tags?, warnings?, execute } satisfies ToolPlugin
 - name はファイル名と一致(修正時は絶対に変えない)
-- execute は必ず2引数で宣言する: execute(input: unknown, ctx: ToolContext)。ctx を使わないなら _ctx とする
-  (satisfies は宣言した引数の数を保つため、1引数で書くとテストから execute(input, ctx) で呼べず型検査で落ちる)
+- execute は **async** で、**2引数**を宣言する:
+    async execute(input: unknown, _ctx: ToolContext): Promise<ToolResult> { … }
+  ・async を付けない(ToolResult を直接返す)と「Promise<ToolResult> ではない」で落ちる
+  ・ctx を省く(1引数で書く)と、テストから execute(input, ctx) で呼べずに落ちる(satisfies は引数の数を保つ)
+- ToolResult は **{ content: string; isError?: boolean }** だけ。ok / data / result のようなフィールドは無い。
+  テストで r.ok を見ると落ちる。成功も失敗も content(文字列)で返し、失敗時だけ isError: true
 - 型は import type { ToolPlugin, ToolContext, ToolResult } from '../types'(型専用import)
 - 実行時 import は node 組み込みモジュールのみ。npm パッケージ・相対importの実行時参照は禁止
 - テストからロジックを呼べるよう、純粋な関数を named export し、テストはそれを import する
@@ -146,6 +151,31 @@ const LOCAL_TOOL_JOB_SYSTEM_PROMPT = `あなたはAMA-terasの進化ジョブ。
 
 最後の応答で、ツール名とスモークテスト用のサンプル入力JSONを
 \`\`\`json {"toolName": "...", "smokeInput": {...}} \`\`\` のコードブロックで必ず出力する`;
+
+/**
+ * M91: 配布版のツール生成で、生成エージェントに渡さない道具。
+ * - bash 系: 検証はアプリが回す(この環境に npm は無い)。持たせると無限に環境調査を始める
+ * - 進化・要望系: ジョブの中から別のジョブを起こさせない(入れ子の自己進化は誰も追えない)
+ */
+export const EXCLUDED_FROM_TOOL_GEN = new Set([
+  'bash',
+  'bash_output',
+  'kill_bash',
+  'request_capability',
+  'request_core_change',
+  'evolution_jobs',
+]);
+
+/** 生成エージェントに見せる道具(除外リストを引いたもの)。ToolRegistry を構造的に満たす */
+export function toolsForGeneration(full: { list(): ToolPlugin[]; get(name: string): ToolPlugin | undefined }): {
+  list(): ToolPlugin[];
+  get(name: string): ToolPlugin | undefined;
+} {
+  return {
+    list: () => full.list().filter((t) => !EXCLUDED_FROM_TOOL_GEN.has(t.name)),
+    get: (name: string) => (EXCLUDED_FROM_TOOL_GEN.has(name) ? undefined : full.get(name)),
+  };
+}
 
 /**
  * M91: 配布版(git・ソースツリー無し)のツール生成ランナー。
@@ -167,8 +197,12 @@ export class LocalToolJobRunner implements EvolutionJobRunner {
     signal: AbortSignal,
     feedback?: string,
   ): Promise<JobArtifacts> {
-    const registry = new ToolRegistry(this.pluginDirs, join(this.pluginCacheBase, String(Date.now())));
-    await registry.reload();
+    const full = new ToolRegistry(this.pluginDirs, join(this.pluginCacheBase, String(Date.now())));
+    await full.reload();
+    // M91: 配布版で実測。生成エージェントに bash を握らせると、「自分で検証しよう」として
+    // `dir` や `npm` を叩き続け(この環境にnpmは無い/制限モードで弾かれる)、ターンを食い潰して
+    // 生成が終わらなかった。**要らない道具は渡さない** — 検証はアプリのゲートが本物で回す
+    const registry = toolsForGeneration(full);
     const broker = new ApprovalBroker(() => {});
 
     const taskText =

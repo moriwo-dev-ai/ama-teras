@@ -1,7 +1,8 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 import { inspectImportDir } from '../registry/packager';
 
 /**
@@ -50,6 +51,11 @@ export interface VerifyOptions {
   typesRoot: string;
   /** @types のルート(node の型。無ければ node 組み込みの型は見ない) */
   typeRoots?: string;
+  /**
+   * TypeScript の標準ライブラリ(lib.es2022.d.ts 等)のディレクトリ。
+   * 未指定なら typescript パッケージから解決を試みる(配布版では解決できないので必ず渡す)
+   */
+  libDir?: string;
   /** 作業用ディレクトリ(userData配下) */
   workDir: string;
   signal?: AbortSignal;
@@ -92,11 +98,48 @@ function deepEqual(a, b) {
   return ka.every((k) => deepEqual(a[k], b[k]));
 }
 
+/** 部分一致(toMatchObject): 期待した鍵だけを見る */
+function matchesObject(received, expected) {
+  if (typeof expected !== 'object' || expected === null) return deepEqual(received, expected);
+  if (typeof received !== 'object' || received === null) return false;
+  return Object.keys(expected).every((k) =>
+    typeof expected[k] === 'object' && expected[k] !== null
+      ? matchesObject(received[k], expected[k])
+      : deepEqual(received[k], expected[k]),
+  );
+}
+
+const MATCHER_NAMES = [
+  'toBe', 'toEqual', 'toStrictEqual', 'toMatchObject', 'toContain', 'toContainEqual', 'toMatch',
+  'toHaveLength', 'toHaveProperty', 'toBeTruthy', 'toBeFalsy', 'toBeNull', 'toBeUndefined',
+  'toBeDefined', 'toBeNaN', 'toBeInstanceOf', 'toBeCloseTo', 'toBeGreaterThan',
+  'toBeGreaterThanOrEqual', 'toBeLessThan', 'toBeLessThanOrEqual', 'toThrow',
+];
+
 function matchers(received, negated) {
   const check = (pass, message) => {
     if (negated ? pass : !pass) throw new Error(message);
   };
-  return {
+  const api = {
+    toMatchObject: (e) => check(matchesObject(received, e), \`toMatchObject: 期待 \${fmt(e)} / 実際 \${fmt(received)}\`),
+    toContainEqual: (e) =>
+      check(
+        Array.isArray(received) && received.some((x) => deepEqual(x, e)),
+        \`toContainEqual: \${fmt(received)} に \${fmt(e)} が無い\`,
+      ),
+    toHaveProperty: (path, value) => {
+      const parts = String(path).split('.');
+      let cur = received;
+      for (const p of parts) {
+        if (cur === null || cur === undefined || !(p in cur)) return check(false, \`toHaveProperty: \${path} が無い\`);
+        cur = cur[p];
+      }
+      check(value === undefined || deepEqual(cur, value), \`toHaveProperty: \${path} の値が違う(実際 \${fmt(cur)})\`);
+    },
+    toBeNaN: () => check(Number.isNaN(received), \`toBeNaN: \${fmt(received)}\`),
+    toBeInstanceOf: (c) => check(received instanceof c, \`toBeInstanceOf: \${fmt(received)}\`),
+    toBeCloseTo: (e, digits = 2) =>
+      check(Math.abs(received - e) < Math.pow(10, -digits) / 2, \`toBeCloseTo: 期待 \${e} / 実際 \${received}\`),
     toBe: (e) => check(Object.is(received, e), \`toBe: 期待 \${fmt(e)} / 実際 \${fmt(received)}\`),
     toEqual: (e) => check(deepEqual(received, e), \`toEqual: 期待 \${fmt(e)} / 実際 \${fmt(received)}\`),
     toStrictEqual: (e) => check(deepEqual(received, e), \`toStrictEqual: 期待 \${fmt(e)} / 実際 \${fmt(received)}\`),
@@ -129,6 +172,22 @@ function matchers(received, negated) {
       check(pass, \`toThrow: 例外が出ない、または \${msg} に一致しない(実際: \${text})\`);
     },
   };
+  // 未対応のマッチャは「関数が無い」ではなく、名前を挙げて落ちる。
+  // (実測: 生成されたテストが toMatchObject を使い、"is not a function" とだけ出た。
+  //  それではモデルは何を直せばいいか分からず、作り直しても同じ場所で落ち続ける)
+  return new Proxy(api, {
+    get(target, prop) {
+      if (prop in target) return target[prop];
+      if (typeof prop === 'string' && prop.startsWith('to')) {
+        return () => {
+          throw new Error(
+            \`この実行機は \${prop} に未対応。使えるマッチャ: \${MATCHER_NAMES.join(', ')}(.not も可)\`,
+          );
+        };
+      }
+      return target[prop];
+    },
+  });
 }
 
 export function expect(received) {
@@ -218,6 +277,27 @@ async function gateInspect(dir: string): Promise<PluginGateResult> {
   };
 }
 
+/**
+ * TypeScript の標準ライブラリ(lib.es2022.d.ts 等)の在り処。
+ *
+ * **配布版で実測して分かった**: 既定のコンパイラホストは lib を「今実行している typescript.js の隣」
+ * から探す。バンドルされた main からは、その隣に lib は無い。結果、型検査が
+ * **Cannot find global type 'Array'** で全滅する = プラグインのコードと無関係に必ず落ちる。
+ * createRequire での解決も、main がバンドル済みだと typescript を辿れずに失敗した。
+ *
+ * だから推測はやめて、**lib の場所は呼び出し側が渡す**(配布版は extraResources に同梱した
+ * resources/ts-lib)。ここでの解決は開発時のフォールバックにすぎない
+ */
+function typescriptLibDir(explicit?: string): string | null {
+  if (explicit !== undefined && existsSync(explicit)) return explicit;
+  try {
+    const require_ = createRequire(import.meta.url);
+    return join(dirname(require_.resolve('typescript/package.json')), 'lib');
+  } catch {
+    return null;
+  }
+}
+
 /** 2: 型検査(その1ファイルだけ。プロジェクト全体を見ない) */
 async function gateTypecheck(opts: VerifyOptions, tmp: string): Promise<PluginGateResult> {
   const ts = await import('typescript');
@@ -253,7 +333,7 @@ async function gateTypecheck(opts: VerifyOptions, tmp: string): Promise<PluginGa
   }
 
   const hasNodeTypes = opts.typeRoots !== undefined && existsSync(join(opts.typeRoots, 'node'));
-  const program = ts.createProgram(files, {
+  const compilerOptions: import('typescript').CompilerOptions = {
     noEmit: true,
     strict: true,
     target: ts.ScriptTarget.ES2022,
@@ -264,7 +344,21 @@ async function gateTypecheck(opts: VerifyOptions, tmp: string): Promise<PluginGa
     ...(hasNodeTypes
       ? { types: ['node'], typeRoots: [opts.typeRoots as string] }
       : { types: [] }), // node の型が無い環境(テスト等)では組み込みモジュールの型は見ない
-  });
+  };
+  const host = ts.createCompilerHost(compilerOptions);
+  const libDir = typescriptLibDir(opts.libDir);
+  if (libDir === null || !existsSync(join(libDir, 'lib.es2022.d.ts'))) {
+    // 標準ライブラリが無いまま走らせると、全プラグインが「Cannot find global type 'Array'」で
+    // 落ちる = 検査したことにならない。黙って通すより、ここで正直に落ちる
+    return {
+      name: 'typecheck',
+      ok: false,
+      detail: `TypeScriptの標準ライブラリが見つからない(libDir=${libDir ?? '未解決'})。型検査を行えないため中止した`,
+    };
+  }
+  host.getDefaultLibLocation = (): string => libDir;
+  host.getDefaultLibFileName = (o): string => join(libDir, ts.getDefaultLibFileName(o));
+  const program = ts.createProgram(files, compilerOptions, host);
   const diags = ts.getPreEmitDiagnostics(program).filter((d) => {
     if (hasNodeTypes) return true;
     const text = ts.flattenDiagnosticMessageText(d.messageText, ' ');

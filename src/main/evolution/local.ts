@@ -38,6 +38,8 @@ export interface LocalEvolutionDeps {
   typesRoot: string;
   /** @types のルート(node の型) */
   typeRoots?: string;
+  /** TypeScript標準ライブラリ(lib.*.d.ts)のディレクトリ。配布版は同梱先を渡す */
+  libDir?: string;
   runner: EvolutionJobRunner;
   /** 全文承認(承認ダイアログ)。false で rejected */
   requestPromotionApproval: (
@@ -234,6 +236,7 @@ export class LocalToolEvolution {
           name: toolName,
           typesRoot: this.deps.typesRoot,
           ...(this.deps.typeRoots !== undefined ? { typeRoots: this.deps.typeRoots } : {}),
+          ...(this.deps.libDir !== undefined ? { libDir: this.deps.libDir } : {}),
           workDir: this.deps.workDir,
           signal: ac.signal,
         });
