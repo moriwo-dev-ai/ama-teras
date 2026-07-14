@@ -1929,6 +1929,13 @@ ${d.body}`))
     try {
       const listOut = await this.ghRun(['release', 'list', '-R', repo, '--limit', '10', '--json', 'tagName,isDraft']);
       const rows = JSON.parse(listOut) as { tagName: string; isDraft: boolean }[];
+      // M87: ここで既に一次情報を引いている。台帳の突き合わせを神議まで待たせない
+      // (画面を開いている間に、公開済みのリリースが「公開待ち」のまま残らない)
+      this.reconcileReleaseLedger({
+        releases: rows.map((r) => ({ repo, tag: r.tagName, draft: r.isDraft })),
+        zennArticles: [],
+        unavailable: [],
+      });
       const draft = rows.find((r) => r.isDraft);
       if (draft !== undefined) {
         const viewOut = await this.ghRun(['release', 'view', draft.tagName, '-R', repo, '--json', 'assets']);
