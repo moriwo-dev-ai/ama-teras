@@ -774,6 +774,14 @@ function ZennPublishSection(): JSX.Element | null {
   );
 }
 
+/** M84: 「07-14 12:45」。日付が無いと、同じ見出しの下書きのどれが最新か分からない */
+function formatDraftTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 function DraftCard({ draft, onUpdate }: { draft: OperationsDraft; onUpdate: () => void }): JSX.Element {
   const [media, setMedia] = useState(draft.media ?? 'x');
   // M37: 行き先は種類ごとにコードで固定(Xに載らない種類にXボタンを出さない)
@@ -783,6 +791,11 @@ function DraftCard({ draft, onUpdate }: { draft: OperationsDraft; onUpdate: () =
     <div className="rounded border border-zinc-800 bg-zinc-950 p-2 text-xs">
       <div className="mb-1 flex flex-wrap items-center gap-2">
         <span className="rounded bg-zinc-700 px-1.5 py-0.5 text-[10px]">{DRAFT_KIND_LABEL[draft.kind]}</span>
+        {/* M84: 神々が何本も下書きを積むのに、どれが新しいのかが画面から分からなかった。
+            順番が分からないと「どっちを先に出すのか」が判断できない(版の採番は順番で変わる) */}
+        <span className="shrink-0 text-[10px] text-zinc-500" title={draft.createdAt}>
+          {formatDraftTime(draft.createdAt)}
+        </span>
         <span className="min-w-0 flex-1 truncate font-semibold text-zinc-200">{draft.title}</span>
         {/* M57: staged = コミット/Release作成はできたが**まだ非公開**。緑の「✓投稿済み」で
             出してしまうと、誰にも読まれていない記事を「出した」と勘違いし続ける(実際した) */}
@@ -1047,7 +1060,11 @@ export function OperationsPanel(): JSX.Element {
 
   const current = history[history.length - 1] ?? null;
   const previous = history.length >= 2 ? (history[history.length - 2] ?? null) : null;
-  const activeDrafts = drafts.filter((d) => d.status !== 'discarded').reverse();
+  // M84: 保存順(≒作成順)に頼らず、作成時刻で新しい順に並べる。上が最新
+  const activeDrafts = drafts
+    .filter((d) => d.status !== 'discarded')
+    .slice()
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const activeCandidates = candidates.filter((c) => c.status !== 'discarded').reverse();
 
   return (

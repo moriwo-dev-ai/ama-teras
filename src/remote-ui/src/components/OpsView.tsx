@@ -41,6 +41,14 @@ const GOD_LABEL: Record<string, string> = {
   kamuhakari: '⛩ 神議',
 };
 
+/** M84: 「07-14 12:45」。日時が無いと、同じ見出しの下書きのどれが新しいのか分からない */
+function formatDraftTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 const DRAFT_KIND_LABEL: Record<OperationsDraft['kind'], string> = {
   'x-post': 'X投稿',
   'release-note': 'リリースノート',
@@ -710,7 +718,8 @@ function DraftCard({
   return (
     <div style={{ borderTop: '1px solid #333', paddingTop: 8, marginTop: 8 }}>
       <div style={{ fontSize: 12 }}>
-        <span className="muted">[{DRAFT_KIND_LABEL[draft.kind]}]</span> <b>{draft.title}</b>
+        <span className="muted">[{DRAFT_KIND_LABEL[draft.kind]}]</span>{' '}
+        <span className="muted">{formatDraftTime(draft.createdAt)}</span> <b>{draft.title}</b>
       </div>
       <LongText text={draft.body} />
       <div className="row">
@@ -974,14 +983,18 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
   const views = latest ? Object.values(latest.github).reduce((a, m) => a + (m.views ?? 0), 0) : null;
   const downloads = latest ? Object.values(latest.github).reduce((a, m) => a + (m.downloads ?? 0), 0) : null;
   const delta = latest !== null && prev !== null ? diffTotals(latest, prev) : null;
-  const activeDrafts = drafts.filter((d) => d.status === 'draft');
+  // M84: 神々が積んだ下書きは、画面上どれが新しいのか分からなかった(日時をどこにも出していない)。
+  // 順番が分からないと「どっちを先に出すか」を決められない。新しい順に並べ、カードに時刻を出す
+  const byNewest = (list: OperationsDraft[]): OperationsDraft[] =>
+    list.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const activeDrafts = byNewest(drafts.filter((d) => d.status === 'draft'));
   // M55: 投稿済みも出す。以前は status==='draft' だけを描いていたため、
   // 「未投稿に戻す」ボタンが**永久に描画されず**、X投稿画面を開いて(=posted化)から
   // 投稿を取りやめても、スマホからは取り消せなかった
-  const postedDrafts = drafts.filter((d) => d.status === 'posted');
+  const postedDrafts = byNewest(drafts.filter((d) => d.status === 'posted'));
   // M57: 公開待ち = Zennに published:false でコミット済み / GitHub Release が draft のまま。
   // **誰にも読まれていない**。人間があと1手打つまで、この記事は存在しないのと同じ
-  const stagedDrafts = drafts.filter((d) => d.status === 'staged');
+  const stagedDrafts = byNewest(drafts.filter((d) => d.status === 'staged'));
 
   return (
     // M55: OpsView だけ .content を付け忘れていた。他のタブは全て付いている。
