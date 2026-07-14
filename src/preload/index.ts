@@ -54,6 +54,10 @@ const api: AmaterasApi = {
   evolutionCancel: (jobId) => ipcRenderer.invoke(IpcChannels.evolutionCancel, jobId),
   pluginsExport: (toolName) => ipcRenderer.invoke(IpcChannels.pluginsExport, toolName),
   pluginsImport: () => ipcRenderer.invoke(IpcChannels.pluginsImport),
+  // M91-2: レジストリ公開。plan は下見(送信しない)、upload は承認済みの全文を添えて送信
+  pluginsUploadPlan: (toolName) => ipcRenderer.invoke(IpcChannels.pluginsUploadPlan, toolName),
+  pluginsUpload: (toolName, approvedPreview, draft) =>
+    ipcRenderer.invoke(IpcChannels.pluginsUpload, toolName, approvedPreview, draft),
   conversationMoveWorkspace: (newWorkspace) =>
     ipcRenderer.invoke(IpcChannels.conversationMoveWorkspace, newWorkspace),
 

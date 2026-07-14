@@ -42,6 +42,14 @@ import { TsukuyomiManager } from './tsukuyomi/manager';
 import { speakWithPowerShell } from './tsukuyomi/voiceFallback';
 import { checkForUpdate } from './update/check';
 import { composeRunners, ImportJobRunner } from './registry/importRunner';
+import {
+  buildUploadPlan,
+  submitUpload,
+  uploadPreviewText,
+  verificationState,
+  type UploadPlan,
+} from './registry/upload';
+import { systemFetch } from './providers/systemFetch';
 import { fetchRevocationList } from './registry/killswitch';
 import { exportPlugin } from './registry/packager';
 import { generateToken, RemoteAuth } from './remote/auth';
@@ -75,7 +83,8 @@ function assertSecretSlot(value: unknown): asserts value is SecretSlot {
     value !== 'groq' &&
     value !== 'openrouter' &&
     value !== 'custom' &&
-    value !== 'bluesky'
+    value !== 'bluesky' &&
+    value !== 'github'
   ) {
     throw new Error('IPC payload slot が不正');
   }
@@ -714,6 +723,7 @@ export async function registerIpcHandlers(
     openrouter: secrets.has('openrouter'),
     custom: secrets.has('custom'),
     bluesky: secrets.has('bluesky'),
+    github: secrets.has('github'), // M91-2: レジストリPR・要望Issueの提出に使う
   });
   ipcMain.handle(IpcChannels.secretsStatus, () => secretsStatus());
   ipcMain.handle(IpcChannels.secretsSet, (_e, slot: unknown, apiKey: unknown) => {
@@ -1093,6 +1103,94 @@ export async function registerIpcHandlers(
     }
     return service.pluginImportStart(result.filePaths[0]!);
   });
+
+  // ---- M91-2: レジストリへの公開(下見 → 全文承認 → fork+PR)----
+  // 出せるのは「このアプリの検証ゲートを通り、その後1文字も変わっていないもの」だけ。
+  // 送信の直前にもう一度証跡を確かめる(下見と送信の間にファイルが書き換わる余地を残さない)
+  const uploadPluginsDir = (toolName: string): string | undefined =>
+    [getUserPluginsDir(), getPluginsDir()].find((d) => existsSync(join(d, `${toolName}.ts`)));
+
+  const makeUploadPlan = async (toolName: string): Promise<UploadPlan> => {
+    const dir = uploadPluginsDir(toolName);
+    if (dir === undefined) throw new Error(`ツール「${toolName}」のソースが見つからない`);
+    const registryUrl = config.get().registryUrl ?? '';
+    if (registryUrl === '') throw new Error('レジストリURLが未設定(設定→レジストリURL)');
+    const author = config.get().registryAuthor ?? '';
+    return await buildUploadPlan({
+      pluginsDir: dir,
+      toolName,
+      registryUrl,
+      author,
+      fetchFn: systemFetch(),
+    });
+  };
+
+  ipcMain.handle(IpcChannels.pluginsUploadPlan, async (_e, toolName: unknown) => {
+    assertString(toolName, 'toolName');
+    const dir = uploadPluginsDir(toolName);
+    if (dir === undefined) {
+      return { ok: false, message: `ツール「${toolName}」のソースが見つからない`, toolName, verification: 'unverified' };
+    }
+    const v = await verificationState(dir, toolName);
+    if (v.state !== 'verified') {
+      return { ok: false, message: v.reason, toolName, verification: v.state };
+    }
+    try {
+      const plan = await makeUploadPlan(toolName);
+      return {
+        ok: true,
+        message: `公開の下見(まだ送信していません): ${plan.files.length}ファイル`,
+        toolName,
+        target: `https://github.com/${plan.target.owner}/${plan.target.repo}`,
+        preview: uploadPreviewText(plan),
+        leaks: plan.leaks,
+        verification: 'verified',
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+        toolName,
+        verification: 'verified',
+      };
+    }
+  });
+
+  ipcMain.handle(
+    IpcChannels.pluginsUpload,
+    async (_e, toolName: unknown, approvedPreview: unknown, draft: unknown) => {
+      assertString(toolName, 'toolName');
+      assertString(approvedPreview, 'approvedPreview');
+      const token = secrets.get('github');
+      if (token === null || token.trim() === '') {
+        return {
+          ok: false,
+          message:
+            'GitHubトークンが未設定です(設定→シークレット→GitHub)。' +
+            'public_repo 権限のトークンを1つ入れてください(fork とPR作成に使います)',
+        };
+      }
+      try {
+        const plan = await makeUploadPlan(toolName);
+        // 承認した内容と、これから送る内容が同一であること。
+        // 下見のあとに中身が変わっていたら、その承認は「別のもの」への承認になってしまう
+        if (uploadPreviewText(plan) !== approvedPreview) {
+          return { ok: false, message: '承認した内容と送信内容が一致しない(再度、下見からやり直してください)' };
+        }
+        const result = await submitUpload(plan, token, { draft: draft === true, fetchFn: systemFetch() });
+        audit.append({
+          tool: 'registry-upload',
+          scope: 'system',
+          paths: [],
+          event: 'result',
+          detail: `${toolName} → ${plan.target.owner}/${plan.target.repo}: ${result.message.slice(0, 160)}`,
+        });
+        return result;
+      } catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
 
   // M26-7: 表示中の会話の workspace 移動(実行中は service 側で拒否)
   ipcMain.handle(IpcChannels.conversationMoveWorkspace, (_e, newWorkspace: unknown) => {

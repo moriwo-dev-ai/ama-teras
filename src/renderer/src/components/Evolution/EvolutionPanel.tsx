@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { EvolutionJobStatus, EvolutionScope, ProvisionalInstall } from '../../../../shared/types';
 import { useEvolutionStore } from '../../stores/evolution';
+import { PublishPluginDialog, usePublishPlugin } from '../Registry/PublishPlugin';
 
 const STATUS_LABEL: Record<EvolutionJobStatus, { text: string; cls: string }> = {
   queued: { text: '待機中', cls: 'text-zinc-400' },
@@ -86,6 +87,8 @@ export function EvolutionPanel(): JSX.Element {
   // M29-5: 仮導入(棚卸し待ち)。未応答のものは次回起動時もここに再提示される
   const [provisional, setProvisional] = useState<ProvisionalInstall[]>([]);
   const [inventoryMsg, setInventoryMsg] = useState('');
+  // M91-2: 導入したツールをレジストリへ公開する(下見→全文承認→PR)
+  const publish = usePublishPlugin();
 
   const loadInventory = async (): Promise<void> => {
     try {
@@ -228,6 +231,17 @@ export function EvolutionPanel(): JSX.Element {
                   ✕ キャンセル
                 </button>
               )}
+              {/* M91-2: 検証を通って導入された直後が、公開するか決める自然な瞬間。
+                  ここで断っても、ツール一覧の「⛩ 公開」から後でいつでも出せる */}
+              {j.status === 'done' && j.scope !== 'renderer' && j.scope !== 'core' && j.toolName !== undefined && (
+                <button
+                  className="shrink-0 whitespace-nowrap rounded border border-amber-800 px-1.5 py-0.5 text-[10px] text-amber-300 hover:bg-amber-950"
+                  title="このツールをレジストリへ公開する(送信前に全文を確認・承認します)"
+                  onClick={() => publish.open(j.toolName!)}
+                >
+                  ⛩ 公開しますか？
+                </button>
+              )}
               <button
                 className="text-zinc-500 hover:text-zinc-300"
                 onClick={() => setOpenLog(openLog === j.id ? null : j.id)}
@@ -251,6 +265,15 @@ export function EvolutionPanel(): JSX.Element {
           </div>
         ))}
       </div>
+      {publish.message !== '' && <p className="text-xs text-zinc-400">{publish.message}</p>}
+      {publish.plan !== null && (
+        <PublishPluginDialog
+          plan={publish.plan}
+          busy={publish.busy}
+          onSubmit={publish.submit}
+          onCancel={publish.close}
+        />
+      )}
 
       {/* M29-5: 仮導入の棚卸し(未応答分。自律実行終了時のカードと同じ操作) */}
       {provisional.length > 0 && (

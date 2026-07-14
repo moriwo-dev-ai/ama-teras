@@ -358,6 +358,10 @@ export class ConfigStore {
           merged.registryUrl = rec['registryUrl'];
         }
       }
+      // M91-2: 公開時のクレジット(GitHubのユーザー名等)。空=未設定
+      if (typeof rec['registryAuthor'] === 'string') {
+        merged.registryAuthor = rec['registryAuthor'].slice(0, 64);
+      }
       // M42-1: 更新確認URL。空文字=無効(明示的オプトアウト)。不正形式は既定へフォールバック
       if (typeof rec['updateCheckUrl'] === 'string') {
         if (rec['updateCheckUrl'] === '' || /^https?:\/\//.test(rec['updateCheckUrl'])) {

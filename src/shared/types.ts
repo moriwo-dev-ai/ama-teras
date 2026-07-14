@@ -61,8 +61,10 @@ export type ProviderId = 'anthropic' | 'openai';
 export type ProviderPresetId = 'gemini' | 'groq' | 'openrouter' | 'custom';
 
 /** APIキーの保存スロット。プリセットはOpenAIと別のキーを持つため独立スロット。
- *  M35-4: 'bluesky' はAPIキーではなく資格情報JSON({identifier, appPassword})を保存する */
-export type SecretSlot = ProviderId | ProviderPresetId | 'bluesky';
+ *  M35-4: 'bluesky' はAPIキーではなく資格情報JSON({identifier, appPassword})を保存する。
+ *  M91-2: 'github' はレジストリへのPR提出・本体への要望Issue提出に使うトークン
+ *  (公開リポジトリへの書き込みのみ。fork+PRのため public_repo 相当で足りる) */
+export type SecretSlot = ProviderId | ProviderPresetId | 'bluesky' | 'github';
 
 /** 送信モード。plan は実装前に計画を提示し、ツールを実行しない(承認後に通常モードで実行) */
 export type ChatMode = 'normal' | 'plan';
@@ -77,6 +79,8 @@ export interface SecretsStatus {
   custom: boolean;
   /** M35-4: Bluesky実行系の資格情報(identifier+app passwordのJSON)。有無のみ */
   bluesky: boolean;
+  /** M91-2: GitHubトークン(レジストリPR・要望Issueの提出に使う)。有無のみ */
+  github: boolean;
 }
 
 /** M27-1: 接続テスト(設定画面の「無料で始める」等)の結果 */
@@ -264,6 +268,11 @@ export interface AppConfig {
    * 検索し、既存プラグインがあれば承諾のうえ既存インポートパイプライン(検証ゲート付き)で導入する
    */
   registryUrl?: string;
+  /**
+   * M91-2: レジストリへ公開するときのクレジット(manifest.author / DCOのSigned-off-by)。
+   * 未設定なら公開時に入力を求める(空のまま出すと、誰が作ったツールか分からなくなる)
+   */
+  registryAuthor?: string;
   /**
    * M42-1: 本体の更新確認(GitHub Releases API)。既定=公式リリース。空文字=無効。
    * **通知だけ**を行う(自動ダウンロード・自動インストールはしない)
@@ -906,6 +915,31 @@ export interface PluginExportResult {
   message: string;
   /** 書き出したディレクトリ(成功時) */
   path?: string;
+}
+
+/**
+ * M91-2: 公開(レジストリへPR)の下見。**送信はしない**。
+ * 人間はこの preview の全文を読んでから承認する
+ */
+export interface PluginUploadPlanResult {
+  ok: boolean;
+  message: string;
+  toolName: string;
+  /** 宛先(registryUrl から導出。既定は公式レジストリ) */
+  target?: string;
+  /** 送信する全ファイルの全文 */
+  preview?: string;
+  /** 機械チェック(秘密・ローカルパス)の検出。空でなければ送信できない */
+  leaks?: string[];
+  /** 検証の状態。verified 以外は公開できない */
+  verification: 'verified' | 'unverified' | 'stale';
+}
+
+export interface PluginUploadResult {
+  ok: boolean;
+  message: string;
+  /** 提出したPRのURL(成功時) */
+  url?: string;
 }
 
 export interface PluginImportStartResult {

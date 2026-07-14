@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { AppConfig, CheckpointInfo, PluginErrorInfo, ToolInfo } from '../../../../shared/types';
+import { PublishPluginDialog, usePublishPlugin } from '../Registry/PublishPlugin';
 
 /** M2の動作確認用パネル。ツールを手動実行して承認フロー込みで検証する */
 export function ToolDebugPanel(): JSX.Element {
@@ -18,6 +19,8 @@ export function ToolDebugPanel(): JSX.Element {
   const [toolSearch, setToolSearch] = useState('');
   // M27-4: プラグインエクスポートの結果表示
   const [exportMsg, setExportMsg] = useState('');
+  // M91-2: レジストリ公開の下見と承認(送信は承認後の1回だけ)
+  const publish = usePublishPlugin();
 
   const refresh = async (reload: boolean): Promise<void> => {
     const r = reload ? await window.api.toolsReload() : await window.api.toolsList();
@@ -211,11 +214,29 @@ export function ToolDebugPanel(): JSX.Element {
                 >
                   📦 エクスポート
                 </button>
+                {/* M91-2: レジストリへ公開(下見 → 全文承認 → fork+PR)。
+                    その場で断っても、いつでもここから出せる */}
+                <button
+                  className="rounded border border-amber-800 px-1.5 py-0.5 text-[10px] text-amber-300 hover:bg-amber-950"
+                  title="このツールをコミュニティレジストリへ公開する(送信前に全文を確認・承認します)"
+                  onClick={() => publish.open(t.name)}
+                >
+                  ⛩ 公開
+                </button>
               </div>
               <p className="mt-0.5 text-zinc-500">{t.description}</p>
             </li>
           ))}
         </ul>
+        {publish.message !== '' && <p className="mt-1 text-[11px] text-zinc-400">{publish.message}</p>}
+        {publish.plan !== null && (
+          <PublishPluginDialog
+            plan={publish.plan}
+            busy={publish.busy}
+            onSubmit={publish.submit}
+            onCancel={publish.close}
+          />
+        )}
       </div>
 
       <div className="space-y-1 border-t border-zinc-800 pt-2">

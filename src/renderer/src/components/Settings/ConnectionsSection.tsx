@@ -673,12 +673,79 @@ export function ConnectionsSection({
         <p className="text-xs text-zinc-500">空欄にすると検索無効(生成のみになる)</p>
       </div>
 
+      <RegistryPublishSection config={config} saveConfig={saveConfig} />
+
       <OwnerModeSection config={config} saveConfig={saveConfig} />
 
       <TsukuyomiSection config={config} saveConfig={saveConfig} />
 
       <RemoteAccessSection />
       <McpSection />
+    </div>
+  );
+}
+
+/**
+ * M91-2: 作ったツールをレジストリへ公開するための資格情報とクレジット。
+ * 公開先は上の「コミュニティレジストリ」のURL(=そのGitHubリポジトリ)へPRを出す。
+ * トークンは fork とPR作成にしか使わない(送信は必ず全文承認のあと)
+ */
+function RegistryPublishSection({
+  config,
+  saveConfig,
+}: {
+  config: AppConfig;
+  saveConfig: (next: AppConfig) => void;
+}): JSX.Element {
+  const [token, setToken] = useState('');
+  const [registered, setRegistered] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    void window.api.secretsStatus().then((s) => setRegistered(s.github));
+  }, []);
+
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-semibold text-zinc-300">レジストリへの公開(GitHub)</p>
+      <p className="text-xs text-zinc-500">
+        自分の機体で作ったツールを、上のレジストリへPRとして提出できる(ツール一覧の「⛩ 公開」)。
+        送信前に必ず全文を確認・承認する。出せるのは検証ゲートを通ったツールだけで、
+        検証後にコードを書き換えたものは「未検証」になり公開できない
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          className="min-w-[12rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
+          type="password"
+          value={token}
+          placeholder={registered ? '登録済み(変更するなら新しいトークン)' : 'GitHubトークン(public_repo 権限)'}
+          onChange={(e) => setToken(e.target.value)}
+        />
+        <button
+          className="shrink-0 rounded bg-zinc-700 px-2 py-1.5 text-xs hover:bg-zinc-600 disabled:opacity-40"
+          disabled={token.trim() === ''}
+          onClick={() => {
+            void window.api
+              .secretsSet('github', token.trim())
+              .then((s) => {
+                setRegistered(s.github);
+                setToken('');
+                setMsg('✓ トークンを保存した(OSの暗号化ストアに保存)');
+              })
+              .catch((err: unknown) => setMsg(`✗ ${err instanceof Error ? err.message : String(err)}`));
+          }}
+        >
+          保存
+        </button>
+      </div>
+      <input
+        key={config.registryAuthor}
+        className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 text-xs"
+        defaultValue={config.registryAuthor ?? ''}
+        placeholder="クレジット(GitHubのユーザー名など。manifest の author と署名に使う)"
+        onBlur={(e) => saveConfig({ ...config, registryAuthor: e.target.value.trim() })}
+      />
+      {msg !== '' && <p className="text-xs text-zinc-400">{msg}</p>}
     </div>
   );
 }

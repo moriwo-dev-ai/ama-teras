@@ -33,6 +33,8 @@ import type {
   ConnectionTestResult,
   PluginExportResult,
   PluginImportStartResult,
+  PluginUploadPlanResult,
+  PluginUploadResult,
   ProviderId,
   ProvisionalInstall,
   RegistryGodInfo,
@@ -87,6 +89,9 @@ export const IpcChannels = {
   pluginsExport: 'plugins:export',
   /** M27-4: プラグインのインポート(検査→既存の検証ゲート→承認→導入) */
   pluginsImport: 'plugins:import',
+  /** M91-2: レジストリへの公開。plan=下見(全文と機械チェック。送信しない)/ upload=承認後の送信 */
+  pluginsUploadPlan: 'plugins:upload-plan',
+  pluginsUpload: 'plugins:upload',
   /** M26-7: 表示中の会話の workspace を明示的に移動する */
   conversationMoveWorkspace: 'conversation:move-workspace',
   /** M11-3: 自動チェックポイント(Debugパネル) */
@@ -272,6 +277,17 @@ export interface AmaterasApi {
   pluginsExport(toolName: string): Promise<PluginExportResult>;
   /** M27-4: プラグインのインポート(フォルダ選択→検査→検証ゲートつき進化ジョブ) */
   pluginsImport(): Promise<PluginImportStartResult>;
+  /**
+   * M91-2: レジストリ公開の下見(送信しない)。全文・宛先・機械チェック結果を返す。
+   * ユーザーがこれを読んで承認したときだけ pluginsUpload を呼ぶ
+   */
+  pluginsUploadPlan(toolName: string): Promise<PluginUploadPlanResult>;
+  /** M91-2: 公開の実行(fork → ブランチ → PR)。approvedPreview は下見で見せた全文と一致すること */
+  pluginsUpload(
+    toolName: string,
+    approvedPreview: string,
+    draft: boolean,
+  ): Promise<PluginUploadResult>;
   /** M26-7: 表示中の会話の workspace を移動(実行中は不可)。以降のツール実行が移動先を参照 */
   conversationMoveWorkspace(newWorkspace: string): Promise<{ ok: boolean; message: string }>;
 
