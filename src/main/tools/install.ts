@@ -53,12 +53,20 @@ export async function installPlugin(srcDir: string, userPluginsDir: string, name
   if (existsSync(manifestSrc)) {
     await copyFile(manifestSrc, join(userPluginsDir, `${name}.manifest.json`));
   }
+  // M90: テストも一緒に置く。捨てていたせいで、導入したツールをエクスポートすると
+  // **テストの無いパッケージ**になり、レジストリへ投稿できない(投稿にはテストが要る)。
+  // 入れたものを、そのまま出せないのはおかしい
+  const testSrc = join(srcDir, `${name}.test.ts`);
+  if (existsSync(testSrc)) {
+    await copyFile(testSrc, join(userPluginsDir, `${name}.test.ts`));
+  }
 }
 
 /** 導入の撤去(読み込めなかった場合の巻き戻し・ユーザーによる削除) */
 export async function uninstallPlugin(userPluginsDir: string, name: string): Promise<void> {
   await rm(join(userPluginsDir, `${name}.ts`), { force: true });
   await rm(join(userPluginsDir, `${name}.manifest.json`), { force: true });
+  await rm(join(userPluginsDir, `${name}.test.ts`), { force: true }); // M90: 一緒に置いたテストも消す
 }
 
 /** userData/plugins に入っているものの一覧(設定UI・棚卸し用) */

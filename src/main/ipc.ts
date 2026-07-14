@@ -1033,6 +1033,14 @@ export async function registerIpcHandlers(
     assertString(toolName, 'toolName');
     const plugin = registry.get(toolName);
     if (!plugin) return { ok: false, message: `ツール「${toolName}」が見つからない` };
+    // M90: **導入したツールをエクスポートできなかった**。エクスポートは同梱の置き場
+    // (resources/plugins)しか見ておらず、導入したプラグインは userData/plugins にいる。
+    // 配布版で入れたツールは、そのまま「プラグインファイルが見つからない」で出せない。
+    // ツールが実際に置かれている場所から出す
+    const srcDir = [getUserPluginsDir(), getPluginsDir()].find((d) => existsSync(join(d, `${toolName}.ts`)));
+    if (srcDir === undefined) {
+      return { ok: false, message: `ツール「${toolName}」のソースが見つからない(組み込みでも導入済みでもない)` };
+    }
     const result = await dialog.showOpenDialog({
       title: 'エクスポート先の親フォルダを選択',
       properties: ['openDirectory', 'createDirectory'],
@@ -1041,7 +1049,7 @@ export async function registerIpcHandlers(
       return { ok: false, message: 'キャンセルされた' };
     }
     return exportPlugin({
-      pluginsDir: getPluginsDir(),
+      pluginsDir: srcDir,
       toolName,
       description: plugin.description,
       destRoot: result.filePaths[0]!,
