@@ -126,6 +126,8 @@ const LOCAL_TOOL_JOB_SYSTEM_PROMPT = `あなたはAMA-terasの進化ジョブ。
 プラグイン規約:
 - export default { name, description, inputSchema, risk, tags?, warnings?, execute } satisfies ToolPlugin
 - name はファイル名と一致(修正時は絶対に変えない)
+- execute は必ず2引数で宣言する: execute(input: unknown, ctx: ToolContext)。ctx を使わないなら _ctx とする
+  (satisfies は宣言した引数の数を保つため、1引数で書くとテストから execute(input, ctx) で呼べず型検査で落ちる)
 - 型は import type { ToolPlugin, ToolContext, ToolResult } from '../types'(型専用import)
 - 実行時 import は node 組み込みモジュールのみ。npm パッケージ・相対importの実行時参照は禁止
 - テストからロジックを呼べるよう、純粋な関数を named export し、テストはそれを import する
