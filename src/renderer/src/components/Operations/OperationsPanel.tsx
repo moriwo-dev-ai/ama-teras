@@ -522,6 +522,15 @@ function ReleaseAction({ draft }: { draft: OperationsDraft }): JSX.Element {
     mismatch: boolean;
     pendingDraft: { tag: string; assets: string[] } | null;
   } | null>(null);
+  // M85: リリース情報を**repoが変わった時にしか取りに行っていなかった**。アプリを開いたまま
+  // 下書きリリースを作ると、UIは起動時に掴んだ pendingDraft: null を持ち続け、
+  // 「🚀 公開」ボタンが永久に出ない(実際、v1.2.0の下書きができているのに画面に出なかった)。
+  // 一次情報は変わる。定期的に、そして画面に居る間は取り直す
+  const [nonce, setNonce] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setNonce((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
   useEffect(() => {
     if (repo === '') return;
     let alive = true;
@@ -534,7 +543,7 @@ function ReleaseAction({ draft }: { draft: OperationsDraft }): JSX.Element {
     return () => {
       alive = false;
     };
-  }, [repo]);
+  }, [repo, nonce]);
   return (
     <>
       <select

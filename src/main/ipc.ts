@@ -7,6 +7,7 @@ import type {
   AppConfig,
   ApprovalDecision,
   IwatoRequestPayload,
+  OperationsDraft,
   ProviderId,
   ProvisionalInstall,
   SecretSlot,
@@ -814,10 +815,16 @@ export async function registerIpcHandlers(
     assertString(id, 'id');
     if (typeof patch !== 'object' || patch === null) throw new Error('IPC payload patch が不正');
     const p = patch as Record<string, unknown>;
+    // M85: status の許可リストに 'staged' が無く、**黙って捨てられていた**。
+    // 「公開待ち(出す準備はできたが、まだ誰も読めない)」は M57 で足した状態なのに、
+    // ここだけ知らないままで、staged を書こうとした更新が無言で無視されていた。
+    // 知らない値は捨てるのではなく、はっきり弾く(黙って落とすのが一番たちが悪い)
+    const status = p['status'];
+    if (status !== undefined && !['draft', 'staged', 'posted', 'discarded'].includes(String(status))) {
+      throw new Error(`不正な下書きの状態: ${String(status)}`);
+    }
     return operations.updateDraft(id, {
-      ...(p['status'] === 'draft' || p['status'] === 'posted' || p['status'] === 'discarded'
-        ? { status: p['status'] }
-        : {}),
+      ...(typeof status === 'string' ? { status: status as OperationsDraft['status'] } : {}),
       ...(typeof p['body'] === 'string' ? { body: p['body'] } : {}),
       ...(typeof p['title'] === 'string' ? { title: p['title'] } : {}),
       ...(typeof p['media'] === 'string' ? { media: p['media'] } : {}),

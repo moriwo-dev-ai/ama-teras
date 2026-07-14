@@ -153,13 +153,20 @@ function ReleasePublish({ repos, api, onDone }: { repos: string[]; api: RemoteAp
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // M85: repoが変わった時にしか取りに行っていなかった。画面を開いたままの間に下書きリリースが
+  // できても、UIは起動時に掴んだ pendingDraft: null を持ち続け、公開ボタンが出ない。取り直す
+  const [nonce, setNonce] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setNonce((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
   useEffect(() => {
     if (repo === '') return;
     void api
       .opsReleaseInfo(repo)
       .then((r) => setInfo(r.pendingDraft))
       .catch(() => setInfo(null));
-  }, [api, repo]);
+  }, [api, repo, nonce]);
 
   return (
     <div style={{ marginTop: 8, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
