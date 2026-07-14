@@ -45,10 +45,37 @@ export function classifyLLMError(err: unknown): LLMErrorKind {
   return 'fatal';
 }
 
+/**
+ * M88: 通信が張れなかった原因(cause)を取り出す。
+ *
+ * OpenAI SDK は fetch が落ちると **"Connection error." としか言わない**。本当の原因
+ * (ENOTFOUND=名前が引けない / ETIMEDOUT=届かない / ECONNREFUSED=拒否 /
+ * 証明書エラー=TLS傍受・時計ズレ)は err.cause の中にいる。実機の別PCで
+ * 「Connection error.」だけが出て、原因が何も分からず手が止まった。握りつぶさない
+ */
+export function causeChain(err: unknown): string {
+  const parts: string[] = [];
+  let cur: unknown = err;
+  for (let i = 0; i < 5 && typeof cur === 'object' && cur !== null; i++) {
+    const rec = cur as Record<string, unknown>;
+    const code = rec['code'] ?? rec['errno'];
+    const msg = typeof rec['message'] === 'string' ? rec['message'] : undefined;
+    const label = [typeof code === 'string' || typeof code === 'number' ? String(code) : undefined, msg]
+      .filter((s): s is string => s !== undefined && s !== '')
+      .join(': ');
+    if (label !== '' && !parts.includes(label)) parts.push(label);
+    cur = rec['cause'];
+  }
+  // 先頭は err 自身のメッセージなので、原因側(2つ目以降)だけを返す
+  return parts.slice(1).join(' ← ');
+}
+
 /** 情報カード用の短いエラー表記 */
 export function shortLLMError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
-  return message.length > 140 ? `${message.slice(0, 140)}…` : message;
+  const cause = causeChain(err);
+  const full = cause === '' ? message : `${message}(原因: ${cause})`;
+  return full.length > 200 ? `${full.slice(0, 200)}…` : full;
 }
 
 /**

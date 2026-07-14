@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { systemFetch } from './systemFetch';
 import { parseToolArguments } from './toolArgs';
 import type {
   ChatMessage,
@@ -220,7 +221,13 @@ export class OpenAIProvider implements LLMProvider {
     // 末尾スラッシュ付きのbaseURL(例: Gemini公式ドキュメントの表記)だと "//" になり
     // 404 (no body) を返すエンドポイントがある(実機で確認されたバグの原因)
     const normalized = baseURL?.replace(/\/+$/, '');
-    this.client = new OpenAI({ apiKey, ...(normalized !== undefined ? { baseURL: normalized } : {}) });
+    // M88: OSのネットワークスタックで喋る(セキュリティソフトのTLS傍受・社内プロキシがある
+    // PCで、curlは通るのにアプリだけ "Connection error." になっていた)
+    this.client = new OpenAI({
+      apiKey,
+      fetch: systemFetch(),
+      ...(normalized !== undefined ? { baseURL: normalized } : {}),
+    });
     this.compat = baseURL !== undefined;
   }
 

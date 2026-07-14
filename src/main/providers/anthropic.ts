@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { systemFetch } from './systemFetch';
 import { parseToolArguments } from './toolArgs';
 import type {
   ChatMessage,
@@ -199,7 +200,9 @@ export class AnthropicProvider implements LLMProvider {
     apiKey: string,
     private readonly model: string = DEFAULT_ANTHROPIC_MODEL,
   ) {
-    this.client = new Anthropic({ apiKey });
+    // M88: OSのネットワークスタックで喋る(セキュリティソフトのTLS傍受・社内プロキシがある
+    // PCで、curlは通るのにアプリだけ "Connection error." になっていた)
+    this.client = new Anthropic({ apiKey, fetch: systemFetch() });
   }
 
   async *complete(req: CompletionRequest): AsyncIterable<ProviderEvent> {

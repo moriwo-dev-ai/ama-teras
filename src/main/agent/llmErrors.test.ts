@@ -34,8 +34,10 @@ describe('classifyLLMError(M16-2)', () => {
     expect(classifyLLMError(new Error('モデル応答が空だった'))).toBe('fatal');
   });
 
-  it('shortLLMError は140文字に切り詰める', () => {
-    expect(shortLLMError(new Error('x'.repeat(300))).length).toBeLessThanOrEqual(141);
+  // M88: 上限を140→200に広げた。原因(cause: ENOTFOUND / TLS など)を後ろに足すため、
+  // 140だと肝心の原因が切り落とされる(「Connection error.」だけが残って手が止まる)
+  it('shortLLMError は長すぎるメッセージを切り詰める', () => {
+    expect(shortLLMError(new Error('x'.repeat(300))).length).toBeLessThanOrEqual(201);
   });
 });
 

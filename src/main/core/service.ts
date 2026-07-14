@@ -46,7 +46,7 @@ import {
   effectiveReviewGate,
   evolutionDisabledReason,
 } from '../config';
-import { isModelUnavailableError, isRateLimitError, shortLLMError } from '../agent/llmErrors';
+import { causeChain, isModelUnavailableError, isRateLimitError, shortLLMError } from '../agent/llmErrors';
 import {
   MAX_PARALLEL_SUBAGENTS,
   runSubAgent,
@@ -1189,6 +1189,41 @@ export class AgentService {
    * M27-1: 接続テスト(設定画面用)。現在の設定でプロバイダを生成し、
    * 最小の1リクエスト(数トークン)を送って成否を返す。30秒でタイムアウト
    */
+  /**
+   * M88: そのPCから本当に届くのかを、SDKを通さず素のHTTPSで確かめる。
+   * 別PCで「Connection error.」しか出ず、鍵・モデル・ネットワークのどれが悪いのか
+   * 誰にも分からない状態になった。届かないなら、なぜ届かないのかを言う
+   */
+  private async reachability(endpoint: string): Promise<string> {
+    const proxy = process.env['HTTPS_PROXY'] ?? process.env['https_proxy'] ?? '';
+    const note = proxy === '' ? '' : `\nプロキシ設定あり(HTTPS_PROXY=${proxy})`;
+    let host: string;
+    try {
+      host = new URL(endpoint).origin;
+    } catch {
+      return `到達性: エンドポイントのURLが不正: ${endpoint}`;
+    }
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 10_000);
+    try {
+      const res = await fetch(host, { method: 'HEAD', signal: ac.signal });
+      return `到達性: ${host} には届いている(HTTP ${res.status})。鍵・モデル・エンドポイントの設定を疑う${note}`;
+    } catch (e) {
+      if (ac.signal.aborted) return `到達性: ${host} へ10秒以内に届かない(ファイアウォール/プロキシ/回線を疑う)${note}`;
+      const cause = causeChain(e);
+      const hint = /ENOTFOUND|EAI_AGAIN/.test(cause)
+        ? 'DNSで名前が引けていない(DNS/社内ネットワーク)'
+        : /CERT|SELF_SIGNED|UNABLE_TO_VERIFY|TLS/i.test(cause)
+          ? 'TLSで弾かれている(セキュリティソフトの通信傍受、または端末の時計ズレ)'
+          : /ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH/.test(cause)
+            ? '接続が拒否/切断されている(ファイアウォール/プロキシ)'
+            : 'このPCから外へ出られていない';
+      return `到達性: ${host} に届かない — ${hint}\n低レベル原因: ${cause === '' ? String(e) : cause}${note}`;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async connectionTest(): Promise<{ ok: boolean; message: string }> {
     const provider = this.createProvider();
     if (typeof provider === 'string') return { ok: false, message: provider };
@@ -1215,13 +1250,18 @@ export class AgentService {
       const status = typeof rec['status'] === 'number' ? rec['status'] : undefined;
       const body =
         rec['error'] !== undefined ? JSON.stringify(rec['error']).slice(0, 300) : undefined;
+      // M88: HTTPステータスが無い = サーバまで届いていない(鍵やモデルの問題ではない)。
+      // 「Connection error.」だけ出して人を止めない。素のHTTPSで叩き直し、
+      // 名前が引けないのか・届かないのか・TLSで弾かれたのかまで言う
+      const reach = status === undefined ? await this.reachability(this.connectionEndpoint()) : null;
       return {
         ok: false,
         message:
           `接続失敗: ${shortLLMError(err)}\n` +
           `診断: URL=${this.connectionEndpoint()} / model=${llm.model}` +
           (status !== undefined ? ` / HTTP ${status}` : '') +
-          (body !== undefined ? `\nレスポンスbody: ${body}` : ''),
+          (body !== undefined ? `\nレスポンスbody: ${body}` : '') +
+          (reach !== null ? `\n${reach}` : ''),
       };
     } finally {
       clearTimeout(timer);
