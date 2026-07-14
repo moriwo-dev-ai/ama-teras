@@ -17,11 +17,26 @@ import { createRequire } from 'node:module';
 type FetchLike = typeof fetch;
 
 let cached: FetchLike | undefined;
+let usingElectron = false;
 
 export function systemFetch(): FetchLike {
   if (cached !== undefined) return cached;
-  cached = loadElectronFetch() ?? fetch;
+  const viaElectron = loadElectronFetch();
+  usingElectron = viaElectron !== undefined;
+  cached = viaElectron ?? fetch;
   return cached;
+}
+
+/**
+ * どの経路で喋っているのかを名乗る。**繋がったからといって net.fetch を使えているとは限らない**
+ * (読み込みに失敗しても素の fetch に落ちて繋がってしまうため、こちらの環境では区別できない)。
+ * 接続テストに出して、配布版で実際にOSのネットワークスタックに乗っているかを確かめられるようにする
+ */
+export function fetchTransportName(): string {
+  systemFetch();
+  return usingElectron
+    ? 'OSのネットワークスタック(Electron net.fetch — 証明書ストア/システムプロキシに従う)'
+    : 'Node標準のfetch(バンドル証明書のみ。TLS傍受や社内プロキシで落ちうる)';
 }
 
 function loadElectronFetch(): FetchLike | undefined {

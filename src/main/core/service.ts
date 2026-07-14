@@ -47,6 +47,7 @@ import {
   evolutionDisabledReason,
 } from '../config';
 import { causeChain, isModelUnavailableError, isRateLimitError, shortLLMError } from '../agent/llmErrors';
+import { fetchTransportName } from '../providers/systemFetch';
 import {
   MAX_PARALLEL_SUBAGENTS,
   runSubAgent,
@@ -1242,7 +1243,8 @@ export class AgentService {
         if (ev.type === 'message_done') gotDone = true;
       }
       if (!gotDone) return { ok: false, message: '応答が完了しなかった(message_doneなし)' };
-      return { ok: true, message: `接続OK(${llm.provider}/${llm.model})` };
+      // M88: どの経路で喋ったのかを名乗る(繋がったからといって net.fetch に乗れているとは限らない)
+      return { ok: true, message: `接続OK(${llm.provider}/${llm.model})\n経路: ${fetchTransportName()}` };
     } catch (err) {
       if (ac.signal.aborted) return { ok: false, message: '接続テストがタイムアウトした(30秒)' };
       // M29-1: 診断力強化 — 実際に叩いたURL・HTTPステータス・レスポンスbody(あれば)を出す
