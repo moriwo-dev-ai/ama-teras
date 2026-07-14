@@ -86,7 +86,24 @@ import { GodRegistry, type GodDefinition } from './gods';
 import { GodScheduler, type GodClockJob } from './scheduler';
 import { OpsThread, type OpsThreadMessage } from './thread';
 import { triageRepo } from './tedikaRao';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+
+/** M83: Zennは直近24時間に5本以上の投稿(デプロイ)を止める。再デプロイもこの数に入る */
+export const ZENN_DEPLOY_LIMIT = 5;
+
+/**
+ * M83: 直近24時間の投稿(秒)の並びから、本数と「枠が空く時刻」を出す。
+ * 枠が空くのは「上限番目に古い投稿」が窓から出た瞬間 = その24時間後。
+ * 詰まっている間に再デプロイを押すと、その押した分が新しい投稿として窓に積まれ、
+ * **押すほど遅くなる**(実機で24時間内に10本 — 上限の倍 — 積んでいた)
+ */
+export function zennWindowFromStamps(stampsSec: number[]): { count: number; freeAtMs: number | null } {
+  const stamps = [...stampsSec].sort((a, b) => a - b);
+  if (stamps.length < ZENN_DEPLOY_LIMIT) return { count: stamps.length, freeAtMs: null };
+  const nth = stamps[stamps.length - ZENN_DEPLOY_LIMIT]!;
+  return { count: stamps.length, freeAtMs: (nth + 24 * 3600) * 1000 };
+}
 
 /**
  * M32: 運営マネージャ(Project TAKAMA-gahara の配線)。
@@ -2176,16 +2193,55 @@ ${d.body}`))
       return { ok: false, detail: 'オーナーモードがOFF(運営機能は無効)' };
     }
     if (await this.zenn.isLive(slug)) return { ok: true, detail: `${slug} はすでにZennで読める(再デプロイ不要)` };
+
+    // M83: Zennは**直近24時間に5本以上の投稿(デプロイ)をブロックする**。
+    // 再デプロイもデプロイなので、詰まっているときに押すほど窓が伸びて、
+    // かえって解けなくなる(実機で24時間内に10本 — 上限の倍 — 積んでいた)。
+    // 押す前に窓を数え、埋まっているなら**押させない**。いつ空くかを言う
+    const window = this.zennDeployWindow();
+    if (window !== null && window.count >= ZENN_DEPLOY_LIMIT) {
+      return {
+        ok: false,
+        detail:
+          `再デプロイしない(押しても弾かれ、かえって遅くなる)。Zennは直近24時間で${ZENN_DEPLOY_LIMIT}本以上の投稿を止める。` +
+          `いまの24時間に${window.count}本ある。${window.freeAt} を過ぎれば枠が空くので、そのあと1回だけ押す`,
+      };
+    }
+
     const result = await this.gate.requestExecute(
       'zenn-repo',
       'redeploy-article',
-      `Zenn記事 ${slug} の同期をやり直す(空コミット+push)`,
-      `記事の中身は一切変えません。Zennにもう一度デプロイさせるだけです。\n\n` +
+      `Zenn記事 ${slug} の同期をやり直す`,
+      `記事の中身は一切変えません(末尾の改行1文字だけの差分)。Zennにもう一度デプロイさせるだけです。\n\n` +
         `この記事は published: true で push 済みですが、Zennがまだ公開していません。\n` +
-        `Zennの投稿数上限に達している場合は、上限が戻るまで再デプロイしても反映されません。`,
+        `いまの24時間の投稿数: ${window?.count ?? '不明'}本(Zennの上限は${ZENN_DEPLOY_LIMIT}本)。`,
       { slug },
     );
     return result;
+  }
+
+  /**
+   * M83: zenn-content の articles/ を触ったコミットが、直近24時間に何本あるか。
+   * Zennの投稿数上限は「投稿した本数」で数えられるので、こちらも一次情報(git log)で数える
+   */
+  private zennDeployWindow(): { count: number; freeAt: string } | null {
+    const dir = this.opsConfig().zennRepoDir ?? '';
+    if (dir === '') return null;
+    try {
+      const out = execFileSync('git', ['log', '--since=24 hours ago', '--format=%ct', '--', 'articles'], {
+        cwd: dir,
+        encoding: 'utf8',
+      });
+      const stamps = out
+        .split('\n')
+        .map((l) => Number(l.trim()))
+        .filter((n) => Number.isFinite(n) && n > 0)
+        .sort((a, b) => a - b);
+      const w = zennWindowFromStamps(stamps);
+      return { count: w.count, freeAt: w.freeAtMs === null ? '今すぐ' : new Date(w.freeAtMs).toLocaleString('ja-JP') };
+    } catch {
+      return null; // gitが引けないときは黙って通す(嘘の数字を出さない)
+    }
   }
 
   /** M77: published: true なのにZennで読めない記事(=同期待ち/失敗。再デプロイの対象) */
