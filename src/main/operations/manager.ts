@@ -1328,7 +1328,27 @@ ${d.body}`))
     const batch = this.thread.getBatch(batchId);
     if (batch === null) return { ok: false, detail: 'バッチが見つからない', results: [] };
     const selected = batch.items.filter((i) => itemIds.includes(i.id) && i.action !== undefined);
-    if (selected.length === 0) return { ok: false, detail: '対象項目が無い', results: [] };
+
+    // M80: **アプリが実行できない項目(exec-action)は、一括では1枚も処理されていなかった**。
+    // action を持つカードだけを対象にしていたため、「人間の手が要る」カードばかりのバッチを
+    // 一括却下すると「対象項目が無い」で終わり、カードは pending のまま残り続けた
+    // (スマホの承認は全部 bulkRespond を通る = スマホからは永久に消せなかった)。
+    // 実行はできなくても**判断は記録できる**。1枚ずつの応答(batchRespond)に流す
+    const manual = batch.items.filter((i) => itemIds.includes(i.id) && i.action === undefined && i.status === 'pending');
+    const manualResults: BulkItemResult[] = [];
+    for (const i of manual) {
+      const r = await this.batchRespond(batchId, i.id, approved);
+      manualResults.push({ itemId: i.id, target: i.title, ok: r.ok, detail: r.detail });
+    }
+
+    if (selected.length === 0) {
+      if (manual.length === 0) return { ok: false, detail: '対象項目が無い', results: [] };
+      return {
+        ok: true,
+        detail: `${manual.length}件を${approved ? '承認' : '却下'}した(アプリが実行できない項目のため、判断だけを記録した)`,
+        results: manualResults,
+      };
+    }
 
     // M74: 同じ内容のカード(神議が15分ごとに作り直したもの)は、1枚だけ実行して残りは
     // 判断だけを反映する。M69で batchRespond には入れたが、**スマホの承認ボタンは1枚でも
@@ -1354,12 +1374,15 @@ ${d.body}`))
     // (同じ下書きが別のバッチ項目として残っていて、二度承認された)
     const already = uniqueSelected.filter((i) => this.draftAlreadyPosted(i.action!.params));
     for (const i of already) this.thread.respondBatchItem(batchId, i.id, true);
-    const alreadyResults: BulkItemResult[] = already.map((i) => ({
-      itemId: i.id,
-      target: i.action!.target,
-      ok: false,
-      detail: '投稿済み(重複回避)',
-    }));
+    // M80: 実行できない項目の判断結果も、返す結果に混ぜる(黙って消さない)
+    const alreadyResults: BulkItemResult[] = manualResults.concat(
+      already.map((i) => ({
+        itemId: i.id,
+        target: i.action!.target,
+        ok: false,
+        detail: '投稿済み(重複回避)',
+      })),
+    );
     const items = uniqueSelected.filter((i) => !already.includes(i));
 
     // 双子(未処理の同一カード)には、実行せず判断だけを反映する。
@@ -1400,10 +1423,11 @@ ${d.body}`))
     if (!approved) {
       for (const i of items) this.thread.respondBatchItem(batchId, i.id, false);
       const settled = settleTwins();
+      const n = items.length + manual.length; // M80: 実行できない項目も却下できている
       return {
         ok: true,
-        detail: settled > 0 ? `${items.length}件を却下した(同一内容の${settled}枚も却下)` : `${items.length}件を却下した`,
-        results: items.map((i) => ({ itemId: i.id, target: i.action!.target, ok: false, detail: '却下' })),
+        detail: settled > 0 ? `${n}件を却下した(同一内容の${settled}枚も却下)` : `${n}件を却下した`,
+        results: [...items.map((i) => ({ itemId: i.id, target: i.action!.target, ok: false, detail: '却下' })), ...manualResults],
       };
     }
     // 承認: 実行するのは items(重複排除済み)だけ。双子は判断だけ反映する
