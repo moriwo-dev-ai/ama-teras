@@ -152,9 +152,18 @@ export function createZennRepoAdapter(getRepoDir: () => string | null, deps: Zen
         const slug = String(params['slug'] ?? '');
         if (!ZENN_SLUG_RE.test(slug)) throw new Error(`Zennのslug規則に合わない: ${slug}`);
         if (!existsSync(join(repoDir, 'articles', `${slug}.md`))) throw new Error(`記事が見つからない: ${slug}`);
-        await deps.run(['commit', '--allow-empty', '-m', `redeploy: ${slug}(Zennの同期をやり直す)`], repoDir);
+        // M81: **空コミットではZennは何も再デプロイしない**(変更されたファイルが無いため、
+        // 記事は同期対象にならない)。実機で空コミットをpushしても403のままだった。
+        // Zennに「この記事は変わった」と認識させるには、その記事のファイル自体に差分が要る。
+        // 本文は一切変えたくないので、末尾の改行1文字だけを足し引きする(表示は変わらない)
+        const rel = `articles/${slug}.md`;
+        const abs = join(repoDir, 'articles', `${slug}.md`);
+        const md = deps.readArticle?.(abs) ?? readFileSync(abs, 'utf8');
+        write(abs, md.endsWith('\n') ? md.slice(0, -1) : `${md}\n`);
+        await deps.run(['add', rel], repoDir);
+        await deps.run(['commit', '-m', `redeploy: ${slug}(Zennの同期をやり直す。本文は変えていない)`], repoDir);
         await deps.run(['push'], repoDir);
-        return `${slug} の再デプロイを要求した(空コミット+push)。Zennの同期には数分かかる。投稿数の上限に達している場合は、上限が戻るまで反映されない`;
+        return `${slug} の再デプロイを要求した(記事ファイルに末尾改行だけの差分を付けてpush。本文は変えていない)。Zennの同期には数分かかる。投稿数の上限に達している場合は、上限が戻るまで反映されない`;
       }
 
       if (action !== 'commit-article') throw new Error(`未知のアクション: ${action}`);

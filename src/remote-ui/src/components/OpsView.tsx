@@ -677,6 +677,21 @@ function DraftCard({
   const [notice, setNotice] = useState('');
   const [tag, setTag] = useState(/v\d+\.\d+\.\d+/.exec(draft.body)?.[0] ?? '');
   const [repo, setRepo] = useState(repos[0] ?? '');
+  // M82: リリースノートの本文にバージョンが書かれていないと、スマホでは版を採番する手段が
+  // 無く「Releaseへ」が押せないままだった(PCは releaseInfo の候補を出している)。
+  // 同じ一次情報(最新タグ)から次の版を採番して初期値に入れる。手入力でも上書きできる
+  const [tagHint, setTagHint] = useState('');
+  useEffect(() => {
+    if (draft.kind !== 'release-note' || repo === '' || tag !== '') return;
+    void api
+      .opsReleaseInfo(repo)
+      .then((info) => {
+        const next = info.suggestions.patch ?? (info.appVersion === '' ? '' : `v${info.appVersion}`);
+        if (next !== '') setTag(next);
+        setTagHint(info.latestTag === null ? '最新リリースなし' : `最新 ${info.latestTag}`);
+      })
+      .catch(() => setTagHint(''));
+  }, [draft.kind, repo, tag, api]);
   const [media, setMedia] = useState(draft.media ?? DEFAULT_MEDIA[draft.kind]);
   const url = firstUrl(draft.body);
 
@@ -747,6 +762,7 @@ function DraftCard({
             placeholder="v1.0.1"
             value={tag}
             onChange={(e) => setTag(e.target.value)}
+            title={tagHint}
           />
           <button
             className="primary"
@@ -755,6 +771,11 @@ function DraftCard({
           >
             🐙 Releaseへ
           </button>
+        </div>
+      )}
+      {draft.kind === 'release-note' && tagHint !== '' && (
+        <div className="muted" style={{ fontSize: 11 }}>
+          {tagHint} → 次の版を自動で入れた(直せます)
         </div>
       )}
       {draft.status === 'draft' && (
