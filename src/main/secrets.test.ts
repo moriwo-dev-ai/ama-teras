@@ -66,3 +66,22 @@ describe('M27-1: プリセット用キースロット', () => {
     expect(readFileSync(file, 'utf8')).not.toContain('AIza-test'); // 平文保存禁止はスロットにも適用
   });
 });
+
+describe('M91-6: サインアウト(delete)', () => {
+  it('delete で鍵ごと消える(空文字を入れて has が true のまま残るのを避ける)', () => {
+    const file = join(dir, 'secrets.json');
+    const store = new SecretStore(file, fakeCipher());
+    store.set('github', 'gho_token');
+    expect(store.has('github')).toBe(true);
+    store.delete('github');
+    expect(store.has('github')).toBe(false);
+    expect(store.get('github')).toBeNull();
+    // 別インスタンス(ディスクから読み直し)でも消えている
+    expect(new SecretStore(file, fakeCipher()).has('github')).toBe(false);
+  });
+
+  it('未登録スロットの delete は何も壊さない', () => {
+    const store = new SecretStore(join(dir, 'secrets.json'), fakeCipher());
+    expect(() => store.delete('github')).not.toThrow();
+  });
+});

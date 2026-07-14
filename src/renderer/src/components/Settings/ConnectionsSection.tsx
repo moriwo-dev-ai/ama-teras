@@ -700,44 +700,105 @@ function RegistryPublishSection({
   const [token, setToken] = useState('');
   const [registered, setRegistered] = useState(false);
   const [msg, setMsg] = useState('');
+  // M91-6: Device Flow の進行状態。userCode を表示している間は「承認待ち」
+  const [userCode, setUserCode] = useState('');
+  const [verifyUri, setVerifyUri] = useState('');
+  const [connecting, setConnecting] = useState(false);
+  const [showToken, setShowToken] = useState(false);
 
-  useEffect(() => {
+  const refresh = (): void => {
     void window.api.secretsStatus().then((s) => setRegistered(s.github));
-  }, []);
+  };
+  useEffect(refresh, []);
+
+  const clientId = (config.githubClientId ?? '').trim();
+
+  const connect = (): void => {
+    setConnecting(true);
+    setMsg('');
+    setUserCode('');
+    void window.api
+      .githubAuthStart()
+      .then((r) => {
+        if (!r.ok || r.userCode === undefined) {
+          setMsg(`✗ ${r.message}`);
+          setConnecting(false);
+          return;
+        }
+        setUserCode(r.userCode);
+        setVerifyUri(r.verificationUri ?? 'https://github.com/login/device');
+        // ブラウザは main 側で開く。ここは承認完了(またはタイムアウト)まで待つ
+        void window.api
+          .githubAuthPoll()
+          .then((p) => {
+            setMsg(`${p.ok ? '✓' : '✗'} ${p.message}`);
+            setUserCode('');
+            if (p.ok) refresh();
+          })
+          .catch((err: unknown) => setMsg(`✗ ${err instanceof Error ? err.message : String(err)}`))
+          .finally(() => setConnecting(false));
+      })
+      .catch((err: unknown) => {
+        setMsg(`✗ ${err instanceof Error ? err.message : String(err)}`);
+        setConnecting(false);
+      });
+  };
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       <p className="text-xs font-semibold text-zinc-300">レジストリへの公開(GitHub)</p>
       <p className="text-xs text-zinc-500">
         自分の機体で作ったツールを、上のレジストリへPRとして提出できる(ツール一覧の「⛩ 公開」)。
         送信前に必ず全文を確認・承認する。出せるのは検証ゲートを通ったツールだけで、
         検証後にコードを書き換えたものは「未検証」になり公開できない
       </p>
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          className="min-w-[12rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
-          type="password"
-          value={token}
-          placeholder={registered ? '登録済み(変更するなら新しいトークン)' : 'GitHubトークン(public_repo 権限)'}
-          onChange={(e) => setToken(e.target.value)}
-        />
-        <button
-          className="shrink-0 rounded bg-zinc-700 px-2 py-1.5 text-xs hover:bg-zinc-600 disabled:opacity-40"
-          disabled={token.trim() === ''}
-          onClick={() => {
-            void window.api
-              .secretsSet('github', token.trim())
-              .then((s) => {
-                setRegistered(s.github);
-                setToken('');
-                setMsg('✓ トークンを保存した(OSの暗号化ストアに保存)');
-              })
-              .catch((err: unknown) => setMsg(`✗ ${err instanceof Error ? err.message : String(err)}`));
-          }}
-        >
-          保存
-        </button>
-      </div>
+
+      {/* 接続状態 */}
+      {registered ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded bg-emerald-900/60 px-2 py-0.5 text-xs text-emerald-300">✓ GitHub 接続済み</span>
+          <button
+            className="rounded border border-zinc-600 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+            onClick={() => {
+              void window.api.githubSignOut().then(() => {
+                setMsg('サインアウトした');
+                refresh();
+              });
+            }}
+          >
+            サインアウト
+          </button>
+        </div>
+      ) : userCode !== '' ? (
+        // 承認待ち: このコードをブラウザに入れて承認してもらう
+        <div className="rounded border border-sky-800 bg-sky-950/50 p-2">
+          <p className="text-xs text-sky-200">
+            ブラウザ(自動で開きます)で、次のコードを入力して承認してください:
+          </p>
+          <p className="my-1 select-all text-center font-mono text-lg tracking-widest text-sky-100">{userCode}</p>
+          <p className="text-[11px] text-zinc-400">
+            開かない場合は{' '}
+            <button className="underline hover:text-zinc-200" onClick={() => void window.api.openExternal(verifyUri)}>
+              {verifyUri}
+            </button>{' '}
+            を開く。承認するとここが自動で「接続済み」に変わります(待機中…)
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            className="rounded bg-sky-700 px-3 py-1.5 text-xs hover:bg-sky-600 disabled:opacity-40"
+            disabled={connecting || clientId === ''}
+            title={clientId === '' ? 'OAuth App の Client ID を下に入れると使えます' : ''}
+            onClick={connect}
+          >
+            {connecting ? '接続中…' : 'GitHub と接続(推奨)'}
+          </button>
+          <span className="text-[11px] text-zinc-500">ブラウザで承認するだけ。トークンの手作り不要</span>
+        </div>
+      )}
+
+      {/* クレジット */}
       <input
         key={config.registryAuthor}
         className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 text-xs"
@@ -745,7 +806,59 @@ function RegistryPublishSection({
         placeholder="クレジット(GitHubのユーザー名など。manifest の author と署名に使う)"
         onBlur={(e) => saveConfig({ ...config, registryAuthor: e.target.value.trim() })}
       />
+
       {msg !== '' && <p className="text-xs text-zinc-400">{msg}</p>}
+
+      {/* 詳細設定(Client ID とトークン貼り付けフォールバック) */}
+      <details className="text-xs text-zinc-500">
+        <summary className="cursor-pointer hover:text-zinc-300">詳細設定(Client ID / トークン貼り付け)</summary>
+        <div className="mt-1.5 space-y-1.5 border-l border-zinc-700 pl-2">
+          <div>
+            <p>OAuth App の Client ID(Device Flow 用。公開情報なので秘密ではない)</p>
+            <input
+              key={config.githubClientId}
+              className="mt-0.5 w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
+              defaultValue={config.githubClientId ?? ''}
+              placeholder="Iv1.xxxxxxxxxxxx(GitHub → Settings → Developer settings → OAuth Apps)"
+              onBlur={(e) => saveConfig({ ...config, githubClientId: e.target.value.trim() })}
+            />
+          </div>
+          <div>
+            <p>または、トークンを直接貼り付ける(public_repo 権限)</p>
+            <div className="mt-0.5 flex flex-wrap items-center gap-2">
+              <input
+                className="min-w-[10rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
+                type={showToken ? 'text' : 'password'}
+                value={token}
+                placeholder={registered ? '登録済み(変更するなら新しいトークン)' : 'ghp_...'}
+                onChange={(e) => setToken(e.target.value)}
+              />
+              <button
+                className="shrink-0 rounded border border-zinc-600 px-2 py-1.5 text-xs hover:bg-zinc-800"
+                onClick={() => setShowToken((v) => !v)}
+              >
+                {showToken ? '隠す' : '表示'}
+              </button>
+              <button
+                className="shrink-0 rounded bg-zinc-700 px-2 py-1.5 text-xs hover:bg-zinc-600 disabled:opacity-40"
+                disabled={token.trim() === ''}
+                onClick={() => {
+                  void window.api
+                    .secretsSet('github', token.trim())
+                    .then((s) => {
+                      setRegistered(s.github);
+                      setToken('');
+                      setMsg('✓ トークンを保存した(OSの暗号化ストアに保存)');
+                    })
+                    .catch((err: unknown) => setMsg(`✗ ${err instanceof Error ? err.message : String(err)}`));
+                }}
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

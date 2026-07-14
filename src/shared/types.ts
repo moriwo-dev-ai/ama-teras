@@ -279,6 +279,11 @@ export interface AppConfig {
    */
   requestsRepoUrl?: string;
   /**
+   * M91-6: GitHub Device Flow の OAuth App Client ID(公開情報)。既定は同梱の公式ID。
+   * 自前のOAuth Appを使う人はここに入れる。空なら「GitHubと接続」は無効(PAT貼り付けにフォールバック)
+   */
+  githubClientId?: string;
+  /**
    * M42-1: 本体の更新確認(GitHub Releases API)。既定=公式リリース。空文字=無効。
    * **通知だけ**を行う(自動ダウンロード・自動インストールはしない)
    */
@@ -952,6 +957,21 @@ export interface PluginUploadResult {
   message: string;
   /** 提出したPRのURL(成功時) */
   url?: string;
+}
+
+/** M91-6: Device Flow 開始の結果(この user_code をユーザーに見せ、ブラウザで承認させる) */
+export interface GithubAuthStartResult {
+  ok: boolean;
+  message: string;
+  userCode?: string;
+  verificationUri?: string;
+  expiresInSec?: number;
+}
+
+/** M91-6: 承認待ちの結果(承認が済むか、期限切れ/拒否まで待って返る) */
+export interface GithubAuthPollResult {
+  ok: boolean;
+  message: string;
 }
 
 // ---- M91-3: 本体(コア/UI)への要望 ----

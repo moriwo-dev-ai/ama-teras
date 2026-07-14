@@ -35,6 +35,8 @@ import type {
   CoreRequestKind,
   CoreRequestPlanResult,
   CoreRequestSubmitResult,
+  GithubAuthPollResult,
+  GithubAuthStartResult,
   PluginExportResult,
   PluginImportStartResult,
   PluginUploadPlanResult,
@@ -96,6 +98,10 @@ export const IpcChannels = {
   /** M91-2: レジストリへの公開。plan=下見(全文と機械チェック。送信しない)/ upload=承認後の送信 */
   pluginsUploadPlan: 'plugins:upload-plan',
   pluginsUpload: 'plugins:upload',
+  /** M91-6: GitHub Device Flow(ブラウザ認証)。start=コード発行+ブラウザを開く / poll=承認待ち / signOut=切断 */
+  githubAuthStart: 'github:auth-start',
+  githubAuthPoll: 'github:auth-poll',
+  githubSignOut: 'github:sign-out',
   /** M91-3: 本体(コア/UI)への要望。下書き→下見(重複・機械チェック)→全文承認→Issue提出 */
   requestsList: 'requests:list',
   requestsCreate: 'requests:create',
@@ -298,6 +304,14 @@ export interface AmaterasApi {
     approvedPreview: string,
     draft: boolean,
   ): Promise<PluginUploadResult>;
+
+  /**
+   * M91-6: GitHub Device Flow。start でコードを得てブラウザが開く → ユーザーが承認 →
+   * poll が承認完了(またはタイムアウト/拒否)まで待って返る。成功でトークンを暗号化保存する
+   */
+  githubAuthStart(): Promise<GithubAuthStartResult>;
+  githubAuthPoll(): Promise<GithubAuthPollResult>;
+  githubSignOut(): Promise<{ ok: boolean }>;
 
   /** M91-3: 本体(コア/UI)への要望。下書きの一覧・作成・下見・送信・破棄 */
   requestsList(): Promise<CoreRequest[]>;

@@ -144,6 +144,17 @@ export const DEFAULT_UPDATE_CHECK_URL = 'https://api.github.com/repos/moriwo-dev
 export const DEFAULT_REQUESTS_REPO_URL = 'https://github.com/moriwo-dev-ai/ama-teras';
 
 /**
+ * M91-6: GitHub Device Flow で使う公式 OAuth App の Client ID。
+ * **Client ID は公開情報**(秘密ではない)なので同梱してよい。Device Flow は Client Secret を
+ * 使わない。空文字のあいだは「GitHubと接続」ボタンは使えず、トークン貼り付けにフォールバックする。
+ * オーナーが OAuth App(Device Flow 有効)を作って、この値か設定の githubClientId に入れると有効化される
+ */
+export const DEFAULT_GITHUB_CLIENT_ID = '';
+
+/** 公開・要望に必要な最小スコープ(公開リポジトリへの fork/PR/Issue) */
+export const GITHUB_OAUTH_SCOPE = 'public_repo';
+
+/**
  * 無料枠APIの学習利用に関する注意文(プリセット共通)。
  * 提供元・プランにより扱いが異なるため断定せず、機密は有料APIへ誘導する
  */

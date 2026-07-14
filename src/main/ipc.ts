@@ -58,7 +58,8 @@ import {
   requestPreviewText,
   submitRequest,
 } from './requests/submit';
-import { DEFAULT_REQUESTS_REPO_URL } from '../shared/models';
+import { DEFAULT_GITHUB_CLIENT_ID, DEFAULT_REQUESTS_REPO_URL, GITHUB_OAUTH_SCOPE } from '../shared/models';
+import { pollForToken, requestDeviceCode } from './registry/deviceAuth';
 import { fetchRevocationList } from './registry/killswitch';
 import { exportPlugin } from './registry/packager';
 import { generateToken, RemoteAuth } from './remote/auth';
@@ -1230,6 +1231,85 @@ export async function registerIpcHandlers(
       }
     },
   );
+
+  // ---- M91-6: GitHub Device Flow(ブラウザ認証)----
+  // PATを手作りさせる代わりに、ボタン→ブラウザで承認→完了。Client ID は公開情報なので同梱可。
+  // 承認待ちは1件だけ(2つ走らせない)
+  let pendingDeviceAuth: { clientId: string; deviceCode: string; intervalSec: number; expiresInSec: number } | null =
+    null;
+  let deviceAuthPolling = false;
+  const resolveGithubClientId = (): string => {
+    const override = (config.get().githubClientId ?? '').trim();
+    return override !== '' ? override : DEFAULT_GITHUB_CLIENT_ID;
+  };
+
+  ipcMain.handle(IpcChannels.githubAuthStart, async () => {
+    const clientId = resolveGithubClientId();
+    if (clientId === '') {
+      return {
+        ok: false,
+        message:
+          'GitHub の Client ID が未設定です。設定→「レジストリへの公開」で OAuth App の Client ID を入れるか、' +
+          'トークンを直接貼り付けてください(Device Flow には Device Flow を有効にした OAuth App が必要です)',
+      };
+    }
+    try {
+      const dc = await requestDeviceCode(clientId, GITHUB_OAUTH_SCOPE, systemFetch());
+      pendingDeviceAuth = {
+        clientId,
+        deviceCode: dc.deviceCode,
+        intervalSec: dc.intervalSec,
+        expiresInSec: dc.expiresInSec,
+      };
+      // コード入力ページをブラウザで開く(ユーザーは表示された user_code を貼るだけ)
+      void shell.openExternal(dc.verificationUri);
+      return {
+        ok: true,
+        message: 'ブラウザで承認してください',
+        userCode: dc.userCode,
+        verificationUri: dc.verificationUri,
+        expiresInSec: dc.expiresInSec,
+      };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle(IpcChannels.githubAuthPoll, async () => {
+    const p = pendingDeviceAuth;
+    if (p === null) return { ok: false, message: '認証が開始されていません(先に「GitHubと接続」を押してください)' };
+    if (deviceAuthPolling) return { ok: false, message: '既に承認を待っています' };
+    deviceAuthPolling = true;
+    try {
+      const outcome = await pollForToken(p.clientId, p.deviceCode, {
+        intervalSec: p.intervalSec,
+        expiresInSec: p.expiresInSec,
+        fetchFn: systemFetch(),
+      });
+      pendingDeviceAuth = null;
+      if (!outcome.ok) return { ok: false, message: outcome.reason };
+      secrets.set('github', outcome.token);
+      audit.append({
+        tool: 'github-auth',
+        scope: 'system',
+        paths: [],
+        event: 'result',
+        detail: `Device Flow で接続(scope: ${outcome.scope || 'public_repo'})`,
+      });
+      return { ok: true, message: 'GitHub と接続しました' };
+    } catch (err) {
+      pendingDeviceAuth = null;
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    } finally {
+      deviceAuthPolling = false;
+    }
+  });
+
+  ipcMain.handle(IpcChannels.githubSignOut, () => {
+    secrets.delete('github');
+    pendingDeviceAuth = null;
+    return { ok: true };
+  });
 
   // ---- M91-3: 本体(コア/UI)への要望 ----
   // ツールは自分の機体で作れる。コア/UIは作れない(全員が同じコアを使う設計)。

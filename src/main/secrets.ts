@@ -64,4 +64,17 @@ export class SecretStore {
   has(provider: SecretSlot): boolean {
     return this.get(provider) !== null;
   }
+
+  /** M91-6: サインアウト用。該当スロットを消す(空文字を入れると has が true のままになるため、鍵ごと削除する) */
+  delete(provider: SecretSlot): void {
+    const data = this.read();
+    if (!(provider in data)) {
+      this.cache.delete(provider);
+      return;
+    }
+    delete data[provider];
+    mkdirSync(dirname(this.filePath), { recursive: true });
+    writeFileSync(this.filePath, JSON.stringify(data, null, 2), 'utf8');
+    this.cache.delete(provider);
+  }
 }
