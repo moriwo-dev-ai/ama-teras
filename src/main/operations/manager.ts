@@ -6,6 +6,7 @@ import type {
   ApprovalBatchItem,
   CommunityCandidate,
   EvolutionJobSummary,
+  EvolutionScope,
   IwatoRequestPayload,
   MediaStrategyEntry,
   MetricsSnapshot,
@@ -132,7 +133,12 @@ export interface OperationsManagerDeps {
    * 起票の引き金は必ず「人間が承認バッチで承認した」ことで、神議が自分で起票することはない。
    * 昇格は従来どおり進化サブシステムの承認制(ここは起票までを自動化する配線)
    */
-  enqueueEvolution?: (description: string, expectedIO: string) => Promise<number>;
+  enqueueEvolution?: (
+    description: string,
+    expectedIO: string,
+    /** M91-4: 未指定=tool。要望(KUEBIKO)由来のカードは core/renderer を持つ */
+    scope?: EvolutionScope,
+  ) => Promise<number>;
   /**
    * M52: 進化ジョブの実状態。神議はこれを見ずに喋っていたため、**ゲートで落ちたジョブを
    * 「承認待ち」と呼び**、存在しない滞留のレビューを人間に催促していた(実害)。
@@ -187,6 +193,11 @@ interface GodParams {
   knownIssues: Record<string, number[]>;
   /** M38-3: 効果測定を受け箱へ報告済みの下書きID(二重報告の防止)。任意=旧形式互換 */
   impactReported?: string[];
+  /**
+   * M91-4: KUEBIKO が既に承認カードにした要望("<repo>#<number>")。
+   * 同じ要望で承認待ちを二度埋めない(押されなかったカードは、次の回では出さない)
+   */
+  knownRequests?: string[];
   /** M34-2: HN監視の既知状態(karma・スレッドのコメント総数・自コメントへの既知返信id)。任意=旧形式互換 */
   hnState?: {
     karma?: number;
@@ -567,6 +578,7 @@ export class OperationsManager {
       if (engine === 'community-patrol') return await this.runUzumePatrol(def);
       if (engine === 'draft-writer') return await this.runUzumeDrafts();
       if (engine === 'issue-gatekeeper') return await this.runTedikaDiff();
+      if (engine === 'request-triage') return await this.runRequestTriage();
       if (engine === 'metrics-observer' || godId === 'omoi-kami') {
         const snap = await this.collectSnapshot();
         if (snap === null) return { ok: false, detail: '収集失敗', tokensUsed: 0 };
@@ -832,6 +844,88 @@ export class OperationsManager {
     }
     this.saveParams(params);
     return { ok: true, detail: `新着${newCount}件をトリアージ`, tokensUsed };
+  }
+
+  /**
+   * M91-4: KUEBIKO(久延毘古)— 要望のトリアージ。
+   *
+   * 配布版のユーザーは本体(コア/UI)を書き換えられない(全員が同じコアを使う設計)。
+   * 代わりに要望としてIssueが立つ。それを**開発機が拾って本体に入れ、配布版へ戻す** — その一周の、
+   * 拾う側の口。ここは提案までしかしない(起票は人間が承認カードを承認したときだけ)。
+   *
+   * 既に提案した要望は二度と出さない(params.knownRequests)。同じカードで承認待ちを埋めない
+   */
+  private async runRequestTriage(): Promise<{ ok: boolean; detail: string; tokensUsed: number }> {
+    if (this.github === null || this.inbox === null || this.thread === null) {
+      return { ok: false, detail: 'gh未検出', tokensUsed: 0 };
+    }
+    if (this.deps.enqueueEvolution === undefined) {
+      // 配布版には本体の進化パイプラインが無い。ここで要望を拾っても起票先が無く、
+      // 承認カードだけが溜まる(押しても何も起きないカードは、嘘と同じ)
+      return { ok: false, detail: '本体の進化が使えない環境(要望の拾い上げは開発機でのみ動く)', tokensUsed: 0 };
+    }
+    const provider = this.cheapLLM();
+    if (typeof provider === 'string') return { ok: false, detail: provider, tokensUsed: 0 };
+    const { buildRankPrompt, parseRanking, proposalDetail, rankRequests, selectRequests } = await import('./kuebiko');
+
+    const params = this.loadParams();
+    const known = new Set(params.knownRequests ?? []);
+    let tokensUsed = 0;
+    const items: ApprovalBatchItem[] = [];
+
+    for (const repo of this.opsConfig().repos) {
+      const requests = selectRequests(repo, await this.github.openItems(repo)).filter(
+        (r) => !known.has(`${repo}#${r.number}`),
+      );
+      if (requests.length === 0) continue;
+      const r = await completeTextWithUsage(
+        provider,
+        'あなたはAMA-terasの要望トリアージ担当。効き目の順に並べる。',
+        buildRankPrompt(requests),
+      );
+      tokensUsed += r.tokensUsed;
+      const ranked = rankRequests(requests, parseRanking(r.text));
+      // 一度に出すのは上位3件まで(承認待ちを溢れさせない。残りは次の回に回る)
+      for (const { item, rank } of ranked.slice(0, 3)) {
+        known.add(`${repo}#${item.number}`);
+        items.push({
+          id: `req-${repo.replace('/', '-')}-${item.number}`,
+          kind: 'capability-gap',
+          title: `[要望] ${item.title}(${item.scope} / 効き目${rank.impact})`,
+          detail: proposalDetail(item, rank),
+          gap: {
+            branch: 'evolve',
+            scope: item.scope,
+            sourceIssue: { repo, number: item.number, url: `https://github.com/${repo}/issues/${item.number}` },
+          },
+          status: 'pending',
+        });
+      }
+    }
+
+    this.saveParams({ ...params, knownRequests: [...known].slice(-500) });
+    if (items.length === 0) return { ok: true, detail: '新しい要望なし', tokensUsed };
+
+    const batch: ApprovalBatch = {
+      id: `kuebiko-${Date.now()}`,
+      ts: new Date().toISOString(),
+      analysis: `久延毘古が拾った本体への要望(${items.length}件)。効き目の順に並べてある`,
+      items,
+    };
+    this.thread.addBatch(batch);
+    this.thread.post({
+      role: 'system',
+      kind: 'approval-batch',
+      body: `久延毘古: 本体への要望を${items.length}件拾った(承認すると進化ジョブとして起票する)`,
+      batchId: batch.id,
+    });
+    this.inbox.post({
+      kind: 'triage',
+      godId: 'kuebiko',
+      title: `要望${items.length}件を提案(承認待ち)`,
+      payload: {},
+    });
+    return { ok: true, detail: `要望${items.length}件を承認カードにした`, tokensUsed };
   }
 
   // ---- M33-4: 神議(T4)----
@@ -1725,9 +1819,14 @@ ${d.body}`))
           return { ok: true, detail: '起票案を承認した(進化サブシステム未接続。通常チャットで request_capability として起票してください)' };
         }
         try {
+          // M91-4: 要望(KUEBIKO)から来たカードは本体スコープを持つ。tool として起票すると
+          // 「UIを直してほしい」がプラグイン生成になり、永久に的を外す
           const jobId = await this.deps.enqueueEvolution(
             `[神議] ${item.title}`,
-            item.detail,
+            item.gap?.sourceIssue !== undefined
+              ? `${item.detail}\n\n出どころ: ${item.gap.sourceIssue.url}`
+              : item.detail,
+            item.gap?.scope,
           );
           this.inbox?.post({
             kind: 'evolution',

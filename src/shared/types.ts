@@ -670,6 +670,13 @@ export interface ApprovalBatchItem {
     godDraft?: unknown;
     registry?: RegistryMatchRef;
     godRegistry?: RegistryMatchRef;
+    /**
+     * M91-4: 起票する進化ジョブのスコープ(未指定=tool)。KUEBIKO が拾った
+     * 本体への要望(request:core / request:ui)は core / renderer として起票される
+     */
+    scope?: EvolutionScope;
+    /** M91-4: 出どころのIssue(承認カードから元の要望へ辿れるように) */
+    sourceIssue?: { repo: string; number: number; url: string };
   };
   status: 'pending' | 'approved' | 'rejected';
 }

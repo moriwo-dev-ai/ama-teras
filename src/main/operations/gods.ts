@@ -25,6 +25,12 @@ export const GOD_ENGINES = [
    * 月読モード(オーナー機体限定)がONの時だけ投入される
    */
   'tsukuyomi-observer',
+  /**
+   * M91-4: 要望のトリアージ(KUEBIKO)。開発リポジトリの request:core / request:ui ラベルの
+   * Issueを見張り、重複を潰し、効き目の順に神議の承認カードへ載せる。
+   * 承認されると本体(core/renderer)の進化ジョブになる = **開発機でだけ動く**
+   */
+  'request-triage',
 ] as const;
 export type GodEngine = (typeof GOD_ENGINES)[number];
 
@@ -46,6 +52,9 @@ export const DEFAULT_GOD_DEFS: GodDefinition[] = [
   { id: 'uzume-drafts', name: 'AMENO-uzume(下書き)', engine: 'draft-writer', clock: { intervalMin: 1440 }, dailyTokenBudget: 20_000, enabled: true },
   { id: 'tedika-rao', name: 'TEDIKA-rao(門番)', engine: 'issue-gatekeeper', clock: { intervalMin: 60 }, dailyTokenBudget: 30_000, enabled: true },
   { id: 'kamuhakari', name: '神議(戦略会議)', engine: 'kamuhakari', clock: { intervalMin: 720, dailyTimes: ['09:00', '21:00'] }, dailyTokenBudget: 60_000, enabled: true },
+  // M91-4: 久延毘古(くえびこ)= 歩けないが世の中のことを何でも知っている神。
+  // 集まってくる要望を知り、効き目の順に並べて神議へ渡す(自分では何も出さない)
+  { id: 'kuebiko', name: 'KUEBIKO(久延毘古・要望の目利き)', engine: 'request-triage', clock: { intervalMin: 360 }, dailyTokenBudget: 20_000, enabled: true },
 ];
 
 /** スキーマ検証(純関数)。不正な定義は理由の一覧を返す */

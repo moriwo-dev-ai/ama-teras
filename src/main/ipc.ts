@@ -814,7 +814,8 @@ export async function registerIpcHandlers(
     // M35-4: Bluesky実行系の資格情報(secretsのblueskyスロット。無ければ提案のみ)
     getBlueskySecret: () => secrets.get('bluesky'),
     // M38-2: 承認された能力ギャップ(evolve)を進化ジョブへ。昇格は従来どおり承認制
-    enqueueEvolution: (description, expectedIO) => service.evolutionEnqueue(description, expectedIO).then((r) => r.jobId),
+    enqueueEvolution: (description, expectedIO, scope) =>
+      service.evolutionEnqueue(description, expectedIO, scope).then((r) => r.jobId),
     // M52: 起票した進化ジョブがどうなったかを神議に見せる(見せないと失敗を「承認待ち」と誤認する)
     evolutionJobs: () => service.evolutionList(),
     // M42-6(TUKU-yomi): PC窓観測の神。月読ONかつ pcObserver ON の時だけ生える
