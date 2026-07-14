@@ -984,6 +984,9 @@ export class AgentService {
    * レジストリ未設定・ネット不達・マッチなしは 'none'(静かに生成へフォールバック)。
    * 自律モード中は承諾カードを見る人間がいないため検索をスキップする(安全側)
    */
+  /** M89: 人間が「要らない」と断った候補(アプリが動いている間は覚えている) */
+  private readonly declinedPlugins = new Set<string>();
+
   private async searchRegistryAndImport(
     description: string,
     expectedIO: string,
@@ -1005,7 +1008,12 @@ export class AgentService {
     const fetchFn = this.deps.fetchFn ?? fetch;
     const entries = await fetchRegistryIndex(registryUrl, fetchFn);
     if (entries === null || entries.length === 0) return { outcome: 'none' };
-    const matches = matchRegistryEntries(entries, `${description} ${expectedIO}`);
+    // M89: **一度断った候補を、同じ会話でまた勧めない**。実機で text_stats を却下したのに、
+    // 次の依頼(「text_stats は不適合」と書いた依頼)でまた1位に来て、今度は導入まで通った。
+    // 人間が「要らない」と言ったものは、こちらが忘れてはいけない
+    const matches = matchRegistryEntries(entries, `${description} ${expectedIO}`).filter(
+      (m) => !this.declinedPlugins.has(m.entry.name),
+    );
     const best = matches[0]?.entry;
     if (best === undefined) return { outcome: 'none' };
 
@@ -1030,7 +1038,10 @@ export class AgentService {
     if (!autonomous) {
       // 対話モード: 従来どおり承諾カード → ダウンロード → インポート(昇格は人間承認)
       const decision = await this.broker.request(candidateCard([]), signal);
-      if (decision === 'deny') return { outcome: 'declined', name: best.name };
+      if (decision === 'deny') {
+        this.declinedPlugins.add(best.name); // M89: 断られたものは二度と勧めない
+        return { outcome: 'declined', name: best.name };
+      }
       return this.downloadAndStartImport(registryUrl, best, fetchFn, origin);
     }
 
@@ -1069,7 +1080,10 @@ export class AgentService {
       candidateCard([reason, `${Math.round(timeoutMs / 60_000)}分以内に応答がなければ辞退して新規生成に進みます`]),
       AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
     );
-    if (decision === 'deny') return { outcome: 'declined', name: best.name };
+    if (decision === 'deny') {
+        this.declinedPlugins.add(best.name); // M89: 断られたものは二度と勧めない
+        return { outcome: 'declined', name: best.name };
+      }
     // 個別承認あり → 通常インポート(仮導入ではない=昇格は従来どおり人間承認)
     const started = await this.pluginImportStart(dl.dir, 'コミュニティレジストリ');
     if (!started.ok) {
@@ -1791,6 +1805,7 @@ export class AgentService {
               ...ctx,
               evolution: this.evolutionContext(conv),
               ...this.evolutionDisabledCtx(),
+              packaged: this.deps.packaged === true, // M89: 配布版には進化ジョブが無いことをツールに伝える
               processes: run.processes,
               userMemoryDir: this.deps.denyPaths.userDataDir,
               ...this.screenshotContext(),
@@ -2299,6 +2314,7 @@ export class AgentService {
         log: () => {},
         evolution: this.evolutionContext(),
         ...this.evolutionDisabledCtx(),
+        packaged: this.deps.packaged === true, // M89: 配布版には進化ジョブが無いことをツールに伝える
         processes: this.processes,
         userMemoryDir: this.deps.denyPaths.userDataDir,
         ...this.screenshotContext(),

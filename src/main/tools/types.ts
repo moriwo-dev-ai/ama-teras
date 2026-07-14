@@ -51,6 +51,12 @@ export interface ToolContext {
    */
   evolutionDisabled?: string;
   /**
+   * M89: 配布版か。配布版には**進化ジョブという概念自体が無い**(生成は無効、導入はその場で
+   * 完結する)。これを伝えないと、evolution_jobs の「ジョブはありません」を見たエージェントが
+   * 「申請が消えた/自分の呼び方が悪い」と誤診して迷走する(実機でそうなった)
+   */
+  packaged?: boolean;
+  /**
    * 自己進化への入口。request_capability プラグインだけが使う。
    * (プラグインは evolution モジュールを import できないため、コンテキスト経由で注入する)
    */

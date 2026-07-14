@@ -171,6 +171,45 @@ export function matchGodEntries(
   }));
 }
 
+/**
+ * M89: **「text_stats は不適合」と書くほど text_stats が選ばれていた**。
+ *
+ * 名前が依頼文に出てくると +5 の強いボーナスを付けていたが、**否定の文脈を見ていなかった**。
+ * xlsx作成を頼むのに「text_stats はテキスト統計ツールなので不適合」と書けば書くほど、
+ * text_stats が1位になる。却下しても、次の依頼文にまた名前を書くのでまた1位に戻ってくる。
+ * 名前の言及は「欲しい」とは限らない。**「要らない」と言うためにも名前は出る**。
+ */
+const NEGATION_RE =
+  /(不適合|不要|関係(が)?な|無関係|ではなく|ではない|じゃない|使わない|避け|以外|代わり|違う|ダメ|だめ|not |no |exclude|unrelated|instead of|rather than|except)/;
+
+/** 依頼文の中で、その名前が否定的に語られているか(前後の窓だけを見る) */
+export function mentionedNegatively(query: string, key: string): boolean {
+  const q = query.toLowerCase();
+  const k = key.toLowerCase();
+  let from = 0;
+  for (;;) {
+    const at = q.indexOf(k, from);
+    if (at < 0) return false;
+    const window = q.slice(Math.max(0, at - 24), Math.min(q.length, at + k.length + 24)); // 近傍だけ
+    if (NEGATION_RE.test(window)) return true; // 1箇所でも否定なら、望まれていないとみなす
+    from = at + k.length;
+  }
+}
+
+/**
+ * M89: しきい値も無かった(score > 0 = バイグラムが1個かすっただけで候補になる)。
+ * ただし単純にスコアを上げると、**本物の一致まで落ちる**(「文字数を数えたい」→ word_count は
+ * 日本語のバイグラムしか手掛かりが無い)。点の高さではなく**証拠の質**で決める:
+ * - 英数語(xlsx, excel など)が1つでも重なっていて、合計が足りている
+ * - あるいは日本語のバイグラムが十分な本数(4本以上)重なっている
+ * 「ツー」「ール」のような、どのツール説明にも出る断片が2〜3本かすっただけでは候補にしない
+ */
+const WORD_WEIGHT = 2;
+const BIGRAM_WEIGHT = 1;
+const NAME_BONUS = 5;
+const MIN_SCORE = 3;
+const MIN_BIGRAMS_ALONE = 4;
+
 function scoreByText<T>(
   entries: T[],
   query: string,
@@ -181,13 +220,27 @@ function scoreByText<T>(
   const q = query.toLowerCase();
   for (const entry of entries) {
     const { key, text } = pick(entry);
+    // 「要らない」と名指しされたものは、どれだけ言葉が重なっても候補にしない
+    // (否定文に出てくる語は、そのまま素性としても重なるため点が入ってしまう)
+    if (key !== '' && mentionedNegatively(query, key)) continue;
     let score = 0;
+    let words = 0;
+    let bigrams = 0;
     for (const f of new Set(features(text))) {
-      if (queryFeatures.has(f)) score += 1;
+      if (!queryFeatures.has(f)) continue;
+      if (/^[a-z0-9_]+$/.test(f)) {
+        words++;
+        score += WORD_WEIGHT;
+      } else {
+        bigrams++;
+        score += BIGRAM_WEIGHT;
+      }
     }
-    // 名前そのものが依頼文に出てくる場合は強いシグナル
-    if (key !== '' && q.includes(key.toLowerCase())) score += 5;
-    if (score > 0) scored.push({ entry, score });
+    // 名前そのものが(否定なしで)依頼文に出てくる場合は強いシグナル
+    const named = key !== '' && q.includes(key.toLowerCase());
+    if (named) score += NAME_BONUS;
+    const enough = named || (words >= 1 && score >= MIN_SCORE) || bigrams >= MIN_BIGRAMS_ALONE;
+    if (enough && score >= MIN_SCORE) scored.push({ entry, score });
   }
   return scored.sort((a, b) => b.score - a.score);
 }
