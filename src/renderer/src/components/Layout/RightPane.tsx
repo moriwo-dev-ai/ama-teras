@@ -11,6 +11,7 @@ import { useTsukuyomiStore } from '../../stores/tsukuyomi';
 import { usePreviewStore } from '../../stores/preview';
 import { useRightPaneStore, type RightPaneTab } from '../../stores/rightPane';
 import { useSubAgentStore } from '../../stores/subagents';
+import { isJobActive } from '../../../../shared/evolutionStatus';
 import { EnvWidget } from './EnvWidget';
 import { FilePreview } from './FilePreview';
 
@@ -19,15 +20,12 @@ import { FilePreview } from './FilePreview';
  * 進行中イベント(実行中サブエージェント・進行中進化ジョブ)はタブにバッジ表示。
  */
 
-const TERMINAL_JOB_STATUS = new Set(['promoted', 'failed', 'rejected', 'rolled_back']);
 
 export function RightPane(): JSX.Element {
   const { tab, setTab } = useRightPaneStore();
   const previewResult = usePreviewStore((s) => s.result);
   const runningAgents = useSubAgentStore((s) => s.agents.filter((a) => a.status === 'running').length);
-  const activeJobs = useEvolutionStore(
-    (s) => s.jobs.filter((j) => !TERMINAL_JOB_STATUS.has(j.status)).length,
-  );
+  const activeJobs = useEvolutionStore((s) => s.jobs.filter((j) => isJobActive(j.status)).length);
 
   // M32-1: 運営タブはオーナーモード(operations.enabled)の時だけ存在する
   const operationsEnabled = useOperationsStore((s) => s.enabled);

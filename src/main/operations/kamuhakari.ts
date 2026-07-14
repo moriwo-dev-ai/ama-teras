@@ -61,7 +61,7 @@ export interface PublishState {
    * M76: published:true にして push したのに Zenn 側が同期せず、**誰も読めないまま
    * 「投稿済み」と記録された**記事が実際に出た。出したつもりと、出ていることは別
    */
-  zennArticles: { slug: string; published: boolean; live?: boolean }[];
+  zennArticles: { slug: string; published: boolean; live?: boolean; title?: string }[];
   /** 一次情報を引けなかった理由(gh不在・パス未設定など)。引けていないことを隠さない */
   unavailable: string[];
 }
@@ -77,7 +77,9 @@ export function formatPublishState(state: PublishState | undefined): string {
     const status = !a.published
       ? '**published: false(誰も読めない)**'
       : a.live === false
-        ? '**published: true にしたが、Zennではまだ読めない(同期未完/失敗)。露出ゼロ**'
+        ? // M79: ここで止まっているものに「公開してください」と言っても無意味(すでに公開操作は済んでいる)。
+          // 詰まりを解くのは再デプロイ(人間が押す)であって、公開ボタンではない
+          '**published: true にしたが、Zennではまだ読めない(同期未完/失敗)。露出ゼロ。公開操作は済んでいるので「公開する」提案は無意味 — 必要なのは再デプロイ(人間の操作)**'
         : a.live === true
           ? '公開済み(Zennで実際に読める)'
           : '公開済み(published: true。Zenn側は未確認)';

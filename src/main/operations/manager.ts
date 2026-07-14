@@ -237,6 +237,23 @@ function outward(drafts: OperationsDraft[], status: 'posted' | 'staged'): Operat
   );
 }
 
+/**
+ * M79: 「公開待ち(まだ出していない)」と「公開したのにZennが同期していない」は別の問題。
+ * 後者を公開待ちとして神議に見せると、**押しても何も起きない「公開する」カード**が出る
+ * (実際、Zennの投稿上限で止まっている記事に「公開ボタンを押して世に出してください」と
+ * 提案し続けた)。すでに published: true で push 済みの記事は、公開待ちの列から外す。
+ * その記事の本当の状態(露出ゼロ・再デプロイ待ち)は publishState が一次情報として語る
+ */
+export function notYetCommitted(staged: OperationsDraft[], state: PublishState): OperationsDraft[] {
+  const committed = state.zennArticles.filter((a) => a.published);
+  return staged.filter(
+    (d) =>
+      !committed.some(
+        (a) => (a.title !== undefined && a.title !== '' && d.title.includes(a.title)) || d.title.includes(a.slug),
+      ),
+  );
+}
+
 function dropUnreleased<T extends { title: string; body: string }>(drafts: T[]): T[] {
   return drafts.filter((d) => !mentionsUnreleased(`${d.title}\n${d.body}`));
 }
@@ -868,7 +885,10 @@ export class OperationsManager {
       // M57: 「準備できたが未公開」を分けて渡す。混ぜていたせいで、神議は誰にも読まれていない
       // Zenn記事(published:false)を「投下した発信」として数え、反応が無いことを
       // 「物量>質」のせいだと誤診していた。公開待ちは**露出ゼロ**であって、失敗した発信ではない
-      stagedDrafts: outward(this.drafts.list(), 'staged'),
+      // M79: ただし「公開待ち」と「公開したのにZennが同期していない」は別物。
+      // 混ぜていたせいで、神議は上限で止まっている記事に「公開ボタンを押してください」という
+      // **押しても何も起きないカード**を出し続けた。同期待ちは publishState 側だけで語らせる
+      stagedDrafts: notYetCommitted(outward(this.drafts.list(), 'staged'), publishState),
       jobs: this.scheduler.list(),
       currentKeywords: params.keywords,
       project: this.project(),
@@ -1927,7 +1947,11 @@ ${d.body}`))
         for (const file of readdirSync(articlesDir)) {
           if (!file.endsWith('.md')) continue;
           const md = readFileSync(join(articlesDir, file), 'utf8');
-          state.zennArticles.push({ slug: file.replace(/\.md$/, ''), published: /\npublished:\s*true\s*(\r?\n|$)/.test(md) });
+          state.zennArticles.push({
+            slug: file.replace(/\.md$/, ''),
+            published: /\npublished:\s*true\s*(\r?\n|$)/.test(md),
+            title: /^title:\s*"?(.+?)"?\s*$/m.exec(md)?.[1] ?? '',
+          });
         }
       } catch (e) {
         state.unavailable.push(`zenn-content の記事を読めない: ${e instanceof Error ? e.message : String(e)}`);
