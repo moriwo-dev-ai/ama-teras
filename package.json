@@ -20,6 +20,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.57.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@types/node": "^24.0.0",
     "esbuild": "^0.25.0",
     "openai": "^5.8.0",
     "qrcode": "^1.5.4",
@@ -27,11 +28,11 @@
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "typescript": "^5.8.3",
     "zustand": "^5.0.6"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.11",
-    "@types/node": "^24.0.0",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.6.0",
@@ -39,7 +40,6 @@
     "electron-builder": "^26.15.3",
     "electron-vite": "^4.0.0",
     "tailwindcss": "^4.1.11",
-    "typescript": "^5.8.3",
     "vite": "^7.0.0",
     "vitest": "^3.2.4"
   }

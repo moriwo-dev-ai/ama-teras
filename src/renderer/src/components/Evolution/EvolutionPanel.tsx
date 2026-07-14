@@ -127,12 +127,14 @@ export function EvolutionPanel(): JSX.Element {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 border-t border-zinc-700 bg-zinc-950 p-3 text-sm">
-      {/* M28-2: 配布版では進化パイプライン(ソース+git前提)が動かないため明示 */}
+      {/* M91: 配布版でも「ツール」は作れる(プラグイン単位で本物の検証を回す)。
+          作れないのは本体(core/renderer)だけ — それは全員が同じコアを使うための設計 */}
       {packaged && (
-        <div className="rounded border border-amber-700 bg-amber-950/60 p-2 text-xs text-amber-200">
-          ℹ 配布版ではコア自己進化(新ツールの生成・インポート)は動作しません
-          (ソースコードとgitリポジトリが必要)。プラグインはコミュニティレジストリから
-          導入できるようになる予定です(準備中)。開発版(git clone → npm start)では利用できます
+        <div className="rounded border border-sky-800 bg-sky-950/60 p-2 text-xs text-sky-200">
+          ℹ 配布版では <b>ツール(プラグイン)の生成・導入</b> ができます(型検査・テスト実行・
+          スモークを実際に回してから、全文確認と承認を経て導入)。
+          <b>本体(core/renderer)の書き換えは開発版のみ</b>です — 全員が同じコア/UIを使う設計のため。
+          本体への要望は「要望を送る」からIssueとして提出できます
         </div>
       )}
       {/* M29-3: 狭幅では折り返す(flex-wrap)。ボタン文字の縦書き化・横スクロールを防ぐ */}
@@ -157,13 +159,18 @@ export function EvolutionPanel(): JSX.Element {
           onChange={(e) => setScope(e.target.value as EvolutionScope)}
         >
           <option value="tool">tool</option>
-          <option value="renderer">renderer</option>
-          <option value="core">core</option>
+          {/* M91: 配布版で本体スコープは選べない(コアは全員同じ。要望としてIssueへ) */}
+          <option value="renderer" disabled={packaged}>
+            renderer
+          </option>
+          <option value="core" disabled={packaged}>
+            core
+          </option>
         </select>
         <button
           className="shrink-0 whitespace-nowrap rounded bg-purple-700 px-3 py-1 text-xs hover:bg-purple-600 disabled:opacity-40"
-          disabled={!desc.trim() || packaged}
-          title={packaged ? '配布版では進化機能は動作しません' : ''}
+          disabled={!desc.trim() || (packaged && scope !== 'tool')}
+          title={packaged && scope !== 'tool' ? '配布版では本体(core/renderer)の書き換えはできません' : ''}
           onClick={() => {
             void window.api.evolutionEnqueue(desc, io || '(指定なし)', scope);
             setDesc('');
@@ -175,12 +182,8 @@ export function EvolutionPanel(): JSX.Element {
         {/* M27-4: 共有プラグインのインポート(検査→検証ゲート→承認→導入) */}
         <button
           className="shrink-0 whitespace-nowrap rounded bg-emerald-800 px-3 py-1 text-xs hover:bg-emerald-700 disabled:opacity-40"
-          disabled={importing || packaged}
-          title={
-            packaged
-              ? '配布版ではインポート(検証ゲートがソース+git前提)は動作しません'
-              : 'コミュニティ/エクスポート済みプラグインのフォルダを選んで導入する(検証ゲートと承認を必ず通る)'
-          }
+          disabled={importing}
+          title="コミュニティ/エクスポート済みプラグインのフォルダを選んで導入する(検査と承認を必ず通る)"
           onClick={() => {
             setImporting(true);
             setImportMsg('');

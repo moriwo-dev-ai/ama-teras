@@ -14,6 +14,13 @@ extraResources:
     filter:
       - '**/*.ts'
       - '!**/*.test.ts'
+  # M91: プラグイン単位の型検査ゲート(tools/verify.ts)が読む ToolPlugin の型。
+  # プラグインの `../types` → その先の `../../shared/types` が解決できるよう、
+  # リポジトリと同じ相対配置(main/tools/types.ts, shared/types.ts)で置く
+  - from: src/main/tools/types.ts
+    to: plugin-api/main/tools/types.ts
+  - from: src/shared/types.ts
+    to: plugin-api/shared/types.ts
 # esbuild はネイティブバイナリを持つため asar から展開しないと実行できない
 asarUnpack:
   - node_modules/esbuild/**

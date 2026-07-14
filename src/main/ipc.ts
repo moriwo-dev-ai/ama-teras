@@ -26,7 +26,8 @@ import { AgentService } from './core/service';
 import { UsageMeter } from './core/usage';
 import { SessionStore } from './core/sessions';
 import { readProjectMemory, readProjectPlan, readUserMemory, writeProjectMemory, writeUserMemory } from './memory';
-import { AgentJobRunner } from './evolution/job';
+import { AgentJobRunner, LocalToolJobRunner } from './evolution/job';
+import { LocalToolEvolution } from './evolution/local';
 import { EvolutionManager } from './evolution/manager';
 import { listEvolvedCapabilities, listEvolveTags, rollbackLastEvolve } from './evolution/promote';
 import { readAndClearPendingQueue, writePendingQueue } from './evolution/pendingQueue';
@@ -230,6 +231,21 @@ export function getPluginCacheDir(): string {
 }
 
 /**
+ * M91: プラグインAPIの型のルート(この下に main/tools/types.ts と shared/types.ts)。
+ * プラグイン単位の型検査ゲート(tools/verify.ts)が、`../types` とその先の
+ * `../../shared/types` を解決するために要る。配布版は extraResources から
+ */
+export function getPluginApiTypesRoot(): string {
+  if (app.isPackaged) return join(process.resourcesPath, 'plugin-api');
+  return join(app.getAppPath(), 'src');
+}
+
+/** 型検査ゲートが使う @types のルート(配布版では asar 内。Electron の fs は asar を透過的に読む) */
+export function getTypeRootsDir(): string {
+  return join(app.getAppPath(), 'node_modules', '@types');
+}
+
+/**
  * M71: 導入したプラグインの置き場。同梱先(resources/plugins)は配布版では
  * Program Files 配下=書き込めない。**導入したツールを置ける場所がどこにも無かった**ため、
  * 配布版のレジストリ導入は構造的に成立していなかった
@@ -380,22 +396,33 @@ export async function registerIpcHandlers(
     // M14-2: URLスクリーンショット(offscreen BrowserWindow)。進化ジョブへは渡らない
     captureUrl,
     createEvolution: (hooks) => {
-      // M28-2: 配布版は進化パイプラインの前提(ソースツリー+.git+devDependencies)が
-      // 存在しない。git不在の生エラーで汚く落ちる前に、理由つきで明示的に無効化する
+      // M91: 配布版は git・ソースツリー・devDeps を持たないが、**ツールは作れる**。
+      // プラグインはコアから切り離された葉っぱなので、検証もプラグイン単位に閉じられる
+      // (型検査・テスト実行・スモーク・静的検査 — tools/verify.ts)。
+      // git worktree もマージもタグも使わず、userData/plugins へ配置してホットリロードする。
+      // ※ M28-2 の「配布版では生成できません」は、この経路の欠落を説明していただけだった
       if (app.isPackaged) {
-        return {
-          list: () => [],
-          enqueue: async () => {
-            throw new Error(
-              '配布版では新しいツールの**生成**(コードを書き起こす自己進化)は動作しません' +
-                '(ソースコードとgitリポジトリが必要です)。' +
-                'ただし、既存プラグインの**導入**は可能です: 設定→ツール→「プラグインを読み込む」' +
-                '(またはコミュニティレジストリ)から入れられます。検査と全文確認・承認を経て' +
-                'すぐ使えるようになります。ツールを新規に生成したい場合は開発版' +
-                '(git clone → npm install → npm start)をご利用ください',
-            );
-          },
-        };
+        const local = new LocalToolEvolution({
+          workDir: join(app.getPath('userData'), 'plugin-gen'),
+          userPluginsDir: getUserPluginsDir(),
+          typesRoot: getPluginApiTypesRoot(),
+          typeRoots: getTypeRootsDir(),
+          stateFile: join(app.getPath('userData'), 'evolution', 'jobs.json'),
+          runner: composeRunners(
+            new LocalToolJobRunner(
+              () => service.createProviderOrThrow(),
+              [getPluginsDir(), getUserPluginsDir()],
+              getPluginCacheDir(),
+            ),
+            new ImportJobRunner(),
+          ),
+          requestPromotionApproval: hooks.requestPromotionApproval,
+          reloadPlugins: () => registry.reload(),
+          existingToolNames: () => registry.list().map((t) => t.name),
+          onEvent: hooks.onEvent,
+        });
+        void local.restore();
+        return local;
       }
       // M20: セーフモード中は進化機能を無効化して起動する(承認機構と復旧経路は生きたまま)
       if (runtimeFlags.safeMode) {
