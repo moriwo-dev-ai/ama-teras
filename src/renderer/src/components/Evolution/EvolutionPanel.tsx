@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { EvolutionJobStatus, EvolutionScope, ProvisionalInstall } from '../../../../shared/types';
 import { useEvolutionStore } from '../../stores/evolution';
 import { PublishPluginDialog, usePublishPlugin } from '../Registry/PublishPlugin';
+import { RequestsSection } from '../Registry/RequestsSection';
 
 const STATUS_LABEL: Record<EvolutionJobStatus, { text: string; cls: string }> = {
   queued: { text: '待機中', cls: 'text-zinc-400' },
@@ -274,6 +275,9 @@ export function EvolutionPanel(): JSX.Element {
           onCancel={publish.close}
         />
       )}
+
+      {/* M91-3: 本体(コア/UI)への要望 — ツールでは越えられない話の出口 */}
+      <RequestsSection />
 
       {/* M29-5: 仮導入の棚卸し(未応答分。自律実行終了時のカードと同じ操作) */}
       {provisional.length > 0 && (

@@ -179,6 +179,11 @@ export interface AgentServiceDeps {
   denyPaths: { userDataDir: string; repoGitDir: string };
   /** EvolutionManager の生成。electron 依存の部分(repoDir 等)は呼び出し側が握る */
   createEvolution: (hooks: EvolutionHooks) => EvolutionLike;
+  /**
+   * M91-3: 本体(コア/UI)への要望の下書き起票(request_core_change ツール用)。
+   * ここでは送信しない。溜まった下書きを人間が読み、承認したものだけがIssueになる
+   */
+  requests?: { draft(kind: 'core' | 'ui', title: string, body: string): Promise<{ id: string }> };
   /** テスト用: プロバイダ生成の差し替え(未指定なら config/secrets から実プロバイダを作る) */
   providerFactory?: () => LLMProvider | string;
   /**
@@ -1806,6 +1811,8 @@ export class AgentService {
               evolution: this.evolutionContext(conv),
               ...this.evolutionDisabledCtx(),
               packaged: this.deps.packaged === true, // M89: 配布版には進化ジョブが無いことをツールに伝える
+              // M91-3: コア/UIの制約に当たったとき、要望の下書きを起票できる(送信は人間の承認)
+              ...(this.deps.requests !== undefined ? { requests: this.deps.requests } : {}),
               processes: run.processes,
               userMemoryDir: this.deps.denyPaths.userDataDir,
               ...this.screenshotContext(),
@@ -2315,6 +2322,7 @@ export class AgentService {
         evolution: this.evolutionContext(),
         ...this.evolutionDisabledCtx(),
         packaged: this.deps.packaged === true, // M89: 配布版には進化ジョブが無いことをツールに伝える
+        ...(this.deps.requests !== undefined ? { requests: this.deps.requests } : {}),
         processes: this.processes,
         userMemoryDir: this.deps.denyPaths.userDataDir,
         ...this.screenshotContext(),

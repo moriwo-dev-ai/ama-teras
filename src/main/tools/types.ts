@@ -57,6 +57,14 @@ export interface ToolContext {
    */
   packaged?: boolean;
   /**
+   * M91-3: 本体(コア/UI)への要望の下書き。request_core_change プラグインだけが使う。
+   * **ここでは送信しない**(下書きが溜まるだけ)。送信は人間が全文を読んで承認したときだけ。
+   * ツールで解決できることは要望にしない — それは自分の機体で作れる
+   */
+  requests?: {
+    draft(kind: 'core' | 'ui', title: string, body: string): Promise<{ id: string }>;
+  };
+  /**
    * 自己進化への入口。request_capability プラグインだけが使う。
    * (プラグインは evolution モジュールを import できないため、コンテキスト経由で注入する)
    */

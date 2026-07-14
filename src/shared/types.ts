@@ -274,6 +274,11 @@ export interface AppConfig {
    */
   registryAuthor?: string;
   /**
+   * M91-3: 本体(コア/UI)への要望の宛先リポジトリ。既定=公式(ama-teras)。
+   * 空文字=要望の提出を無効化。フォーク運用の人は自分のリポジトリへ向けられる
+   */
+  requestsRepoUrl?: string;
+  /**
    * M42-1: 本体の更新確認(GitHub Releases API)。既定=公式リリース。空文字=無効。
    * **通知だけ**を行う(自動ダウンロード・自動インストールはしない)
    */
@@ -939,6 +944,43 @@ export interface PluginUploadResult {
   ok: boolean;
   message: string;
   /** 提出したPRのURL(成功時) */
+  url?: string;
+}
+
+// ---- M91-3: 本体(コア/UI)への要望 ----
+
+/** ツールでは解決できない=コア/UIを直さないと届かない話だけがここに来る */
+export type CoreRequestKind = 'core' | 'ui';
+/** human=人が書いた / agent=AMA-teras が制約に当たって書いた */
+export type CoreRequestSource = 'human' | 'agent';
+export type CoreRequestStatus = 'draft' | 'sent' | 'discarded';
+
+export interface CoreRequest {
+  id: string;
+  kind: CoreRequestKind;
+  title: string;
+  body: string;
+  source: CoreRequestSource;
+  status: CoreRequestStatus;
+  createdAt: string;
+  /** 送信後のIssue URL */
+  url?: string;
+}
+
+/** 送信の下見(送信しない)。重複候補と機械チェックを添えて人間に見せる */
+export interface CoreRequestPlanResult {
+  ok: boolean;
+  message: string;
+  /** 送信する全文(タイトル+本文+ラベル+宛先) */
+  preview?: string;
+  leaks?: string[];
+  /** 既に似た要望が出ていないか(重複提出を防ぐ) */
+  similar?: { title: string; url: string; number: number }[];
+}
+
+export interface CoreRequestSubmitResult {
+  ok: boolean;
+  message: string;
   url?: string;
 }
 

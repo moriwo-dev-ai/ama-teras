@@ -31,6 +31,10 @@ import type {
   McpServerStatus,
   PluginErrorInfo,
   ConnectionTestResult,
+  CoreRequest,
+  CoreRequestKind,
+  CoreRequestPlanResult,
+  CoreRequestSubmitResult,
   PluginExportResult,
   PluginImportStartResult,
   PluginUploadPlanResult,
@@ -92,6 +96,12 @@ export const IpcChannels = {
   /** M91-2: レジストリへの公開。plan=下見(全文と機械チェック。送信しない)/ upload=承認後の送信 */
   pluginsUploadPlan: 'plugins:upload-plan',
   pluginsUpload: 'plugins:upload',
+  /** M91-3: 本体(コア/UI)への要望。下書き→下見(重複・機械チェック)→全文承認→Issue提出 */
+  requestsList: 'requests:list',
+  requestsCreate: 'requests:create',
+  requestsPlan: 'requests:plan',
+  requestsSubmit: 'requests:submit',
+  requestsDiscard: 'requests:discard',
   /** M26-7: 表示中の会話の workspace を明示的に移動する */
   conversationMoveWorkspace: 'conversation:move-workspace',
   /** M11-3: 自動チェックポイント(Debugパネル) */
@@ -288,6 +298,15 @@ export interface AmaterasApi {
     approvedPreview: string,
     draft: boolean,
   ): Promise<PluginUploadResult>;
+
+  /** M91-3: 本体(コア/UI)への要望。下書きの一覧・作成・下見・送信・破棄 */
+  requestsList(): Promise<CoreRequest[]>;
+  requestsCreate(kind: CoreRequestKind, title: string, body: string): Promise<CoreRequest>;
+  /** 下見(送信しない)。全文・重複候補・機械チェック結果 */
+  requestsPlan(id: string): Promise<CoreRequestPlanResult>;
+  /** 承認済みの全文を添えて送信(下見と食い違えば送らない) */
+  requestsSubmit(id: string, approvedPreview: string): Promise<CoreRequestSubmitResult>;
+  requestsDiscard(id: string): Promise<{ ok: boolean }>;
   /** M26-7: 表示中の会話の workspace を移動(実行中は不可)。以降のツール実行が移動先を参照 */
   conversationMoveWorkspace(newWorkspace: string): Promise<{ ok: boolean; message: string }>;
 

@@ -137,6 +137,13 @@ export const DEFAULT_REGISTRY_URL = 'https://raw.githubusercontent.com/moriwo-de
 export const DEFAULT_UPDATE_CHECK_URL = 'https://api.github.com/repos/moriwo-dev-ai/ama-teras/releases/latest';
 
 /**
+ * M91-3: 本体(コア/UI)への要望の宛先。ツールは自分の機体で作れるが、コア/UIは作れない
+ * (全員が同じコアを使う設計)。行き止まりに当たったことを届ける先がこのリポジトリ。
+ * 送信は必ず人間の全文承認を通る。空文字にすると要望の提出を無効化できる
+ */
+export const DEFAULT_REQUESTS_REPO_URL = 'https://github.com/moriwo-dev-ai/ama-teras';
+
+/**
  * 無料枠APIの学習利用に関する注意文(プリセット共通)。
  * 提供元・プランにより扱いが異なるため断定せず、機密は有料APIへ誘導する
  */

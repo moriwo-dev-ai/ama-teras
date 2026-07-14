@@ -50,6 +50,15 @@ import {
   type UploadPlan,
 } from './registry/upload';
 import { systemFetch } from './providers/systemFetch';
+import { repoFromRegistryUrl, type RepoRef } from './registry/github';
+import { RequestStore } from './requests/store';
+import {
+  buildRequestIssue,
+  findSimilarIssues,
+  requestPreviewText,
+  submitRequest,
+} from './requests/submit';
+import { DEFAULT_REQUESTS_REPO_URL } from '../shared/models';
 import { fetchRevocationList } from './registry/killswitch';
 import { exportPlugin } from './registry/packager';
 import { generateToken, RemoteAuth } from './remote/auth';
@@ -346,6 +355,8 @@ export async function registerIpcHandlers(
       }
     });
   }
+  // M91-3: 本体(コア/UI)への要望の下書き置き場。送信は必ず人間の全文承認を通る
+  const requests = new RequestStore(join(app.getPath('userData'), 'requests.json'));
   // M23-2: 使用量メーター(userData/usage.json)
   const usageMeter = new UsageMeter(join(app.getPath('userData'), 'usage.json'));
   const bus = new EventBus();
@@ -404,6 +415,19 @@ export async function registerIpcHandlers(
     },
     // M14-2: URLスクリーンショット(offscreen BrowserWindow)。進化ジョブへは渡らない
     captureUrl,
+    // M91-3: AMA-teras 自身がコア/UIの制約に当たったときの要望起票(送信はしない)
+    requests: {
+      draft: async (kind, title, body) => {
+        const req = await requests.create({
+          kind,
+          title,
+          body,
+          source: 'agent',
+          createdAt: new Date().toISOString(),
+        });
+        return { id: req.id };
+      },
+    },
     createEvolution: (hooks) => {
       // M91: 配布版は git・ソースツリー・devDeps を持たないが、**ツールは作れる**。
       // プラグインはコアから切り離された葉っぱなので、検証もプラグイン単位に閉じられる
@@ -1191,6 +1215,92 @@ export async function registerIpcHandlers(
       }
     },
   );
+
+  // ---- M91-3: 本体(コア/UI)への要望 ----
+  // ツールは自分の機体で作れる。コア/UIは作れない(全員が同じコアを使う設計)。
+  // 行き止まりに当たったことを開発リポジトリへ届ける口。人間が書いた要望も、
+  // AMA-teras が書いた要望も、**同じ門(全文承認)**を通る
+  const requestsRepo = (): RepoRef | null => {
+    const url = config.get().requestsRepoUrl ?? DEFAULT_REQUESTS_REPO_URL;
+    return url === '' ? null : repoFromRegistryUrl(url);
+  };
+
+  ipcMain.handle(IpcChannels.requestsList, () => requests.list());
+
+  ipcMain.handle(IpcChannels.requestsCreate, async (_e, kind: unknown, title: unknown, body: unknown) => {
+    if (kind !== 'core' && kind !== 'ui') throw new Error('IPC payload kind が不正');
+    assertString(title, 'title');
+    assertString(body, 'body');
+    if (title.trim() === '') throw new Error('タイトルが空');
+    return await requests.create({
+      kind,
+      title,
+      body,
+      source: 'human',
+      createdAt: new Date().toISOString(),
+    });
+  });
+
+  ipcMain.handle(IpcChannels.requestsPlan, async (_e, id: unknown) => {
+    assertString(id, 'id');
+    const req = await requests.get(id);
+    if (req === undefined) return { ok: false, message: '要望が見つからない' };
+    const repo = requestsRepo();
+    if (repo === null) return { ok: false, message: '要望の宛先が未設定(設定→要望の宛先)' };
+    const issue = buildRequestIssue(req, app.getVersion());
+    const token = secrets.get('github');
+    const similar =
+      token === null || token.trim() === ''
+        ? []
+        : await findSimilarIssues(token, repo, issue, systemFetch());
+    return {
+      ok: true,
+      message: `送信の下見(まだ送っていません)。宛先: ${repo.owner}/${repo.repo}`,
+      preview: requestPreviewText(issue, repo),
+      leaks: issue.leaks,
+      similar,
+    };
+  });
+
+  ipcMain.handle(IpcChannels.requestsSubmit, async (_e, id: unknown, approvedPreview: unknown) => {
+    assertString(id, 'id');
+    assertString(approvedPreview, 'approvedPreview');
+    const req = await requests.get(id);
+    if (req === undefined) return { ok: false, message: '要望が見つからない' };
+    if (req.status === 'sent') return { ok: false, message: 'この要望は既に送信済み', ...(req.url ? { url: req.url } : {}) };
+    const repo = requestsRepo();
+    if (repo === null) return { ok: false, message: '要望の宛先が未設定' };
+    const token = secrets.get('github');
+    if (token === null || token.trim() === '') {
+      return { ok: false, message: 'GitHubトークンが未設定です(設定→レジストリへの公開(GitHub))' };
+    }
+    const issue = buildRequestIssue(req, app.getVersion());
+    // 承認した全文と、これから送る全文が同一であること(下見のあとに書き換わる余地を塞ぐ)
+    if (requestPreviewText(issue, repo) !== approvedPreview) {
+      return { ok: false, message: '承認した内容と送信内容が一致しない(下見からやり直してください)' };
+    }
+    try {
+      const result = await submitRequest(token, repo, issue, systemFetch());
+      if (result.ok) {
+        await requests.update(id, { status: 'sent', ...(result.url !== undefined ? { url: result.url } : {}) });
+      }
+      audit.append({
+        tool: 'core-request',
+        scope: 'system',
+        paths: [],
+        event: 'result',
+        detail: `${req.kind}/${req.source}: ${result.message.slice(0, 160)}`,
+      });
+      return result;
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle(IpcChannels.requestsDiscard, async (_e, id: unknown) => {
+    assertString(id, 'id');
+    return { ok: await requests.remove(id) };
+  });
 
   // M26-7: 表示中の会話の workspace 移動(実行中は service 側で拒否)
   ipcMain.handle(IpcChannels.conversationMoveWorkspace, (_e, newWorkspace: unknown) => {
