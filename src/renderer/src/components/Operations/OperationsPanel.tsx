@@ -692,6 +692,72 @@ function ZennArticleAction({ draft, onUpdate }: { draft: OperationsDraft; onUpda
  * 「記事化」はコミットまでしかせず、そこから先は誰の手も届かないままだった
  * (記事2本が丸一日以上、露出ゼロで放置された)。GitHub Release と同じく岩戸ゲートを通す
  */
+/**
+ * M86: **公開ボタンが、公開すべき状態になった瞬間に消えていた**。
+ * 「🚀 下書きリリースを公開」は下書きカードの操作行(ReleaseAction)の中にあり、
+ * その操作行は status === 'draft' のときしか出さない。ところがリリースにした下書きは
+ * staged(=GitHubに下書きリリースができた)になるので、まさに公開が要る状態でボタンが消える。
+ * 下書きカードから切り離し、Zennの公開(M73)と同じく**独立したセクション**にする
+ */
+function ReleasePublishSection(): JSX.Element | null {
+  const repos = useOperationsStore((s) => s.repos);
+  const [pending, setPending] = useState<{ repo: string; tag: string; assets: string[] }[]>([]);
+  const [result, setResult] = useState<string | null>(null);
+  const [busy, setBusy] = useState('');
+  const [nonce, setNonce] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setNonce((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    let alive = true;
+    void Promise.all(
+      repos.map((repo) =>
+        window.api.operationsReleaseInfo(repo).then((r) =>
+          r.pendingDraft === null ? null : { repo, tag: r.pendingDraft.tag, assets: r.pendingDraft.assets },
+        ),
+      ),
+    ).then((rows) => {
+      if (alive) setPending(rows.filter((r): r is { repo: string; tag: string; assets: string[] } => r !== null));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [repos, nonce, busy]);
+
+  if (pending.length === 0) return null;
+  return (
+    <div className="space-y-1 rounded border border-emerald-900 bg-emerald-950/20 p-2">
+      <div className="text-[11px] font-semibold text-emerald-300">🚀 公開待ちのリリース — まだ誰も落とせない</div>
+      {pending.map((p) => (
+        <div key={`${p.repo}:${p.tag}`} className="flex items-center gap-2 text-[10px]">
+          <span className="min-w-0 flex-1 truncate text-zinc-300">
+            {p.repo} {p.tag}(添付{p.assets.length}件)
+          </span>
+          <button
+            className="shrink-0 rounded border border-emerald-800 px-2 py-0.5 text-emerald-300 hover:bg-emerald-950 disabled:opacity-40"
+            title="公開すると全利用者のアプリに更新バナーが出る(承認ダイアログで内容を確認できる)"
+            disabled={busy !== ''}
+            onClick={() => {
+              setBusy(p.tag);
+              setResult(null);
+              void window.api
+                .operationsReleasePublish(p.repo, p.tag)
+                .then((r) => setResult(r.detail))
+                .catch((e: unknown) => setResult(e instanceof Error ? e.message : String(e)))
+                .finally(() => setBusy(''));
+            }}
+          >
+            {busy === p.tag ? '承認待ち…' : '⛩ 公開する'}
+          </button>
+        </div>
+      ))}
+      {result !== null && <div className="text-[10px] text-zinc-400">{result}</div>}
+    </div>
+  );
+}
+
 function ZennPublishSection(): JSX.Element | null {
   const [articles, setArticles] = useState<{ slug: string; title: string; blocked: string | null }[]>([]);
   // M77: published:true にしたのにZennが同期していない記事(投稿数の上限などで止まる)
@@ -1163,6 +1229,7 @@ export function OperationsPanel(): JSX.Element {
           </div>
         )}
         {/* M73: 記事化(コミット)の先=公開。ここが無かったせいで記事が露出ゼロのまま埋もれた */}
+        <ReleasePublishSection />
         <ZennPublishSection />
 
         <details>
