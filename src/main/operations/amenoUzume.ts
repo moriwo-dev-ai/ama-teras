@@ -70,7 +70,7 @@ export class DraftStore {
   /** 投稿済み/破棄マーク+本文編集。投稿済みは postedAt を刻む(OMOI-kami突き合わせ用) */
   update(
     id: string,
-    patch: Partial<Pick<OperationsDraft, 'status' | 'body' | 'title' | 'media'>>,
+    patch: Partial<Pick<OperationsDraft, 'status' | 'body' | 'title' | 'media' | 'tag'>>,
   ): OperationsDraft | null {
     const all = this.list();
     const idx = all.findIndex((d) => d.id === id);

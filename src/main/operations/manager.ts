@@ -1840,7 +1840,7 @@ ${d.body}`))
 
   updateDraft(
     id: string,
-    patch: Partial<Pick<OperationsDraft, 'status' | 'body' | 'title' | 'media'>>,
+    patch: Partial<Pick<OperationsDraft, 'status' | 'body' | 'title' | 'media' | 'tag'>>,
   ): OperationsDraft | null {
     if (!this.ensureInitialized() || this.drafts === null) return null;
     return this.drafts.update(id, patch);
@@ -2012,6 +2012,7 @@ ${d.body}`))
     }
     // 台帳(こちらの申告)を、実際に読めるかどうかで上書きする
     this.reconcileZennLedger(state);
+    this.reconcileReleaseLedger(state);
     return state;
   }
 
@@ -2043,6 +2044,22 @@ ${d.body}`))
         // 「出したつもり」で posted になっているが世に出ていないものは、公開待ちへ戻す
         if (!live && d.status === 'posted') this.drafts.update(d.id, { status: 'staged' });
       }
+    }
+  }
+
+  /**
+   * M87: GitHubリリース側の台帳も、一次情報(gh)で書き直す。
+   * 実際に公開した(draft=false)のに、台帳は「公開待ち」のままだった — Zennで直したのと同じ病気が
+   * リリース側に残っていた。下書きが憶えているタグと、ghが返すリリースを突き合わせる
+   */
+  private reconcileReleaseLedger(state: PublishState): void {
+    if (this.drafts === null) return;
+    for (const d of this.drafts.list()) {
+      if (d.kind !== 'release-note' || d.status === 'discarded' || d.tag === undefined) continue;
+      const rel = state.releases.find((r) => r.tag === d.tag);
+      if (rel === undefined) continue; // ghが引けていない・消された → 憶測で倒さない
+      if (!rel.draft && isStaged(d.status)) this.drafts.update(d.id, { status: 'posted' });
+      if (rel.draft && d.status === 'posted') this.drafts.update(d.id, { status: 'staged' });
     }
   }
 
@@ -2105,7 +2122,7 @@ ${d.body}`))
       };
     }
 
-    return this.gate.requestExecute(
+    const result = await this.gate.requestExecute(
       'github',
       'release-publish',
       `${repo} のリリース ${tag} を公開する`,
@@ -2114,6 +2131,9 @@ ${d.body}`))
         `利用者はバナー → リリースノート → インストーラを上書きインストール、という流れになります。`,
       { repo, tag },
     );
+    // M87: 公開した瞬間に台帳を直す(次の神議まで「公開待ち」と嘘をつかせない)
+    if (result.ok) this.reconcileReleaseLedger(await this.publishState());
+    return result;
   }
 
   /**
@@ -2309,7 +2329,11 @@ ${d.body}`))
       { repo, tag: cleanTag, title: draft.title, body: draft.body },
     );
     // M45: 出せたら投稿済み(一括経路だけがやっていて、単発ボタンは残り続けていた)
-    if (result.ok) this.drafts.update(draftId, { status: draftStatusAfter('github'), media: mediaOf('github') });
+    // M87: どのリリースになったのか(tag)を憶えておく。憶えていなかったせいで、
+    // 公開されたあとも台帳は「公開待ち」のままだった(突き合わせる鍵が無い)
+    if (result.ok) {
+      this.drafts.update(draftId, { status: draftStatusAfter('github'), media: mediaOf('github'), tag: cleanTag });
+    }
     return result;
   }
 

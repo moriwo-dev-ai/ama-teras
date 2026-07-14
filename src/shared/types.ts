@@ -517,6 +517,13 @@ export interface OperationsDraft {
   postedAt?: string;
   /** 投稿先媒体(x / zenn / hatena / hn / reddit / bluesky 等) */
   media?: string;
+  /**
+   * M87: この下書きが実体になった先の識別子(GitHubリリースのタグ / Zennのslug)。
+   * これが無かったせいで、**公開済みのリリースなのに台帳は「公開待ち」のまま**だった
+   * (どの下書きがどのリリースなのか、突き合わせる手掛かりが無い)。
+   * 台帳の状態は、これを鍵にして一次情報(gh/Zenn)から書き直す
+   */
+  tag?: string;
 }
 
 /** AMENO-uzume: 仲間発見の候補カード */

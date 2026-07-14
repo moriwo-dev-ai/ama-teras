@@ -828,6 +828,7 @@ export async function registerIpcHandlers(
       ...(typeof p['body'] === 'string' ? { body: p['body'] } : {}),
       ...(typeof p['title'] === 'string' ? { title: p['title'] } : {}),
       ...(typeof p['media'] === 'string' ? { media: p['media'] } : {}),
+      ...(typeof p['tag'] === 'string' ? { tag: p['tag'] } : {}),
     });
   });
   // M46: 次のリリース版の候補(読み取りのみ。発行は岩戸ゲート経由)
