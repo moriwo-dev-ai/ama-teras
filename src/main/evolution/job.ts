@@ -153,7 +153,24 @@ const LOCAL_TOOL_JOB_SYSTEM_PROMPT = `あなたはAMA-terasの進化ジョブ。
 \`\`\`json {"toolName": "...", "smokeInput": {...}} \`\`\` のコードブロックで必ず出力する`;
 
 /**
- * M91: 配布版のツール生成で、生成エージェントに渡さない道具。
+ * M92-B1: 生成エージェントに見せてよい道具の allowlist(コードを書くのに要る最小限だけ)。
+ *
+ * 【なぜ denylist ではなく allowlist か】以前は「危ない名前を引く」denylist だったが、それは
+ * **今知っている悪者しか止められない**。将来、実行系の新ツール(例: run_shell)が生成・導入されると、
+ * 名前が違うので素通りし、また「実行できる道具がある→環境を調べよう→無限ループ」(M91-5)を再発する。
+ * allowlist なら **知らない新顔を既定で入れない** ので、将来分まで構造的に安全。
+ * 広げるときは人間が明示的に足す(思想の一貫性: 手足を増やすのは承認事項)。
+ */
+export const GENERATION_TOOL_ALLOWLIST = new Set([
+  'read_file',
+  'write_file',
+  'edit_file',
+  'list_dir',
+  'grep',
+]);
+
+/**
+ * M91: allowlist を将来広げても**必ず**外す道具(多層防御の内側)。
  * - bash 系: 検証はアプリが回す(この環境に npm は無い)。持たせると無限に環境調査を始める
  * - 進化・要望系: ジョブの中から別のジョブを起こさせない(入れ子の自己進化は誰も追えない)
  */
@@ -166,14 +183,30 @@ export const EXCLUDED_FROM_TOOL_GEN = new Set([
   'evolution_jobs',
 ]);
 
-/** 生成エージェントに見せる道具(除外リストを引いたもの)。ToolRegistry を構造的に満たす */
+/**
+ * M92-B1/B2: 生成文脈に見せてよいか。
+ * allowlist に居る(B1)∧ 明示除外に無い ∧ **exec 相当でない(B2 能力フィルタ)**。
+ * B2 は「名前が allowlist でも、任意コード実行相当(risk:'exec')なら入れない」= 既知の原因
+ * (=コマンドを実行できる道具)をクラスで塞ぐ。allowlist をすり抜ける将来の上書きにも効く。
+ */
+export function isAllowedForGeneration(t: { name: string; risk?: ToolPlugin['risk'] }): boolean {
+  if (!GENERATION_TOOL_ALLOWLIST.has(t.name)) return false;
+  if (EXCLUDED_FROM_TOOL_GEN.has(t.name)) return false;
+  if (t.risk === 'exec') return false;
+  return true;
+}
+
+/** 生成エージェントに見せる道具(allowlist+能力フィルタを通したもの)。ToolRegistry を構造的に満たす */
 export function toolsForGeneration(full: { list(): ToolPlugin[]; get(name: string): ToolPlugin | undefined }): {
   list(): ToolPlugin[];
   get(name: string): ToolPlugin | undefined;
 } {
   return {
-    list: () => full.list().filter((t) => !EXCLUDED_FROM_TOOL_GEN.has(t.name)),
-    get: (name: string) => (EXCLUDED_FROM_TOOL_GEN.has(name) ? undefined : full.get(name)),
+    list: () => full.list().filter(isAllowedForGeneration),
+    get: (name: string) => {
+      const t = full.get(name);
+      return t !== undefined && isAllowedForGeneration(t) ? t : undefined;
+    },
   };
 }
 
