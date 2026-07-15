@@ -138,8 +138,9 @@ describe('runAgentLoop', () => {
   });
 
   it('maxTurns 未設定の既定は30(M11-1 後方互換)', async () => {
+    // M92-B3: 毎ターン**異なる**引数にする(同一呼び出しだとループ検出で先に打ち切られる)
     const provider = mockProvider(
-      Array.from({ length: 31 }, (_, i) => toolUseResponse(`d${i}`, 'grep', {})),
+      Array.from({ length: 31 }, (_, i) => toolUseResponse(`d${i}`, 'grep', { n: i })),
     );
     const h = harness(provider, { content: 'x' });
     const status = await runAgentLoop(h.deps, 's1', [userMsg('go')], new AbortController().signal);
@@ -340,5 +341,42 @@ describe('runAgentLoop', () => {
     const h = harness(provider);
     const status = await runAgentLoop(h.deps, 's1', [userMsg('go')], new AbortController().signal);
     expect(status).toBe('error');
+  });
+});
+
+describe('M92-B3 ループ検出', () => {
+  it('同一ツール+同一引数を繰り返すと、実行を打ち切って停止する(bashループ再発防止)', async () => {
+    // 同じ grep {} を延々返すモデル(=進捗の無いループ)
+    const provider = mockProvider(Array.from({ length: 12 }, () => toolUseResponse('t', 'grep', {})));
+    const h = harness(provider, { content: 'same result' }, { loopGuard: { maxIdenticalCalls: 2, hardStopAfterBlocked: 2 } });
+    const status = await runAgentLoop(h.deps, 's1', [userMsg('go')], new AbortController().signal);
+    expect(status).toBe('error');
+    // 実行は上限(2回)で止まり、以降はブロック(実行しない)
+    expect(h.toolCalls).toHaveLength(2);
+    // 記録: ループ検出の info が出ている
+    expect(h.events.some((e) => e.kind === 'info' && e.message.includes('ループ検出'))).toBe(true);
+  });
+
+  it('引数が毎回違えば打ち切らない(正当な反復は止めない)', async () => {
+    // 同じ grep でも引数が違えば別の呼び出し=ループではない。maxTurns で普通に終わる
+    const provider = mockProvider(Array.from({ length: 6 }, (_, i) => toolUseResponse(`d${i}`, 'grep', { n: i })));
+    const h = harness(provider, { content: 'ok' }, { maxTurns: 5, loopGuard: { maxIdenticalCalls: 2, hardStopAfterBlocked: 2 } });
+    const status = await runAgentLoop(h.deps, 's1', [userMsg('go')], new AbortController().signal);
+    expect(status).toBe('max_turns_reached');
+    expect(h.toolCalls).toHaveLength(5);
+  });
+
+  it('キー順が違うだけの同一引数はループ扱い(安定シグネチャ)', async () => {
+    const provider = mockProvider([
+      toolUseResponse('a', 'grep', { x: 1, y: 2 }),
+      toolUseResponse('b', 'grep', { y: 2, x: 1 }),
+      toolUseResponse('c', 'grep', { x: 1, y: 2 }),
+      toolUseResponse('d', 'grep', { y: 2, x: 1 }),
+      toolUseResponse('e', 'grep', { x: 1, y: 2 }),
+    ]);
+    const h = harness(provider, { content: 'r' }, { loopGuard: { maxIdenticalCalls: 2, hardStopAfterBlocked: 2 } });
+    const status = await runAgentLoop(h.deps, 's1', [userMsg('go')], new AbortController().signal);
+    expect(status).toBe('error');
+    expect(h.toolCalls).toHaveLength(2); // キー順が違っても同一とみなし、2回で止まる
   });
 });
