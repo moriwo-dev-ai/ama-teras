@@ -319,6 +319,42 @@ function exemplarCandidates(plugins: ToolPlugin[]): ExemplarCandidate[] {
 }
 
 /**
+ * M92-実測: 最終応答から成果物メタJSON(toolName/smokeInput/summary)を取り出す。
+ *
+ * 以前は /```json([\s\S]*?)```/ でフェンスを非貪欲に切り出していたが、
+ * **メタJSONの値に ``` が入る**(例: markdown_to_html の smokeInput に markdown のコードフェンス)
+ * と、内側の ``` で切れて JSON が途中で終わり "Unterminated string in JSON" で生成全体が落ちた。
+ * フェンスに頼らず、```json の後の最初の `{` からブレース対応(文字列・エスケープを尊重)で
+ * オブジェクトを括り出す。内側の ``` や 文字列内の {} に一切影響されない。
+ */
+export function extractMetaJson(finalText: string): unknown {
+  const marker = '```json';
+  const markerAt = finalText.lastIndexOf(marker);
+  const from = markerAt >= 0 ? markerAt + marker.length : 0;
+  const start = finalText.indexOf('{', from);
+  if (start < 0) throw new Error('生成結果のメタデータ(JSONオブジェクト)が見つからない');
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < finalText.length; i++) {
+    const c = finalText[i]!;
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) return JSON.parse(finalText.slice(start, i + 1));
+    }
+  }
+  throw new Error('メタデータJSONが閉じていない(応答が途中で切れた可能性)');
+}
+
+/**
  * M91: 配布版(git・ソースツリー無し)のツール生成ランナー。
  * cwd は userData 配下のサンドボックス。子エージェントに見せるツール(read_file/write_file等)は
  * **アプリ自身のプラグイン**を使う(サンドボックスには何も無いので、そこから読んでも空になる)
@@ -415,9 +451,7 @@ export class LocalToolJobRunner implements EvolutionJobRunner {
       .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
       .map((b) => b.text)
       .join('\n');
-    const match = /```json\s*([\s\S]*?)```/.exec(finalText);
-    if (!match) throw new Error('生成結果のメタデータ(toolName/smokeInput)が見つからない');
-    const meta: unknown = JSON.parse(match[1]!);
+    const meta: unknown = extractMetaJson(finalText);
     if (typeof meta !== 'object' || meta === null) throw new Error('メタデータ形式が不正');
     const rec = meta as Record<string, unknown>;
     assertSafeToolName(rec['toolName']);
@@ -533,9 +567,7 @@ export class AgentJobRunner implements EvolutionJobRunner {
       .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
       .map((b) => b.text)
       .join('\n');
-    const match = /```json\s*([\s\S]*?)```/.exec(finalText);
-    if (!match) throw new Error('生成結果のメタデータ(toolName/summary)が見つからない');
-    const meta: unknown = JSON.parse(match[1]!);
+    const meta: unknown = extractMetaJson(finalText);
     if (typeof meta !== 'object' || meta === null) {
       throw new Error('メタデータ形式が不正');
     }

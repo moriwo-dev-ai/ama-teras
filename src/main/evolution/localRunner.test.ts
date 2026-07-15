@@ -9,6 +9,7 @@ import {
   chooseExemplarName,
   DEFAULT_EXEMPLARS,
   EXCLUDED_FROM_TOOL_GEN,
+  extractMetaJson,
   GENERATION_TOOL_ALLOWLIST,
   isAllowedForGeneration,
   toolsForGeneration,
@@ -129,5 +130,40 @@ describe('M92-A1 手本セクションの整形', () => {
   it('ソースが読めなければ空文字(手本無しでも止めない)', () => {
     expect(buildExemplarSection([dir], 'does_not_exist')).toBe('');
     expect(buildExemplarSection([dir], null)).toBe('');
+  });
+});
+
+/**
+ * M92-実測(job #28 で顕在化): メタJSONの値に ``` が入る(markdownツールの smokeInput 等)と、
+ * 旧 /```json([\s\S]*?)```/ が内側の ``` で切れて "Unterminated string in JSON" で生成が落ちた。
+ * extractMetaJson はフェンスに頼らずブレース対応で括るので、内側の ``` に影響されない。
+ */
+describe('extractMetaJson(```json 内に ``` があっても壊れない)', () => {
+  it('smokeInput の値に markdown コードフェンス(```)が入っても正しく括る', () => {
+    const finalText =
+      '実装しました。\n\n```json\n' +
+      JSON.stringify({
+        toolName: 'markdown_to_html',
+        smokeInput: { markdown: '# Hi\n```\ncode\n```\ndone' },
+      }) +
+      '\n```\n以上です。';
+    const meta = extractMetaJson(finalText) as { toolName: string; smokeInput: { markdown: string } };
+    expect(meta.toolName).toBe('markdown_to_html');
+    expect(meta.smokeInput.markdown).toContain('```');
+  });
+
+  it('文字列内の {} や " に惑わされずオブジェクトを閉じる', () => {
+    const finalText = '```json\n{"toolName":"x","note":"a { b } \\" c"}\n```';
+    const meta = extractMetaJson(finalText) as { toolName: string; note: string };
+    expect(meta.toolName).toBe('x');
+    expect(meta.note).toBe('a { b } " c');
+  });
+
+  it('フェンスが無くても最初の {..} を拾う', () => {
+    expect(extractMetaJson('メタ: {"toolName":"y"} です')).toEqual({ toolName: 'y' });
+  });
+
+  it('JSONオブジェクトが無ければ投げる', () => {
+    expect(() => extractMetaJson('メタが見当たらない')).toThrow('見つからない');
   });
 });
