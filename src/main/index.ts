@@ -47,6 +47,18 @@ if (app.isPackaged && !process.env['ESBUILD_BINARY_PATH']) {
   );
 }
 
+// 開発・E2E用: 環境変数 AMATERAS_REMOTE_DEBUG=<port> でCDPリモートデバッグを有効化する。
+// 既定は無効(実運用の起動には一切付かない)。appendSwitch は whenReady より前に呼ぶ必要がある。
+// AMATERAS_USER_DATA / AMATERAS_SMOKE と同じ「開発者向け明示入口」の系譜。
+{
+  const cdpPort = process.env['AMATERAS_REMOTE_DEBUG'];
+  // スモーク/ブート検証の子プロセスは親のenvを継ぐため、ここで弾かないと同じポートを
+  // 二重にbindしにいく。スモーク配下ではCDPを付けない(検証ゲートと非干渉にする)。
+  if (cdpPort !== undefined && /^\d{2,5}$/.test(cdpPort) && process.env['AMATERAS_SMOKE'] !== '1') {
+    app.commandLine.appendSwitch('remote-debugging-port', cdpPort);
+  }
+}
+
 /**
  * スモークモード: ウィンドウを開かずツールを1回実行して終了する。
  * 進化の検証ゲートが `AMATERAS_SMOKE=1 electron . --tool <name> --input <sample.json>` で使う。
