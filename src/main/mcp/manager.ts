@@ -3,7 +3,13 @@ import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotoc
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { McpConfig, McpServerConfig, McpServerStatus, McpServerState } from '../../shared/types';
+import type {
+  McpConfig,
+  McpServerConfig,
+  McpServerStatus,
+  McpServerState,
+  McpProbeResult,
+} from '../../shared/types';
 import type { JsonSchema, ToolPlugin, ToolResult } from '../tools/types';
 
 /**
@@ -172,14 +178,7 @@ export class McpManager {
     this.states.set(name, { state: 'connecting', toolCount: 0 });
     try {
       const client = new Client({ name: 'amateras', version: '0.1.0' });
-      const transport =
-        this.deps.createTransport?.(name, sc) ??
-        new StdioClientTransport({
-          command: sc.command,
-          args: sc.args ?? [],
-          env: { ...getDefaultEnvironment(), ...(sc.env ?? {}) },
-          stderr: 'ignore',
-        });
+      const transport = this.makeTransport(name, sc);
       await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, '接続');
       const listed = await withTimeout(client.listTools(), CONNECT_TIMEOUT_MS, 'tools/list');
       const tools = (listed.tools as McpListedTool[]).map((t) => this.adaptTool(name, client, t));
@@ -227,6 +226,43 @@ export class McpManager {
         }
       },
     };
+  }
+
+  private makeTransport(name: string, sc: McpServerConfig): Transport {
+    return (
+      this.deps.createTransport?.(name, sc) ??
+      new StdioClientTransport({
+        command: sc.command,
+        args: sc.args ?? [],
+        env: { ...getDefaultEnvironment(), ...(sc.env ?? {}) },
+        stderr: 'ignore',
+      })
+    );
+  }
+
+  /**
+   * M93: 接続テスト。設定を残さず・信頼も昇格させず・registry も触らずに、
+   * 1回だけ繋いで tools/list を見て切る。セットアップ助手が「これで繋がるか」を
+   * 確かめるための dry-run(状態機械 this.states/this.clients には一切干渉しない)。
+   */
+  async probe(sc: McpServerConfig): Promise<McpProbeResult> {
+    const client = new Client({ name: 'amateras-probe', version: '0.1.0' });
+    try {
+      const transport = this.makeTransport('__probe__', sc);
+      await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, '接続');
+      const listed = await withTimeout(client.listTools(), CONNECT_TIMEOUT_MS, 'tools/list');
+      const toolNames = (listed.tools as McpListedTool[]).map((t) => t.name);
+      return { ok: true, toolCount: toolNames.length, toolNames };
+    } catch (err) {
+      return {
+        ok: false,
+        toolCount: 0,
+        toolNames: [],
+        error: err instanceof Error ? err.message : String(err),
+      };
+    } finally {
+      await client.close().catch(() => {});
+    }
   }
 
   private async disconnect(name: string): Promise<void> {

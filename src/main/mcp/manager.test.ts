@@ -263,3 +263,41 @@ describe('McpManager(M13-2)', () => {
     expect(manager2.getConfig()).toEqual({ servers: {} });
   });
 });
+
+describe('McpManager.probe(M93 接続テスト)', () => {
+  it('繋がればツール名を返し、状態機械にも registry にも触らない', async () => {
+    const server = mockMcpServer([{ name: 'a' }, { name: 'b' }]);
+    const registry = mockRegistry();
+    const manager = new McpManager({
+      registry,
+      configPath: await writeConfig({ servers: {} }),
+      createTransport: () => {
+        const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+        void server.connect(serverT);
+        return clientT;
+      },
+    });
+
+    const result = await manager.probe({ command: 'unused' });
+    expect(result.ok).toBe(true);
+    expect(result.toolCount).toBe(2);
+    expect(result.toolNames).toEqual(['a', 'b']);
+    // dry-run: 設定にも登録にも痕跡を残さない
+    expect(manager.status()).toEqual([]);
+    expect(registry.tools.size).toBe(0);
+  });
+
+  it('繋がらなければ ok:false とエラー文を返す(例外にしない)', async () => {
+    const manager = new McpManager({
+      registry: mockRegistry(),
+      configPath: await writeConfig({ servers: {} }),
+      createTransport: () => {
+        throw new Error('spawn ENOENT');
+      },
+    });
+    const result = await manager.probe({ command: 'no-such-binary' });
+    expect(result.ok).toBe(false);
+    expect(result.toolCount).toBe(0);
+    expect(result.error).toContain('ENOENT');
+  });
+});
