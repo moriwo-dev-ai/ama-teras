@@ -1135,6 +1135,71 @@ export interface McpConfig {
   servers: Record<string, McpServerConfig>;
 }
 
+// ---- M93: MCPセットアップ助手(既知サーバーのカタログ / 事前確認 / 接続テスト) ----
+// 助手は「テンプレを埋めて→前提を点検して→接続を試す」までを助ける。
+// 信頼(trusted)・APIキー・ホストアプリの導入は人間が握り続ける(助手は肩代わりしない)。
+
+export type McpPrereqKind = 'command' | 'env' | 'manual';
+
+/** サーバー起動に必要な前提。command/env は自動点検、manual は人間が判断 */
+export interface McpPrereq {
+  kind: McpPrereqKind;
+  /** command: 実行ファイル名(node 等) / env: 環境変数名 / manual: 省略 */
+  name?: string;
+  hint: string;
+}
+
+/** 引数テンプレ中の穴(ユーザーが埋める)。args に `{{token}}` として現れる */
+export interface McpPlaceholder {
+  token: string;
+  hint: string;
+  /** 初期値(あれば) */
+  default?: string;
+}
+
+/** カタログ1件 = 既知MCPサーバーの起動テンプレ(command/args は編集可能な下書き) */
+export interface McpCatalogEntry {
+  id: string;
+  /** mcp.json のサーバー名の初期候補(編集可) */
+  suggestedName: string;
+  title: string;
+  description: string;
+  category: 'files' | 'visual' | 'data' | 'web' | 'memory' | 'other';
+  cost: 'free' | 'paid';
+  command: string;
+  args: string[];
+  placeholders?: McpPlaceholder[];
+  /** 値は人間が用意する環境変数キー名(助手は値を預からない) */
+  requiredEnv?: string[];
+  prereqs: McpPrereq[];
+  homepage?: string;
+}
+
+/** 前提1件の点検結果。ok=null は「人間が確認するもの(manual)」 */
+export interface McpReadinessItem {
+  kind: McpPrereqKind;
+  name?: string;
+  hint: string;
+  ok: boolean | null;
+}
+
+/** カタログ1件の準備状況。ready=自動点検分が全て満たされている(manual は勘定に入れない) */
+export interface McpReadiness {
+  entryId: string;
+  ready: boolean;
+  items: McpReadinessItem[];
+  /** 人間が確認すべき項目数(manual + 未設定env) */
+  manualCount: number;
+}
+
+/** 接続テスト(probe)の結果。設定を残さず・信頼も昇格させずに1回だけ繋いで確かめる */
+export interface McpProbeResult {
+  ok: boolean;
+  toolCount: number;
+  toolNames: string[];
+  error?: string;
+}
+
 export type McpServerState = 'connected' | 'connecting' | 'error' | 'disabled' | 'untrusted';
 
 /** Settings のMCP節に出す接続状態 */
