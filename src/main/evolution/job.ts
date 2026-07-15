@@ -5,6 +5,7 @@ import { ToolRegistry } from '../tools/registry';
 import type { ToolPlugin } from '../tools/types';
 import { ApprovalBroker } from '../agent/approval';
 import { assertSafeToolName } from '../tools/name';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -211,6 +212,103 @@ export function toolsForGeneration(full: { list(): ToolPlugin[]; get(name: strin
 }
 
 /**
+ * M92-A1: 手本(few-shot)の仕組み。Claude Code が速い一番の理由は「似た既存を読んで形を写す」こと。
+ * 生成エージェントは既存を読めるが手渡しされていないので、依頼に最も近い既存プラグインを選び、
+ * 本体+テストの全文を **真似る対象** としてプロンプトへ差し込む。
+ */
+export interface ExemplarCandidate {
+  name: string;
+  description: string;
+  tags?: string[];
+}
+
+/** 手本が全く選べないときのフォールバック(綺麗で分かりやすい定番プラグイン。上から在るものを使う) */
+export const DEFAULT_EXEMPLARS = ['csv_to_markdown', 'yaml_to_json', 'text_stats', 'wc_file'];
+
+/**
+ * トークン化。日英混在(「jsonをyamlへ変換」等)を扱うため:
+ * - ASCII 英数字は語ごと(json/yaml/svg/png など。最も効く手がかり)
+ * - 日本語(かな/カナ/漢字)の連なりは分かち書きが無いので 2-gram にする(変換/画像/表 を拾う)
+ * この分離をしないと、ASCII が隣の日本語に貼り付いて巨大トークンになり一致しない。
+ */
+function tokenize(text: string): Set<string> {
+  const lower = text.toLowerCase();
+  const tokens = new Set<string>();
+  for (const m of lower.matchAll(/[a-z0-9]{2,}/g)) tokens.add(m[0]);
+  for (const run of lower.match(/[ぁ-んァ-ヶー一-龠]+/g) ?? []) {
+    if (run.length < 2) tokens.add(run);
+    else for (let i = 0; i + 2 <= run.length; i++) tokens.add(run.slice(i, i + 2));
+  }
+  return tokens;
+}
+
+/**
+ * 依頼に最も近い既存プラグイン名を選ぶ(キーワード重なりで採点)。
+ * 重なりがゼロなら DEFAULT_EXEMPLARS の在るものへフォールバック、それも無ければ null。
+ * exclude(修正対象そのもの)は手本にしない。
+ */
+export function chooseExemplarName(
+  req: { description: string; expectedIO: string },
+  candidates: ExemplarCandidate[],
+  exclude?: string,
+): string | null {
+  const wanted = tokenize(`${req.description} ${req.expectedIO}`);
+  const pool = candidates.filter((c) => c.name !== exclude);
+  let best: { name: string; score: number } | null = null;
+  for (const c of pool) {
+    const have = tokenize(`${c.name} ${c.description} ${(c.tags ?? []).join(' ')}`);
+    let score = 0;
+    for (const w of wanted) if (have.has(w)) score++;
+    if (best === null || score > best.score) best = { name: c.name, score };
+  }
+  if (best !== null && best.score > 0) return best.name;
+  // 重なりが無い: 定番の手本(在るものの中から)
+  const names = new Set(pool.map((c) => c.name));
+  return DEFAULT_EXEMPLARS.find((n) => names.has(n)) ?? null;
+}
+
+function readPluginFile(dirs: string[], file: string): string | null {
+  for (const d of dirs) {
+    const p = join(d, file);
+    if (existsSync(p)) {
+      try {
+        return readFileSync(p, 'utf8');
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * 手本セクションの本文。既存プラグインの本体+テストの全文を「形を真似る対象」として整形する。
+ * ソースが読めなければ空文字(手本無しでも生成は続ける)。
+ */
+export function buildExemplarSection(pluginDirs: string[], name: string | null): string {
+  if (name === null) return '';
+  const src = readPluginFile(pluginDirs, `${name}.ts`);
+  if (src === null) return '';
+  const test = readPluginFile(pluginDirs, `${name}.test.ts`);
+  const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n)}\n… (以降省略)` : s);
+  const parts = [
+    '',
+    `── 参考: 既存プラグイン「${name}」の実例。**この形・書き方・satisfies・テストの流儀を真似よ**` +
+      '(機能そのものは依頼に合わせて変える。丸写しはしない)──',
+    `===== ${name}.ts =====`,
+    clip(src, 6000),
+  ];
+  if (test !== null) parts.push(`===== ${name}.test.ts =====`, clip(test, 4000));
+  parts.push('── 参考ここまで ──', '');
+  return parts.join('\n');
+}
+
+/** ToolRegistry の list() から手本候補を起こす */
+function exemplarCandidates(plugins: ToolPlugin[]): ExemplarCandidate[] {
+  return plugins.map((p) => ({ name: p.name, description: p.description, ...(p.tags ? { tags: p.tags } : {}) }));
+}
+
+/**
  * M91: 配布版(git・ソースツリー無し)のツール生成ランナー。
  * cwd は userData 配下のサンドボックス。子エージェントに見せるツール(read_file/write_file等)は
  * **アプリ自身のプラグイン**を使う(サンドボックスには何も無いので、そこから読んでも空になる)
@@ -246,6 +344,13 @@ export class LocalToolJobRunner implements EvolutionJobRunner {
         : `新しい能力が必要: ${req.description}\n期待する入出力: ${req.expectedIO}\n` +
           `${sandboxDir} 配下の src/main/tools/plugins/ にプラグイン本体とテストを実装せよ。`;
 
+    // M92-A1: 初回だけ手本(最も近い既存プラグインの全文)を差し込む。
+    // 再生成(feedback有り)では既に形は掴めているので付けない(トークンを差分修正に回す)
+    const exemplar =
+      feedback === undefined
+        ? buildExemplarSection(this.pluginDirs, chooseExemplarName(req, exemplarCandidates(full.list()), req.targetTool))
+        : '';
+
     const history: Parameters<typeof runAgentLoop>[2] = [
       {
         role: 'user',
@@ -254,6 +359,7 @@ export class LocalToolJobRunner implements EvolutionJobRunner {
             type: 'text',
             text:
               taskText +
+              exemplar +
               (feedback
                 ? `\n\n【作り直し】前回の生成物は検証ゲートに不合格だった。既存ファイルを修正して直せ:\n${feedback}`
                 : ''),
@@ -347,6 +453,15 @@ export class AgentJobRunner implements EvolutionJobRunner {
             `このworktree(${worktreeDir})内でプラグインとテストを実装せよ。`
         : `本体改善の依頼(scope: ${scope}): ${req.description}\n期待する挙動: ${req.expectedIO}\n` +
           `このworktree(${worktreeDir})内の既存コードを最小差分で修正せよ。`;
+    // M92-A1: 新規ツール生成の初回だけ、最も近い既存プラグインの全文を手本として差し込む
+    // (renderer/core の本体改修は対象外。再生成では付けない=トークンは差分修正へ)
+    const exemplar =
+      scope === 'tool' && feedback === undefined
+        ? buildExemplarSection(
+            [join(worktreeDir, 'src/main/tools/plugins')],
+            chooseExemplarName(req, exemplarCandidates(registry.list()), req.targetTool),
+          )
+        : '';
     const history: Parameters<typeof runAgentLoop>[2] = [
       {
         role: 'user',
@@ -355,6 +470,7 @@ export class AgentJobRunner implements EvolutionJobRunner {
             type: 'text',
             text:
               taskText +
+              exemplar +
               (feedback
                 ? `\n\n【再生成】前回の生成物は検証ゲートに不合格だった。既存ファイルを修正して直せ:\n${feedback}`
                 : ''),

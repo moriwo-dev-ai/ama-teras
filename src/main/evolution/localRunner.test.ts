@@ -1,7 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ToolPlugin } from '../tools/types';
 import type { ToolRisk } from '../../shared/types';
-import { EXCLUDED_FROM_TOOL_GEN, GENERATION_TOOL_ALLOWLIST, isAllowedForGeneration, toolsForGeneration } from './job';
+import {
+  buildExemplarSection,
+  chooseExemplarName,
+  DEFAULT_EXEMPLARS,
+  EXCLUDED_FROM_TOOL_GEN,
+  GENERATION_TOOL_ALLOWLIST,
+  isAllowedForGeneration,
+  toolsForGeneration,
+} from './job';
 
 /**
  * M91: 配布版の実測で分かったこと — 生成エージェントに bash を渡すと、
@@ -56,5 +67,67 @@ describe('toolsForGeneration(allowlist+能力フィルタ)', () => {
   it('除外リストは allowlist を広げても効く多層防御(bashは常にNG)', () => {
     expect(EXCLUDED_FROM_TOOL_GEN.has('bash')).toBe(true);
     expect(isAllowedForGeneration({ name: 'bash', risk: 'safe' })).toBe(false);
+  });
+});
+
+describe('M92-A1 手本(few-shot)の選択', () => {
+  const candidates = [
+    { name: 'csv_to_markdown', description: 'CSVをMarkdownの表に変換する', tags: ['テキスト処理'] },
+    { name: 'yaml_to_json', description: 'YAMLをJSONに変換する', tags: ['テキスト処理'] },
+    { name: 'web_fetch', description: 'URLを取得して本文を返す', tags: ['Web操作'] },
+  ];
+
+  it('依頼に最も近い既存プラグインを選ぶ(キーワード重なり)', () => {
+    const pick = chooseExemplarName(
+      { description: 'JSONをYAMLへ変換したい', expectedIO: 'json文字列→yaml文字列' },
+      candidates,
+    );
+    expect(pick).toBe('yaml_to_json');
+  });
+
+  it('修正対象そのもの(exclude)は手本にしない', () => {
+    const pick = chooseExemplarName(
+      { description: 'yaml json 変換', expectedIO: 'yaml' },
+      candidates,
+      'yaml_to_json',
+    );
+    expect(pick).not.toBe('yaml_to_json');
+  });
+
+  it('重なりがゼロなら定番の手本へフォールバック(在るものの中から)', () => {
+    const pick = chooseExemplarName(
+      { description: 'まったく無関係なランダム機能', expectedIO: 'xyz' },
+      candidates,
+    );
+    // csv_to_markdown が DEFAULT_EXEMPLARS の先頭かつ候補に在る
+    expect(pick).toBe(DEFAULT_EXEMPLARS.find((n) => candidates.some((c) => c.name === n)));
+  });
+
+  it('候補が空なら null(手本無しでも生成は続ける)', () => {
+    expect(chooseExemplarName({ description: 'x', expectedIO: 'y' }, [])).toBeNull();
+  });
+});
+
+describe('M92-A1 手本セクションの整形', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'amateras-exemplar-'));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('本体+テストの全文を「真似る対象」として差し込む', () => {
+    writeFileSync(join(dir, 'sample.ts'), 'export default {} // 本体コード', 'utf8');
+    writeFileSync(join(dir, 'sample.test.ts'), "it('x', () => {}) // テストコード", 'utf8');
+    const section = buildExemplarSection([dir], 'sample');
+    expect(section).toContain('sample.ts');
+    expect(section).toContain('本体コード');
+    expect(section).toContain('sample.test.ts');
+    expect(section).toContain('テストコード');
+    expect(section).toContain('真似よ');
+  });
+
+  it('ソースが読めなければ空文字(手本無しでも止めない)', () => {
+    expect(buildExemplarSection([dir], 'does_not_exist')).toBe('');
+    expect(buildExemplarSection([dir], null)).toBe('');
   });
 });
