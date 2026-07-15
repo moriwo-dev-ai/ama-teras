@@ -150,6 +150,16 @@ const LOCAL_TOOL_JOB_SYSTEM_PROMPT = `あなたはAMA-terasの進化ジョブ。
   不合格なら失敗内容を渡して作り直しを依頼する
 - ファイルの作成・変更は write_file / edit_file を使う
 
+テストで使えるマッチャ(検証はアプリ内蔵の実行機で、**本物のvitestではない**。下のマッチャだけが動く。
+これ以外を使うと「is not a function」で落ち、作り直しても同じ所で落ち続ける):
+- expect(x). の後: toBe / toEqual / toStrictEqual / toMatchObject / toContain / toContainEqual / toMatch /
+  toHaveLength / toHaveProperty / toBeTruthy / toBeFalsy / toBeNull / toBeUndefined / toBeDefined /
+  toBeNaN / toBeInstanceOf / toBeCloseTo / toBeGreaterThan(OrEqual) / toBeLessThan(OrEqual) / toThrow
+- 否定は .not.<matcher>。例外は expect(() => f()).toThrow(...)。
+  非同期は await expect(p).rejects.toThrow(...) / await expect(p).resolves.toBe(...)
+- vi.mock・スナップショット・タイマー操作は無い。ロジックを純関数として named export し、
+  その入出力を上のマッチャで確かめること(execute は import して {content} を検証してよい)
+
 最後の応答で、ツール名とスモークテスト用のサンプル入力JSONを
 \`\`\`json {"toolName": "...", "smokeInput": {...}} \`\`\` のコードブロックで必ず出力する`;
 
