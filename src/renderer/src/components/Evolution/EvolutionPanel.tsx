@@ -234,15 +234,30 @@ export function EvolutionPanel(): JSX.Element {
               )}
               {/* M91-2: 検証を通って導入された直後が、公開するか決める自然な瞬間。
                   ここで断っても、ツール一覧の「⛩ 公開」から後でいつでも出せる */}
-              {j.status === 'done' && j.scope !== 'renderer' && j.scope !== 'core' && j.toolName !== undefined && (
-                <button
-                  className="shrink-0 whitespace-nowrap rounded border border-amber-800 px-1.5 py-0.5 text-[10px] text-amber-300 hover:bg-amber-950"
-                  title="このツールをレジストリへ公開する(送信前に全文を確認・承認します)"
-                  onClick={() => publish.open(j.toolName!)}
-                >
-                  ⛩ 公開しますか？
-                </button>
-              )}
+              {j.status === 'done' &&
+                j.scope !== 'renderer' &&
+                j.scope !== 'core' &&
+                j.toolName !== undefined &&
+                (publish.published[j.toolName] !== undefined ? (
+                  // 改善1: 公開済みは2度出させない。ボタンではなくPRへのリンクを出す
+                  <a
+                    className="shrink-0 whitespace-nowrap rounded border border-green-800 px-1.5 py-0.5 text-[10px] text-green-300 hover:bg-green-950"
+                    href={publish.published[j.toolName]!.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="このツールは公開済み。クリックで提出したPRを開く"
+                  >
+                    ✓ 公開済み ↗
+                  </a>
+                ) : (
+                  <button
+                    className="shrink-0 whitespace-nowrap rounded border border-amber-800 px-1.5 py-0.5 text-[10px] text-amber-300 hover:bg-amber-950"
+                    title="このツールをレジストリへ公開する(送信前に全文を確認・承認します)"
+                    onClick={() => publish.open(j.toolName!)}
+                  >
+                    ⛩ 公開しますか？
+                  </button>
+                ))}
               <button
                 className="text-zinc-500 hover:text-zinc-300"
                 onClick={() => setOpenLog(openLog === j.id ? null : j.id)}

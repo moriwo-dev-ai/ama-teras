@@ -35,6 +35,7 @@ function GodClocks(): JSX.Element {
     'uzume-drafts': '💃 AMENO-uzume(下書き)',
     'tedika-rao': '💪 TEDIKA-rao(門番)',
     kamuhakari: '⛩ 神議(戦略会議)',
+    kuebiko: '🪆 KUE-biko(要望の目利き)',
   };
   if (jobs.length === 0) return <p className="text-xs text-zinc-500">時計は次回アプリ再起動後に動き出す</p>;
   return (
@@ -1360,6 +1361,22 @@ export function OperationsPanel(): JSX.Element {
             コメント/ラベル/マージの実行は必ず岩戸ゲート(承認ダイアログ)を通る
           </p>
         )}
+      </Section>
+
+      <Section title="KUE-biko" kana="クエビコ" role="要望の目利き(コア/UI要望のトリアージ)">
+        <button
+          className="rounded border border-zinc-600 px-2 py-1 text-xs hover:bg-zinc-800 disabled:opacity-50"
+          disabled={busy !== null || !ghDetected}
+          onClick={() => run('kuebiko', () => window.api.operationsGodRun('kuebiko'))}
+        >
+          {busy === 'kuebiko' ? '要望を拾い上げ中…' : '🪆 いま届いている要望を拾い上げる'}
+        </button>
+        <p className="text-xs text-zinc-500">
+          配布版の利用者(と、その利用者のAMA-teras自身)が出した本体への要望
+          (request:core / request:ui のIssue)を見張り、効き目の順に並べて
+          <span className="text-zinc-300">神議の承認カード</span>へ載せる。承認すると本体(コア/UI)の進化ジョブになる
+          ため、<span className="text-zinc-300">開発機でだけ</span>動く。結果は左の⛩運営スレッドに出る
+        </p>
       </Section>
     </div>
   );

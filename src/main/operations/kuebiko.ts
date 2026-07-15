@@ -24,6 +24,8 @@ export interface RequestItem {
   body: string;
   author: string;
   scope: 'core' | 'renderer';
+  /** 起票日時(ISO8601, UTC)。承認カードに「いつ届いた要望か」を出すため */
+  createdAt: string;
 }
 
 /**
@@ -48,7 +50,7 @@ export function selectRequests(repo: string, items: GithubIssueSummary[]): Reque
     .flatMap((i) => {
       const scope = requestKind(i);
       if (scope === null) return [];
-      return [{ repo, number: i.number, title: i.title, body: i.body, author: i.author, scope }];
+      return [{ repo, number: i.number, title: i.title, body: i.body, author: i.author, scope, createdAt: i.createdAt }];
     });
 }
 
@@ -126,10 +128,24 @@ export function rankRequests(items: RequestItem[], ranked: RankedRequest[]): { i
     .map((r) => ({ item: byNumber.get(r.number)!, rank: r }));
 }
 
+/**
+ * 起票日時を日本時間の読みやすい形にする。GitHubはUTC(末尾Z)で返すので +9h して JST 表記。
+ * 空・壊れた値でもカードを出せるように、必ず文字列を返す
+ */
+export function formatSubmittedAt(iso: string): string {
+  if (iso === '') return '不明';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return `${jst.getUTCFullYear()}-${p(jst.getUTCMonth() + 1)}-${p(jst.getUTCDate())} ${p(jst.getUTCHours())}:${p(jst.getUTCMinutes())} JST`;
+}
+
 /** 承認カードの本文(人間が読んで「やる/やらない」を決められるだけの情報を載せる) */
 export function proposalDetail(item: RequestItem, rank: RankedRequest): string {
   return [
     `出どころ: ${item.repo}#${item.number}(${item.author})`,
+    `提出: ${formatSubmittedAt(item.createdAt)}`,
     `効き目 ${rank.impact}/5 ・ 重さ ${rank.effort}/5`,
     `判断: ${rank.rationale}`,
     '',

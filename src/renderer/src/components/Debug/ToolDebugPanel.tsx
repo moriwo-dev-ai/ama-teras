@@ -215,14 +215,27 @@ export function ToolDebugPanel(): JSX.Element {
                   📦 エクスポート
                 </button>
                 {/* M91-2: レジストリへ公開(下見 → 全文承認 → fork+PR)。
-                    その場で断っても、いつでもここから出せる */}
-                <button
-                  className="rounded border border-amber-800 px-1.5 py-0.5 text-[10px] text-amber-300 hover:bg-amber-950"
-                  title="このツールをコミュニティレジストリへ公開する(送信前に全文を確認・承認します)"
-                  onClick={() => publish.open(t.name)}
-                >
-                  ⛩ 公開
-                </button>
+                    その場で断っても、いつでもここから出せる。
+                    改善1: 公開済みは2度出させない — ボタンではなくPRリンクにする */}
+                {publish.published[t.name] !== undefined ? (
+                  <a
+                    className="rounded border border-green-800 px-1.5 py-0.5 text-[10px] text-green-300 hover:bg-green-950"
+                    href={publish.published[t.name]!.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="このツールは公開済み。クリックで提出したPRを開く"
+                  >
+                    ✓ 公開済み ↗
+                  </a>
+                ) : (
+                  <button
+                    className="rounded border border-amber-800 px-1.5 py-0.5 text-[10px] text-amber-300 hover:bg-amber-950"
+                    title="このツールをコミュニティレジストリへ公開する(送信前に全文を確認・承認します)"
+                    onClick={() => publish.open(t.name)}
+                  >
+                    ⛩ 公開
+                  </button>
+                )}
               </div>
               <p className="mt-0.5 text-zinc-500">{t.description}</p>
             </li>

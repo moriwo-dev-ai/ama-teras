@@ -67,6 +67,8 @@ export interface GithubIssueSummary {
   kind: 'issue' | 'pr';
   body: string;
   labels: string[];
+  /** 起票日時(ISO8601, UTC)。要望がいつ届いたかを神議のカードに載せるため */
+  createdAt: string;
 }
 
 /** read/search 関数群(岩戸ゲートを通さない=観測のみ) */
@@ -145,6 +147,7 @@ export class GithubReader {
         kind: rec['pull_request'] !== undefined ? ('pr' as const) : ('issue' as const),
         body: String(rec['body'] ?? '').slice(0, 4000),
         labels,
+        createdAt: String(rec['created_at'] ?? ''),
       };
     });
   }

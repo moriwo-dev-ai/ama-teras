@@ -41,6 +41,7 @@ import type {
   PluginImportStartResult,
   PluginUploadPlanResult,
   PluginUploadResult,
+  PublishedPluginInfo,
   ProviderId,
   ProvisionalInstall,
   RegistryGodInfo,
@@ -98,6 +99,8 @@ export const IpcChannels = {
   /** M91-2: レジストリへの公開。plan=下見(全文と機械チェック。送信しない)/ upload=承認後の送信 */
   pluginsUploadPlan: 'plugins:upload-plan',
   pluginsUpload: 'plugins:upload',
+  /** 改善1: 公開済みツールの控え(2度目のPRを出させないため、UIが公開ボタンを止める) */
+  pluginsPublishedList: 'plugins:published-list',
   /** M91-6: GitHub Device Flow(ブラウザ認証)。start=コード発行+ブラウザを開く / poll=承認待ち / signOut=切断 */
   githubAuthStart: 'github:auth-start',
   githubAuthPoll: 'github:auth-poll',
@@ -304,6 +307,8 @@ export interface AmaterasApi {
     approvedPreview: string,
     draft: boolean,
   ): Promise<PluginUploadResult>;
+  /** 改善1: 公開済みツールの一覧(ツール名→PR URL/提出時刻)。公開ボタンの再押下を止めるのに使う */
+  pluginsPublishedList(): Promise<Record<string, PublishedPluginInfo>>;
 
   /**
    * M91-6: GitHub Device Flow。start でコードを得てブラウザが開く → ユーザーが承認 →

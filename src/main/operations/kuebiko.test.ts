@@ -14,6 +14,7 @@ const issue = (over: Partial<GithubIssueSummary>): GithubIssueSummary => ({
   kind: 'issue',
   body: 'b',
   labels: [],
+  createdAt: '2026-07-15T00:00:00Z',
   ...over,
 });
 
@@ -92,10 +93,14 @@ describe('parseRanking / rankRequests', () => {
 
 describe('proposalDetail', () => {
   it('出どころ・効き目・スコープを、人が判断できる形で載せる', () => {
-    const item = selectRequests('o/r', [issue({ number: 7, labels: ['request:core'], title: 'X', body: '本文' })])[0]!;
+    const item = selectRequests('o/r', [
+      issue({ number: 7, labels: ['request:core'], title: 'X', body: '本文', createdAt: '2026-07-15T00:00:00Z' }),
+    ])[0]!;
     const text = proposalDetail(item, { number: 7, impact: 5, effort: 2, rationale: '効く' });
     expect(text).toContain('o/r#7');
     expect(text).toContain('効き目 5/5');
     expect(text).toContain('scope=core');
+    // 提出日時をJSTで載せる(UTC 00:00 → JST 09:00)
+    expect(text).toContain('提出: 2026-07-15 09:00 JST');
   });
 });

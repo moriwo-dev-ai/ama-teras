@@ -184,7 +184,7 @@ describe('M32-5: TEDIKA-rao', () => {
     const card = parseTriage(
       JSON.stringify({ summary: 's', findings: [{ severity: 'critical', note: 'x' }, { severity: 'low', note: 'y' }], replyDraft: '', labels: [], recommendation: 'r' }),
       'o/r',
-      { number: 1, title: 't', author: 'a', kind: 'issue', body: '', labels: [] },
+      { number: 1, title: 't', author: 'a', kind: 'issue', body: '', labels: [], createdAt: '' },
     );
     expect(card?.findings).toHaveLength(1);
     expect(card?.findings[0]?.severity).toBe('low');

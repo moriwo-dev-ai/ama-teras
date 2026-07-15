@@ -54,7 +54,7 @@ export const DEFAULT_GOD_DEFS: GodDefinition[] = [
   { id: 'kamuhakari', name: '神議(戦略会議)', engine: 'kamuhakari', clock: { intervalMin: 720, dailyTimes: ['09:00', '21:00'] }, dailyTokenBudget: 60_000, enabled: true },
   // M91-4: 久延毘古(くえびこ)= 歩けないが世の中のことを何でも知っている神。
   // 集まってくる要望を知り、効き目の順に並べて神議へ渡す(自分では何も出さない)
-  { id: 'kuebiko', name: 'KUEBIKO(久延毘古・要望の目利き)', engine: 'request-triage', clock: { intervalMin: 360 }, dailyTokenBudget: 20_000, enabled: true },
+  { id: 'kuebiko', name: 'KUE-biko(久延毘古・要望の目利き)', engine: 'request-triage', clock: { intervalMin: 360 }, dailyTokenBudget: 20_000, enabled: true },
 ];
 
 /** スキーマ検証(純関数)。不正な定義は理由の一覧を返す */

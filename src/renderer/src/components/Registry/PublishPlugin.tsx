@@ -1,4 +1,5 @@
-import { useState, type JSX } from 'react';
+import { useCallback, useEffect, useState, type JSX } from 'react';
+import type { PublishedPluginInfo } from '../../../../shared/types';
 
 /**
  * M91-2: 作ったツールをレジストリへ出す口。**下見 → 全文承認 → 送信**の3段を1か所にまとめる。
@@ -17,6 +18,8 @@ export function usePublishPlugin(): {
   plan: PublishState | null;
   message: string;
   busy: boolean;
+  /** 改善1: 公開済みツール(名前→PR URL/時刻)。ボタンを止め、「公開済み」を出すのに使う */
+  published: Record<string, PublishedPluginInfo>;
   open: (toolName: string) => void;
   close: () => void;
   submit: (draft: boolean) => void;
@@ -24,6 +27,18 @@ export function usePublishPlugin(): {
   const [plan, setPlan] = useState<PublishState | null>(null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [published, setPublished] = useState<Record<string, PublishedPluginInfo>>({});
+
+  const refreshPublished = useCallback((): void => {
+    void window.api
+      .pluginsPublishedList()
+      .then(setPublished)
+      .catch(() => {
+        /* 控えが読めなくてもボタンは出す(公開を止めない) */
+      });
+  }, []);
+
+  useEffect(() => refreshPublished(), [refreshPublished]);
 
   const open = (toolName: string): void => {
     setMessage(`… ${toolName} の公開内容を用意しています`);
@@ -31,6 +46,12 @@ export function usePublishPlugin(): {
     void window.api
       .pluginsUploadPlan(toolName)
       .then((r) => {
+        // 既に公開済みなら下見は返らない。控えを取り直してボタンを止める
+        if (r.published === true) {
+          setMessage(`✓ ${r.message}`);
+          refreshPublished();
+          return;
+        }
         if (!r.ok || r.preview === undefined) {
           setMessage(`✗ ${r.message}`);
           return;
@@ -50,7 +71,10 @@ export function usePublishPlugin(): {
       .pluginsUpload(plan.toolName, plan.preview, draft)
       .then((r) => {
         setMessage(`${r.ok ? '✓' : '✗'} ${r.message}`);
-        if (r.ok) setPlan(null);
+        if (r.ok) {
+          setPlan(null);
+          refreshPublished(); // 出せた瞬間に控えを反映=以後この機体では公開ボタンが消える
+        }
       })
       .catch((err: unknown) => setMessage(`✗ ${err instanceof Error ? err.message : String(err)}`))
       .finally(() => setBusy(false));
@@ -61,7 +85,7 @@ export function usePublishPlugin(): {
     setMessage('公開を取りやめました(あとでツール一覧からいつでも公開できます)');
   };
 
-  return { plan, message, busy, open, close, submit };
+  return { plan, message, busy, published, open, close, submit };
 }
 
 export function PublishPluginDialog({

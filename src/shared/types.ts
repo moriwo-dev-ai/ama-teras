@@ -950,6 +950,10 @@ export interface PluginUploadPlanResult {
   leaks?: string[];
   /** 検証の状態。verified 以外は公開できない */
   verification: 'verified' | 'unverified' | 'stale';
+  /** 改善1: 既に公開済みなら true(下見を見せず、公開を止める) */
+  published?: boolean;
+  /** 公開済みの場合の既存PR URL */
+  publishedUrl?: string;
 }
 
 export interface PluginUploadResult {
@@ -957,6 +961,12 @@ export interface PluginUploadResult {
   message: string;
   /** 提出したPRのURL(成功時) */
   url?: string;
+}
+
+/** 改善1: 公開済みツールの控え(ツール名→ここ)。UIの「公開済み」表示に使う */
+export interface PublishedPluginInfo {
+  url: string;
+  ts: string;
 }
 
 /** M91-6: Device Flow 開始の結果(この user_code をユーザーに見せ、ブラウザで承認させる) */

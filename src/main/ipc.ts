@@ -50,6 +50,7 @@ import {
   type UploadPlan,
 } from './registry/upload';
 import { systemFetch } from './providers/systemFetch';
+import { PublishedStore } from './registry/published';
 import { repoFromRegistryUrl, type RepoRef } from './registry/github';
 import { RequestStore } from './requests/store';
 import {
@@ -1150,6 +1151,9 @@ export async function registerIpcHandlers(
   const uploadPluginsDir = (toolName: string): string | undefined =>
     [getUserPluginsDir(), getPluginsDir()].find((d) => existsSync(join(d, `${toolName}.ts`)));
 
+  // 改善1: 公開済みツールの控え。2度目のPRを誤って出させないための最後の砦
+  const published = new PublishedStore(join(app.getPath('userData'), 'registry', 'published.json'));
+
   const makeUploadPlan = async (toolName: string): Promise<UploadPlan> => {
     const dir = uploadPluginsDir(toolName);
     if (dir === undefined) throw new Error(`ツール「${toolName}」のソースが見つからない`);
@@ -1170,6 +1174,18 @@ export async function registerIpcHandlers(
     const dir = uploadPluginsDir(toolName);
     if (dir === undefined) {
       return { ok: false, message: `ツール「${toolName}」のソースが見つからない`, toolName, verification: 'unverified' };
+    }
+    const already = published.get(toolName);
+    if (already !== undefined) {
+      // 既に出している。下見すら見せず、ここで止める(2度目のPRを誤って出させない)
+      return {
+        ok: false,
+        message: `「${toolName}」は既にレジストリへ公開済み(${already.url})。同じツールを2度出さないため、公開はできません`,
+        toolName,
+        verification: 'verified',
+        published: true,
+        publishedUrl: already.url,
+      };
     }
     const v = await verificationState(dir, toolName);
     if (v.state !== 'verified') {
@@ -1210,6 +1226,14 @@ export async function registerIpcHandlers(
             'public_repo 権限のトークンを1つ入れてください(fork とPR作成に使います)',
         };
       }
+      // 送信の直前にも控えを確かめる(下見と送信の間に別経路で出していた場合の二重提出も止める)
+      const already = published.get(toolName);
+      if (already !== undefined) {
+        return {
+          ok: false,
+          message: `「${toolName}」は既に公開済み(${already.url})。二重にPRを出さないため送信しません`,
+        };
+      }
       try {
         const plan = await makeUploadPlan(toolName);
         // 承認した内容と、これから送る内容が同一であること。
@@ -1218,6 +1242,10 @@ export async function registerIpcHandlers(
           return { ok: false, message: '承認した内容と送信内容が一致しない(再度、下見からやり直してください)' };
         }
         const result = await submitUpload(plan, token, { draft: draft === true, fetchFn: systemFetch() });
+        // 出せた瞬間に控える。以後この機体からは同じツールを2度出せない
+        if (result.ok && result.url !== undefined) {
+          published.record(toolName, { url: result.url, ts: new Date().toISOString() });
+        }
         audit.append({
           tool: 'registry-upload',
           scope: 'system',
@@ -1231,6 +1259,8 @@ export async function registerIpcHandlers(
       }
     },
   );
+
+  ipcMain.handle(IpcChannels.pluginsPublishedList, () => published.list());
 
   // ---- M91-6: GitHub Device Flow(ブラウザ認証)----
   // PATを手作りさせる代わりに、ボタン→ブラウザで承認→完了。Client ID は公開情報なので同梱可。

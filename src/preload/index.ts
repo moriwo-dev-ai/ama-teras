@@ -58,6 +58,7 @@ const api: AmaterasApi = {
   pluginsUploadPlan: (toolName) => ipcRenderer.invoke(IpcChannels.pluginsUploadPlan, toolName),
   pluginsUpload: (toolName, approvedPreview, draft) =>
     ipcRenderer.invoke(IpcChannels.pluginsUpload, toolName, approvedPreview, draft),
+  pluginsPublishedList: () => ipcRenderer.invoke(IpcChannels.pluginsPublishedList),
   // M91-6: GitHub Device Flow(ブラウザ認証)
   githubAuthStart: () => ipcRenderer.invoke(IpcChannels.githubAuthStart),
   githubAuthPoll: () => ipcRenderer.invoke(IpcChannels.githubAuthPoll),

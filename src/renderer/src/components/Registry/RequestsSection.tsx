@@ -205,15 +205,45 @@ export function RequestsSection(): JSX.Element {
       )}
 
       {sent.length > 0 && (
-        <p className="text-[11px] text-zinc-500">
-          送信済み: {sent.length}件
-          {sent[0]?.url !== undefined && (
-            <>
-              {' '}
-              (最新: <span className="font-mono">{sent[0].url}</span>)
-            </>
-          )}
-        </p>
+        <div className="space-y-1 border-t border-zinc-800 pt-1">
+          <p className="text-[11px] font-semibold text-zinc-400">送信済み({sent.length}件)</p>
+          <ul className="space-y-1">
+            {[...sent]
+              .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+              .map((r) => (
+                <li
+                  key={r.id}
+                  className="flex flex-wrap items-center gap-2 rounded border border-zinc-800 px-2 py-1 text-xs"
+                >
+                  <span className="rounded bg-zinc-800 px-1 text-[10px] text-zinc-400">{r.kind}</span>
+                  <span
+                    className={`rounded px-1 text-[10px] ${
+                      r.source === 'agent' ? 'bg-purple-900/70 text-purple-300' : 'bg-zinc-800 text-zinc-400'
+                    }`}
+                    title={r.source === 'agent' ? 'AMA-teras が起票した' : '人が書いた'}
+                  >
+                    {r.source === 'agent' ? 'AMA-teras' : '人'}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate" title={r.title}>
+                    {r.title}
+                  </span>
+                  {r.url !== undefined ? (
+                    <a
+                      className="shrink-0 rounded border border-green-800 px-1.5 py-0.5 text-[10px] text-green-300 hover:bg-green-950"
+                      href={r.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={r.url}
+                    >
+                      Issueを開く ↗
+                    </a>
+                  ) : (
+                    <span className="shrink-0 text-[10px] text-zinc-600">URL不明</span>
+                  )}
+                </li>
+              ))}
+          </ul>
+        </div>
       )}
     </div>
   );
