@@ -20,6 +20,8 @@ import { ConfigStore } from './config';
 import { validateChatImages } from './core/chatImages';
 import { workspaceGitStatus } from './core/gitStatus';
 import { McpManager } from './mcp/manager';
+import { MCP_CATALOG } from './mcp/catalog';
+import { detectReadiness } from './mcp/setup';
 import { CheckpointManager } from './core/checkpoints';
 import { EventBus } from './core/events';
 import { AgentService } from './core/service';
@@ -234,6 +236,18 @@ function assertMcpConfig(value: unknown): asserts value is import('../shared/typ
       );
     });
   if (!ok) throw new Error('IPC payload mcp config が不正');
+}
+
+function assertMcpServerConfig(value: unknown): asserts value is import('../shared/types').McpServerConfig {
+  const sc = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
+  const ok =
+    sc !== null &&
+    typeof sc['command'] === 'string' &&
+    (sc['args'] === undefined || (Array.isArray(sc['args']) && sc['args'].every((a) => typeof a === 'string'))) &&
+    (sc['env'] === undefined ||
+      (typeof sc['env'] === 'object' && sc['env'] !== null &&
+        Object.values(sc['env'] as Record<string, unknown>).every((v) => typeof v === 'string')));
+  if (!ok) throw new Error('IPC payload mcp server config が不正');
 }
 
 /**
@@ -1729,6 +1743,14 @@ export async function registerIpcHandlers(
     assertMcpConfig(cfg);
     await mcp.setConfig(cfg);
     return mcp.status();
+  });
+  // M93: セットアップ助手 — カタログ(前提を実測して同梱)と接続テスト(probe)
+  ipcMain.handle(IpcChannels.mcpCatalog, () =>
+    MCP_CATALOG.map((entry) => ({ entry, readiness: detectReadiness(entry) })),
+  );
+  ipcMain.handle(IpcChannels.mcpProbe, async (_e, sc: unknown) => {
+    assertMcpServerConfig(sc);
+    return mcp.probe(sc);
   });
   // 起動をブロックしない(接続失敗は状態表示のみ)
   void mcp.syncAll();

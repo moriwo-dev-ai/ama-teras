@@ -28,7 +28,11 @@ import type {
   EvolutionScope,
   FilePreviewResult,
   McpConfig,
+  McpServerConfig,
   McpServerStatus,
+  McpCatalogEntry,
+  McpReadiness,
+  McpProbeResult,
   PluginErrorInfo,
   ConnectionTestResult,
   CoreRequest,
@@ -136,6 +140,9 @@ export const IpcChannels = {
   /** M13-2: MCPサーバー管理(デスクトップ専用) */
   mcpStatus: 'mcp:status',
   mcpSetConfig: 'mcp:set-config',
+  /** M93: セットアップ助手(既知サーバーのカタログ+前提点検 / 接続テスト) */
+  mcpCatalog: 'mcp:catalog',
+  mcpProbe: 'mcp:probe',
   /** M10: リモートアクセス管理(デスクトップ専用) */
   remoteStatus: 'remote:status',
   remoteSetEnabled: 'remote:set-enabled',
@@ -358,6 +365,10 @@ export interface AmaterasApi {
   /** M13-2: MCPサーバーの接続状態と設定変更(変更は保存後に自動で再接続) */
   mcpStatus(): Promise<McpServerStatus[]>;
   mcpSetConfig(config: McpConfig): Promise<McpServerStatus[]>;
+
+  /** M93: セットアップ助手 — 既知サーバーのカタログ(前提を実測して同梱)と接続テスト */
+  mcpCatalog(): Promise<{ entry: McpCatalogEntry; readiness: McpReadiness }[]>;
+  mcpProbe(config: McpServerConfig): Promise<McpProbeResult>;
 
   /** M10: リモートアクセス(スマホWeb)管理。トークン平文は生成時に一度だけ返る */
   remoteStatus(): Promise<RemoteStatusPayload>;

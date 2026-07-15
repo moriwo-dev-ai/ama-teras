@@ -92,6 +92,8 @@ const api: AmaterasApi = {
 
   mcpStatus: () => ipcRenderer.invoke(IpcChannels.mcpStatus),
   mcpSetConfig: (config) => ipcRenderer.invoke(IpcChannels.mcpSetConfig, config),
+  mcpCatalog: () => ipcRenderer.invoke(IpcChannels.mcpCatalog),
+  mcpProbe: (config) => ipcRenderer.invoke(IpcChannels.mcpProbe, config),
 
   remoteStatus: () => ipcRenderer.invoke(IpcChannels.remoteStatus),
   remoteSetEnabled: (enabled, port) =>
