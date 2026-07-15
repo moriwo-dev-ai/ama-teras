@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { McpConfig, McpServerStatus } from '../../../../shared/types';
+import type { McpConfig, McpServerConfig, McpServerStatus } from '../../../../shared/types';
+import { McpSetupAssistant } from './McpSetupAssistant';
 
 const STATE_LABEL: Record<string, { text: string; cls: string }> = {
   connected: { text: '接続中', cls: 'bg-green-900 text-green-300' },
@@ -71,6 +72,17 @@ export function McpSection(): JSX.Element {
     setName('');
     setCommand('');
     setArgs('');
+  };
+
+  // M93: セットアップ助手からの追加。未信頼で入れ、そのまま信頼確認へ促す
+  const addFromCatalog = (n: string, sc: McpServerConfig): void => {
+    const config = currentConfig();
+    if (config.servers[n]) {
+      setNotice(`同名のサーバー「${n}」が既にある`);
+      return;
+    }
+    config.servers[n] = sc;
+    void save(config).then(() => setTrustTarget(n));
   };
 
   const setServer = (n: string, patch: Partial<McpConfig['servers'][string]>): void => {
@@ -174,6 +186,11 @@ export function McpSection(): JSX.Element {
           </button>
         </div>
       </div>
+
+      <McpSetupAssistant
+        existingNames={(statuses ?? []).map((s) => s.name)}
+        onAdd={addFromCatalog}
+      />
 
       {notice && <p className="text-xs text-zinc-400">{notice}</p>}
 
