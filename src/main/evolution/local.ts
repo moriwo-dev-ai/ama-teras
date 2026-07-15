@@ -7,6 +7,7 @@ import { installPlugin, pluginDangerWarnings } from '../tools/install';
 import { assertSafeToolName } from '../tools/name';
 import { verifyPlugin, type PluginVerifyResult } from '../tools/verify';
 import { PLUGIN_API_VERSION } from '../tools/versioning';
+import { GenerationBudget } from './budget';
 import type { EvolutionJobRunner, EvolutionRequest } from './job';
 import { JobStore } from './jobStore';
 
@@ -53,6 +54,10 @@ export interface LocalEvolutionDeps {
   existingToolNames?: () => string[];
   /** ジョブ履歴(未指定=メモリのみ) */
   stateFile?: string;
+  /** M92-A2: 生成→検証の最大試行(既定4)。M92-追加: 予算(累積キャップ2層。未注入=無制限) */
+  maxGenerationAttempts?: number;
+  budget?: GenerationBudget;
+  estimateAttemptTokens?: number;
 }
 
 /** 検証の証跡。<name>.gate.json として導入先に残す(アップロード時に「本当に検証されたか」を機械が確かめる) */
@@ -205,11 +210,26 @@ export class LocalToolEvolution {
       let toolName: string | undefined;
       let smokeInput: unknown = {};
       let feedback: string | undefined;
+      // M92-A2: 最大試行(既定4)。M92-追加: 予算(累積キャップ2層)で総量を頭打ちにする
+      const maxAttempts = this.deps.maxGenerationAttempts ?? 4;
+      const estimateAttemptTokens = this.deps.estimateAttemptTokens ?? 8000;
+      let budgetStop: string | null = null;
+      let jobSpent = 0;
 
-      for (let attempt = 1; attempt <= 2 && verified?.ok !== true; attempt++) {
+      for (let attempt = 1; attempt <= maxAttempts && verified?.ok !== true; attempt++) {
         if (ac.signal.aborted) throw new Error('cancelled');
+        if (this.deps.budget) {
+          const verdict = this.deps.budget.check(jobSpent, estimateAttemptTokens);
+          if (!verdict.ok) {
+            budgetStop = verdict.reason ?? '予算上限に達した';
+            this.log(job, `予算上限: ${budgetStop}`);
+            break;
+          }
+        }
         this.update(job, { status: 'generating' });
         if (attempt > 1) this.log(job, '検証ゲート不合格のため、失敗内容を渡して作り直す');
+        this.deps.budget?.record(estimateAttemptTokens);
+        jobSpent += estimateAttemptTokens;
         const artifacts = await this.deps.runner.generate(
           req,
           sandbox,
@@ -250,7 +270,10 @@ export class LocalToolEvolution {
       }
       if (ac.signal.aborted) throw new Error('cancelled');
       if (verified === null || !verified.ok || toolName === undefined) {
-        this.update(job, { status: 'failed', error: '検証ゲート不合格(作り直しでも解消せず)' });
+        this.update(job, {
+          status: 'failed',
+          error: budgetStop ?? '検証ゲート不合格(作り直しでも解消せず)',
+        });
         return;
       }
 
