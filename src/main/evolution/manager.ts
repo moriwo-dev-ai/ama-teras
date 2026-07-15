@@ -11,6 +11,7 @@ import {
   type GatesOutcome,
 } from './gates';
 import { GenerationBudget } from './budget';
+import { GenerationMetrics, type GenerationOutcome } from './metrics';
 import { runGit } from './git';
 import type { EvolutionJobRunner, EvolutionRequest } from './job';
 import { JobStore } from './jobStore';
@@ -75,6 +76,11 @@ export interface EvolutionManagerDeps {
    * これにより「リトライを厚くしても総量は budget で頭打ち」が成立する。
    */
   estimateAttemptTokens?: number;
+  /**
+   * M92-Phase0: 生成の計測(成功率・試行回数・所要時間・失敗内訳)。未注入なら記録しない。
+   * どのレバー(手本/反復/…)が効いたかを後から測るための土台。
+   */
+  metrics?: GenerationMetrics;
 }
 
 /** 進化ジョブのライフサイクル管理。ジョブは直列実行(worktree衝突と検証混線の回避) */
@@ -203,8 +209,38 @@ export class EvolutionManager {
   }
 
   private update(job: EvolutionJobSummary, patch: Partial<EvolutionJobSummary>): void {
+    const prevStatus = job.status;
     Object.assign(job, patch);
     this.emit(job);
+    if (patch.status !== undefined && patch.status !== prevStatus) this.trackMetrics(job, patch.status);
+  }
+
+  /** M92-Phase0: ジョブの試行回数・所要時間・結末を計測へ流す(未注入なら何もしない) */
+  private readonly jobMeta = new Map<number, { startedAt: number; attempts: number }>();
+  private trackMetrics(job: EvolutionJobSummary, status: EvolutionJobSummary['status']): void {
+    if (this.deps.metrics === undefined) return;
+    let meta = this.jobMeta.get(job.id);
+    if (meta === undefined) {
+      meta = { startedAt: Date.now(), attempts: 0 };
+      this.jobMeta.set(job.id, meta);
+    }
+    if (status === 'generating') meta.attempts += 1;
+    const TERMINAL: EvolutionJobSummary['status'][] = ['done', 'failed', 'rejected', 'cancelled', 'rolled_back'];
+    if (!TERMINAL.includes(status)) return;
+    this.jobMeta.delete(job.id);
+    const outcome: GenerationOutcome = status === 'done' ? 'promoted' : (status as GenerationOutcome);
+    const failureKinds = (job.gates ?? []).filter((g) => !g.ok).map((g) => g.name);
+    this.deps.metrics.record({
+      jobId: job.id,
+      scope: job.scope ?? 'tool',
+      ...(job.toolName !== undefined ? { toolName: job.toolName } : {}),
+      outcome,
+      attempts: meta.attempts,
+      durationMs: Date.now() - meta.startedAt,
+      ...(failureKinds.length > 0 ? { failureKinds } : {}),
+      ...(job.error?.includes('トークン上限') ? { budgetStopped: true } : {}),
+      at: new Date().toISOString(),
+    });
   }
 
   private log(job: EvolutionJobSummary, line: string): void {

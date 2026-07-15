@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { EvolutionEvent } from '../../shared/types';
 import { GenerationBudget } from './budget';
+import { GenerationMetrics } from './metrics';
 import { runGit } from './git';
 import type { EvolutionJobRunner, JobArtifacts } from './job';
 import { detectDangerWarnings, EvolutionManager, type EvolutionManagerDeps } from './manager';
@@ -72,6 +73,7 @@ interface Overrides {
   maxGenerationAttempts?: number;
   budget?: EvolutionManagerDeps['budget'];
   estimateAttemptTokens?: number;
+  metrics?: EvolutionManagerDeps['metrics'];
 }
 
 function makeManager(o: Overrides = {}): {
@@ -103,6 +105,7 @@ function makeManager(o: Overrides = {}): {
     maxGenerationAttempts: o.maxGenerationAttempts ?? 2,
     ...(o.budget !== undefined ? { budget: o.budget } : {}),
     ...(o.estimateAttemptTokens !== undefined ? { estimateAttemptTokens: o.estimateAttemptTokens } : {}),
+    ...(o.metrics !== undefined ? { metrics: o.metrics } : {}),
   };
   return { manager: new EvolutionManager(deps), events, reloads };
 }
@@ -321,6 +324,18 @@ describe('M92-A2/予算: 反復を厚く・累積キャップ', { timeout: 30_00
       .map((e) => e.job)
       .at(-1);
     expect(lastJob?.error).toContain('トークン上限');
+  });
+
+  it('Phase0: 昇格まで通ると promoted が記録される(試行回数・所要時間つき)', async () => {
+    const metrics = new GenerationMetrics(join(base, 'metrics', 'gen.jsonl'));
+    const { manager, events } = makeManager({ metrics });
+    await manager.enqueue({ description: 'x', expectedIO: 'x' });
+    expect(await waitForTerminal(events)).toBe('done');
+    const recs = metrics.read();
+    expect(recs).toHaveLength(1);
+    expect(recs[0]?.outcome).toBe('promoted');
+    expect(recs[0]?.attempts).toBeGreaterThanOrEqual(1);
+    expect(metrics.summary().successRate).toBe(1);
   });
 });
 
