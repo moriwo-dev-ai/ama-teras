@@ -77,6 +77,11 @@ describe('buildRequestIssue', () => {
     expect(buildRequestIssue(draft({ kind: 'core' }), '1.2.1').labels).toEqual(['request:core']);
   });
 
+  it('本文に機械マーカーを埋める(非コラボレータのラベル剥がれ対策。KUEBIKOの主判定)', () => {
+    expect(buildRequestIssue(draft({ kind: 'ui' }), '1.2.1').body).toContain('<!-- amateras-request:ui -->');
+    expect(buildRequestIssue(draft({ kind: 'core' }), '1.2.1').body).toContain('<!-- amateras-request:core -->');
+  });
+
   it('秘密・ローカルパスを見つけたら leaks に出す(送信側が止める)', () => {
     const issue = buildRequestIssue(
       draft({ body: 'C:\\Users\\haru\\dev で試した。キーは sk-ant-api03-aaaaaaaaaaaaaaaaaaaaaaa' }),

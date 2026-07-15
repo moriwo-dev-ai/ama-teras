@@ -34,6 +34,18 @@ describe('selectRequests', () => {
     const got = selectRequests('o/r', [issue({ number: 5, labels: ['request:ui', 'request:core'] })]);
     expect(got[0]?.scope).toBe('core');
   });
+
+  it('ラベルが無くても本文マーカーで拾う(非コラボレータの要望=ラベルが剥がれる)', () => {
+    const got = selectRequests('o/r', [
+      issue({ number: 6, labels: [], body: 'UIを変えたい\n<!-- amateras-request:ui -->', title: 'X' }),
+      issue({ number: 7, labels: [], body: '本体を変えたい\n<!-- amateras-request:core -->', title: 'Y' }),
+      issue({ number: 8, labels: [], body: 'ただの雑談(マーカー無し)', title: 'Z' }),
+    ]);
+    expect(got.map((r) => [r.number, r.scope])).toEqual([
+      [6, 'renderer'],
+      [7, 'core'],
+    ]);
+  });
 });
 
 describe('parseRanking / rankRequests', () => {

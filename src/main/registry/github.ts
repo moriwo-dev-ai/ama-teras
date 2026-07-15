@@ -199,11 +199,21 @@ export class GitHubClient {
     body: string,
     labels: string[],
   ): Promise<{ url: string; number: number }> {
-    const issue = await this.call<{ html_url: string; number: number }>(
-      'POST',
-      `/repos/${repo.owner}/${repo.repo}/issues`,
-      { title, body, labels },
-    );
+    const post = (withLabels: boolean): Promise<{ html_url: string; number: number }> =>
+      this.call('POST', `/repos/${repo.owner}/${repo.repo}/issues`, {
+        title,
+        body,
+        ...(withLabels ? { labels } : {}),
+      });
+    let issue: { html_url: string; number: number };
+    try {
+      issue = await post(true);
+    } catch (err) {
+      // 非コラボレータは labels を付けられない。多くは無視されるだけだが、拒否された場合に備え、
+      // ラベル無しで作り直す(種別は本文の機械マーカーが持つので、ラベルが無くても KUEBIKO は拾える)
+      if (err instanceof GitHubApiError && labels.length > 0) issue = await post(false);
+      else throw err;
+    }
     return { url: issue.html_url, number: issue.number };
   }
 

@@ -14,6 +14,13 @@ export function repoFromUrl(url: string): RepoRef | null {
   return repoFromRegistryUrl(url);
 }
 
+/**
+ * M91-7: 要望の種別を Issue 本文に残す機械マーカーの接頭辞。
+ * ラベルは非コラボレータのIssueでは剥がされるので、これが KUEBIKO の主判定になる
+ * (例: `amateras-request:ui` / `amateras-request:core`)
+ */
+export const REQUEST_MARKER_PREFIX = 'amateras-request:';
+
 export interface RequestIssue {
   title: string;
   body: string;
@@ -36,6 +43,10 @@ export function buildRequestIssue(req: CoreRequest, appVersion: string): Request
     `- アプリ版: ${appVersion}`,
     '',
     who,
+    // M91-7: 機械可読マーカー(HTMLコメント=表示されない)。
+    // **非コラボレータが立てたIssueはラベルがGitHubに剥がされる**ため、KUEBIKO はラベルに加えて
+    // これで種別を判定する(外部貢献者の要望を取りこぼさないため)
+    `<!-- ${REQUEST_MARKER_PREFIX}${req.kind} -->`,
   ].join('\n');
   return {
     title: req.title,

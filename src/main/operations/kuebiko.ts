@@ -26,25 +26,29 @@ export interface RequestItem {
   scope: 'core' | 'renderer';
 }
 
-/** 要望ラベルの付いたIssueだけを拾う(PRは対象外。要望はIssueで来る) */
+/**
+ * 要望のIssueを拾い、種別を判定する(PRは対象外。要望はIssueで来る)。
+ *
+ * 種別は **ラベル または 本文の機械マーカー** で見る。理由: GitHubは非コラボレータが立てた
+ * Issueのラベルを剥がすので、外部貢献者の要望はラベルが付かない。アプリが本文に残す
+ * `<!-- amateras-request:ui -->` マーカーを主判定にすることで、外部の要望も取りこぼさない
+ */
+function requestKind(i: GithubIssueSummary): 'core' | 'renderer' | null {
+  const core = i.labels.includes('request:core') || /amateras-request:\s*core/i.test(i.body);
+  const ui = i.labels.includes('request:ui') || /amateras-request:\s*ui/i.test(i.body);
+  // 両方該当したら重い方(core)に寄せる。過小評価より過大評価のほうが安全
+  if (core) return 'core';
+  if (ui) return 'renderer';
+  return null;
+}
+
 export function selectRequests(repo: string, items: GithubIssueSummary[]): RequestItem[] {
   return items
     .filter((i) => i.kind === 'issue')
     .flatMap((i) => {
-      const core = i.labels.includes('request:core');
-      const ui = i.labels.includes('request:ui');
-      if (!core && !ui) return [];
-      return [
-        {
-          repo,
-          number: i.number,
-          title: i.title,
-          body: i.body,
-          author: i.author,
-          // 両方付いていたら重い方(core)に寄せる。過小評価より過大評価のほうが安全
-          scope: core ? ('core' as const) : ('renderer' as const),
-        },
-      ];
+      const scope = requestKind(i);
+      if (scope === null) return [];
+      return [{ repo, number: i.number, title: i.title, body: i.body, author: i.author, scope }];
     });
 }
 
