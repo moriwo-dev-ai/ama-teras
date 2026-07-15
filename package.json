@@ -1,6 +1,6 @@
 {
   "name": "amateras",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "自己進化型デスクトップAIエージェント AMA-teras",
   "license": "AGPL-3.0-only",
   "main": "out/main/index.js",
