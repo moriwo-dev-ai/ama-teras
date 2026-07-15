@@ -222,6 +222,34 @@ export function toolsForGeneration(full: { list(): ToolPlugin[]; get(name: strin
 }
 
 /**
+ * M92-①(実測後): 開発版(AgentJobRunner)専用の allowlist。
+ * 配布版と違い npm があるので、生成エージェントは bash で typecheck/vitest を自己検証でき、
+ * それが速さの源(実測で確認)。よって **bash だけは残す**。
+ * 一方で「将来の実行系ツール」「生成済みプラグインの山(30個超)」は生成文脈に入れない=
+ * 組み込み6種ちょうどの allowlist に限定する(安全 + プロンプトの文脈圧迫の解消)。
+ */
+export const DEV_GENERATION_TOOL_ALLOWLIST = new Set([...GENERATION_TOOL_ALLOWLIST, 'bash']);
+
+/** 開発版で生成文脈に見せてよいか。組み込み6種(bash含む)だけ。新顔・生成済みツールは全落とし */
+export function isAllowedForGenerationDev(t: { name: string }): boolean {
+  return DEV_GENERATION_TOOL_ALLOWLIST.has(t.name);
+}
+
+/** 開発版・生成エージェントに見せる道具(bash込みの組み込みだけ)。ToolRegistry を構造的に満たす */
+export function toolsForGenerationDev(full: {
+  list(): ToolPlugin[];
+  get(name: string): ToolPlugin | undefined;
+}): { list(): ToolPlugin[]; get(name: string): ToolPlugin | undefined } {
+  return {
+    list: () => full.list().filter(isAllowedForGenerationDev),
+    get: (name: string) => {
+      const t = full.get(name);
+      return t !== undefined && isAllowedForGenerationDev(t) ? t : undefined;
+    },
+  };
+}
+
+/**
  * M92-A1: 手本(few-shot)の仕組み。Claude Code が速い一番の理由は「似た既存を読んで形を写す」こと。
  * 生成エージェントは既存を読めるが手渡しされていないので、依頼に最も近い既存プラグインを選び、
  * 本体+テストの全文を **真似る対象** としてプロンプトへ差し込む。
@@ -484,6 +512,9 @@ export class AgentJobRunner implements EvolutionJobRunner {
       join(this.pluginCacheBase, String(Date.now())),
     );
     await registry.reload();
+    // M92-①: 生成エージェントに見せる/実行させる道具は組み込み6種(bash込み)だけに絞る。
+    // 手本(exemplar)選びには full registry を使う(実在プラグインから最も近い手本を選ぶため)。
+    const genRegistry = toolsForGenerationDev(registry);
     // 進化ジョブ内のツール実行は全自動承認(昇格時に人間の承認が入るため)
     const broker = new ApprovalBroker(() => {});
 
@@ -529,11 +560,11 @@ export class AgentJobRunner implements EvolutionJobRunner {
     const status = await runAgentLoop(
       {
         provider: this.createProvider(),
-        tools: registry,
+        tools: genRegistry,
         executeTool: (name, input, ctx) =>
           executeToolWithApproval(
             {
-              registry,
+              registry: genRegistry,
               broker,
               getAutoApprove: () => ({ safe: true, write: true, exec: true }),
             },

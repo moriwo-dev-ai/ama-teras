@@ -8,11 +8,13 @@ import {
   buildExemplarSection,
   chooseExemplarName,
   DEFAULT_EXEMPLARS,
+  DEV_GENERATION_TOOL_ALLOWLIST,
   EXCLUDED_FROM_TOOL_GEN,
   extractMetaJson,
   GENERATION_TOOL_ALLOWLIST,
   isAllowedForGeneration,
   toolsForGeneration,
+  toolsForGenerationDev,
 } from './job';
 
 /**
@@ -68,6 +70,49 @@ describe('toolsForGeneration(allowlist+能力フィルタ)', () => {
   it('除外リストは allowlist を広げても効く多層防御(bashは常にNG)', () => {
     expect(EXCLUDED_FROM_TOOL_GEN.has('bash')).toBe(true);
     expect(isAllowedForGeneration({ name: 'bash', risk: 'safe' })).toBe(false);
+  });
+});
+
+describe('M92-① 開発版の能力フィルタ(toolsForGenerationDev)', () => {
+  const full = {
+    list: () => [
+      tool('read_file'),
+      tool('write_file'),
+      tool('edit_file'),
+      tool('list_dir'),
+      tool('grep'),
+      tool('bash', 'exec'),
+      // 生成済みプラグインの山 / 将来の実行系ツール
+      tool('slugify'),
+      tool('svg_bar_chart'),
+      tool('run_shell', 'exec'),
+      tool('request_capability'),
+    ],
+    get: (n: string) => full.list().find((t) => t.name === n),
+  };
+
+  it('組み込み6種(bash含む)だけ見せ、生成済み/新顔/入れ子進化系は全部落とす', () => {
+    expect(toolsForGenerationDev(full).list().map((t) => t.name)).toEqual([
+      'read_file', 'write_file', 'edit_file', 'list_dir', 'grep', 'bash',
+    ]);
+  });
+
+  it('bash は残す(開発版の自己検証が速さの源)— 配布版とは非対称', () => {
+    expect(toolsForGenerationDev(full).get('bash')?.name).toBe('bash');
+    // 配布版フィルタでは同じ bash が落ちる(非対称の確認)
+    expect(toolsForGeneration(full).get('bash')).toBeUndefined();
+  });
+
+  it('生成済みツール(slugify等)と新顔の実行系(run_shell)は名指しでも渡さない', () => {
+    expect(toolsForGenerationDev(full).get('slugify')).toBeUndefined();
+    expect(toolsForGenerationDev(full).get('run_shell')).toBeUndefined();
+    expect(toolsForGenerationDev(full).get('request_capability')).toBeUndefined();
+  });
+
+  it('DEV allowlist は配布版allowlist + bash ちょうど', () => {
+    expect([...DEV_GENERATION_TOOL_ALLOWLIST].sort()).toEqual(
+      [...GENERATION_TOOL_ALLOWLIST, 'bash'].sort(),
+    );
   });
 });
 
