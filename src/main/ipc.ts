@@ -29,6 +29,7 @@ import { readProjectMemory, readProjectPlan, readUserMemory, writeProjectMemory,
 import { AgentJobRunner, LocalToolJobRunner } from './evolution/job';
 import { LocalToolEvolution } from './evolution/local';
 import { EvolutionManager } from './evolution/manager';
+import { GenerationMetrics } from './evolution/metrics';
 import { listEvolvedCapabilities, listEvolveTags, rollbackLastEvolve } from './evolution/promote';
 import { readAndClearPendingQueue, writePendingQueue } from './evolution/pendingQueue';
 import { clearSentinel, writeSentinel } from './evolution/sentinel';
@@ -444,6 +445,8 @@ export async function registerIpcHandlers(
       },
     },
     createEvolution: (hooks) => {
+      // M92-Phase0: 生成の計測(成功率・試行回数・所要時間・失敗内訳)。開発版・配布版どちらも記録する
+      const genMetrics = new GenerationMetrics(join(app.getPath('userData'), 'evolution', 'metrics.jsonl'));
       // M91: 配布版は git・ソースツリー・devDeps を持たないが、**ツールは作れる**。
       // プラグインはコアから切り離された葉っぱなので、検証もプラグイン単位に閉じられる
       // (型検査・テスト実行・スモーク・静的検査 — tools/verify.ts)。
@@ -469,6 +472,7 @@ export async function registerIpcHandlers(
           reloadPlugins: () => registry.reload(),
           existingToolNames: () => registry.list().map((t) => t.name),
           onEvent: hooks.onEvent,
+          metrics: genMetrics,
         });
         void local.restore();
         return local;
@@ -501,6 +505,8 @@ export async function registerIpcHandlers(
         reloadPlugins: () => registry.reload(),
         // M25-8: 新規作成時の既存ツール名衝突チェック/既存修正時の実在確認に使う
         existingToolNames: () => registry.list().map((t) => t.name),
+        // M92-Phase0: 生成の計測(開発版)
+        metrics: genMetrics,
         healthCheck: (toolName, smokeInput) =>
           healthCheckAfterPromotion(repoDir, toolName, smokeInput),
         // M20: renderer/core 昇格後の再ビルド+フルアプリ健全性(失敗時はmanagerが自動revert)
