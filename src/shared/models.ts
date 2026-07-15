@@ -149,7 +149,7 @@ export const DEFAULT_REQUESTS_REPO_URL = 'https://github.com/moriwo-dev-ai/ama-t
  * 使わない。空文字のあいだは「GitHubと接続」ボタンは使えず、トークン貼り付けにフォールバックする。
  * オーナーが OAuth App(Device Flow 有効)を作って、この値か設定の githubClientId に入れると有効化される
  */
-export const DEFAULT_GITHUB_CLIENT_ID = '';
+export const DEFAULT_GITHUB_CLIENT_ID = 'Ov23li0Bgj6yOcZcXn9N';
 
 /** 公開・要望に必要な最小スコープ(公開リポジトリへの fork/PR/Issue) */
 export const GITHUB_OAUTH_SCOPE = 'public_repo';
