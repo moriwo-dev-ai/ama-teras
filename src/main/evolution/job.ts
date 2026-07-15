@@ -361,7 +361,8 @@ export class LocalToolJobRunner implements EvolutionJobRunner {
               taskText +
               exemplar +
               (feedback
-                ? `\n\n【作り直し】前回の生成物は検証ゲートに不合格だった。既存ファイルを修正して直せ:\n${feedback}`
+                ? `\n\n【作り直し・最小差分で】前回の生成物は検証ゲートに不合格だった。**全文を書き直すな**。` +
+                  `read_file で現状を確認し、edit_file で**指摘された箇所だけ**を直せ(通っている部分は触るな):\n${feedback}`
                 : ''),
           },
         ],
@@ -472,7 +473,8 @@ export class AgentJobRunner implements EvolutionJobRunner {
               taskText +
               exemplar +
               (feedback
-                ? `\n\n【再生成】前回の生成物は検証ゲートに不合格だった。既存ファイルを修正して直せ:\n${feedback}`
+                ? `\n\n【再生成・最小差分で】前回の生成物は検証ゲートに不合格だった。**全文を書き直すな**。` +
+                  `まず read_file で現状を確認し、edit_file で**指摘された箇所だけ**を直せ(通っている部分は触るな):\n${feedback}`
                 : ''),
           },
         ],

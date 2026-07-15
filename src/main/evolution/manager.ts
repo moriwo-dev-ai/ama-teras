@@ -10,6 +10,7 @@ import {
   type GateOptions,
   type GatesOutcome,
 } from './gates';
+import { GenerationBudget } from './budget';
 import { runGit } from './git';
 import type { EvolutionJobRunner, EvolutionRequest } from './job';
 import { JobStore } from './jobStore';
@@ -59,6 +60,21 @@ export interface EvolutionManagerDeps {
   /** テスト用注入 */
   runGatesFn?: (opts: GateOptions) => Promise<GatesOutcome>;
   runCommand?: CommandRunner;
+  /**
+   * M92-A2: 生成→ゲートの最大試行回数(既定 4。以前は 2 固定)。Claude Code のように
+   * 「失敗→フィードバックで直す」を厚くするほど成功率が上がる。予算(budget)で総量は守る。
+   */
+  maxGenerationAttempts?: number;
+  /**
+   * M92-追加: 生成の予算ガード(累積キャップ2層)。未注入なら無制限(従来どおり)。
+   * 各試行の前に check し、超過ならジョブを打ち切る。試行後に概算トークンを record する。
+   */
+  budget?: GenerationBudget;
+  /**
+   * 1試行あたりの概算トークン(予算計上に使う。実測を配線するまでの安全側の見積り。既定 8000)。
+   * これにより「リトライを厚くしても総量は budget で頭打ち」が成立する。
+   */
+  estimateAttemptTokens?: number;
 }
 
 /** 進化ジョブのライフサイクル管理。ジョブは直列実行(worktree衝突と検証混線の回避) */
@@ -265,17 +281,34 @@ export class EvolutionManager {
       this.log(job, `B環境を作成: ${worktree.dir}(scope: ${scope})`);
       if (ac.signal.aborted) throw new Error('cancelled');
 
-      // 生成→ゲートを最大2回試行。1回目のゲート不合格は失敗内容をフィードバックして再生成する
+      // M92-A2: 生成→ゲートを最大 maxAttempts 回試行(既定4)。ゲート不合格は失敗内容を
+      // フィードバックして再生成する。総トークンは M92-追加の予算(budget)で頭打ちにする。
+      const maxAttempts = this.deps.maxGenerationAttempts ?? 4;
+      const estimateAttemptTokens = this.deps.estimateAttemptTokens ?? 8000;
       let artifacts: Awaited<ReturnType<EvolutionJobRunner['generate']>> | null = null;
       let gatesOk = false;
       let feedback: string | undefined;
+      let budgetStop: string | null = null;
+      let jobSpent = 0;
       const generate = (): ReturnType<EvolutionJobRunner['generate']> =>
         this.deps.runner.generate(req, worktree!.dir, (line) => this.log(job, line), ac.signal, feedback);
 
-      for (let attempt = 1; attempt <= 2 && !gatesOk; attempt++) {
+      for (let attempt = 1; attempt <= maxAttempts && !gatesOk; attempt++) {
         if (ac.signal.aborted) throw new Error('cancelled');
+        // M92-追加: 予算チェック(累積キャップ2層)。超過なら試行に入らず打ち切る
+        if (this.deps.budget) {
+          const verdict = this.deps.budget.check(jobSpent, estimateAttemptTokens);
+          if (!verdict.ok) {
+            budgetStop = verdict.reason ?? '予算上限に達した';
+            this.log(job, `予算上限: ${budgetStop}`);
+            break;
+          }
+        }
         this.update(job, { status: 'generating' });
         if (attempt > 1) this.log(job, 'ゲート不合格のため、フィードバック付きで再生成する');
+        // この試行のトークンを予算へ計上(概算。実測配線までの安全側)
+        this.deps.budget?.record(estimateAttemptTokens);
+        jobSpent += estimateAttemptTokens;
         try {
           artifacts = await generate();
         } catch (err) {
@@ -351,7 +384,10 @@ export class EvolutionManager {
       }
       if (ac.signal.aborted) throw new Error('cancelled');
       if (!gatesOk || !artifacts) {
-        this.update(job, { status: 'failed', error: '検証ゲート不合格(再生成でも解消せず)' });
+        this.update(job, {
+          status: 'failed',
+          error: budgetStop ?? '検証ゲート不合格(再生成でも解消せず)',
+        });
         return;
       }
 

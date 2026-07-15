@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { EvolutionEvent } from '../../shared/types';
+import { GenerationBudget } from './budget';
 import { runGit } from './git';
 import type { EvolutionJobRunner, JobArtifacts } from './job';
 import { detectDangerWarnings, EvolutionManager, type EvolutionManagerDeps } from './manager';
@@ -67,6 +68,10 @@ interface Overrides {
   healthy?: boolean;
   runCommand?: EvolutionManagerDeps['runCommand'];
   existingToolNames?: EvolutionManagerDeps['existingToolNames'];
+  // M92-A2: 本番既定は4だが、テストは歴史的に「2回で失敗」を前提にしているので既定2に固定する
+  maxGenerationAttempts?: number;
+  budget?: EvolutionManagerDeps['budget'];
+  estimateAttemptTokens?: number;
 }
 
 function makeManager(o: Overrides = {}): {
@@ -94,6 +99,10 @@ function makeManager(o: Overrides = {}): {
     // typecheck/vitest/smoke は既定で全成功扱い(差分検査だけ実gitで検証する)
     runCommand: o.runCommand ?? (async () => ({ code: 0, output: 'ok' })),
     ...(o.existingToolNames !== undefined ? { existingToolNames: o.existingToolNames } : {}),
+    // M92-A2: テスト既定は2(従来の「2回で failed」前提を保つ)。本番既定は4
+    maxGenerationAttempts: o.maxGenerationAttempts ?? 2,
+    ...(o.budget !== undefined ? { budget: o.budget } : {}),
+    ...(o.estimateAttemptTokens !== undefined ? { estimateAttemptTokens: o.estimateAttemptTokens } : {}),
   };
   return { manager: new EvolutionManager(deps), events, reloads };
 }
@@ -279,6 +288,39 @@ describe('再生成・リトライ', { timeout: 30_000 }, () => {
     const status = await waitForTerminal(events);
     expect(status).toBe('done');
     expect(calls).toBe(2);
+  });
+});
+
+describe('M92-A2/予算: 反復を厚く・累積キャップ', { timeout: 30_000 }, () => {
+  it('A2: 2回を超えて粘れる(3回目のゲート合格で昇格する)', async () => {
+    let vitestCalls = 0;
+    const { manager, events } = makeManager({
+      maxGenerationAttempts: 3,
+      // vitest は最初の2回落ち、3回目で通る(以前の2回上限では failed になっていたケース)
+      runCommand: async (command) => {
+        if (command.includes('vitest')) {
+          vitestCalls += 1;
+          return vitestCalls < 3 ? { code: 1, output: 'テスト失敗' } : { code: 0, output: 'ok' };
+        }
+        return { code: 0, output: 'ok' };
+      },
+    });
+    await manager.enqueue({ description: 'x', expectedIO: 'x' });
+    expect(await waitForTerminal(events)).toBe('done');
+    expect(vitestCalls).toBe(3);
+  });
+
+  it('予算: セッション上限に達したら生成に入る前に打ち切る(Fable 5 枠の保護)', async () => {
+    const budget = new GenerationBudget({ sessionTokens: 5_000 });
+    budget.record(5_000); // 別ジョブで既に使い切っている想定
+    const { manager, events } = makeManager({ budget, estimateAttemptTokens: 4_000 });
+    await manager.enqueue({ description: 'x', expectedIO: 'x' });
+    expect(await waitForTerminal(events)).toBe('failed');
+    const lastJob = events
+      .filter((e): e is Extract<EvolutionEvent, { kind: 'job_update' }> => e.kind === 'job_update')
+      .map((e) => e.job)
+      .at(-1);
+    expect(lastJob?.error).toContain('トークン上限');
   });
 });
 
