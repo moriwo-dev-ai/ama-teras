@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { AppConfig, GodClockJob, ModelBand, OperationsConfig } from '../../../../shared/types';
-import { DEFAULT_REGISTRY_URL, KNOWN_MODELS } from '../../../../shared/models';
+import { DEFAULT_GITHUB_CLIENT_ID, DEFAULT_REGISTRY_URL, KNOWN_MODELS } from '../../../../shared/models';
 import { estimateOpsCost } from '../../../../shared/opsCost';
 import { useOperationsStore } from '../../stores/operations';
 import { useTsukuyomiStore } from '../../stores/tsukuyomi';
@@ -711,7 +711,9 @@ function RegistryPublishSection({
   };
   useEffect(refresh, []);
 
-  const clientId = (config.githubClientId ?? '').trim();
+  // 設定の上書きが無ければ、同梱の既定 Client ID(焼き込み済み)を使う。
+  // これが無いと、新規インストール(設定が空)で「GitHubと接続」が押せない
+  const clientId = (config.githubClientId ?? '').trim() || DEFAULT_GITHUB_CLIENT_ID;
 
   const connect = (): void => {
     setConnecting(true);
