@@ -24,6 +24,21 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 
+/* iOS: 編集可能なテキスト欄は16px以上にしてフォーカス時の自動ズームを防ぐ。
+   ズームが起きないので、ズーム禁止に依存した端末でもキーボードが確実に上がる。
+   select/checkbox/radio/file は自動ズーム対象外なので触らない(小さいUIの見た目を保つ)。 */
+textarea,
+input:not([type]),
+input[type='text'],
+input[type='search'],
+input[type='password'],
+input[type='email'],
+input[type='url'],
+input[type='number'],
+input[type='tel'] {
+  font-size: 16px;
+}
+
 .app { display: flex; flex-direction: column; height: 100%; height: 100dvh; }
 
 .topbar {
@@ -98,6 +113,8 @@ body {
   flex: 1; resize: none; border-radius: 10px; border: 1px solid var(--border);
   background: var(--bg); color: var(--text); padding: 8px 10px; font: inherit;
   max-height: 120px; min-height: 40px;
+  /* iOS: 16px未満だとフォーカス時に自動ズーム→ズーム禁止時にキーボードが上がらない要因になる */
+  font-size: 16px;
 }
 .composer .send, .composer .cancel {
   border: none; border-radius: 10px; padding: 10px 14px; font-size: 14px; color: #fff;

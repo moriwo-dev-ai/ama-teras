@@ -251,6 +251,12 @@ export function ChatView({ api }: { api: RemoteApi }): JSX.Element {
           value={text}
           placeholder="指示を入力…"
           rows={1}
+          // iOS: 明示すると編集フィールドとして確実にキーボードが上がる
+          inputMode="text"
+          enterKeyHint="send"
+          autoCapitalize="sentences"
+          autoCorrect="on"
+          spellCheck
           onChange={(e) => setText(e.target.value)}
         />
         {running ? (
