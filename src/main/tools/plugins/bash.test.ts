@@ -12,11 +12,20 @@ describe('isRestrictedCommandAllowed(進化ジョブのexec制限・指摘#4)', 
       'npm run typecheck',
       'npm run test',
       'npx vitest run src/main/tools/plugins/foo.test.ts',
-      'npx vitest run',
       'npx tsc --noEmit',
     ]) {
       expect(isRestrictedCommandAllowed(c), c).toBe(true);
     }
+  });
+
+  it('M92: vitest はパス1つ必須(引数なし=全スイート・複数ファイルは拒否=過剰探索対策)', () => {
+    // 自明ツールの生成中に全スイートや多数ファイルを回すのが実測 #33 の最大の無駄だった
+    expect(isRestrictedCommandAllowed('npx vitest run')).toBe(false); // 引数なし=全スイート実行
+    expect(
+      isRestrictedCommandAllowed('npx vitest run src/a.test.ts src/b.test.ts'),
+    ).toBe(false); // 複数ファイル
+    // 自分の1本だけは通る
+    expect(isRestrictedCommandAllowed('npx vitest run src/main/tools/plugins/foo.test.ts')).toBe(true);
   });
 
   it('保護領域・A環境・任意パスへ書き込む/情報を持ち出す攻撃コマンドを拒否する', () => {
