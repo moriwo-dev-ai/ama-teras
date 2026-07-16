@@ -7,10 +7,12 @@ import type { AdapterRuntime } from '../protocol';
  */
 
 /** 注入可能なfetch。M35-4: 書き込み系(Bluesky)のためinit(POST)も受けられる形に拡張
- *  (読み取り専用の実装・モックはinitを無視してよい=後方互換) */
+ *  (読み取り専用の実装・モックはinitを無視してよい=後方互換)
+ *  M-blob: 画像アップロード(uploadBlob)は生バイト列をbodyに渡すため、bodyはstringに加え
+ *  Uint8Array(Bufferもこれのサブ型)も受け取れるよう拡張した */
 export type FetchLike = (
   url: string,
-  init?: { method?: string; headers?: Record<string, string>; body?: string },
+  init?: { method?: string; headers?: Record<string, string>; body?: string | Uint8Array },
 ) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
 export class ZennReader {
