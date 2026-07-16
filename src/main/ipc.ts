@@ -1122,14 +1122,23 @@ export async function registerIpcHandlers(
 
   ipcMain.handle(
     IpcChannels.evolutionEnqueue,
-    (_e, description: unknown, expectedIo: unknown, scope: unknown) => {
+    (_e, description: unknown, expectedIo: unknown, scope: unknown, auto: unknown) => {
       assertString(description, 'description');
       assertString(expectedIo, 'expectedIo');
       // M20: scope 省略=tool(後方互換)。不正値は拒否
       if (scope !== undefined && scope !== 'tool' && scope !== 'renderer' && scope !== 'core') {
         throw new Error('IPC payload scope が不正');
       }
-      return service.evolutionEnqueue(description, expectedIo, scope);
+      // M92-A6-2: auto=true は夜間自動昇格(scope=tool のときのみ manager 側で有効化)
+      if (auto !== undefined && typeof auto !== 'boolean') {
+        throw new Error('IPC payload auto が不正');
+      }
+      return service.evolutionEnqueue(
+        description,
+        expectedIo,
+        scope,
+        auto === true ? { auto: true } : undefined,
+      );
     },
   );
 

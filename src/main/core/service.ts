@@ -2418,9 +2418,16 @@ export class AgentService {
     description: string,
     expectedIO: string,
     scope?: EvolutionScope,
+    // M92-A6-2: 夜間自動昇格(承認スキップ・専用ブランチへ積む)。手動/テスト経路からも起票できるように
+    opts?: { auto?: boolean; autoBranch?: string },
   ): Promise<{ jobId: number }> {
     return {
-      jobId: await this.evolution.enqueue({ description, expectedIO, ...(scope !== undefined ? { scope } : {}) }),
+      jobId: await this.evolution.enqueue({
+        description,
+        expectedIO,
+        ...(scope !== undefined ? { scope } : {}),
+        ...(opts?.auto === true ? { auto: true, autoBranch: opts.autoBranch ?? 'evolve/nightly' } : {}),
+      }),
     };
   }
 

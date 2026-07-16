@@ -295,7 +295,13 @@ export interface AmaterasApi {
   onEvolutionEvent(listener: (event: EvolutionEvent) => void): () => void;
   evolutionPromoteRespond(jobId: number, approved: boolean): Promise<void>;
   /** 手動で進化ジョブを起動(デバッグ・検証用) */
-  evolutionEnqueue(description: string, expectedIo: string, scope?: EvolutionScope): Promise<{ jobId: number }>;
+  evolutionEnqueue(
+    description: string,
+    expectedIo: string,
+    scope?: EvolutionScope,
+    /** M92-A6-2: 夜間自動昇格(承認スキップ・専用ブランチ evolve/nightly へ積む。scope=tool 限定) */
+    auto?: boolean,
+  ): Promise<{ jobId: number }>;
   evolutionList(): Promise<EvolutionJobSummary[]>;
   /** M26-6: ジョブのキャンセル。ok=false は対象外の状態(昇格待ち以降・完了済み等) */
   evolutionCancel(jobId: number): Promise<{ ok: boolean }>;

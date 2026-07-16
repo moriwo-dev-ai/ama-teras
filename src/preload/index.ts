@@ -48,8 +48,8 @@ const api: AmaterasApi = {
   onEvolutionEvent: (listener) => subscribe<EvolutionEvent>(IpcChannels.evolutionEvent, listener),
   evolutionPromoteRespond: (jobId, approved) =>
     ipcRenderer.invoke(IpcChannels.evolutionPromoteRespond, jobId, approved),
-  evolutionEnqueue: (description, expectedIo, scope) =>
-    ipcRenderer.invoke(IpcChannels.evolutionEnqueue, description, expectedIo, scope),
+  evolutionEnqueue: (description, expectedIo, scope, auto) =>
+    ipcRenderer.invoke(IpcChannels.evolutionEnqueue, description, expectedIo, scope, auto),
   evolutionList: () => ipcRenderer.invoke(IpcChannels.evolutionList),
   evolutionCancel: (jobId) => ipcRenderer.invoke(IpcChannels.evolutionCancel, jobId),
   pluginsExport: (toolName) => ipcRenderer.invoke(IpcChannels.pluginsExport, toolName),
