@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import type { AdapterRuntime } from '../protocol';
 import type { FetchLike } from './zenn';
 
@@ -142,6 +143,27 @@ export function makeTokenProvider(
   };
 }
 
+/** M-blob: Blueskyのblob上限(バイト)。超えるとuploadBlobがサーバ側で拒否されるため事前に弾く */
+const MAX_BLOB_BYTES = 1_000_000;
+
+/** 拡張子→MIMEタイプ。画像/GIF添付はこの一覧のみ対応(それ以外は明示的にエラー) */
+function mimeTypeForMedia(path: string): string {
+  const ext = path.slice(path.lastIndexOf('.')).toLowerCase();
+  switch (ext) {
+    case '.gif':
+      return 'image/gif';
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.webp':
+      return 'image/webp';
+    default:
+      throw new Error(`unsupported media type: 拡張子 '${ext}' はBluesky添付に未対応(gif/png/jpg/jpeg/webpのみ)`);
+  }
+}
+
 /**
  * AT Protocol の書き込みクライアント。呼び出しは岩戸ゲートの executor からのみ
  * (= 人間の承認後)。セッションは実行ごとに作る(頻度が低いためキャッシュ不要)。
@@ -181,13 +203,44 @@ export class BlueskyWriter {
     return String(data['uri'] ?? '');
   }
 
-  async post(text: string): Promise<string> {
+  /** 画像/GIFをBlueskyのblobストアへアップロードし、応答の blob フィールドを返す */
+  async uploadBlob(session: { accessJwt: string }, bytes: Uint8Array, mimeType: string): Promise<unknown> {
+    const res = await this.fetchImpl(`${PDS}/xrpc/com.atproto.repo.uploadBlob`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${session.accessJwt}`,
+        'content-type': mimeType,
+      },
+      body: bytes,
+    });
+    if (!res.ok) throw new Error(`Bluesky画像アップロード失敗(HTTP ${res.status})`);
+    const data = (await res.json()) as Record<string, unknown>;
+    return data['blob'];
+  }
+
+  async post(text: string, mediaPath?: string, mediaAlt?: string): Promise<string> {
     const session = await this.login();
-    const uri = await this.createRecord(session, 'app.bsky.feed.post', {
+    const record: Record<string, unknown> = {
       $type: 'app.bsky.feed.post',
       text: text.slice(0, 300),
       createdAt: new Date().toISOString(),
-    });
+    };
+    if (mediaPath !== undefined) {
+      // 拡張子チェックはファイル読み込み前に行う(未対応拡張子で不要なI/Oをしない)
+      const mimeType = mimeTypeForMedia(mediaPath);
+      const bytes = await readFile(mediaPath);
+      if (bytes.byteLength > MAX_BLOB_BYTES) {
+        throw new Error(
+          `画像サイズ(${bytes.byteLength}バイト)がBluesky blob上限(${MAX_BLOB_BYTES}バイト)を超過している`,
+        );
+      }
+      const blob = await this.uploadBlob(session, bytes, mimeType);
+      record['embed'] = {
+        $type: 'app.bsky.embed.images',
+        images: [{ image: blob, alt: mediaAlt ?? '' }],
+      };
+    }
+    const uri = await this.createRecord(session, 'app.bsky.feed.post', record);
     return `投稿した: ${uri}`;
   }
 
@@ -256,7 +309,15 @@ export function createBlueskyAdapter(
     compliance:
       'AT Protocol(app password認証)。投稿・フォロー・返信は承認後のみ。プロフィールに「一部運用を自動化(承認制)」の開示を推奨',
     executor: async (action, params) => {
-      if (action === 'post') return writer.post(String(params['text'] ?? ''));
+      if (action === 'post') {
+        const mediaPath = params['mediaPath'];
+        const mediaAlt = params['mediaAlt'];
+        return writer.post(
+          String(params['text'] ?? ''),
+          typeof mediaPath === 'string' ? mediaPath : undefined,
+          typeof mediaAlt === 'string' ? mediaAlt : undefined,
+        );
+      }
       if (action === 'follow') return writer.follow(String(params['handle'] ?? ''));
       if (action === 'reply') return writer.reply(String(params['text'] ?? ''), String(params['parentUri'] ?? ''));
       throw new Error(`未知のアクション: ${action}`);
