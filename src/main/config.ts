@@ -333,6 +333,10 @@ export class ConfigStore {
         merged.provider = rec['provider'];
       }
       if (typeof rec['model'] === 'string') merged.model = rec['model'];
+      // M92-A5-a: 生成専用モデル(空文字・非文字列は未設定=本体と同じ)
+      if (typeof rec['generationModel'] === 'string' && rec['generationModel'].trim() !== '') {
+        merged.generationModel = rec['generationModel'].trim();
+      }
       // M27-1: 無料APIモード(不正値は未設定として扱う)
       const preset = parseProviderPreset(rec['providerPreset']);
       if (preset !== undefined) merged.providerPreset = preset;
@@ -431,6 +435,12 @@ export class ConfigStore {
     // M11-4: 空文字は「無効化」= 未設定に正規化する
     if (clone.postEditHook !== undefined && clone.postEditHook.trim() === '') {
       delete clone.postEditHook;
+    }
+    // M92-A5-a: 生成専用モデルの空欄=本体と同じ(未設定へ正規化)
+    if (clone.generationModel !== undefined && clone.generationModel.trim() === '') {
+      delete clone.generationModel;
+    } else if (clone.generationModel !== undefined) {
+      clone.generationModel = clone.generationModel.trim();
     }
     // M27-1: 不正なプリセットIDは未設定へ正規化(IPC経由の範囲外値を防ぐ)
     if (clone.providerPreset !== undefined && parseProviderPreset(clone.providerPreset) === undefined) {

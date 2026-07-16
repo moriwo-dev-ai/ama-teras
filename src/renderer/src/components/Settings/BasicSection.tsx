@@ -310,6 +310,34 @@ export function BasicSection({
           )}
       </div>
 
+      {/* M92-A5-a: 自己進化のツール生成だけに使うモデル。空欄=本体と同じ */}
+      <div className="space-y-1">
+        <label className="text-xs text-zinc-400">生成専用モデル(自己進化のツール生成用)</label>
+        {(() => {
+          const gm = (config.generationModel ?? '').trim();
+          const known = KNOWN_MODELS[config.provider];
+          const inList = gm === '' || known.some((m) => m.id === gm);
+          return (
+            <select
+              className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5"
+              value={gm}
+              onChange={(e) => void updateConfig({ generationModel: e.target.value })}
+            >
+              <option value="">本体と同じ(既定)</option>
+              {known.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+              {!inList && <option value={gm}>{gm}(現在の指定)</option>}
+            </select>
+          );
+        })()}
+        <p className="text-[11px] text-zinc-500">
+          難しいツールの生成成功率を上げたいとき、生成だけ強いモデルに寄せられる(同じ接続・キーのまま)。空欄=本体モデル。
+        </p>
+      </div>
+
       <div className="space-y-1">
         <label className="text-xs text-zinc-400">
           APIキー{preset !== undefined ? `(${keySlot} 用)` : ''}{' '}

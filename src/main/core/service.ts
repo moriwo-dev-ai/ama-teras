@@ -741,9 +741,11 @@ export class AgentService {
     };
   }
 
-  createProvider(): LLMProvider | string {
+  createProvider(modelOverride?: string): LLMProvider | string {
     if (this.deps.providerFactory) return this.deps.providerFactory();
     const cfg = this.deps.config.get();
+    // M92-A5-a: 指定があればモデルだけ差し替える(provider/キー/baseURLは本体設定のまま)
+    const om = (modelOverride ?? '').trim();
     if (cfg.provider === 'openai') {
       // M27-1: プリセット(無料APIモード)= OpenAI互換エンドポイント+専用キースロット
       const preset = cfg.providerPreset !== undefined ? PROVIDER_PRESETS[cfg.providerPreset] : undefined;
@@ -752,7 +754,7 @@ export class AgentService {
         // localhost系はキー不要(OpenAI SDKがキー文字列を要求するためダミーを渡す)
         const baseUrl = (cfg.customBaseUrl ?? '').trim();
         if (baseUrl === '') return 'カスタム接続先(baseURL)が未設定(設定→基本の「カスタム接続」)';
-        const model = cfg.model.trim();
+        const model = om || cfg.model.trim();
         if (model === '') return 'カスタムのモデルIDが未設定(設定→基本。例: llama3.3)';
         const key = this.deps.secrets.get('custom') ?? (isLocalBaseUrl(baseUrl) ? 'no-key-local' : null);
         if (key === null) {
@@ -763,17 +765,17 @@ export class AgentService {
       if (preset !== undefined) {
         const key = this.deps.secrets.get(preset.id);
         if (!key) return `${preset.label.split('(')[0]} のAPIキーが未設定(設定画面の「無料で始める」から登録)`;
-        const model = cfg.model || preset.defaultModel;
+        const model = om || cfg.model || preset.defaultModel;
         return this.track(new OpenAIProvider(key, model, preset.baseUrl), 'openai', model, 'main');
       }
       const key = this.deps.secrets.get('openai');
       if (!key) return 'OpenAI APIキーが未設定(設定画面から登録)';
-      const model = cfg.model || DEFAULT_OPENAI_MODEL;
+      const model = om || cfg.model || DEFAULT_OPENAI_MODEL;
       return this.track(new OpenAIProvider(key, model), 'openai', model, 'main');
     }
     const key = this.deps.secrets.get('anthropic');
     if (!key) return 'Anthropic APIキーが未設定(設定画面から登録)';
-    const model = cfg.model || DEFAULT_ANTHROPIC_MODEL;
+    const model = om || cfg.model || DEFAULT_ANTHROPIC_MODEL;
     return this.track(new AnthropicProvider(key, model), 'anthropic', model, 'main');
   }
 
@@ -829,6 +831,17 @@ export class AgentService {
   /** 進化ジョブ(AgentJobRunner)用。キー未設定は例外にする */
   createProviderOrThrow(): LLMProvider {
     const provider = this.createProvider();
+    if (typeof provider === 'string') throw new Error(provider);
+    return provider;
+  }
+
+  /**
+   * M92-A5-a: ツール生成専用のプロバイダ。config.generationModel が空/未設定なら
+   * 本体モデルにフォールバック(=従来どおり)。設定時は同じ provider/キーでモデルだけ強い方へ。
+   */
+  createGenerationProviderOrThrow(): LLMProvider {
+    const gm = (this.deps.config.get().generationModel ?? '').trim();
+    const provider = this.createProvider(gm === '' ? undefined : gm);
     if (typeof provider === 'string') throw new Error(provider);
     return provider;
   }

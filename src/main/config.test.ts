@@ -103,6 +103,21 @@ describe('ConfigStore', () => {
     expect(new ConfigStore(file).get().maxTurns).toBe(200);
   });
 
+  // ---- M92-A5-a: generationModel ----
+
+  it('generationModel は既定で未設定、設定すると set/load を往復して永続化される', async () => {
+    const store = new ConfigStore(file);
+    expect(store.get().generationModel).toBeUndefined();
+    store.set({ ...store.get(), generationModel: 'claude-opus-4-8' });
+    // 別インスタンスで読み直しても残る(load 側のホワイトリストに配線済み)
+    expect(new ConfigStore(file).get().generationModel).toBe('claude-opus-4-8');
+    // 空欄=本体と同じ(未設定へ正規化)
+    const saved = store.set({ ...store.get(), generationModel: '  ' });
+    expect(saved.generationModel).toBeUndefined();
+    await writeFile(file, JSON.stringify({ generationModel: '' }));
+    expect(new ConfigStore(file).get().generationModel).toBeUndefined();
+  });
+
   // ---- M11-4: postEditHook ----
 
   it('postEditHook の既定は未設定(=無効)で、設定すると永続化される', () => {

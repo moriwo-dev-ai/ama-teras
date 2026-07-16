@@ -476,7 +476,8 @@ export async function registerIpcHandlers(
           stateFile: join(app.getPath('userData'), 'evolution', 'jobs.json'),
           runner: composeRunners(
             new LocalToolJobRunner(
-              () => service.createProviderOrThrow(),
+              // M92-A5-a: 生成専用モデル(設定時)。未設定なら本体モデル
+              () => service.createGenerationProviderOrThrow(),
               [getPluginsDir(), getUserPluginsDir()],
               getPluginCacheDir(),
             ),
@@ -512,7 +513,8 @@ export async function registerIpcHandlers(
         stateFile: join(app.getPath('userData'), 'evolution', 'jobs.json'),
         // M27-4: importFrom 付きの依頼はLLM生成の代わりにファイルコピー(以降のゲートは同一)
         runner: composeRunners(
-          new AgentJobRunner(() => service.createProviderOrThrow()),
+          // M92-A5-a: 生成専用モデル(設定時)。未設定なら本体モデル
+          new AgentJobRunner(() => service.createGenerationProviderOrThrow()),
           new ImportJobRunner(),
         ),
         requestPromotionApproval: hooks.requestPromotionApproval,

@@ -243,6 +243,11 @@ export interface AppConfig {
   /** 空文字ならプロバイダ既定モデル */
   model: string;
   /**
+   * M92-A5-a: 自己進化のツール生成だけに使うモデル(同じ provider/キーでモデルだけ差し替え)。
+   * 空/未設定なら本体モデル(model)を使う。難タスクの成功率を上げたいときに強モデルへ寄せる保険。
+   */
+  generationModel?: string;
+  /**
    * M27-1: 無料APIモードのプリセット(Gemini/Groq/OpenRouter)。provider='openai' の
    * ときだけ意味を持ち、OpenAI互換エンドポイント(baseURL差し替え)+専用キー
    * スロットで動く。未設定=従来どおり
