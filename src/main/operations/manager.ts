@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import type {
   AdapterStatusInfo,
   AppConfig,
@@ -1295,6 +1295,16 @@ ${d.body}`))
         }
         // Blueskyは規約上APIで投稿できる。300字以内のものだけ提案(超過は分割が必要=人間判断)
         if (this.blueskyExecAvailable && [...d.body].length <= 300) {
+          const mediaPathRaw = cfg.blueskyMediaPath ?? '';
+          const media =
+            mediaPathRaw.trim() === ''
+              ? null
+              : {
+                  path: isAbsolute(mediaPathRaw)
+                    ? mediaPathRaw
+                    : join(this.deps.getConfig().workspace ?? '', mediaPathRaw),
+                  alt: cfg.blueskyMediaAlt ?? d.title,
+                };
           items.push({
             ...base,
             id: randomUUID(),
@@ -1304,8 +1314,11 @@ ${d.body}`))
               adapterId: 'bluesky',
               actionName: 'post',
               target: `Bluesky 投稿「${d.title}」`,
-              preview: d.body,
-              params: { text: d.body, draftId: d.id },
+              preview: media === null ? d.body : `${d.body}\n\n添付: ${media.path}`,
+              params:
+                media === null
+                  ? { text: d.body, draftId: d.id }
+                  : { text: d.body, draftId: d.id, mediaPath: media.path, mediaAlt: media.alt },
             },
           });
         }

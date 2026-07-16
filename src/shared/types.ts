@@ -405,6 +405,10 @@ export interface OperationsConfig {
   godsBand?: ModelBand;
   /** M37: Zenn記事リポジトリ(zenn-content)のローカルパス。未設定=「Zenn記事化」は使えない */
   zennRepoDir?: string;
+  /** Bluesky投稿に添付する画像/GIFのパス(workspace相対 or 絶対)。未設定=添付なし */
+  blueskyMediaPath?: string;
+  /** 上記メディアのaltテキスト。未設定なら下書きのタイトルを使う */
+  blueskyMediaAlt?: string;
   /**
    * M41-3: 運営対象プロジェクトの自己紹介。神々のプロンプト(広報・記事・トリアージ・神議)へ
    * 差し込む。未設定なら観測対象リポジトリ名から推測する(一般ユーザーが自分のOSSで使える)

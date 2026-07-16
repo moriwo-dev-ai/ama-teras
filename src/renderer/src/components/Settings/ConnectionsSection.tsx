@@ -368,6 +368,31 @@ function OwnerModeSection({
               コミットは必ず published: false(非公開)。公開はZennの記事設定であなたが行う
             </p>
           </div>
+          {/* Bluesky投稿への添付メディア */}
+          <div>
+            <p className="mb-0.5 text-xs text-zinc-400">
+              Bluesky添付メディア(パス。workspace相対 or 絶対パス。設定するとBluesky投稿すべてに添付)
+            </p>
+            <input
+              className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono text-xs"
+              defaultValue={ops.blueskyMediaPath ?? ''}
+              placeholder="docs/demo.gif"
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                save({ ...ops, ...(v !== '' ? { blueskyMediaPath: v } : { blueskyMediaPath: undefined as never }) });
+              }}
+            />
+            <p className="mb-0.5 mt-1.5 text-xs text-zinc-400">同 altテキスト(未設定なら下書きタイトル)</p>
+            <input
+              className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono text-xs"
+              defaultValue={ops.blueskyMediaAlt ?? ''}
+              placeholder="デモGIF"
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                save({ ...ops, ...(v !== '' ? { blueskyMediaAlt: v } : { blueskyMediaAlt: undefined as never }) });
+              }}
+            />
+          </div>
           {/* M34-2: HN監視(読み取りのみ) */}
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-zinc-400">HNユーザー(karma・返信監視)</span>
