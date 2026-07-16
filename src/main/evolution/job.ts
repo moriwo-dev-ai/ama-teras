@@ -605,7 +605,10 @@ export class AgentJobRunner implements EvolutionJobRunner {
         },
         systemPrompt: scope === 'tool' ? JOB_SYSTEM_PROMPT : CORE_JOB_SYSTEM_PROMPT(scope, allowlist),
         cwd: worktreeDir,
-        maxTurns: scope === 'tool' ? 40 : 60,
+        // core/renderer は複数ファイル(main+shared+renderer+テスト)に跨るため 60 では物理的に
+        // 足りない(実測: #41 は正しい地図付きでも edit の照合やり直しで 60 を使い切った)。
+        // 総量の歯止めはターン数ではなく予算(GenerationBudget)が担う
+        maxTurns: scope === 'tool' ? 40 : 120,
       },
       `evolve-${Date.now()}`,
       history,
