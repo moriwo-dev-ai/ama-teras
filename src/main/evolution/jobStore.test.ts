@@ -95,3 +95,39 @@ describe('M52: 進化ジョブ履歴の永続化', () => {
     expect(JSON.parse(await readFile(file, 'utf8'))[0].id).toBe(9);
   });
 });
+
+/**
+ * 実害(2026-07-17): core昇格(#38)の再起動時、直列化されていない save が重なって
+ * jobs.json が「正しいJSONの後ろに残骸」の引き裂かれた状態になり、履歴38件が全部消えた。
+ */
+describe('引き裂かれたファイルからの回収とアトミック保存', () => {
+  it('正しいJSONの後ろに書き込み残骸が付いたファイルでも、履歴を回収できる', async () => {
+    const store = new JobStore(file);
+    await store.save([job({ id: 38, status: 'done' }), job({ id: 37, status: 'rejected' })]);
+    // 実際に起きた壊れ方を再現: 短い書き込みが長い旧内容を切詰めずに上書き → 末尾に残骸
+    const good = await readFile(file, 'utf8');
+    await writeFile(file, good + '\n }\n]', 'utf8');
+
+    const restored = await new JobStore(file).load();
+
+    expect(restored.map((j) => j.id).sort()).toEqual([37, 38]);
+  });
+
+  it('回収も不可能な壊れ方は従来どおり履歴なしで進む', async () => {
+    await new JobStore(file).save([job()]);
+    await writeFile(file, 'garbage-not-json-at-all', 'utf8');
+    await expect(new JobStore(file).load()).resolves.toEqual([]);
+  });
+
+  it('並行saveが重なってもファイルは常に完全なJSON(直列化+tmp→rename)', async () => {
+    const store = new JobStore(file);
+    // fire-and-forget と同じ呼び方で10連発(旧実装ではこれで引き裂かれ得た)
+    const jobs = Array.from({ length: 10 }, (_, i) => job({ id: i + 1, log: Array(30).fill(`x-${i}`) }));
+    await Promise.all(jobs.map((_, i) => store.save(jobs.slice(0, i + 1))));
+
+    const raw = await readFile(file, 'utf8');
+    const parsed = JSON.parse(raw); // 引き裂かれていれば throw
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed.length).toBe(10); // 最後の save(全10件)が最終状態
+  });
+});

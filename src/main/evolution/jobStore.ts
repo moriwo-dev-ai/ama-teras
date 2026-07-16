@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { EvolutionJobSummary } from '../../shared/types';
 
@@ -35,8 +35,35 @@ function restoreStatus(job: EvolutionJobSummary): EvolutionJobSummary {
  * 「ジョブ16がゲートで落ちた」という事実そのものが消える。人間も、神議も、
  * 何が失敗したかを二度と参照できない(実害: ジョブ14・15・16の失敗が毎回消えた)。
  */
+/**
+ * 壊れたJSONから「先頭からの正しいJSON値」を回収する。
+ *
+ * 実害(2026-07-17): core昇格の再起動時、直列化されていない save が重なって
+ * jobs.json が「正しいJSONの後ろに前の書き込みの残骸」という引き裂かれた状態になり、
+ * 履歴38件が起動時に全部消えた(load が丸ごと [] に落ちるため)。
+ * JSON.parse のエラーメッセージは「完全な値が終わった位置」を教えてくれるので、
+ * そこまでを切り出せば残骸だけを捨てられる。
+ */
+export function salvageJsonPrefix(raw: string): unknown | null {
+  let end = raw.length;
+  for (let i = 0; i < 8 && end > 0; i++) {
+    try {
+      return JSON.parse(raw.slice(0, end));
+    } catch (e) {
+      const m = /position (\d+)/.exec(e instanceof Error ? e.message : '');
+      const pos = m === null ? NaN : Number(m[1]);
+      if (Number.isInteger(pos) && pos > 0 && pos < end) end = pos;
+      else return null; // 位置が取れない壊れ方は諦める(補助情報のため)
+    }
+  }
+  return null;
+}
+
 export class JobStore {
   constructor(private readonly file: string) {}
+
+  /** 保存の直列化。fire-and-forget の save が重なるとファイルが引き裂かれる(実害あり) */
+  private saveChain: Promise<void> = Promise.resolve();
 
   async load(): Promise<EvolutionJobSummary[]> {
     const raw = await readFile(this.file, 'utf8').catch(() => '');
@@ -45,7 +72,10 @@ export class JobStore {
     try {
       parsed = JSON.parse(raw);
     } catch {
-      return []; // 壊れていても進化を止めない(履歴は補助情報)
+      // 引き裂かれたファイルでも、先頭からの正しい部分に全履歴が残っていることが多い。
+      // 回収できなければ従来どおり履歴なしで進む(壊れていても進化を止めない)
+      parsed = salvageJsonPrefix(raw);
+      if (parsed === null) return [];
     }
     if (!Array.isArray(parsed)) return [];
     return parsed
@@ -55,10 +85,19 @@ export class JobStore {
   }
 
   async save(jobs: EvolutionJobSummary[]): Promise<void> {
+    // 呼び出し時点のスナップショットを直列に書く(後勝ち。途中の状態が最終状態を上書きしない)
     const trimmed = jobs
       .slice(-MAX_JOBS)
       .map((j) => ({ ...j, log: j.log.slice(-MAX_LOG_LINES) }));
-    await mkdir(dirname(this.file), { recursive: true }).catch(() => {});
-    await writeFile(this.file, JSON.stringify(trimmed, null, 1), 'utf8');
+    this.saveChain = this.saveChain
+      .catch(() => {})
+      .then(async () => {
+        await mkdir(dirname(this.file), { recursive: true }).catch(() => {});
+        // tmp→rename のアトミック置換(書き込み途中でプロセスが死んでも原本は壊れない)
+        const tmp = `${this.file}.tmp`;
+        await writeFile(tmp, JSON.stringify(trimmed, null, 1), 'utf8');
+        await rename(tmp, this.file);
+      });
+    return this.saveChain;
   }
 }
