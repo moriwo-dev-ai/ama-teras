@@ -20,6 +20,13 @@ export function clampMaxTurns(value: number): number {
   return Math.min(MAX_TURNS_MAX, Math.max(MAX_TURNS_MIN, Math.round(value)));
 }
 
+/** M92-A6: 並列生成数のクランプ(1〜4)。headless electron のスモークが同時に走るため上限は控えめ */
+export const EVOLUTION_CONCURRENCY_MIN = 1;
+export const EVOLUTION_CONCURRENCY_MAX = 4;
+export function clampConcurrency(value: number): number {
+  return Math.min(EVOLUTION_CONCURRENCY_MAX, Math.max(EVOLUTION_CONCURRENCY_MIN, Math.round(value)));
+}
+
 /** M18: 格上げ回数のクランプ(0=格上げ無効〜3) */
 export const MAX_ESCALATIONS_MAX = 3;
 
@@ -337,6 +344,10 @@ export class ConfigStore {
       if (typeof rec['generationModel'] === 'string' && rec['generationModel'].trim() !== '') {
         merged.generationModel = rec['generationModel'].trim();
       }
+      // M92-A6: 並列生成数(1〜4にクランプ。非数値・範囲外は未設定=既定2)
+      if (typeof rec['evolutionConcurrency'] === 'number' && Number.isFinite(rec['evolutionConcurrency'])) {
+        merged.evolutionConcurrency = clampConcurrency(rec['evolutionConcurrency']);
+      }
       // M27-1: 無料APIモード(不正値は未設定として扱う)
       const preset = parseProviderPreset(rec['providerPreset']);
       if (preset !== undefined) merged.providerPreset = preset;
@@ -441,6 +452,14 @@ export class ConfigStore {
       delete clone.generationModel;
     } else if (clone.generationModel !== undefined) {
       clone.generationModel = clone.generationModel.trim();
+    }
+    // M92-A6: 並列生成数のクランプ(範囲外・非数値は未設定=既定へ)
+    if (clone.evolutionConcurrency !== undefined) {
+      if (Number.isFinite(clone.evolutionConcurrency)) {
+        clone.evolutionConcurrency = clampConcurrency(clone.evolutionConcurrency);
+      } else {
+        delete clone.evolutionConcurrency;
+      }
     }
     // M27-1: 不正なプリセットIDは未設定へ正規化(IPC経由の範囲外値を防ぐ)
     if (clone.providerPreset !== undefined && parseProviderPreset(clone.providerPreset) === undefined) {

@@ -103,6 +103,33 @@ export function ModelOpsSection({
         </p>
       </div>
 
+      {/* M92-A6: 自己進化の並列生成数 */}
+      <div className="space-y-1">
+        <label className="text-xs text-zinc-400">自己進化の並列生成数(evolutionConcurrency)</label>
+        <input
+          type="number"
+          min={1}
+          max={4}
+          className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5"
+          defaultValue={config.evolutionConcurrency ?? ''}
+          placeholder="既定: 2"
+          onBlur={(e) => {
+            const raw = e.target.value.trim();
+            const next: AppConfig = { ...config };
+            delete next.evolutionConcurrency;
+            const n = Number(raw);
+            if (raw !== '' && Number.isFinite(n)) {
+              next.evolutionConcurrency = Math.min(4, Math.max(1, Math.round(n)));
+            }
+            saveConfig(next);
+          }}
+        />
+        <p className="text-xs text-zinc-500">
+          ツールを同時に何個まで生成するか(1〜4・空欄=既定2)。各生成は独立環境で並走するが、
+          本体への昇格マージは必ず1件ずつ直列。夜間の大量生成を速くするための設定。大きいほど同時APIコストが立つ
+        </p>
+      </div>
+
       <div className="space-y-1">
         <label className="text-xs text-zinc-400">サブエージェント最大ターン数(subAgentMaxTurns)</label>
         <input

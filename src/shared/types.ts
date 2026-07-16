@@ -248,6 +248,11 @@ export interface AppConfig {
    */
   generationModel?: string;
   /**
+   * M92-A6: 同時に走らせる生成ジョブ数(1〜4。未設定=2)。各ジョブは独立worktreeで隔離され
+   * 生成・ゲートは並走するが、昇格(mainマージ)は必ず直列。夜間の大量生成のスループット用。
+   */
+  evolutionConcurrency?: number;
+  /**
    * M27-1: 無料APIモードのプリセット(Gemini/Groq/OpenRouter)。provider='openai' の
    * ときだけ意味を持ち、OpenAI互換エンドポイント(baseURL差し替え)+専用キー
    * スロットで動く。未設定=従来どおり

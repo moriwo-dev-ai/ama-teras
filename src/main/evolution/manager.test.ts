@@ -74,6 +74,7 @@ interface Overrides {
   budget?: EvolutionManagerDeps['budget'];
   estimateAttemptTokens?: number;
   metrics?: EvolutionManagerDeps['metrics'];
+  maxConcurrency?: number;
 }
 
 function makeManager(o: Overrides = {}): {
@@ -106,6 +107,7 @@ function makeManager(o: Overrides = {}): {
     ...(o.budget !== undefined ? { budget: o.budget } : {}),
     ...(o.estimateAttemptTokens !== undefined ? { estimateAttemptTokens: o.estimateAttemptTokens } : {}),
     ...(o.metrics !== undefined ? { metrics: o.metrics } : {}),
+    ...(o.maxConcurrency !== undefined ? { maxConcurrency: () => o.maxConcurrency! } : {}),
   };
   return { manager: new EvolutionManager(deps), events, reloads };
 }
@@ -566,5 +568,72 @@ export default {
     });
     const status = await waitForTerminal(events);
     expect(status).toBe('failed');
+  });
+});
+
+/** 特定ジョブが終端状態になるまで待つ(並列テスト用。全体の最終statusでは足りない) */
+async function waitForJobTerminal(
+  events: EvolutionEvent[],
+  jobId: number,
+  timeoutMs = 30_000,
+): Promise<string> {
+  const terminal = ['done', 'failed', 'rejected', 'rolled_back', 'cancelled'];
+  const start = Date.now();
+  for (;;) {
+    const upd = events.filter(
+      (e): e is Extract<EvolutionEvent, { kind: 'job_update' }> => e.kind === 'job_update' && e.job.id === jobId,
+    );
+    const s = upd.at(-1)?.job.status;
+    if (s && terminal.includes(s)) return s;
+    if (Date.now() - start > timeoutMs) throw new Error(`タイムアウト job ${jobId}: ${s}`);
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+/** 生成の並走をピーク在席数で観測できるランナー(ジョブごとに一意のツールを書く) */
+function concurrencyProbeRunner(state: { active: number; peak: number }, holdMs: number): EvolutionJobRunner {
+  return {
+    async generate(req, worktreeDir): Promise<JobArtifacts> {
+      state.active += 1;
+      state.peak = Math.max(state.peak, state.active);
+      await new Promise((r) => setTimeout(r, holdMs)); // 相手が入る余地を作る
+      const name = `tool_${req.description.replace(/[^a-z0-9]/gi, '')}`;
+      const abs = join(worktreeDir, `src/main/tools/plugins/${name}.ts`);
+      await mkdir(join(abs, '..'), { recursive: true });
+      await writeFile(abs, PLUGIN_SOURCE.replace('json_format', name));
+      state.active -= 1;
+      return { toolName: name, smokeInput: {} };
+    },
+  };
+}
+
+describe('M92-A6 並列生成 + 昇格ミューテックス(実git)', { timeout: 40_000 }, () => {
+  it('maxConcurrency=2 で2ジョブが並走生成し、昇格は直列で両方 done + 2タグ', async () => {
+    const state = { active: 0, peak: 0 };
+    const { manager, events } = makeManager({
+      runner: concurrencyProbeRunner(state, 150),
+      maxConcurrency: 2,
+    });
+    const id1 = await manager.enqueue({ description: 'alpha', expectedIO: 'x' });
+    const id2 = await manager.enqueue({ description: 'beta', expectedIO: 'x' });
+    const [s1, s2] = await Promise.all([
+      waitForJobTerminal(events, id1),
+      waitForJobTerminal(events, id2),
+    ]);
+    expect(s1).toBe('done');
+    expect(s2).toBe('done');
+    expect(state.peak).toBe(2); // 実際に並走した
+    // 昇格ミューテックスが効き、2件の merge が積み上がった(直列マージ成功の証拠)
+    const tags = (await runGit(['tag', '-l', 'evolve/*'], repoDir)).split('\n').filter(Boolean);
+    expect(tags.length).toBe(2);
+  });
+
+  it('maxConcurrency 未指定(既定1)は完全直列(peak=1)', async () => {
+    const state = { active: 0, peak: 0 };
+    const { manager, events } = makeManager({ runner: concurrencyProbeRunner(state, 60) });
+    const id1 = await manager.enqueue({ description: 'gamma', expectedIO: 'x' });
+    const id2 = await manager.enqueue({ description: 'delta', expectedIO: 'x' });
+    await Promise.all([waitForJobTerminal(events, id1), waitForJobTerminal(events, id2)]);
+    expect(state.peak).toBe(1); // 従来どおり1本ずつ
   });
 });

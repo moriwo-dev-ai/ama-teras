@@ -519,6 +519,8 @@ export async function registerIpcHandlers(
         ),
         requestPromotionApproval: hooks.requestPromotionApproval,
         reloadPlugins: () => registry.reload(),
+        // M92-A6: 並列生成数(設定。未設定=2)。昇格は内部の昇格ミューテックスで直列
+        maxConcurrency: () => config.get().evolutionConcurrency ?? 2,
         // M25-8: 新規作成時の既存ツール名衝突チェック/既存修正時の実在確認に使う
         existingToolNames: () => registry.list().map((t) => t.name),
         // M92-Phase0: 生成の計測(開発版)

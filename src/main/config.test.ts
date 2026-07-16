@@ -118,6 +118,18 @@ describe('ConfigStore', () => {
     expect(new ConfigStore(file).get().generationModel).toBeUndefined();
   });
 
+  it('evolutionConcurrency は 1〜4 にクランプされ set/load を往復する', async () => {
+    const store = new ConfigStore(file);
+    expect(store.get().evolutionConcurrency).toBeUndefined();
+    expect(store.set({ ...store.get(), evolutionConcurrency: 9 }).evolutionConcurrency).toBe(4);
+    expect(store.set({ ...store.get(), evolutionConcurrency: 0 }).evolutionConcurrency).toBe(1);
+    expect(new ConfigStore(file).get().evolutionConcurrency).toBe(1);
+    await writeFile(file, JSON.stringify({ evolutionConcurrency: 3 }));
+    expect(new ConfigStore(file).get().evolutionConcurrency).toBe(3);
+    await writeFile(file, JSON.stringify({ evolutionConcurrency: 'x' }));
+    expect(new ConfigStore(file).get().evolutionConcurrency).toBeUndefined();
+  });
+
   // ---- M11-4: postEditHook ----
 
   it('postEditHook の既定は未設定(=無効)で、設定すると永続化される', () => {

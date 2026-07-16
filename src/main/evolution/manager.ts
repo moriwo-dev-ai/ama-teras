@@ -81,6 +81,13 @@ export interface EvolutionManagerDeps {
    * どのレバー(手本/反復/…)が効いたかを後から測るための土台。
    */
   metrics?: GenerationMetrics;
+  /**
+   * M92-A6: 同時に走らせる生成ジョブ数(既定 1 = 従来の完全直列)。
+   * 各ジョブは独立 worktree で隔離されるので生成・ゲートは並走できるが、
+   * **昇格(main へのマージ)は昇格ミューテックスで必ず直列**にする(git マージ排他)。
+   * 関数で渡すと設定変更を毎drain反映できる(未注入=1)。
+   */
+  maxConcurrency?: () => number;
 }
 
 /** 進化ジョブのライフサイクル管理。ジョブは直列実行(worktree衝突と検証混線の回避) */
@@ -89,7 +96,10 @@ export class EvolutionManager {
   private readonly baseRef: string;
   private readonly jobs = new Map<number, EvolutionJobSummary>();
   private queue: { id: number; req: EvolutionRequest }[] = [];
-  private processing = false;
+  /** M92-A6: 現在走っている生成ジョブ数(ワーカープールの在席数) */
+  private activeCount = 0;
+  /** M92-A6: 昇格(main マージ)を直列化するミューテックス。並列生成でも merge は1本ずつ */
+  private promoteChain: Promise<void> = Promise.resolve();
   private lastId = 0;
   /** M52: ジョブ履歴の保存先(未注入=メモリのみ) */
   private readonly store: JobStore | null;
@@ -98,8 +108,8 @@ export class EvolutionManager {
   /** M25-7: renderer/core昇格がrequestRestartを呼んだら立つ。以降drainはキューを進めない
    *  (5秒後のapp.exit(0)までの間に次のジョブが着手→強制終了で消えるのを防ぐ) */
   private restarting = false;
-  /** M26-6: 実行中ジョブのキャンセル用(直列実行なので高々1件) */
-  private activeCancel: { id: number; ac: AbortController } | null = null;
+  /** M26-6/M92-A6: 実行中ジョブのキャンセル用。並列実行になったので id→AbortController のマップ */
+  private readonly activeCancels = new Map<number, AbortController>();
 
   constructor(private readonly deps: EvolutionManagerDeps) {
     this.baseRef = deps.baseRef ?? 'main';
@@ -140,13 +150,14 @@ export class EvolutionManager {
       return true;
     }
     const job = this.jobs.get(id);
+    const ac = this.activeCancels.get(id);
     if (
       job !== undefined &&
-      this.activeCancel?.id === id &&
+      ac !== undefined &&
       (job.status === 'preparing_worktree' || job.status === 'generating' || job.status === 'verifying')
     ) {
       this.log(job, 'キャンセル要求を受理した(実行中の処理を中断する)');
-      this.activeCancel.ac.abort();
+      ac.abort();
       return true;
     }
     return false;
@@ -248,17 +259,22 @@ export class EvolutionManager {
     this.emit(job);
   }
 
-  private async drain(): Promise<void> {
-    if (this.processing) return;
-    this.processing = true;
-    try {
-      while (!this.restarting) {
-        const item = this.queue.shift();
-        if (!item) break;
-        await this.process(item.id, item.req);
-      }
-    } finally {
-      this.processing = false;
+  /**
+   * M92-A6: ワーカープール。空きがある限りキューからジョブを引いて並走させる(既定1=直列)。
+   * 各ジョブは独立 worktree で隔離。1本終わるたびに自分を呼び直して次を引く。
+   * restarting 中は新規着手しない(再起動待ちのジョブが強制終了で消えるのを防ぐ・従来仕様)。
+   */
+  private drain(): void {
+    const limit = Math.max(1, Math.floor(this.deps.maxConcurrency?.() ?? 1));
+    while (!this.restarting && this.activeCount < limit) {
+      const item = this.queue.shift();
+      if (!item) break;
+      this.activeCount++;
+      // process は内部で job 状態に成否を反映する(ここでの例外は起こさない設計)
+      void this.process(item.id, item.req).finally(() => {
+        this.activeCount--;
+        this.drain(); // 1本空いたら次を引く
+      });
     }
   }
 
@@ -288,6 +304,19 @@ export class EvolutionManager {
     return null;
   }
 
+  /**
+   * M92-A6: 昇格ミューテックス。プロミス連鎖で「前の昇格が解けるまで待ってから握る」。
+   * 返り値は release 関数。承認待ちの外で使い、mainマージ〜健全性〜ロールバックだけを直列化する。
+   */
+  private acquirePromoteLock(): Promise<() => void> {
+    const prev = this.promoteChain;
+    let release!: () => void;
+    this.promoteChain = new Promise<void>((res) => {
+      release = res;
+    });
+    return prev.then(() => release);
+  }
+
   private async process(id: number, req: EvolutionRequest): Promise<void> {
     const job = this.jobs.get(id)!;
     // M20: スコープ段階化。未指定は tool(従来挙動)
@@ -295,7 +324,9 @@ export class EvolutionManager {
     let worktree: Awaited<ReturnType<WorktreeManager['create']>> | null = null;
     // M26-6: キャンセルUI用。worktree作成〜検証までを中断可能にする(awaiting_promotion以降は対象外)
     const ac = new AbortController();
-    this.activeCancel = { id, ac };
+    this.activeCancels.set(id, ac);
+    // M92-A6: 昇格(mainマージ)を握っている間だけ非null。finallyで必ず解放する
+    let releasePromote: (() => void) | null = null;
     try {
       // M25-8: target_tool指定なら、worktreeを作る前に対象が実在するか確認する
       if (scope === 'tool' && req.targetTool !== undefined) {
@@ -442,6 +473,9 @@ export class EvolutionManager {
         return;
       }
 
+      // M92-A6: ここから先(mainマージ・健全性・ロールバック)は昇格ミューテックスで直列化する。
+      // 承認待ち(上の requestPromotionApproval)はロックの外=複数ジョブが同時に承認待ちにできる。
+      releasePromote = await this.acquirePromoteLock();
       this.update(job, { status: 'promoting' });
       // M20: 昇格前HEADを記録(センチネル・セーフモード時の手動復旧案内に使う)
       const prevCommit = await runGit(['rev-parse', 'HEAD'], this.deps.repoDir);
@@ -512,7 +546,9 @@ export class EvolutionManager {
         });
       }
     } finally {
-      this.activeCancel = null;
+      // M92-A6: 昇格ロックを握っていたら必ず解放する(returnでもthrowでもここを通る)
+      if (releasePromote) releasePromote();
+      this.activeCancels.delete(id);
       if (worktree) await this.worktrees.remove(worktree).catch(() => {});
     }
   }
