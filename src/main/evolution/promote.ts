@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { runGit } from './git';
 
 export interface PromotionResult {
@@ -54,6 +55,54 @@ export async function promoteBranch(
   const tag = `evolve/${jobId}`;
   await runGit(['tag', tag, mergeCommit], repoDir);
   return { mergeCommit, tag };
+}
+
+/**
+ * M92-A6-2: 夜間自動昇格。稼働中(A)の checkout にも main にも一切触れず、専用ブランチ
+ * (既定 evolve/nightly)へ生成ブランチを --no-ff マージして積み上げる。マージは使い捨ての
+ * 一時 worktree(promote-<jobId>)内で headless に行うので、A の作業ツリーは動かない。
+ * 専用ブランチが無ければ baseRef から ref だけ作る(checkout しない)。
+ * 昇格ミューテックスの内側から呼ぶこと(専用ブランチへの worktree は同時に1つしか張れない)。
+ * 朝に `git log <baseRef>..<targetBranch>` でその夜の獲得物を棚卸しできる。
+ */
+export async function promoteToBranch(
+  repoDir: string,
+  worktreeBase: string,
+  jobBranch: string,
+  jobId: number,
+  targetBranch: string,
+  baseRef: string,
+  description?: string,
+): Promise<PromotionResult> {
+  const exists =
+    (await runGit(['branch', '--list', targetBranch], repoDir).catch(() => '')).trim() !== '';
+  if (!exists) {
+    // ref だけ作る(checkout しない=A は main のまま)
+    await runGit(['branch', targetBranch, baseRef], repoDir);
+  }
+  const dir = join(worktreeBase, `promote-${jobId}`);
+  await runGit(['worktree', 'add', dir, targetBranch], repoDir);
+  try {
+    await runGit(
+      [
+        '-c', 'user.name=AMA-teras Evolution', '-c', 'user.email=evolution@amateras.local',
+        'merge', '--no-ff', jobBranch, '-m', buildPromotionMessage(jobId, description),
+      ],
+      dir,
+    );
+    const mergeCommit = await runGit(['rev-parse', 'HEAD'], dir);
+    const tag = `evolve/${jobId}`;
+    await runGit(['tag', tag, mergeCommit], repoDir);
+    return { mergeCommit, tag };
+  } catch (err) {
+    await runGit(['merge', '--abort'], dir).catch(() => {});
+    throw new Error(
+      `夜間昇格マージに失敗(ロールバック済み): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  } finally {
+    // 使い捨て worktree は必ず外す(専用ブランチ自体は残す=これがレビュー対象)
+    await runGit(['worktree', 'remove', '--force', dir], repoDir).catch(() => {});
+  }
 }
 
 /** ロールバック: 昇格マージコミットをrevertして直前タグ状態へ戻す(履歴は残す) */

@@ -81,9 +81,11 @@ function makeManager(o: Overrides = {}): {
   manager: EvolutionManager;
   events: EvolutionEvent[];
   reloads: { count: number };
+  approvals: { count: number };
 } {
   const events: EvolutionEvent[] = [];
   const reloads = { count: 0 };
+  const approvals = { count: 0 };
   const deps: EvolutionManagerDeps = {
     repoDir,
     worktreeBase: join(base, 'evolve'),
@@ -93,7 +95,10 @@ function makeManager(o: Overrides = {}): {
         { 'src/main/tools/plugins/json_format.ts': PLUGIN_SOURCE },
         { toolName: 'json_format', smokeInput: {} },
       ),
-    requestPromotionApproval: async () => o.approve ?? true,
+    requestPromotionApproval: async () => {
+      approvals.count += 1;
+      return o.approve ?? true;
+    },
     reloadPlugins: async () => {
       reloads.count += 1;
     },
@@ -109,7 +114,7 @@ function makeManager(o: Overrides = {}): {
     ...(o.metrics !== undefined ? { metrics: o.metrics } : {}),
     ...(o.maxConcurrency !== undefined ? { maxConcurrency: () => o.maxConcurrency! } : {}),
   };
-  return { manager: new EvolutionManager(deps), events, reloads };
+  return { manager: new EvolutionManager(deps), events, reloads, approvals };
 }
 
 function lastStatus(events: EvolutionEvent[]): string | undefined {
@@ -635,5 +640,74 @@ describe('M92-A6 並列生成 + 昇格ミューテックス(実git)', { timeout:
     const id2 = await manager.enqueue({ description: 'delta', expectedIO: 'x' });
     await Promise.all([waitForJobTerminal(events, id1), waitForJobTerminal(events, id2)]);
     expect(state.peak).toBe(1); // 従来どおり1本ずつ
+  });
+});
+
+describe('M92-A6-2 夜間自動昇格(専用ブランチ・実git)', { timeout: 40_000 }, () => {
+  it('auto=true は承認を出さず evolve/nightly へ積み、main は無変更・reloadもしない', async () => {
+    const { manager, events, reloads, approvals } = makeManager();
+    const mainBefore = (await runGit(['rev-parse', 'main'], repoDir)).trim();
+
+    const id = await manager.enqueue({ description: 'nightly tool', expectedIO: 'x', auto: true });
+    const status = await waitForJobTerminal(events, id);
+
+    expect(status).toBe('done');
+    expect(approvals.count).toBe(0); // 承認ダイアログは出ない
+    expect(reloads.count).toBe(0); // A(稼働中)へは載せない
+
+    // main は 1mm も動いていない
+    const mainAfter = (await runGit(['rev-parse', 'main'], repoDir)).trim();
+    expect(mainAfter).toBe(mainBefore);
+
+    // evolve/nightly が出来ていて、main より 2 コミット先(生成コミット+マージ)にある
+    const branches = await runGit(['branch', '--list', 'evolve/nightly'], repoDir);
+    expect(branches.trim()).not.toBe('');
+    const ahead = (await runGit(['rev-list', '--count', 'main..evolve/nightly'], repoDir)).trim();
+    expect(Number(ahead)).toBeGreaterThanOrEqual(1);
+    // タグ evolve/N は nightly 側のコミットに付く(main からは辿れない)
+    const tag = (await runGit(['tag', '-l', `evolve/${id}`], repoDir)).trim();
+    expect(tag).toBe(`evolve/${id}`);
+    // ジョブ要約に積み先ブランチが載る
+    const upd = events.filter(
+      (e): e is Extract<EvolutionEvent, { kind: 'job_update' }> => e.kind === 'job_update' && e.job.id === id,
+    );
+    expect(upd.at(-1)?.job.autoBranch).toBe('evolve/nightly');
+  });
+
+  it('複数の auto ジョブは同じ evolve/nightly に積み上がる(直列マージ)', async () => {
+    const { manager, events } = makeManager({ maxConcurrency: 2 });
+    const id1 = await manager.enqueue({ description: 'nightly one', expectedIO: 'x', auto: true });
+    const id2 = await manager.enqueue({ description: 'nightly two', expectedIO: 'x', auto: true });
+    const [s1, s2] = await Promise.all([
+      waitForJobTerminal(events, id1),
+      waitForJobTerminal(events, id2),
+    ]);
+    expect(s1).toBe('done');
+    expect(s2).toBe('done');
+    // 2件とも nightly に載った(マージコミット2本 → main から 4 コミット先)
+    const tags = (await runGit(['tag', '-l', 'evolve/*'], repoDir)).split('\n').filter(Boolean);
+    expect(tags.length).toBe(2);
+    const ahead = Number((await runGit(['rev-list', '--count', 'main..evolve/nightly'], repoDir)).trim());
+    expect(ahead).toBeGreaterThanOrEqual(2);
+  });
+
+  it('auto でも child_process を含むツールは昇格せず rejected(nightly を汚さない)', async () => {
+    const dangerSource = PLUGIN_SOURCE.replace(
+      "async execute() {",
+      "async execute() {\n    const { spawn } = await import('node:child_process'); void spawn;",
+    );
+    const runner = scriptedRunner(
+      { 'src/main/tools/plugins/json_format.ts': dangerSource },
+      { toolName: 'json_format', smokeInput: {} },
+    );
+    const { manager, events, approvals } = makeManager({ runner });
+    const id = await manager.enqueue({ description: 'sneaky', expectedIO: 'x', auto: true });
+    const status = await waitForJobTerminal(events, id);
+
+    expect(status).toBe('rejected');
+    expect(approvals.count).toBe(0);
+    // nightly ブランチは作られていない(危険ツールは無人で積まない)
+    const branches = await runGit(['branch', '--list', 'evolve/nightly'], repoDir);
+    expect(branches.trim()).toBe('');
   });
 });

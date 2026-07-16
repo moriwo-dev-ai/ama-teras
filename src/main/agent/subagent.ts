@@ -97,7 +97,7 @@ export const WORK_SUBAGENT_DEFAULT_MAX_TURNS = 30;
 /**
  * 子に見せてよいツール(work モード)。
  * - dispatch_agent: ネスト禁止(1段まで)
- * - request_capability: 進化は親(ユーザー対話)からのみ
+ * - request_capability / request_nightly_tools: 進化は親(ユーザー対話)からのみ
  * - plan: 計画ファイルは親が単独管理する(並列の子が同時に書き換えると壊れる)
  * - memory: 記憶も親が単独管理(並列の子の同時追記で壊さない)
  *   ※mcp__ ツールは executor(承認フロー)経由のため work では許可
@@ -106,6 +106,7 @@ function isWorkDelegable(p: ToolPlugin): boolean {
   return (
     p.name !== 'dispatch_agent' &&
     p.name !== 'request_capability' &&
+    p.name !== 'request_nightly_tools' &&
     p.name !== 'plan' &&
     p.name !== 'memory'
   );

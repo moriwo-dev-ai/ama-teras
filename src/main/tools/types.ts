@@ -81,6 +81,15 @@ export interface ToolContext {
       targetTool?: string,
     ): Promise<{ jobId: number }>;
     /**
+     * M92-A6-2: 夜間の自動生成(バッチ)。複数のツール依頼を auto ジョブとして一括起票する。
+     * 承認ダイアログを出さず、生成物は稼働中(A=main)に載せず専用ブランチ(既定 evolve/nightly)へ
+     * 積み上げる。朝に `git log main..evolve/nightly` でまとめてレビュー/取り込みできる。
+     * scope='tool' 専用。child_process/network を含むツールは無人では昇格しない(rejected)。
+     */
+    requestNightlyTools?(
+      specs: { description: string; expectedIO: string }[],
+    ): Promise<{ jobIds: number[]; branch: string }>;
+    /**
      * M24: 進化パイプラインの内部状態を読む(evolution_jobs ツール専用)。
      * 現行プロセスで走った/走っているジョブの状態・ゲート結果・ログを返す。
      * 再起動で揮発する(過去に昇格した能力は listEvolvedCapabilities / EvolutionPanel を参照)。

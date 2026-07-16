@@ -1411,6 +1411,8 @@ export interface EvolutionJobSummary {
   protectedReject?: boolean;
   /** M23-7: 依頼元の会話(request_capability経由)。結果をモデルへ自動フィードバックする宛先 */
   originConversationId?: string;
+  /** M92-A6-2: 夜間自動昇格で積んだ専用ブランチ名(例 'evolve/nightly')。auto昇格したジョブのみ設定 */
+  autoBranch?: string;
 }
 
 /** main → renderer: 進化ジョブの状態遷移・昇格承認依頼 */

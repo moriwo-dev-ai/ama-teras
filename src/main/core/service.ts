@@ -128,6 +128,12 @@ export interface EvolutionLike {
     targetTool?: string;
     /** M27-4: プラグインインポート元ディレクトリ(生成の代わりにコピーする) */
     importFrom?: string;
+    /** M92-A6-2: 夜間自動昇格(承認スキップ・専用ブランチへ積む) */
+    auto?: boolean;
+    /** M92-A6-2: 夜間自動昇格の積み先ブランチ(既定 evolve/nightly) */
+    autoBranch?: string;
+    /** M23-7: 依頼元の会話ID */
+    originConversationId?: string;
   }): Promise<number>;
   /** M26-6: ジョブのキャンセル(queued=キュー除去/実行中=abort)。未実装(セーフモード等)なら省略可 */
   cancel?(id: number): boolean;
@@ -987,6 +993,24 @@ export class AgentService {
           this.provisionalCandidates.set(jobId, { origin: 'generated' });
         }
         return { jobId };
+      },
+      // M92-A6-2: 夜間の自動生成(バッチ)。各依頼を auto ジョブとして起票し、専用ブランチへ積む。
+      // freeMode(生成無効)ではここも塞ぐ(有料機能=生成の一種のため)。
+      requestNightlyTools: async (specs: { description: string; expectedIO: string }[]) => {
+        const branch = 'evolve/nightly';
+        const jobIds: number[] = [];
+        for (const s of specs) {
+          const jobId = await this.evolution.enqueue({
+            description: s.description,
+            expectedIO: s.expectedIO,
+            scope: 'tool',
+            auto: true,
+            autoBranch: branch,
+            ...(origin !== undefined ? { originConversationId: origin.id } : {}),
+          });
+          jobIds.push(jobId);
+        }
+        return { jobIds, branch };
       },
       // M24: evolution_jobs ツールがパイプラインの内部ログを読むための入口
       list: () => this.evolution.list(),

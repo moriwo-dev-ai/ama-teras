@@ -27,6 +27,16 @@ export interface EvolutionRequest {
    * 代わりに ImportJobRunner がファイルコピーを行う(検証ゲート以降は完全に同一経路)
    */
   importFrom?: string;
+  /**
+   * M92-A6-2: 夜間の自動昇格。true にすると承認ダイアログを出さず、稼働中(A=main)の
+   * checkout には一切触れず、専用ブランチ(autoBranch 既定 'evolve/nightly')へ生成物を
+   * 積み上げる。朝に `git log main..evolve/nightly` で棚卸し→まとめてレビュー/取り込みできる。
+   * scope='tool' 専用(core/renderer は auto でも従来どおり人間承認)。
+   * child_process/network を含むツール(danger警告あり)は auto では昇格せず rejected にする。
+   */
+  auto?: boolean;
+  /** M92-A6-2: 夜間自動昇格の積み先ブランチ(既定 'evolve/nightly')。auto=true のときのみ有効 */
+  autoBranch?: string;
 }
 
 export interface JobArtifacts {
@@ -190,6 +200,7 @@ export const EXCLUDED_FROM_TOOL_GEN = new Set([
   'bash_output',
   'kill_bash',
   'request_capability',
+  'request_nightly_tools',
   'request_core_change',
   'evolution_jobs',
 ]);

@@ -15,7 +15,7 @@ import { GenerationMetrics, type GenerationOutcome } from './metrics';
 import { runGit } from './git';
 import type { EvolutionJobRunner, EvolutionRequest } from './job';
 import { JobStore } from './jobStore';
-import { assertPromotable, nextJobId, promoteBranch, rollbackMerge } from './promote';
+import { assertPromotable, nextJobId, promoteBranch, promoteToBranch, rollbackMerge } from './promote';
 import { SCOPE_ALLOWLISTS, scopeRequiresRestart } from './scopes';
 import { WorktreeManager } from './worktree';
 
@@ -458,8 +458,12 @@ export class EvolutionManager {
         return;
       }
 
-      // 承認ダイアログを出す前に昇格の前提を検査する(承認後に落ちるUX破綻を避ける)
-      await assertPromotable(this.deps.repoDir, this.baseRef);
+      // M92-A6-2: 夜間自動昇格(auto)は scope='tool' のときだけ有効。core/renderer は auto でも従来どおり人間承認。
+      const isAuto = req.auto === true && scope === 'tool';
+
+      // 承認ダイアログを出す前に昇格の前提を検査する(承認後に落ちるUX破綻を避ける)。
+      // 夜間自動は main を触らない(専用ブランチへ積む)ので assertPromotable(=Aがmainにいること)は不要。
+      if (!isAuto) await assertPromotable(this.deps.repoDir, this.baseRef);
 
       this.update(job, { status: 'awaiting_promotion' });
       const diff = await runGit(
@@ -467,6 +471,43 @@ export class EvolutionManager {
         this.deps.repoDir,
       );
       const warnings = detectDangerWarnings(diff);
+
+      if (isAuto) {
+        // 夜間自動昇格。承認ダイアログは出さない。ただし child_process/network を含むツール
+        // (danger警告)は無人で専用ブランチにも積まない — 討ち捨てて朝の手動依頼に回す(安全側)。
+        if (warnings.length > 0) {
+          this.update(job, {
+            status: 'rejected',
+            error:
+              '夜間自動昇格は child_process/network を含むツールを昇格しない(警告: ' +
+              warnings.join(' / ') +
+              ')。朝にチャットから手動で依頼してください',
+          });
+          return;
+        }
+        // ここから先(専用ブランチへのマージ)は昇格ミューテックスで直列化する(同一ブランチに worktree は1本)
+        releasePromote = await this.acquirePromoteLock();
+        this.update(job, { status: 'promoting' });
+        const targetBranch = req.autoBranch ?? 'evolve/nightly';
+        const { mergeCommit, tag } = await promoteToBranch(
+          this.deps.repoDir,
+          this.deps.worktreeBase,
+          worktree.branch,
+          id,
+          targetBranch,
+          this.baseRef,
+          job.description,
+        );
+        this.log(
+          job,
+          `夜間昇格: ${targetBranch} に ${tag} (${mergeCommit.slice(0, 8)}) を積んだ。` +
+            `朝に \`git log ${this.baseRef}..${targetBranch}\` でレビュー(mainは無変更)`,
+        );
+        // A(稼働中)へは載せない=reloadPlugins/health も走らせない。朝レビューで main へ取り込む
+        this.update(job, { status: 'done', autoBranch: targetBranch });
+        return;
+      }
+
       const approved = await this.deps.requestPromotionApproval(structuredClone(job), diff, warnings);
       if (!approved) {
         this.update(job, { status: 'rejected' });
