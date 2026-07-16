@@ -108,7 +108,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(root, { recursive: true, force: true });
+  // Windows: 検証子プロセス(esbuild/typecheck)の残ハンドルで EPERM になることがある(全体実行時のフレーク)
+  await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 describe('LocalToolEvolution(配布版のツール生成)', () => {

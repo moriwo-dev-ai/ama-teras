@@ -46,7 +46,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(base, { recursive: true, force: true }).catch(() => {});
+  // Windows: git子プロセスの残ハンドルで EPERM になることがある(全体実行時のフレーク) → リトライ付き
+  await rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
 });
 
 /** worktree内に固定生成物を書くモックランナー */

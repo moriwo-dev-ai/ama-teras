@@ -100,7 +100,7 @@ export class WorktreeManager {
   private async removeDir(dir: string): Promise<void> {
     await rm(join(dir, 'node_modules'), { force: true, recursive: false }).catch(() => {});
     await runGit(['worktree', 'remove', '--force', dir], this.repoDir).catch(() => {});
-    await rm(dir, { recursive: true, force: true }).catch(() => {});
+    await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
   }
 
   /** worktreeとブランチを破棄する。昇格済みブランチはマージ済みなので -D で問題ない */
@@ -108,9 +108,15 @@ export class WorktreeManager {
     // ジャンクションを先に外す(git worktree remove がリンク先を辿らないように)
     await rm(join(info.dir, 'node_modules'), { force: true, recursive: false }).catch(() => {});
     await runGit(['worktree', 'remove', '--force', info.dir], this.repoDir).catch(async () => {
-      await rm(info.dir, { recursive: true, force: true });
+      // Windows: 検証の子プロセス(typecheck/vitest)の残ハンドルで EPERM になることがある → リトライ付き
+      await rm(info.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
       await runGit(['worktree', 'prune'], this.repoDir).catch(() => {});
     });
-    await runGit(['branch', '-D', info.branch], this.repoDir).catch(() => {});
+    // Windows: worktree remove 直後はブランチがまだ「使用中」に見えて -D が失敗することがある。
+    // 握りつぶすとブランチが残り、掃除済みを前提とするテスト・採番(nextJobId)を汚す → prune後に1回だけ再試行
+    await runGit(['branch', '-D', info.branch], this.repoDir).catch(async () => {
+      await runGit(['worktree', 'prune'], this.repoDir).catch(() => {});
+      await runGit(['branch', '-D', info.branch], this.repoDir).catch(() => {});
+    });
   }
 }

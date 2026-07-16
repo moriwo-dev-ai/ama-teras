@@ -229,7 +229,8 @@ export class LocalToolEvolution {
           return;
         }
       }
-      await rm(sandbox, { recursive: true, force: true });
+      // Windows: 前ジョブの検証子プロセスの残ハンドルで EPERM になることがある → リトライ付き
+      await rm(sandbox, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
       await mkdir(join(sandbox, 'src', 'main', 'tools', 'plugins'), { recursive: true });
       // 既存ツールの修正なら、現物をサンドボックスに置いてから読ませる(そうしないと編集対象が無い)
       if (req.targetTool !== undefined) {
@@ -350,8 +351,8 @@ export class LocalToolEvolution {
       }
     } finally {
       this.activeCancel = null;
-      await rm(sandbox, { recursive: true, force: true }).catch(() => {});
-      await rm(stage, { recursive: true, force: true }).catch(() => {});
+      await rm(sandbox, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
+      await rm(stage, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
     }
   }
 
@@ -378,7 +379,7 @@ export class LocalToolEvolution {
     smokeInput: unknown,
   ): Promise<void> {
     const src = join(sandbox, 'src', 'main', 'tools', 'plugins');
-    await rm(stage, { recursive: true, force: true });
+    await rm(stage, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     await mkdir(stage, { recursive: true });
     const codePath = join(src, `${name}.ts`);
     if (!existsSync(codePath)) throw new Error(`生成物が見つからない: src/main/tools/plugins/${name}.ts`);
