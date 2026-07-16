@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, type WebContents } from 'electron';
-import { execFile } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFile, spawn } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { IpcChannels } from '../shared/ipc';
 import type {
@@ -33,6 +34,7 @@ import { LocalToolEvolution } from './evolution/local';
 import { EvolutionManager } from './evolution/manager';
 import { GenerationMetrics } from './evolution/metrics';
 import { GenerationBudget } from './evolution/budget';
+import type { ReleaseBuildRunner } from './operations/adapters/releaseBuild';
 import { listEvolvedCapabilities, listEvolveTags, rollbackLastEvolve } from './evolution/promote';
 import { readAndClearPendingQueue, writePendingQueue } from './evolution/pendingQueue';
 import { clearSentinel, writeSentinel } from './evolution/sentinel';
@@ -264,6 +266,67 @@ export function getPluginsDir(): string {
 
 export function getPluginCacheDir(): string {
   return join(app.getPath('userData'), 'plugin-cache');
+}
+
+/**
+ * M92-A7: リリース下書きのビルド実行(開発版のみ注入)。scripts/release.mjs を **--publish 無し**で
+ * 回す = バージョン上げ→typecheck/テスト→インストーラビルド→GitHub Release下書きに.exe添付、まで。
+ *
+ * Electron のプロセスは electron 本体なので、ELECTRON_RUN_AS_NODE=1 で素の node として release.mjs を
+ * 走らせる(スクリプト内の npm/npx/git/gh は開発機の PATH を使う)。ビルドは数分かかるため timeout は付けない。
+ * 出力は末尾を保持(ビルドログは巨大になり得る)。失敗は ok:false + ログで返す(握りつぶさない)。
+ */
+function makeReleaseBuildRunner(): ReleaseBuildRunner {
+  return ({ version, notesBody, workspace }) =>
+    new Promise((resolve) => {
+      const script = join(workspace, 'scripts', 'release.mjs');
+      if (!existsSync(script)) {
+        resolve({ ok: false, output: `scripts/release.mjs が見つからない: ${script}` });
+        return;
+      }
+      let tmpDir: string | null = null;
+      let notesPath: string;
+      try {
+        tmpDir = mkdtempSync(join(tmpdir(), 'amateras-release-'));
+        notesPath = join(tmpDir, 'notes.md');
+        writeFileSync(notesPath, notesBody, 'utf8');
+      } catch (e) {
+        resolve({ ok: false, output: `リリースノートの一時ファイル作成に失敗: ${e instanceof Error ? e.message : String(e)}` });
+        return;
+      }
+      const chunks: string[] = [];
+      let size = 0;
+      const collect = (b: Buffer): void => {
+        const s = b.toString('utf8');
+        size += s.length;
+        chunks.push(s);
+        // 末尾24k程度に抑える(先頭から間引く)
+        while (size > 24_000 && chunks.length > 1) size -= chunks.shift()!.length;
+      };
+      const cleanup = (): void => {
+        if (tmpDir !== null) rmSync(tmpDir, { recursive: true, force: true });
+      };
+      try {
+        const child = spawn(
+          process.execPath,
+          [script, '--version', `v${version}`, '--notes-file', notesPath],
+          { cwd: workspace, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, windowsHide: true },
+        );
+        child.stdout.on('data', collect);
+        child.stderr.on('data', collect);
+        child.on('error', (err) => {
+          cleanup();
+          resolve({ ok: false, output: `release.mjs の起動に失敗: ${err.message}\n${chunks.join('')}` });
+        });
+        child.on('close', (code) => {
+          cleanup();
+          resolve({ ok: code === 0, output: chunks.join('') });
+        });
+      } catch (e) {
+        cleanup();
+        resolve({ ok: false, output: `release.mjs の実行に失敗: ${e instanceof Error ? e.message : String(e)}` });
+      }
+    });
 }
 
 /**
@@ -843,6 +906,9 @@ export async function registerIpcHandlers(
     getConfig: () => config.get(),
     // M46: リリースタグの自動採番と package.json との食い違い検出に使う
     appVersion: app.getVersion(),
+    // M92-A7: リリース下書きのビルド実行。開発版のみ注入(配布版はソース+ビルド環境が無い)。
+    // scripts/release.mjs を --publish 無しで回す(バージョン上げ→ビルド→下書きに.exe添付まで)
+    ...(app.isPackaged ? {} : { releaseBuildRunner: makeReleaseBuildRunner() }),
     audit: (e) =>
       audit.append({
         tool: `operations:${e.adapterId}`,
@@ -962,6 +1028,16 @@ export async function registerIpcHandlers(
     assertString(tag, 'tag');
     return operations.requestReleasePublish(repo, tag);
   });
+  // M92-A7: リリース下書きのビルド+添付(開発版限定・承認必須。公開はしない)
+  ipcMain.handle(
+    IpcChannels.operationsReleaseBuild,
+    (_e, draftId: unknown, repo: unknown, bump: unknown) => {
+      assertString(draftId, 'draftId');
+      assertString(repo, 'repo');
+      assertString(bump, 'bump');
+      return operations.requestReleaseBuild(draftId, repo, bump);
+    },
+  );
   // M73: Zenn記事の公開。Releaseと同じく岩戸ゲート(全文確認)を通る
   ipcMain.handle(IpcChannels.operationsZennPublish, (_e, slug: unknown) => {
     assertString(slug, 'slug');

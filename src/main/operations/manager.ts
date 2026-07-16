@@ -48,6 +48,7 @@ import {
 import { createGithubAdapter, defaultGhRunner, detectGhPath, GithubReader, type GhRunner } from './adapters/github';
 import { createHatenaAdapter, HatenaReader } from './adapters/hatena';
 import { createRepoVersionAdapter, readPackageVersion, versionFromTag } from './adapters/repoVersion';
+import { createReleaseBuildAdapter, type ReleaseBuildRunner } from './adapters/releaseBuild';
 import { createHnAdapter, fetchItem, fetchUserKarma, HnReader, type HnStory } from './adapters/hn';
 import { createXAdapter, buildXSearchSuggestions, type XSearchSuggestion } from './adapters/x';
 import { createZennAdapter, ZennReader, type FetchLike } from './adapters/zenn';
@@ -158,6 +159,13 @@ export interface OperationsManagerDeps {
   fetchRegistryGod?: (id: string) => Promise<unknown | null>;
   /** M46: 稼働中アプリの版(package.json)。リリースタグとの食い違い検出に使う */
   appVersion?: string;
+  /**
+   * M92-A7: リリース下書きのビルド実行(開発版限定)。scripts/release.mjs を --publish 無しで回し、
+   * バージョン上げ→ビルド→GitHub Release下書きに.exe添付、まで進める。**公開はしない**。
+   * 未注入(配布版=ビルドtoolchainが無い)なら release-build アダプタは登録されず、
+   * requestReleaseBuild は「この環境ではビルドできない」を返す。
+   */
+  releaseBuildRunner?: ReleaseBuildRunner;
   /**
    * M42-6(TUKU-yomi): PC窓観測。月読モード(オーナー機体限定)がONで pcObserver も
    * ONの時だけ true。神の投入自体をこれで決める(鍵なし機体には神が生えない)
@@ -384,6 +392,11 @@ export class OperationsManager {
     const workspace = this.deps.getConfig().workspace;
     if (workspace !== undefined && workspace !== '') {
       gate.register(createRepoVersionAdapter(workspace, this.deps.gitRunner ?? defaultGitRunner()));
+    }
+    // M92-A7: リリース下書きのビルド。runner が注入された開発版のみ登録(配布版は自分をビルドできない)。
+    // executor は封印され、承認を通ったときだけ scripts/release.mjs(--publish 無し)を回す
+    if (this.deps.releaseBuildRunner !== undefined) {
+      gate.register(createReleaseBuildAdapter(this.deps.releaseBuildRunner));
     }
 
     // M33-5: 神の定義レジストリ+定義変更アダプタ。
@@ -2239,6 +2252,73 @@ ${d.body}`))
     );
     // M87: 公開した瞬間に台帳を直す(次の神議まで「公開待ち」と嘘をつかせない)
     if (result.ok) this.reconcileReleaseLedger(await this.publishState());
+    return result;
+  }
+
+  /**
+   * M92-A7: リリース下書きの「ビルド+添付」を1アクションで。承認すると scripts/release.mjs を
+   * **--publish 無し**で回し、バージョン上げ→typecheck/テスト→インストーラビルド→
+   * GitHub Release下書きに.exe添付、まで進む。**公開はしない**(公開は requestReleasePublish で別承認)。
+   *
+   * 開発版限定(配布版はソース+ビルドtoolchainを持たないので releaseBuildRunner が注入されない)。
+   * 数分かかる。失敗はエラー全文を返す(握りつぶさない)。bump は 'patch'|'minor'|'major' か 'vX.Y.Z'。
+   */
+  async requestReleaseBuild(
+    draftId: string,
+    repo: string,
+    bump: string,
+  ): Promise<{ ok: boolean; detail: string }> {
+    if (!this.ensureInitialized() || this.gate === null || this.drafts === null) {
+      return { ok: false, detail: 'オーナーモードがOFF(運営機能は無効)' };
+    }
+    if (this.deps.releaseBuildRunner === undefined) {
+      return {
+        ok: false,
+        detail:
+          'この環境ではインストーラをビルドできない(配布版はソース+ビルド環境を持たない)。' +
+          '開発版のAMA-terasで実行してください',
+      };
+    }
+    const workspace = this.deps.getConfig().workspace;
+    if (workspace === undefined || workspace === '') {
+      return { ok: false, detail: 'workspace が未設定(ビルド対象のリポジトリが分からない)' };
+    }
+    if (!this.opsConfig().repos.includes(repo)) return { ok: false, detail: `観測対象リポジトリに無い: ${repo}` };
+    const draft = this.drafts.list().find((d) => d.id === draftId);
+    if (draft === undefined) return { ok: false, detail: '下書きが見つからない' };
+    if (draft.kind !== 'release-note') return { ok: false, detail: 'この下書きはリリースノートではない' };
+    if (alreadyOut(draft.status)) return { ok: false, detail: 'この下書きはすでに出している(重複を回避した)' };
+
+    // バージョンを決める: 明示 vX.Y.Z か、bump(最新タグ基準。初回=最新タグ無しは appVersion を土台に)
+    const info = await this.releaseInfo(repo);
+    let version: string | null = null;
+    if (/^v?\d+\.\d+\.\d+$/.test(bump)) {
+      version = versionFromTag(bump);
+    } else if (bump === 'patch' || bump === 'minor' || bump === 'major') {
+      const suggested = info.suggestions[bump];
+      version = suggested !== null ? versionFromTag(suggested) : info.appVersion || null;
+    }
+    if (version === null || !/^\d+\.\d+\.\d+$/.test(version)) {
+      return { ok: false, detail: `次のバージョンを決められない(指定: "${bump}")。'patch'/'minor'/'major' か 'v1.2.3' で指定してください` };
+    }
+    const tag = `v${version}`;
+    const notesBody = `# ${draft.title}\n\n${draft.body}`;
+    const result = await this.gate.requestExecute(
+      'release-build',
+      'build-draft',
+      `${repo} の ${tag} をビルドして下書きリリースに添付(公開はしない)`,
+      `承認すると次を順に実行します(数分かかります):\n` +
+        `1. package.json を ${info.appVersion || '(現在版)'} → ${version} に上げて commit・push\n` +
+        `2. typecheck + テスト(全体)\n` +
+        `3. インストーラ(.exe)をビルド\n` +
+        `4. ${repo} の下書きリリース ${tag} を作成し、.exe を添付\n\n` +
+        `※ **公開(全利用者へ更新バナー)はしません**。中身を確認してから別途「公開」を承認してください。\n\n` +
+        `── リリースノート ──\n${notesBody}`,
+      { version, notesBody, repo, workspace },
+    );
+    if (result.ok) {
+      this.drafts.update(draftId, { status: draftStatusAfter('github'), media: mediaOf('github'), tag });
+    }
     return result;
   }
 

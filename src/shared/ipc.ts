@@ -187,6 +187,8 @@ export const IpcChannels = {
   operationsBumpVersion: 'operations:bump-version',
   /** M48: 下書きリリースの公開(全利用者へ更新通知が飛ぶ。岩戸ゲート承認必須) */
   operationsReleasePublish: 'operations:release-publish',
+  /** M92-A7: リリース下書きのビルド+添付(開発版限定・承認必須。公開はしない) */
+  operationsReleaseBuild: 'operations:release-build',
   operationsZennPublish: 'operations:zenn-publish',
   operationsZennPublishable: 'operations:zenn-publishable',
   operationsZennRedeploy: 'operations:zenn-redeploy',
@@ -463,6 +465,15 @@ export interface AmaterasApi {
   }>;
   /** M48: 下書きリリースを公開する(承認ダイアログで「全利用者に通知が出る」ことを明示) */
   operationsReleasePublish(repo: string, tag: string): Promise<{ ok: boolean; detail: string }>;
+  /**
+   * M92-A7: リリースノート下書きから、バージョン上げ→ビルド→下書きリリースに.exe添付までを1回で。
+   * 公開はしない(開発版限定・承認必須)。bump は 'patch'|'minor'|'major' か 'v1.2.3'。
+   */
+  operationsReleaseBuild(
+    draftId: string,
+    repo: string,
+    bump: string,
+  ): Promise<{ ok: boolean; detail: string }>;
   /** M73: Zenn記事の公開(published: true にして push)。岩戸ゲートで全文確認 */
   operationsZennPublish(slug: string): Promise<{ ok: boolean; detail: string }>;
   operationsZennPublishable(): Promise<{ slug: string; title: string; blocked: string | null }[]>;

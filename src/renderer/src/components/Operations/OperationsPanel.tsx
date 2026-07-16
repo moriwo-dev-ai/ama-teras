@@ -631,6 +631,27 @@ function ReleaseAction({ draft }: { draft: OperationsDraft }): JSX.Element {
       >
         {busy ? '承認待ち…' : '🐙 GitHub Releaseへ'}
       </button>
+      {/* M92-A7: バージョン上げ→ビルド→下書きに.exe添付までを1アクションで(公開はしない・開発版のみ)。
+          これ1つで「公開できる状態(インストーラ入り下書き)」まで用意できる */}
+      <button
+        className="shrink-0 rounded border border-sky-800 px-2 py-0.5 text-[10px] text-sky-300 hover:bg-sky-950 disabled:opacity-40"
+        title="承認すると、バージョン上げ→typecheck/テスト→インストーラ(.exe)ビルド→GitHub Release下書きに添付、まで一気に行う(公開はしない)。開発版のみ・数分かかる"
+        disabled={busy || repo === '' || tag.trim() === ''}
+        onClick={() => {
+          setBusy(true);
+          setResult(null);
+          void window.api
+            .operationsReleaseBuild(draft.id, repo, tag.trim())
+            .then((r) => {
+              setResult(r.detail);
+              if (r.ok) setNonce((n) => n + 1); // 添付済み下書きを掴み直して「公開」ボタンを出す
+            })
+            .catch((e: unknown) => setResult(e instanceof Error ? e.message : String(e)))
+            .finally(() => setBusy(false));
+        }}
+      >
+        {busy ? '承認待ち…' : '🔨 ビルドして下書きに添付'}
+      </button>
       {/* M48: 公開待ちの下書きがあれば、アプリから公開できる(承認ダイアログを通る)。
           配布物が付いていない下書きは main 側が弾く(更新通知だけ出て落とすものが無い状態を作らない) */}
       {info?.pendingDraft != null && (
