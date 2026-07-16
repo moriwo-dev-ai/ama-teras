@@ -130,6 +130,60 @@ export function ModelOpsSection({
         </p>
       </div>
 
+      {/* M92-A6-3: 生成トークンの予算ガード(従量課金の暴走止め) */}
+      <div className="space-y-1 rounded-md border border-zinc-700 p-3">
+        <div className="text-xs font-semibold text-zinc-300">自己進化のトークン上限(従量課金の暴走止め)</div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <label className="text-xs text-zinc-400">セッション合計(session)</label>
+            <input
+              type="number"
+              min={0}
+              step={10000}
+              className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5"
+              defaultValue={config.evolutionSessionTokenCap ?? ''}
+              placeholder="無制限"
+              onBlur={(e) => {
+                const raw = e.target.value.trim();
+                const next: AppConfig = { ...config };
+                delete next.evolutionSessionTokenCap;
+                const n = Number(raw);
+                if (raw !== '' && Number.isFinite(n) && n > 0) {
+                  next.evolutionSessionTokenCap = Math.round(n);
+                }
+                saveConfig(next);
+              }}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-zinc-400">1ツール上限(perJob)</label>
+            <input
+              type="number"
+              min={0}
+              step={10000}
+              className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5"
+              defaultValue={config.evolutionPerJobTokenCap ?? ''}
+              placeholder="無制限"
+              onBlur={(e) => {
+                const raw = e.target.value.trim();
+                const next: AppConfig = { ...config };
+                delete next.evolutionPerJobTokenCap;
+                const n = Number(raw);
+                if (raw !== '' && Number.isFinite(n) && n > 0) {
+                  next.evolutionPerJobTokenCap = Math.round(n);
+                }
+                saveConfig(next);
+              }}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-zinc-500">
+          生成の累積トークンがこの上限に達したジョブは、次の試行に入る前に打ち切る(理由つきで失敗)。
+          空欄=無制限。夜間に大量生成させるときの総額の歯止め。概算値で計上する(実測配線までの安全側)。
+          変更はアプリ再起動で反映
+        </p>
+      </div>
+
       <div className="space-y-1">
         <label className="text-xs text-zinc-400">サブエージェント最大ターン数(subAgentMaxTurns)</label>
         <input

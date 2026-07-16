@@ -130,6 +130,22 @@ describe('ConfigStore', () => {
     expect(new ConfigStore(file).get().evolutionConcurrency).toBeUndefined();
   });
 
+  it('M92-A6-3: 生成トークン上限は非負整数に正規化され set/load を往復する(0=無制限)', async () => {
+    const store = new ConfigStore(file);
+    expect(store.get().evolutionSessionTokenCap).toBeUndefined();
+    expect(store.get().evolutionPerJobTokenCap).toBeUndefined();
+    // 小数は丸め、負値は0(=無制限の明示)へ
+    expect(store.set({ ...store.get(), evolutionSessionTokenCap: 250000.7 }).evolutionSessionTokenCap).toBe(250001);
+    expect(store.set({ ...store.get(), evolutionPerJobTokenCap: -5 }).evolutionPerJobTokenCap).toBe(0);
+    expect(new ConfigStore(file).get().evolutionSessionTokenCap).toBe(250001);
+    // load: 数値はそのまま(丸め)、非数値は未設定
+    await writeFile(file, JSON.stringify({ evolutionSessionTokenCap: 1000000, evolutionPerJobTokenCap: 80000 }));
+    expect(new ConfigStore(file).get().evolutionSessionTokenCap).toBe(1000000);
+    expect(new ConfigStore(file).get().evolutionPerJobTokenCap).toBe(80000);
+    await writeFile(file, JSON.stringify({ evolutionSessionTokenCap: 'x' }));
+    expect(new ConfigStore(file).get().evolutionSessionTokenCap).toBeUndefined();
+  });
+
   // ---- M11-4: postEditHook ----
 
   it('postEditHook の既定は未設定(=無効)で、設定すると永続化される', () => {

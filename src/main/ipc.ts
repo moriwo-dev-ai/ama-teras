@@ -32,6 +32,7 @@ import { AgentJobRunner, LocalToolJobRunner } from './evolution/job';
 import { LocalToolEvolution } from './evolution/local';
 import { EvolutionManager } from './evolution/manager';
 import { GenerationMetrics } from './evolution/metrics';
+import { GenerationBudget } from './evolution/budget';
 import { listEvolvedCapabilities, listEvolveTags, rollbackLastEvolve } from './evolution/promote';
 import { readAndClearPendingQueue, writePendingQueue } from './evolution/pendingQueue';
 import { clearSentinel, writeSentinel } from './evolution/sentinel';
@@ -461,6 +462,14 @@ export async function registerIpcHandlers(
     createEvolution: (hooks) => {
       // M92-Phase0: 生成の計測(成功率・試行回数・所要時間・失敗内訳)。開発版・配布版どちらも記録する
       const genMetrics = new GenerationMetrics(join(app.getPath('userData'), 'evolution', 'metrics.jsonl'));
+      // M92-A6-3: 生成トークンの予算ガード(0/未設定=無制限)。従量課金の暴走を総量で止める。
+      // このプロセスの生成合計(session)と1ツール生成の合計(perJob)の2層。プロセス寿命=夜間セッション。
+      // 上限変更はプロセス再起動で反映(構築時に読む・set-and-forget運用)。
+      const budgetCfg = config.get();
+      const genBudget = new GenerationBudget({
+        ...(budgetCfg.evolutionPerJobTokenCap ? { perJobTokens: budgetCfg.evolutionPerJobTokenCap } : {}),
+        ...(budgetCfg.evolutionSessionTokenCap ? { sessionTokens: budgetCfg.evolutionSessionTokenCap } : {}),
+      });
       // M91: 配布版は git・ソースツリー・devDeps を持たないが、**ツールは作れる**。
       // プラグインはコアから切り離された葉っぱなので、検証もプラグイン単位に閉じられる
       // (型検査・テスト実行・スモーク・静的検査 — tools/verify.ts)。
@@ -488,6 +497,8 @@ export async function registerIpcHandlers(
           existingToolNames: () => registry.list().map((t) => t.name),
           onEvent: hooks.onEvent,
           metrics: genMetrics,
+          // M92-A6-3: 配布版でも生成トークンの予算ガードを効かせる(暴走リトライの総量止め)
+          budget: genBudget,
         });
         void local.restore();
         return local;
@@ -521,6 +532,8 @@ export async function registerIpcHandlers(
         reloadPlugins: () => registry.reload(),
         // M92-A6: 並列生成数(設定。未設定=2)。昇格は内部の昇格ミューテックスで直列
         maxConcurrency: () => config.get().evolutionConcurrency ?? 2,
+        // M92-A6-3: 生成トークンの予算ガード(設定。未設定=無制限)。夜間の総量を守る本命
+        budget: genBudget,
         // M25-8: 新規作成時の既存ツール名衝突チェック/既存修正時の実在確認に使う
         existingToolNames: () => registry.list().map((t) => t.name),
         // M92-Phase0: 生成の計測(開発版)

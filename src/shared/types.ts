@@ -253,6 +253,13 @@ export interface AppConfig {
    */
   evolutionConcurrency?: number;
   /**
+   * M92-A6-3: 生成トークンの上限(概算・累積)。0/未設定=無制限。従量課金の暴走(特に夜間の
+   * 大量生成)から総額を守る。sessionCap=このプロセスの生成合計、perJobCap=1ツール生成の合計。
+   * どちらかを超える試行に入る前に、そのジョブを打ち切る(理由つきで failed)。
+   */
+  evolutionSessionTokenCap?: number;
+  evolutionPerJobTokenCap?: number;
+  /**
    * M27-1: 無料APIモードのプリセット(Gemini/Groq/OpenRouter)。provider='openai' の
    * ときだけ意味を持ち、OpenAI互換エンドポイント(baseURL差し替え)+専用キー
    * スロットで動く。未設定=従来どおり

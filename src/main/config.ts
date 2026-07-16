@@ -27,6 +27,14 @@ export function clampConcurrency(value: number): number {
   return Math.min(EVOLUTION_CONCURRENCY_MAX, Math.max(EVOLUTION_CONCURRENCY_MIN, Math.round(value)));
 }
 
+/**
+ * M92-A6-3: 生成トークンの上限クランプ(0=無制限)。上限は付けない(ユーザーの財布=従量課金)が、
+ * 負値・非整数は弾く。誤って極端に小さい正値を入れると生成が即打ち切られるだけなので実害はない。
+ */
+export function clampTokenCap(value: number): number {
+  return Math.max(0, Math.round(value));
+}
+
 /** M18: 格上げ回数のクランプ(0=格上げ無効〜3) */
 export const MAX_ESCALATIONS_MAX = 3;
 
@@ -348,6 +356,13 @@ export class ConfigStore {
       if (typeof rec['evolutionConcurrency'] === 'number' && Number.isFinite(rec['evolutionConcurrency'])) {
         merged.evolutionConcurrency = clampConcurrency(rec['evolutionConcurrency']);
       }
+      // M92-A6-3: 生成トークンの上限(0/未設定=無制限)。夜間の大量生成の総量を守る本命
+      if (typeof rec['evolutionSessionTokenCap'] === 'number' && Number.isFinite(rec['evolutionSessionTokenCap'])) {
+        merged.evolutionSessionTokenCap = clampTokenCap(rec['evolutionSessionTokenCap']);
+      }
+      if (typeof rec['evolutionPerJobTokenCap'] === 'number' && Number.isFinite(rec['evolutionPerJobTokenCap'])) {
+        merged.evolutionPerJobTokenCap = clampTokenCap(rec['evolutionPerJobTokenCap']);
+      }
       // M27-1: 無料APIモード(不正値は未設定として扱う)
       const preset = parseProviderPreset(rec['providerPreset']);
       if (preset !== undefined) merged.providerPreset = preset;
@@ -459,6 +474,13 @@ export class ConfigStore {
         clone.evolutionConcurrency = clampConcurrency(clone.evolutionConcurrency);
       } else {
         delete clone.evolutionConcurrency;
+      }
+    }
+    // M92-A6-3: 生成トークン上限のクランプ(非数値は未設定=無制限へ。0は「無制限」の明示として残す)
+    for (const key of ['evolutionSessionTokenCap', 'evolutionPerJobTokenCap'] as const) {
+      if (clone[key] !== undefined) {
+        if (Number.isFinite(clone[key])) clone[key] = clampTokenCap(clone[key] as number);
+        else delete clone[key];
       }
     }
     // M27-1: 不正なプリセットIDは未設定へ正規化(IPC経由の範囲外値を防ぐ)
