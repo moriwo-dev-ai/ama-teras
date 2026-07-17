@@ -1,5 +1,5 @@
 import { app, BrowserWindow, shell } from 'electron';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname as pathDirname, join } from 'node:path';
@@ -10,6 +10,28 @@ import { ToolRegistry } from './tools/registry';
 import { migrateUserData } from './userDataMigration';
 
 const dirname = fileURLToPath(new URL('.', import.meta.url));
+
+/**
+ * 実害(2026-07-17): mainプロセスの未捕捉例外が Electron 標準の**同期エラーダイアログ**を開き、
+ * OKが押されるまでイベントループごと凍結した(進化ジョブの失敗通知→会話再開の瞬間に2回発生。
+ * ヘッドレス/リモート運用ではダイアログを押す人がいない=永久凍結)。
+ * ダイアログの代わりにログへ全文を残し、アプリは動かし続ける。凍結バグの正体は
+ * userData/main-errors.log で必ず追えるようにする。
+ */
+function logMainError(kind: string, err: unknown): void {
+  const text = err instanceof Error ? (err.stack ?? err.message) : String(err);
+  try {
+    appendFileSync(
+      join(app.getPath('userData'), 'main-errors.log'),
+      `[${new Date().toISOString()}] ${kind}: ${text}\n`,
+    );
+  } catch {
+    /* ログすら書けない状況では黙る(ここで投げると無限ループ) */
+  }
+  console.error(`[main-error] ${kind}:`, text);
+}
+process.on('uncaughtException', (err) => logMainError('uncaughtException', err));
+process.on('unhandledRejection', (reason) => logMainError('unhandledRejection', reason));
 
 /**
  * M42-3(TUKU-yomi): カメラ・マイクを許可してよいかを設定ファイルから直接読む。
