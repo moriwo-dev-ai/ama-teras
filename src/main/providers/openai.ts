@@ -173,8 +173,22 @@ export async function* normalizeOpenAIStream(
     const rawCalls = delta['tool_calls'];
     if (Array.isArray(rawCalls)) {
       for (const rc of rawCalls) {
-        if (!isRecord(rc) || typeof rc['index'] !== 'number') continue;
-        const index = rc['index'];
+        if (!isRecord(rc)) continue;
+        // GeminiのOpenAI互換APIは tool_calls に index を付けない(1チャンク完結で送る)。
+        // 以前は index 無しを黙って捨てていたため、Geminiがツールを呼ぶたびに応答が
+        // 「モデル応答が空だった」になり、実タスクが一切進まなかった(配布版で実害)。
+        // index 無しの解決: id が既存エントリと一致→そこへ / id が新規 or エントリ無し→新規 /
+        // id も無い継続チャンク→直前のエントリへ追記
+        let index: number;
+        if (typeof rc['index'] === 'number') {
+          index = rc['index'];
+        } else {
+          const id = typeof rc['id'] === 'string' && rc['id'] !== '' ? rc['id'] : null;
+          const byId = id === null ? undefined : [...toolCalls.entries()].find(([, e]) => e.id === id);
+          if (byId !== undefined) index = byId[0];
+          else if (id !== null || toolCalls.size === 0) index = toolCalls.size;
+          else index = toolCalls.size - 1;
+        }
         const fn = isRecord(rc['function']) ? rc['function'] : {};
         let entry = toolCalls.get(index);
         if (!entry) {

@@ -123,6 +123,63 @@ describe('normalizeOpenAIStream', () => {
     ]);
   });
 
+  /**
+   * 実害(2026-07-17): GeminiのOpenAI互換APIは tool_calls に index を付けない(1チャンク完結)。
+   * 以前は index 無しを黙って捨てていたため、Geminiがツールを呼ぶたびに応答が空になり
+   * 「モデル応答が空だった」で実タスクが一切進まなかった(配布版の無料モードで発生)。
+   */
+  it('Gemini形式: index無しの1チャンク完結tool_callを取りこぼさない', async () => {
+    const events = await collect(
+      normalizeOpenAIStream(
+        fromArray([
+          {
+            choices: [
+              { delta: { tool_calls: [{ id: 'g_1', function: { name: 'list_dir', arguments: '{"path":"."}' } }] } },
+            ],
+          },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+        ]),
+      ),
+    );
+    const done = events.at(-1) as Extract<ProviderEvent, { type: 'message_done' }>;
+    expect(done.message.content).toEqual([
+      { type: 'tool_use', id: 'g_1', name: 'list_dir', input: { path: '.' } },
+    ]);
+  });
+
+  it('Gemini形式: index無しの複数tool_call(idで区別)を順に組み立てる', async () => {
+    const events = await collect(
+      normalizeOpenAIStream(
+        fromArray([
+          { choices: [{ delta: { tool_calls: [{ id: 'g_1', function: { name: 'read_file', arguments: '{"path":"a"}' } }] } }] },
+          { choices: [{ delta: { tool_calls: [{ id: 'g_2', function: { name: 'grep', arguments: '{"pattern":"x"}' } }] } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+        ]),
+      ),
+    );
+    const done = events.at(-1) as Extract<ProviderEvent, { type: 'message_done' }>;
+    expect(done.message.content).toEqual([
+      { type: 'tool_use', id: 'g_1', name: 'read_file', input: { path: 'a' } },
+      { type: 'tool_use', id: 'g_2', name: 'grep', input: { pattern: 'x' } },
+    ]);
+  });
+
+  it('index無し・id無しの継続チャンクは直前の呼び出しへ追記される', async () => {
+    const events = await collect(
+      normalizeOpenAIStream(
+        fromArray([
+          { choices: [{ delta: { tool_calls: [{ id: 'g_1', function: { name: 'read_file', arguments: '{"path":' } }] } }] },
+          { choices: [{ delta: { tool_calls: [{ function: { arguments: '"a.txt"}' } }] } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+        ]),
+      ),
+    );
+    const done = events.at(-1) as Extract<ProviderEvent, { type: 'message_done' }>;
+    expect(done.message.content).toEqual([
+      { type: 'tool_use', id: 'g_1', name: 'read_file', input: { path: 'a.txt' } },
+    ]);
+  });
+
   it('lengthはmax_tokens、content_filterはrefusalに写像', async () => {
     const mk = (reason: string) =>
       collect(
