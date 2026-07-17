@@ -94,4 +94,12 @@ describe('M59: 発信の素材からも未公開話題を抜く', () => {
     expect(stripped).not.toContain('月読');
     expect(stripped).not.toContain('whisper');
   });
+
+  it('未公開話題の見出し節は小見出しやStage行も含めて落とす', () => {
+    const progress = ['## M42(月読)', '### 総括', '耳の実測値', 'Stage 5b の話', '## M63: 言行一致', '神議の話'].join('\n');
+
+    const stripped = stripUnreleasedLines(progress);
+
+    expect(stripped).toBe('## M63: 言行一致\n神議の話');
+  });
 });

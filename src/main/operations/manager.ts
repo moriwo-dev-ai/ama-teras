@@ -242,11 +242,29 @@ export function stripUnreleasedLines(text: string): string {
   // 見出しが未公開話題なら、その**節ごと**落とす。行単位だけでは、
   // 「## M42(月読): 記憶の義手」を消しても中身(Stage 5b 耳・誤爆の実測値…)が残り、
   // 神はそれを読んで「見守り判定の作り方」を書いてしまう(実機で起きた)
-  let skipping = false;
+  let skippingHeadingLevel: number | null = null;
   for (const line of text.split('\n')) {
-    const heading = /^#{1,6}\s/.test(line) || /^Stage\s/i.test(line);
-    if (heading) skipping = mentionsUnreleased(line);
-    if (skipping) continue;
+    const heading = /^(#{1,6})\s/.exec(line);
+    if (heading !== null) {
+      const marks = heading[1];
+      if (marks !== undefined) {
+        const level = marks.length;
+        if (skippingHeadingLevel !== null) {
+          if (level <= skippingHeadingLevel) {
+            skippingHeadingLevel = null;
+          } else {
+            continue;
+          }
+        }
+        if (mentionsUnreleased(line)) {
+          skippingHeadingLevel = level;
+          continue;
+        }
+      }
+    }
+    if (skippingHeadingLevel !== null) continue;
+    if (/^Stage\s/i.test(line) && mentionsUnreleased(line)) continue;
+
     if (mentionsUnreleased(line)) continue;
     out.push(line);
   }
@@ -807,6 +825,14 @@ export class OperationsManager {
     // M59: 「下書き0件」だけでは、生成に失敗したのかガードが捨てたのか分からない。
     // 実機で2650トークン使って0件になり、原因が読めなかった。**黙って捨てない**
     const dropped = parsed.length - kept.length;
+    if (parsed.length === 0) {
+      this.inbox.post({
+        kind: 'god-failure',
+        godId: 'ameno-uzume',
+        title: `下書き生成が空だった(素材: フィルタ後${sources.progressExcerpt.length}字。素材不足かモデル出力の問題)`,
+        payload: {},
+      });
+    }
     if (dropped > 0) {
       this.inbox.post({
         kind: 'god-failure',
