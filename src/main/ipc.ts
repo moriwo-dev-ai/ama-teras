@@ -970,7 +970,11 @@ export async function registerIpcHandlers(
     readHighlightSources: async () => {
       let progressExcerpt = '';
       try {
-        progressExcerpt = readFileSync(join(repoDir, 'PROGRESS.md'), 'utf8').slice(0, 6000);
+        // M94実測: 以前は先頭6000字に切ってから渡していたが、PROGRESS.md の先頭が未公開機能の
+        // 節だと、下流の stripUnreleasedLines がそれを削った残り(断片1585字)しか素材にならず、
+        // uzume の下書きが毎回0件になった。切り詰めはフィルタ後にプロンプト側(6000字)が行うので、
+        // ここではフィルタに十分な量を渡す(200kはPROGRESS全文の想定上限。無制限にしないのは防御)
+        progressExcerpt = readFileSync(join(repoDir, 'PROGRESS.md'), 'utf8').slice(0, 200_000);
       } catch {
         // PROGRESS.md 無しでも下書き生成は可能(素材が減るだけ)
       }
