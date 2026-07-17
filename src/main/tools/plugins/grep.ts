@@ -71,16 +71,25 @@ export default {
     }
 
     const root = typeof path === 'string' ? (isAbsolute(path) ? path : resolve(ctx.cwd, path)) : ctx.cwd;
+    // M94実測: path にファイルを渡すと walk が readdir(ファイル) で黙って空になり、
+    // 常に「(一致なし)」を返していた(進化ジョブが manager.ts を直接指定して全空振り→誤診→迷走)。
+    // ファイルならそれ1つを検索し、存在しなければ誤診させないよう明示エラーにする。
+    const rootStat = await stat(root).catch(() => null);
+    if (rootStat === null) {
+      return { content: `path が存在しない: ${root}`, isError: true };
+    }
+    const targets = rootStat.isFile() ? (async function* (): AsyncGenerator<string> { yield root; })() : walk(root, ctx.signal);
     const results: string[] = [];
 
-    for await (const file of walk(root, ctx.signal)) {
+    for await (const file of targets) {
       if (results.length >= MAX_RESULTS) break;
       if (typeof include === 'string' && !file.includes(include)) continue;
       const st = await stat(file).catch(() => null);
       if (!st || st.size > MAX_FILE_SIZE) continue;
       const raw = await readFile(file, 'utf8').catch(() => null);
       if (raw === null || raw.includes(NUL)) continue;
-      const rel = relative(root, file).replaceAll('\\', '/');
+      // 単一ファイル検索時は relative が空文字になるため、渡されたパス表記をそのまま使う
+      const rel = (relative(root, file) || String(path)).replaceAll('\\', '/');
       for (const [i, line] of raw.split('\n').entries()) {
         // 極端に長い行はマッチ対象を切り詰め、バックトラッキングの入力サイズを抑える
         const target = line.length > MAX_LINE_LEN ? line.slice(0, MAX_LINE_LEN) : line;

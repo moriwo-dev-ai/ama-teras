@@ -49,3 +49,31 @@ describe('grep.execute のReDoS防御', () => {
     expect(r.content).toContain('foo bar');
   });
 });
+
+/**
+ * M94実測: path にファイルを渡すと readdir(ファイル)が黙って空になり常に「(一致なし)」。
+ * 進化ジョブが manager.ts を直接指定して全空振り→「その文字列は無い」と誤診→迷走した。
+ */
+describe('path にファイルを直接指定できる', () => {
+  it('単一ファイル検索がヒットする(相対パス指定)', async () => {
+    await writeFile(join(dir, 'target.ts'), "const adapterId = 'bluesky';\n");
+    const r = await grep.execute({ pattern: 'bluesky', path: 'target.ts' }, ctx());
+    expect(r.isError).toBeUndefined();
+    expect(r.content).toContain('target.ts:1:');
+    expect(r.content).toContain('bluesky');
+  });
+
+  it('単一ファイル検索がヒットする(絶対パス指定)', async () => {
+    const abs = join(dir, 'abs.ts');
+    await writeFile(abs, 'needle here\n');
+    const r = await grep.execute({ pattern: 'needle', path: abs }, ctx());
+    expect(r.isError).toBeUndefined();
+    expect(r.content).toContain('needle');
+  });
+
+  it('存在しない path は「一致なし」ではなく明示エラー(誤診させない)', async () => {
+    const r = await grep.execute({ pattern: 'x', path: 'no-such-file.ts' }, ctx());
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain('存在しない');
+  });
+});

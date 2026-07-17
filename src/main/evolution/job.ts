@@ -80,11 +80,19 @@ const CORE_JOB_SYSTEM_PROMPT = (scope: 'renderer' | 'core', allowlist: string[])
 コーディング規約(違反するとtypecheckゲートで失格):
 - TypeScript strict + noUncheckedIndexedAccess。any 禁止(入力は unknown+型ガード)
 
+作業の進め方(M94実測: 3ジョブ連続でターン上限死した敗因から。破ると完走できない):
+- 依頼文に「地図」(ファイル名・行番号・関数名)があるなら、探索せず地図の場所から read_file で
+  読み始める。リポジトリ全体を grep で歩き回らない(実測: 探索だけで上限を使い切って死ぬ)
+- edit_file の old_string は、**必ず直前に read_file したその範囲の内容を一字一句コピー**して作る。
+  記憶や推測で書くと不一致→読み直し→再試行でターンを浪費する(実測: これが最大の消耗源)
+- まず全ファイルを書き終え、検証は最後にまとめて行う(1編集ごとに検証しない)
+
 完了前の自己検証(必須):
 - bash で \`npm run typecheck\` → エラーゼロ
-- bash で \`npx vitest run\` → 全合格(既存テストを壊さない)
-- bash で \`npm run build\` → 成功
-- 【重要】bash は制限モードで検証コマンド(npm run <script> / npx vitest run / npx tsc)のみ。
+- bash で \`npx vitest run <変更したテストファイル1つ>\` → 合格
+  (制限モードの vitest は**パス1つ必須**。引数なしの全体実行は拒否される。
+  全テスト・ビルドはこの後の検証ゲートが必ず回すので、ここで全部やる必要はない)
+- 【重要】bash は制限モードで検証コマンド(npm run <script> / npx vitest run <path> / npx tsc)のみ。
   ファイルの作成・変更は必ず write_file / edit_file を使う
 
 最後の応答で、変更概要を \`\`\`json {"summary": "..."} \`\`\` のコードブロックで必ず出力する`;
