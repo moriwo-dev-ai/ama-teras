@@ -158,6 +158,13 @@ export function parseOperationsConfig(raw: unknown): OperationsConfig | undefine
   if (typeof rec['zennRepoDir'] === 'string' && rec['zennRepoDir'].trim() !== '') {
     out.zennRepoDir = rec['zennRepoDir'].trim();
   }
+  // M94: Bluesky投稿への添付メディア(#42で追加されたフィールド。白リスト漏れでUI保存が消えていた)
+  if (typeof rec['blueskyMediaPath'] === 'string' && rec['blueskyMediaPath'].trim() !== '') {
+    out.blueskyMediaPath = rec['blueskyMediaPath'].trim();
+  }
+  if (typeof rec['blueskyMediaAlt'] === 'string' && rec['blueskyMediaAlt'].trim() !== '') {
+    out.blueskyMediaAlt = rec['blueskyMediaAlt'].trim();
+  }
   // M41-3: 神々に渡すプロジェクト像(未設定ならリポジトリ名から推測される)
   if (typeof rec['projectName'] === 'string' && rec['projectName'].trim() !== '') {
     out.projectName = rec['projectName'].trim();

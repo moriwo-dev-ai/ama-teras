@@ -428,6 +428,9 @@ describe('M41-5: operations の新フィールドが保存で消えないこと(
     projectDescription: '個人開発のCLIツール',
     keywords: ['自作エージェント'],
     zennTopics: ['ai', 'typescript'],
+    // M94: #42(Bluesky添付)のフィールドが白リスト漏れでUI保存が消えていた(実害)
+    blueskyMediaPath: 'demo.gif',
+    blueskyMediaAlt: 'デモGIF',
   };
 
   it('set() でも read() でも zennRepoDir / プロジェクト像 / キーワード / topics が保持される', async () => {
@@ -438,6 +441,8 @@ describe('M41-5: operations の新フィールドが保存で消えないこと(
     expect(saved.operations?.projectDescription).toBe('個人開発のCLIツール');
     expect(saved.operations?.keywords).toEqual(['自作エージェント']);
     expect(saved.operations?.zennTopics).toEqual(['ai', 'typescript']);
+    expect(saved.operations?.blueskyMediaPath).toBe('demo.gif');
+    expect(saved.operations?.blueskyMediaAlt).toBe('デモGIF');
 
     // 再ロード(=アプリ再起動)でも残る
     const reloaded = new ConfigStore(file2).get();
