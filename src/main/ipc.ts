@@ -101,7 +101,10 @@ function assertSecretSlot(value: unknown): asserts value is SecretSlot {
     value !== 'openrouter' &&
     value !== 'custom' &&
     value !== 'bluesky' &&
-    value !== 'github'
+    value !== 'github' &&
+    // M95: Kimi(Moonshot)正式プリセット用の専用キースロット。本体からの要望
+    // (request_core_change 2026-07-19)を受けた人間側の聖域変更(最小)
+    value !== 'kimi'
   ) {
     throw new Error('IPC payload slot が不正');
   }
@@ -864,6 +867,7 @@ export async function registerIpcHandlers(
     custom: secrets.has('custom'),
     bluesky: secrets.has('bluesky'),
     github: secrets.has('github'), // M91-2: レジストリPR・要望Issueの提出に使う
+    kimi: secrets.has('kimi'), // M95: Kimi(Moonshot)プリセット用
   });
   ipcMain.handle(IpcChannels.secretsStatus, () => secretsStatus());
   ipcMain.handle(IpcChannels.secretsSet, (_e, slot: unknown, apiKey: unknown) => {
@@ -1605,6 +1609,7 @@ export async function registerIpcHandlers(
       gemini: 'https://aistudio.google.com/apikey',
       groq: 'https://console.groq.com/keys',
       openrouter: 'https://openrouter.ai/settings/keys',
+      kimi: 'https://platform.moonshot.ai/console/api-keys', // M95: Kimi(Moonshot)
     };
     const url = typeof provider === 'string' ? urls[provider] : undefined;
     if (!url) throw new Error('不明なプロバイダ');

@@ -64,7 +64,10 @@ export type ProviderPresetId = 'gemini' | 'groq' | 'openrouter' | 'custom';
  *  M35-4: 'bluesky' はAPIキーではなく資格情報JSON({identifier, appPassword})を保存する。
  *  M91-2: 'github' はレジストリへのPR提出・本体への要望Issue提出に使うトークン
  *  (公開リポジトリへの書き込みのみ。fork+PRのため public_repo 相当で足りる) */
-export type SecretSlot = ProviderId | ProviderPresetId | 'bluesky' | 'github';
+/** M95: 'kimi' は正式プリセット化(ProviderPresetId入り)までの間、専用スロットとして直接列挙する
+ *  (ProviderPresetId に入れると PROVIDER_PRESETS(Record)の網羅性でプリセット定義が同時に必要になるため、
+ *   聖域側の先行変更と本体側の進化ジョブを分離する目的。プリセット化後は重複するが無害) */
+export type SecretSlot = ProviderId | ProviderPresetId | 'bluesky' | 'github' | 'kimi';
 
 /** 送信モード。plan は実装前に計画を提示し、ツールを実行しない(承認後に通常モードで実行) */
 export type ChatMode = 'normal' | 'plan';
@@ -81,6 +84,8 @@ export interface SecretsStatus {
   bluesky: boolean;
   /** M91-2: GitHubトークン(レジストリPR・要望Issueの提出に使う)。有無のみ */
   github: boolean;
+  /** M95: Kimi(Moonshot)プリセット用キースロット。有無のみ */
+  kimi: boolean;
 }
 
 /** M27-1: 接続テスト(設定画面の「無料で始める」等)の結果 */
