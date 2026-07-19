@@ -133,13 +133,13 @@ describe('M27-1: freeMode は modelPolicy を無効化する', () => {
 });
 
 describe('M27-1: providerPreset のプロバイダ生成', () => {
-  it('preset(gemini)使用時は専用スロットのキーで生成される', () => {
+  it('preset(kimi)使用時は専用スロットのキーで生成される', () => {
     const { svc, secretCalls } = makeService({
-      config: { provider: 'openai', providerPreset: 'gemini', freeMode: true },
+      config: { provider: 'openai', providerPreset: 'kimi', freeMode: true },
     });
     const provider = svc.createProvider();
     expect(typeof provider).not.toBe('string');
-    expect(secretCalls).toContain('gemini');
+    expect(secretCalls).toContain('kimi');
     expect(secretCalls).not.toContain('openai');
   });
 
