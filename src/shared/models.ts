@@ -87,6 +87,21 @@ export const PROVIDER_PRESETS: Record<ProviderPresetId, ProviderPreset> = {
     rateLimitNotice:
       '無料枠の上限に達しました(OpenRouter)。:free モデルは1日あたりの回数制限があり、明日リセットされます',
   },
+  kimi: {
+    id: 'kimi',
+    label: 'Kimi K3 / Moonshot AI(長文・コーディング向け)',
+    baseUrl: 'https://api.moonshot.ai/v1',
+    defaultModel: 'kimi-k3',
+    models: [{ id: 'kimi-k3', label: 'Kimi K3(既定・1M context・Moonshot AI)' }],
+    keyPageUrl: 'https://platform.moonshot.ai/console/api-keys',
+    steps: [
+      'Moonshot AI のコンソールにログイン',
+      'API Keys で Kimi 用のAPIキーを作成',
+      '表示されたキーをコピーして下の欄に貼り付け→保存→接続テスト',
+    ],
+    rateLimitNotice:
+      'Moonshot/Kimi の無料枠または利用上限に達しました。1分あたりの上限なら少し待つと再開できます。プランや日次上限に達した場合は上限のリセットまたはプラン設定を確認してください',
+  },
   /**
    * M35-5: 任意のOpenAI互換エンドポイント(Ollama・LM Studio・vLLM等)。
    * baseUrl はここでは固定できない — 実接続は config.customBaseUrl を使う
@@ -214,6 +229,7 @@ const CONTEXT_LIMITS: [prefix: string, limit: number][] = [
   // M27-1: 無料APIモードのプリセット系(値は保守的に)
   ['gemini-2.5-flash-lite', 1_000_000],
   ['gemini-', 1_000_000],
+  ['kimi-k3', 1_000_000],
   // M30-1: GPT-5.6 世代は3層とも 1,050,000(2026-07-11 公式モデルページで確認)
   ['gpt-5.6', 1_050_000],
   ['llama-3.3-70b', 128_000],

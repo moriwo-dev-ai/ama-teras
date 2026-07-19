@@ -95,6 +95,13 @@ describe('M27-1: PROVIDER_PRESETS(無料APIモード)', () => {
     expect(contextLimitFor('meta-llama/llama-3.3-70b-instruct:free')).toBe(128_000);
     expect(contextLimitFor('deepseek/deepseek-r1:free')).toBe(64_000);
   });
+
+  it('Kimi K3 プリセットは Moonshot の OpenAI互換エンドポイントと1M contextを使う', () => {
+    expect(PROVIDER_PRESETS.kimi.defaultModel).toBe('kimi-k3');
+    expect(PROVIDER_PRESETS.kimi.baseUrl).toBe('https://api.moonshot.ai/v1');
+    expect(PROVIDER_PRESETS.kimi.baseUrl.endsWith('/')).toBe(false);
+    expect(contextLimitFor('kimi-k3')).toBe(1_000_000);
+  });
 });
 
 describe('M29-1: プリセットのbaseUrlとGemini現行モデル', () => {

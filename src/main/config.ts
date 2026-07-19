@@ -44,7 +44,9 @@ export const MAX_ESCALATIONS_MAX = 3;
 export const FREE_MODE_DEFAULT_MAX_TURNS = 15;
 
 export function parseProviderPreset(raw: unknown): ProviderPresetId | undefined {
-  return raw === 'gemini' || raw === 'groq' || raw === 'openrouter' || raw === 'custom' ? raw : undefined;
+  return raw === 'gemini' || raw === 'groq' || raw === 'openrouter' || raw === 'kimi' || raw === 'custom'
+    ? raw
+    : undefined;
 }
 
 /** M29-5: 自律モードの包括承認範囲(不正値は未設定=none扱い) */

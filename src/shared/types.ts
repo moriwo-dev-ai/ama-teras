@@ -58,16 +58,13 @@ export type ProviderId = 'anthropic' | 'openai';
  * プリセットの実体(baseUrl・既定モデル・案内文)は shared/models.ts の PROVIDER_PRESETS
  */
 /** M35-5: 'custom' = 任意のOpenAI互換エンドポイント(Ollama等。baseURLはconfig.customBaseUrl) */
-export type ProviderPresetId = 'gemini' | 'groq' | 'openrouter' | 'custom';
+export type ProviderPresetId = 'gemini' | 'groq' | 'openrouter' | 'kimi' | 'custom';
 
 /** APIキーの保存スロット。プリセットはOpenAIと別のキーを持つため独立スロット。
  *  M35-4: 'bluesky' はAPIキーではなく資格情報JSON({identifier, appPassword})を保存する。
  *  M91-2: 'github' はレジストリへのPR提出・本体への要望Issue提出に使うトークン
  *  (公開リポジトリへの書き込みのみ。fork+PRのため public_repo 相当で足りる) */
-/** M95: 'kimi' は正式プリセット化(ProviderPresetId入り)までの間、専用スロットとして直接列挙する
- *  (ProviderPresetId に入れると PROVIDER_PRESETS(Record)の網羅性でプリセット定義が同時に必要になるため、
- *   聖域側の先行変更と本体側の進化ジョブを分離する目的。プリセット化後は重複するが無害) */
-export type SecretSlot = ProviderId | ProviderPresetId | 'bluesky' | 'github' | 'kimi';
+export type SecretSlot = ProviderId | ProviderPresetId | 'bluesky' | 'github';
 
 /** 送信モード。plan は実装前に計画を提示し、ツールを実行しない(承認後に通常モードで実行) */
 export type ChatMode = 'normal' | 'plan';

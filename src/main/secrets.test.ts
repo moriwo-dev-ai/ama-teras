@@ -51,19 +51,23 @@ describe('SecretStore', () => {
 });
 
 describe('M27-1: プリセット用キースロット', () => {
-  it('gemini / groq / openrouter スロットが openai と独立に往復する', () => {
+  it('gemini / groq / openrouter / kimi スロットが openai と独立に往復する', () => {
     const file = join(dir, 'secrets.json');
     const store = new SecretStore(file, fakeCipher());
     store.set('gemini', 'AIza-test');
+    store.set('kimi', 'moonshot-test');
     store.set('openai', 'sk-openai');
     expect(store.get('gemini')).toBe('AIza-test');
+    expect(store.get('kimi')).toBe('moonshot-test');
     expect(store.get('openai')).toBe('sk-openai');
     expect(store.has('groq')).toBe(false);
     expect(store.has('openrouter')).toBe(false);
 
     const store2 = new SecretStore(file, fakeCipher());
     expect(store2.get('gemini')).toBe('AIza-test');
+    expect(store2.get('kimi')).toBe('moonshot-test');
     expect(readFileSync(file, 'utf8')).not.toContain('AIza-test'); // 平文保存禁止はスロットにも適用
+    expect(readFileSync(file, 'utf8')).not.toContain('moonshot-test');
   });
 });
 
