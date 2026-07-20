@@ -461,7 +461,7 @@ export interface AmaterasApi {
     appVersion: string;
     suggestions: { patch: string | null; minor: string | null; major: string | null };
     mismatch: boolean;
-    pendingDraft: { tag: string; assets: string[] } | null;
+    pendingDraft: { tag: string; assets: string[]; staleAsset?: { assetAt: string; newerCommits: number } } | null;
   }>;
   /** M48: 下書きリリースを公開する(承認ダイアログで「全利用者に通知が出る」ことを明示) */
   operationsReleasePublish(repo: string, tag: string): Promise<{ ok: boolean; detail: string }>;

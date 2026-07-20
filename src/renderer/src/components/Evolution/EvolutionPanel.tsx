@@ -3,6 +3,7 @@ import type { EvolutionJobStatus, EvolutionScope, ProvisionalInstall } from '../
 import { useEvolutionStore } from '../../stores/evolution';
 import { PublishPluginDialog, usePublishPlugin } from '../Registry/PublishPlugin';
 import { RequestsSection } from '../Registry/RequestsSection';
+import { ArchiveModal, ArchiveToggle, useArchive } from '../common/ArchiveModal';
 
 const STATUS_LABEL: Record<EvolutionJobStatus, { text: string; cls: string }> = {
   queued: { text: '待機中', cls: 'text-zinc-400' },
@@ -60,6 +61,11 @@ function ScopeBadge({ scope }: { scope?: EvolutionScope }): JSX.Element {
 
 export function EvolutionPanel(): JSX.Element {
   const { jobs, loadJobs } = useEvolutionStore();
+  // M97: 終わったジョブは畳む。現役(実行中・承認待ち)だけを常時表示する
+  const jobArchive = useArchive();
+  const DONE_STATUSES: EvolutionJobStatus[] = ['done', 'failed', 'rejected', 'cancelled', 'rolled_back'];
+  const activeJobs = jobs.filter((j) => !DONE_STATUSES.includes(j.status));
+  const doneJobs = jobs.filter((j) => DONE_STATUSES.includes(j.status)).slice().reverse();
   const [desc, setDesc] = useState('');
   const [io, setIo] = useState('');
   const [scope, setScope] = useState<EvolutionScope>('tool');
@@ -209,7 +215,7 @@ export function EvolutionPanel(): JSX.Element {
       )}
       {jobs.length === 0 && <p className="text-xs text-zinc-500">ジョブはまだない</p>}
       <div className="max-h-56 space-y-1 overflow-y-auto">
-        {jobs.map((j) => (
+        {activeJobs.map((j) => (
           <div key={j.id} className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs">
             <div className="flex items-center gap-2">
               <span className="shrink-0 font-mono text-zinc-400">#{j.id}</span>
@@ -281,6 +287,28 @@ export function EvolutionPanel(): JSX.Element {
           </div>
         ))}
       </div>
+      {/* M97: 終わったジョブは畳んで格納。クリックで一覧モーダル(現役の項目を埋もれさせない) */}
+      <ArchiveToggle label="完了済みジョブ" count={doneJobs.length} onOpen={jobArchive.show} />
+      {jobArchive.open && (
+        <ArchiveModal title="🧬 完了済みの進化ジョブ" count={doneJobs.length} onClose={jobArchive.hide}>
+          {doneJobs.map((j) => (
+            <div key={j.id} className="rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="shrink-0 font-mono text-zinc-500">#{j.id}</span>
+                <ScopeBadge {...(j.scope !== undefined ? { scope: j.scope } : {})} />
+                <span className="min-w-0 flex-1 truncate text-zinc-300">{j.description}</span>
+                {j.toolName && <span className="shrink-0 font-mono text-blue-300">{j.toolName}</span>}
+                <span className={`shrink-0 ${STATUS_LABEL[j.status].cls}`}>{STATUS_LABEL[j.status].text}</span>
+              </div>
+              {j.error !== undefined && j.error !== '' && (
+                <p className="mt-0.5 truncate text-[11px] text-red-400" title={j.error}>
+                  {j.error}
+                </p>
+              )}
+            </div>
+          ))}
+        </ArchiveModal>
+      )}
       {publish.message !== '' && <p className="text-xs text-zinc-400">{publish.message}</p>}
       {publish.plan !== null && (
         <PublishPluginDialog

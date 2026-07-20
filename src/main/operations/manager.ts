@@ -2054,7 +2054,7 @@ ${d.body}`))
     suggestions: { patch: string | null; minor: string | null; major: string | null };
     mismatch: boolean;
     /** M48: 公開待ちの下書きリリース(あれば)。assets が空なら公開させない */
-    pendingDraft: { tag: string; assets: string[] } | null;
+    pendingDraft: { tag: string; assets: string[]; staleAsset?: { assetAt: string; newerCommits: number } } | null;
   }> {
     const appVersion = this.deps.appVersion ?? '';
     const empty = {
@@ -2076,7 +2076,8 @@ ${d.body}`))
       /* リリース無し・gh不在は latestTag=null(手入力へ落とす) */
     }
     // M48: 公開待ちの下書き(gh release list は下書きも返す)
-    let pendingDraft: { tag: string; assets: string[] } | null = null;
+    let pendingDraft: { tag: string; assets: string[]; staleAsset?: { assetAt: string; newerCommits: number } } | null =
+      null;
     try {
       const listOut = await this.ghRun(['release', 'list', '-R', repo, '--limit', '10', '--json', 'tagName,isDraft']);
       const rows = JSON.parse(listOut) as { tagName: string; isDraft: boolean }[];
@@ -2090,8 +2091,12 @@ ${d.body}`))
       const draft = rows.find((r) => r.isDraft);
       if (draft !== undefined) {
         const viewOut = await this.ghRun(['release', 'view', draft.tagName, '-R', repo, '--json', 'assets']);
-        const assets = (JSON.parse(viewOut) as { assets?: { name: string }[] }).assets ?? [];
+        const assets = (JSON.parse(viewOut) as { assets?: { name: string; updatedAt?: string }[] }).assets ?? [];
         pendingDraft = { tag: draft.tagName, assets: assets.map((a) => a.name) };
+        // M97: 下書き作成後にコミットを足すと、直近の修正が入らないインストーラを配ることになる
+        // (実際に2回起きた)。添付時刻より後のコミットがあれば警告材料を返す
+        const stale = await this.staleAssetInfo(assets);
+        if (stale !== null) pendingDraft = { ...pendingDraft, staleAsset: stale };
       }
     } catch {
       /* gh不在・権限なしは「下書きなし」として扱う(公開ボタンを出さない) */
@@ -2292,6 +2297,31 @@ ${d.body}`))
     // M87: 公開した瞬間に台帳を直す(次の神議まで「公開待ち」と嘘をつかせない)
     if (result.ok) this.reconcileReleaseLedger(await this.publishState());
     return result;
+  }
+
+  /**
+   * M97: 添付インストーラが古くなっていないかを見る。
+   * 「下書きを作る → その後もコミットを足す → 公開」で、**直近の修正が入っていないビルドを配る**
+   * 事故が実際に2回起きた(v1.3.0・v1.5.0)。人間の記憶に頼らず、機械が気づいて警告する。
+   * 判定は「インストーラ(.exe等)の添付時刻より後のコミット数」。gitが引けない環境では null。
+   */
+  private async staleAssetInfo(
+    assets: { name: string; updatedAt?: string }[],
+  ): Promise<{ assetAt: string; newerCommits: number } | null> {
+    const installer = assets.find((a) => /\.(exe|dmg|AppImage|zip)$/i.test(a.name));
+    const assetAt = installer?.updatedAt;
+    if (assetAt === undefined || assetAt === '') return null;
+    const workspace = this.deps.getConfig().workspace;
+    if (workspace === undefined || workspace === '') return null;
+    const run = this.deps.gitRunner ?? defaultGitRunner();
+    try {
+      const out = await run(['rev-list', '--count', `--since=${assetAt}`, 'HEAD'], workspace);
+      const newerCommits = Number(out.trim());
+      if (!Number.isInteger(newerCommits) || newerCommits <= 0) return null;
+      return { assetAt, newerCommits };
+    } catch {
+      return null; // git が引けない=判定しない(誤警告を出さない)
+    }
   }
 
   /**

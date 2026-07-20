@@ -48,6 +48,44 @@ function makeManager(over: Over = {}): OperationsManager {
 
 const store = (): DraftStore => new DraftStore(join(dir, 'operations'));
 
+describe('M97: 添付ビルドの鮮度警告(staleAsset)', () => {
+  const withDraft = (assetUpdatedAt: string, gitCount: string) =>
+    new OperationsManager({
+      userDataDir: dir,
+      getConfig: () =>
+        ({ workspace: dir, operations: { enabled: true, repos: ['o/r'], zennSlugs: [] } }) as unknown as AppConfig,
+      audit: () => {},
+      approvalPrompt: () => Promise.resolve(true),
+      bandProvider: () => 'キー未設定',
+      appVersion: '1.5.0',
+      gitRunner: (async () => gitCount) as never,
+      ghRunner: async (args: string[]) => {
+        // 実物の呼び出し: view --json tagName / list --json tagName,isDraft / view <tag> --json assets
+        const json = args[args.indexOf('--json') + 1] ?? '';
+        if (args[1] === 'list') return JSON.stringify([{ tagName: 'v1.5.0', isDraft: true }]);
+        if (args[1] === 'view' && json.includes('assets')) {
+          return JSON.stringify({ assets: [{ name: 'x Setup 1.5.0.exe', updatedAt: assetUpdatedAt }] });
+        }
+        if (args[1] === 'view') return JSON.stringify({ tagName: 'v1.5.0' });
+        return '';
+      },
+    });
+
+  it('添付より後のコミットがあれば staleAsset を返す(公開前に気づける)', async () => {
+    const m = withDraft('2026-07-20T06:00:00Z', '3');
+    await m.status();
+    const info = await m.releaseInfo('o/r');
+    expect(info.pendingDraft?.staleAsset).toEqual({ assetAt: '2026-07-20T06:00:00Z', newerCommits: 3 });
+  });
+
+  it('後続コミットが無ければ staleAsset は付かない(誤警告を出さない)', async () => {
+    const m = withDraft('2026-07-20T06:00:00Z', '0');
+    await m.status();
+    const info = await m.releaseInfo('o/r');
+    expect(info.pendingDraft?.staleAsset).toBeUndefined();
+  });
+});
+
 describe('M92-A7: リリース下書きのビルド+添付(requestReleaseBuild)', () => {
   it('runner未注入(配布版相当)は承認を求めず「ビルドできない」で断る', async () => {
     const prompt = vi.fn();

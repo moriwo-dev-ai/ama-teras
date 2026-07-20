@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { ArchiveModal, ArchiveToggle, useArchive } from '../common/ArchiveModal';
 import type {
   CommunityCandidate,
   GodClockJob,
@@ -521,7 +522,7 @@ function ReleaseAction({ draft }: { draft: OperationsDraft }): JSX.Element {
     appVersion: string;
     suggestions: { patch: string | null; minor: string | null; major: string | null };
     mismatch: boolean;
-    pendingDraft: { tag: string; assets: string[] } | null;
+    pendingDraft: { tag: string; assets: string[]; staleAsset?: { assetAt: string; newerCommits: number } } | null;
   } | null>(null);
   // M85: リリース情報を**repoが変わった時にしか取りに行っていなかった**。アプリを開いたまま
   // 下書きリリースを作ると、UIは起動時に掴んだ pendingDraft: null を持ち続け、
@@ -673,6 +674,16 @@ function ReleaseAction({ draft }: { draft: OperationsDraft }): JSX.Element {
         >
           🚀 {info.pendingDraft.tag} を公開({info.pendingDraft.assets.length}件添付)
         </button>
+      )}
+      {/* M97: 添付ビルドより新しいコミットがある = 直近の修正が入っていないインストーラを配ることになる
+          (実際に2回起きた)。押す前に気づけるよう、公開ボタンの隣で警告する */}
+      {info?.pendingDraft?.staleAsset != null && (
+        <span
+          className="rounded border border-amber-700 bg-amber-950/60 px-2 py-0.5 text-[10px] text-amber-300"
+          title={`添付インストーラのビルド時刻: ${info.pendingDraft.staleAsset.assetAt}\nそれ以降のコミット: ${info.pendingDraft.staleAsset.newerCommits}件\n\n「🔨 ビルドして下書きに添付」でビルドし直すと最新のコードで配れます`}
+        >
+          ⚠ 添付が古い(以降に{info.pendingDraft.staleAsset.newerCommits}コミット)— 再ビルド推奨
+        </span>
       )}
       {result !== null && <span className="text-[10px] text-zinc-400">{result}</span>}
     </>
@@ -1121,6 +1132,7 @@ export function OperationsPanel(): JSX.Element {
   const { ghDetected, adapters, refresh } = useOperationsStore();
   const [history, setHistory] = useState<MetricsSnapshot[]>([]);
   const [drafts, setDrafts] = useState<OperationsDraft[]>([]);
+  const draftArchive = useArchive();
   const [candidates, setCandidates] = useState<CommunityCandidate[]>([]);
   const [board, setBoard] = useState<MediaStrategyEntry[]>([]);
   const [triage, setTriage] = useState<TriageCard[]>([]);
@@ -1158,10 +1170,13 @@ export function OperationsPanel(): JSX.Element {
   const current = history[history.length - 1] ?? null;
   const previous = history.length >= 2 ? (history[history.length - 2] ?? null) : null;
   // M84: 保存順(≒作成順)に頼らず、作成時刻で新しい順に並べる。上が最新
-  const activeDrafts = drafts
+  // M97: 出し終えた下書き(投稿済み等)は畳んで格納。現役=まだ手を入れる余地があるものだけ常時表示
+  const sortedDrafts = drafts
     .filter((d) => d.status !== 'discarded')
     .slice()
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const activeDrafts = sortedDrafts.filter((d) => d.status === 'draft');
+  const doneDrafts = sortedDrafts.filter((d) => d.status !== 'draft');
   const activeCandidates = candidates.filter((c) => c.status !== 'discarded').reverse();
 
   return (
@@ -1249,6 +1264,15 @@ export function OperationsPanel(): JSX.Element {
               <DraftCard key={d.id} draft={d} onUpdate={reload} />
             ))}
           </div>
+        )}
+        {/* M97: 出し終えた下書きは格納。クリックで一覧モーダル */}
+        <ArchiveToggle label="完了済みの下書き" count={doneDrafts.length} onOpen={draftArchive.show} />
+        {draftArchive.open && (
+          <ArchiveModal title="💃 完了済みの発信ドラフト" count={doneDrafts.length} onClose={draftArchive.hide}>
+            {doneDrafts.map((d) => (
+              <DraftCard key={d.id} draft={d} onUpdate={reload} />
+            ))}
+          </ArchiveModal>
         )}
         {/* M73: 記事化(コミット)の先=公開。ここが無かったせいで記事が露出ゼロのまま埋もれた */}
         <ReleasePublishSection />
