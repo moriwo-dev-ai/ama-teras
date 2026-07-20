@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { isPublishableJob } from '../../../shared/evolutionStatus';
 import type { RemoteApi } from '../api';
 import { useRemoteStore } from '../store';
 
@@ -32,6 +33,17 @@ export function EvolutionView({ api }: { api: RemoteApi }): JSX.Element {
   const [plan, setPlan] = useState<UploadPlan | null>(null);
   const [needsReverify, setNeedsReverify] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const feedbackRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * 公開ボタンは畳んだ完了ジョブの中=画面のずっと下にあるのに、結果(下見・再検証・通知)は
+   * 画面最上部に出る。スマホだと画面外なので「押しても無反応」に見えていた。返事の方を見せに行く。
+   */
+  useEffect(() => {
+    if (plan !== null || needsReverify !== null || notice !== '') {
+      feedbackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [plan, needsReverify, notice]);
 
   const loadPublished = (): void => {
     void api
@@ -129,9 +141,7 @@ export function EvolutionView({ api }: { api: RemoteApi }): JSX.Element {
   const active = sorted.filter((j) => !DONE.includes(j.status));
   const done = sorted.filter((j) => DONE.includes(j.status));
 
-  /** ツール名つきの完了ジョブ = 公開の対象 */
-  const publishable = (j: (typeof jobs)[number]): boolean =>
-    j.status === 'done' && j.scope !== 'renderer' && j.scope !== 'core' && j.toolName !== undefined;
+  const publishable = isPublishableJob;
 
   const jobRow = (job: (typeof jobs)[number]): JSX.Element => (
     <div key={job.id} className="job">
@@ -152,6 +162,9 @@ export function EvolutionView({ api }: { api: RemoteApi }): JSX.Element {
             </button>
           </div>
         ))}
+      {job.autoBranch !== undefined && (
+        <div className="log">🌙 夜間昇格: {job.autoBranch} に積んである(main 未取り込みのため公開はまだできない)</div>
+      )}
       {job.gates.length > 0 && (
         <div className="log">{job.gates.map((g) => `${g.ok ? '✅' : '❌'} ${g.name}`).join(' / ')}</div>
       )}
@@ -161,6 +174,7 @@ export function EvolutionView({ api }: { api: RemoteApi }): JSX.Element {
 
   return (
     <div className="content">
+      <div ref={feedbackRef} />
       {promotions.length > 0 && (
         <div className="warn-banner" onClick={() => setTab('approvals')}>
           🧬 昇格承認待ちが {promotions.length} 件ある(承認タブで対応)

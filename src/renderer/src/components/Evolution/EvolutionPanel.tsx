@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { isPublishableJob } from '../../../../shared/evolutionStatus';
 import type { EvolutionJobStatus, EvolutionScope, ProvisionalInstall } from '../../../../shared/types';
 import { useEvolutionStore } from '../../stores/evolution';
 import { PublishPluginDialog, usePublishPlugin } from '../Registry/PublishPlugin';
@@ -102,7 +103,7 @@ export function EvolutionPanel(): JSX.Element {
   const unpublishedTools = [
     ...new Set(
       doneJobs
-        .filter((j) => j.status === 'done' && j.scope !== 'renderer' && j.scope !== 'core')
+        .filter(isPublishableJob)
         .map((j) => j.toolName)
         .filter((n): n is string => n !== undefined),
     ),
@@ -251,9 +252,7 @@ export function EvolutionPanel(): JSX.Element {
               )}
               {/* M91-2: 検証を通って導入された直後が、公開するか決める自然な瞬間。
                   ここで断っても、ツール一覧の「⛩ 公開」から後でいつでも出せる */}
-              {j.status === 'done' &&
-                j.scope !== 'renderer' &&
-                j.scope !== 'core' &&
+              {isPublishableJob(j) &&
                 j.toolName !== undefined &&
                 (publish.published[j.toolName] !== undefined ? (
                   // 改善1: 公開済みは2度出させない。ボタンではなくPRへのリンクを出す
@@ -337,9 +336,7 @@ export function EvolutionPanel(): JSX.Element {
                 {j.toolName && <span className="shrink-0 font-mono text-blue-300">{j.toolName}</span>}
                 {/* M97修正: 公開ボタンは「完了」ジョブに出るため、格納庫にも必ず置く
                     (格納庫を作ったとき落としてしまい、公開導線が事実上消えていた) */}
-                {j.status === 'done' &&
-                  j.scope !== 'renderer' &&
-                  j.scope !== 'core' &&
+                {isPublishableJob(j) &&
                   j.toolName !== undefined &&
                   (publish.published[j.toolName] !== undefined ? (
                     <a

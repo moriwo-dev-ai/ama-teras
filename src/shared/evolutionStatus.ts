@@ -27,3 +27,29 @@ const ACTIVE: Record<EvolutionJobStatus, boolean> = {
 export function isJobActive(status: EvolutionJobStatus): boolean {
   return ACTIVE[status] ?? false;
 }
+
+/**
+ * M99: 「⛩ 公開」ボタンを出してよいジョブか。
+ *
+ * 実機で ordinal_suffix / to_base64 の公開が「ソースが見つからない」で必ず失敗していた。
+ * 原因は **夜間自動昇格(A6-2)** — auto ジョブは専用ブランチ(evolve/nightly)に積むだけで
+ * main には入れない設計なのに、UI は status='done' だけを見て公開ボタンを出していた。
+ * 手元(main)にソースが無いので、押せば100%失敗する。押させない。
+ *
+ * デスクトップ・スマホの2箇所で同じ条件を書いていて片方だけ直す事故が続いたので、
+ * 判定はここに1本化する。
+ */
+export function isPublishableJob(job: {
+  status: EvolutionJobStatus;
+  scope?: 'tool' | 'renderer' | 'core';
+  toolName?: string;
+  autoBranch?: string;
+}): boolean {
+  return (
+    job.status === 'done' &&
+    job.scope !== 'renderer' &&
+    job.scope !== 'core' &&
+    job.toolName !== undefined &&
+    job.autoBranch === undefined
+  );
+}
