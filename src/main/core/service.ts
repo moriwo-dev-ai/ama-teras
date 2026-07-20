@@ -38,7 +38,7 @@ import type {
 import { ApprovalBroker } from '../agent/approval';
 import { compactHistory, DEFAULT_COMPACTION_THRESHOLD, estimateTokens } from '../agent/compaction';
 import { runAgentLoop } from '../agent/loop';
-import { contextLimitFor, DEFAULT_MODELS, isLocalBaseUrl, PROVIDER_PRESETS } from '../../shared/models';
+import { contextLimitFor, DEFAULT_MODELS, isLocalBaseUrl, MOONSHOT_BASE_URL, PROVIDER_PRESETS } from '../../shared/models';
 // M27-1: freeMode の実効値制御(maxTurns/レビューゲート/ModelPolicy/進化無効)は config.ts の純関数が正本
 import {
   effectiveMaxTurns,
@@ -779,6 +779,13 @@ export class AgentService {
       const model = om || cfg.model || DEFAULT_OPENAI_MODEL;
       return this.track(new OpenAIProvider(key, model), 'openai', model, 'main');
     }
+    // M96: Moonshot(Kimi)= 正式プロバイダ。エンジンはOpenAI互換クライアント+固定baseURL
+    if (cfg.provider === 'moonshot') {
+      const key = this.deps.secrets.get('moonshot');
+      if (!key) return 'Moonshot(Kimi)のAPIキーが未設定(設定画面から登録)';
+      const model = om || cfg.model || DEFAULT_MODELS.moonshot;
+      return this.track(new OpenAIProvider(key, model, MOONSHOT_BASE_URL), 'moonshot', model, 'main');
+    }
     const key = this.deps.secrets.get('anthropic');
     if (!key) return 'Anthropic APIキーが未設定(設定画面から登録)';
     const model = om || cfg.model || DEFAULT_ANTHROPIC_MODEL;
@@ -827,7 +834,11 @@ export class AgentService {
     if (!key) return `モデル自動切替: ${band}帯(${llm.provider}/${llm.model})のAPIキーが未設定`;
     if (this.deps.bandProviderFactory) return this.deps.bandProviderFactory(band, llm.provider, llm.model);
     return this.track(
-      llm.provider === 'openai' ? new OpenAIProvider(key, llm.model) : new AnthropicProvider(key, llm.model),
+      llm.provider === 'openai'
+        ? new OpenAIProvider(key, llm.model)
+        : llm.provider === 'moonshot'
+          ? new OpenAIProvider(key, llm.model, MOONSHOT_BASE_URL)
+          : new AnthropicProvider(key, llm.model),
       llm.provider,
       llm.model,
       band,

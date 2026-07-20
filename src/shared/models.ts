@@ -87,21 +87,7 @@ export const PROVIDER_PRESETS: Record<ProviderPresetId, ProviderPreset> = {
     rateLimitNotice:
       '無料枠の上限に達しました(OpenRouter)。:free モデルは1日あたりの回数制限があり、明日リセットされます',
   },
-  kimi: {
-    id: 'kimi',
-    label: 'Kimi K3 / Moonshot AI(長文・コーディング向け)',
-    baseUrl: 'https://api.moonshot.ai/v1',
-    defaultModel: 'kimi-k3',
-    models: [{ id: 'kimi-k3', label: 'Kimi K3(既定・1M context・Moonshot AI)' }],
-    keyPageUrl: 'https://platform.moonshot.ai/console/api-keys',
-    steps: [
-      'Moonshot AI のコンソールにログイン',
-      'API Keys で Kimi 用のAPIキーを作成',
-      '表示されたキーをコピーして下の欄に貼り付け→保存→接続テスト',
-    ],
-    rateLimitNotice:
-      'Moonshot/Kimi の無料枠または利用上限に達しました。1分あたりの上限なら少し待つと再開できます。プランや日次上限に達した場合は上限のリセットまたはプラン設定を確認してください',
-  },
+  // M96: kimi プリセットは正式プロバイダ 'moonshot' へ昇格(定義は MOONSHOT_* 定数へ移動)
   /**
    * M35-5: 任意のOpenAI互換エンドポイント(Ollama・LM Studio・vLLM等)。
    * baseUrl はここでは固定できない — 実接続は config.customBaseUrl を使う
@@ -177,12 +163,19 @@ export const FREE_API_TRAINING_NOTICE =
   '無料枠のAPIでは、入力したデータが提供元のモデル改善(学習)に使われる場合があります。' +
   '機密情報・業務データを扱う作業には有料API(Anthropic/OpenAI)の利用を推奨します';
 
+/** M96: Moonshot(正式プロバイダ)の接続先とキー取得ページ。
+ *  エンジンはOpenAI互換のためbaseURL差し替えで接続する(2026-07-19 実機確認済み) */
+export const MOONSHOT_BASE_URL = 'https://api.moonshot.ai/v1';
+export const MOONSHOT_KEY_PAGE_URL = 'https://platform.moonshot.ai/console/api-keys';
+
 export const DEFAULT_MODELS: Record<ProviderId, string> = {
   // M11-5: 自律開発向けの既定を Fable 5 へ(長時間の自走・エージェント動作に最適化されたモデル)
   anthropic: 'claude-fable-5',
   // M30-1: 2026-07-09 GA の GPT-5.6 世代へ更新。フラッグシップは Sol
   // (2026-07-11 確認: https://developers.openai.com/api/docs/models/gpt-5.6-sol )
   openai: 'gpt-5.6-sol',
+  // M96: Moonshot のフラッグシップ(1M context。2026-07-19 実機で動作確認済み)
+  moonshot: 'kimi-k3',
 };
 
 export const KNOWN_MODELS: Record<ProviderId, ModelChoice[]> = {
@@ -208,6 +201,9 @@ export const KNOWN_MODELS: Record<ProviderId, ModelChoice[]> = {
     { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini(軽量・サブエージェント向け)' },
     { id: 'gpt-5.1', label: 'GPT-5.1(旧世代・非推奨)' },
   ],
+  // M96: Moonshot(Kimi)。2026-07-19 実機で kimi-k3 の動作確認済み。
+  // 他世代(k2系)はIDの実在を未確認のため、確認でき次第追加する(嘘の候補を出さない)
+  moonshot: [{ id: 'kimi-k3', label: 'Kimi K3(既定・1M context)' }],
 };
 
 /** モデルIDが既知候補に含まれるか(含まれなければ「カスタム」扱い) */
@@ -275,4 +271,6 @@ export const MODEL_PRICES: ModelPrice[] = [
   { prefix: 'openai/gpt-5.4-nano', input: 0.2, output: 1.25, cacheReadRatio: 0.1 },
   { prefix: 'openai/gpt-5.4', input: 2.5, output: 15, cacheReadRatio: 0.1 },
   { prefix: 'openai/gpt-5.3-codex', input: 1.75, output: 14, cacheReadRatio: 0.1 },
+  // M96: Kimi K3(2026-07-19 公式確認: 入力$3・出力$15・キャッシュ$0.30 → ratio 0.1)
+  { prefix: 'moonshot/kimi-k3', input: 3, output: 15, cacheReadRatio: 0.1 },
 ];

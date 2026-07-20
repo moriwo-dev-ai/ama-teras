@@ -1,0 +1,3 @@
+## 学習メモ
+- [2026-07-17 23:16] uzume-drafts「下書き0件」の原因調査法: audit.jsonl(%APPDATA%\amateras\audit.jsonl)で god:uzume-drafts の scheduled-run を追う。素材は ipc.ts readHighlightSources → PROGRESS.md 先頭slice → manager.ts stripUnreleasedLines の順で加工される。slice→フィルタの順序だと先頭が未公開話題(月読)のとき素材が空になる(進化ジョブ#43で修正)。運営状態ファイルは %APPDATA%\amateras\operations\(schedule.json / drafts.json / inbox.jsonl / god-params.json)。cmd経由のPowerShellは日本語・書式文字列が壊れるので、調査スクリプトは .ps1 ファイルに書いて -File 実行が確実。
+- [2026-07-19 14:46] Kimi K3(Moonshot AI) API仕様確認: 公式docsでは OpenAI Chat Completions互換。base_url=https://api.moonshot.ai/v1、chat endpoint=/v1/chat/completions、認証 Authorization: Bearer $MOONSHOT_API_KEY、モデルID kimi-k3、1M context。正式プリセット追加は既存 OpenAIProvider+baseURL差し替えで足りる。

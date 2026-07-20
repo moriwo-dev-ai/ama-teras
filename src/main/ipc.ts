@@ -102,8 +102,8 @@ function assertSecretSlot(value: unknown): asserts value is SecretSlot {
     value !== 'custom' &&
     value !== 'bluesky' &&
     value !== 'github' &&
-    // M95: Kimi(Moonshot)正式プリセット用の専用キースロット。本体からの要望
-    // (request_core_change 2026-07-19)を受けた人間側の聖域変更(最小)
+    // M96: moonshot=正式プロバイダのキースロット。'kimi' は旧スロット(移行済み・互換で受理)
+    value !== 'moonshot' &&
     value !== 'kimi'
   ) {
     throw new Error('IPC payload slot が不正');
@@ -114,7 +114,7 @@ function isBandLike(v: unknown): boolean {
   const b = typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null;
   return (
     b !== null &&
-    (b['provider'] === 'anthropic' || b['provider'] === 'openai') &&
+    (b['provider'] === 'anthropic' || b['provider'] === 'openai' || b['provider'] === 'moonshot') &&
     typeof b['model'] === 'string'
   );
 }
@@ -436,6 +436,14 @@ export async function registerIpcHandlers(
     join(app.getPath('userData'), 'secrets.json'),
     electronSafeStorageCipher(),
   );
+  // M96: 旧kimiスロット(プリセット時代)→ moonshot(正式プロバイダ)へのキー自動移行。
+  // 旧スロットは消さない(ロールバックした旧版でも動き続けるように)
+  {
+    const legacyKimi = secrets.get('kimi');
+    if (legacyKimi !== null && secrets.get('moonshot') === null) {
+      secrets.set('moonshot', legacyKimi);
+    }
+  }
   const audit = new AuditLog(join(app.getPath('userData'), 'audit.jsonl'));
 
   // M27-4: キルスイッチ(プラグイン失効リスト)。起動時に1回フェッチし、一致する
@@ -867,7 +875,7 @@ export async function registerIpcHandlers(
     custom: secrets.has('custom'),
     bluesky: secrets.has('bluesky'),
     github: secrets.has('github'), // M91-2: レジストリPR・要望Issueの提出に使う
-    kimi: secrets.has('kimi'), // M95: Kimi(Moonshot)プリセット用
+    moonshot: secrets.has('moonshot'), // M96: Moonshot(Kimi)正式プロバイダ
   });
   ipcMain.handle(IpcChannels.secretsStatus, () => secretsStatus());
   ipcMain.handle(IpcChannels.secretsSet, (_e, slot: unknown, apiKey: unknown) => {
@@ -1609,7 +1617,8 @@ export async function registerIpcHandlers(
       gemini: 'https://aistudio.google.com/apikey',
       groq: 'https://console.groq.com/keys',
       openrouter: 'https://openrouter.ai/settings/keys',
-      kimi: 'https://platform.moonshot.ai/console/api-keys', // M95: Kimi(Moonshot)
+      kimi: 'https://platform.moonshot.ai/console/api-keys', // M95(旧スロット互換)
+      moonshot: 'https://platform.moonshot.ai/console', // M96: 残高チャージ/キー管理
     };
     const url = typeof provider === 'string' ? urls[provider] : undefined;
     if (!url) throw new Error('不明なプロバイダ');

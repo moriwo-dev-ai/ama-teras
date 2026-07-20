@@ -58,7 +58,8 @@ export function BasicSection({
     config.provider === 'openai' && config.providerPreset !== undefined
       ? PROVIDER_PRESETS[config.providerPreset]
       : undefined;
-  const keySlot: SecretSlot = preset !== undefined ? preset.id : config.provider;
+  // M96: ここで出うるのはプリセットIDか正式プロバイダIDのみ(kimi旧スロット等は来ない)
+  const keySlot: ProviderId | ProviderPresetId = preset !== undefined ? preset.id : config.provider;
   const keySet = secrets !== null && secrets[keySlot];
 
   const selectPreset = (id: ProviderPresetId | ''): void => {
@@ -113,6 +114,7 @@ export function BasicSection({
         >
           <option value="anthropic">Anthropic</option>
           <option value="openai">OpenAI</option>
+          <option value="moonshot">Moonshot(Kimi)</option>
         </select>
         {preset !== undefined && (
           <p className="text-xs text-zinc-500">

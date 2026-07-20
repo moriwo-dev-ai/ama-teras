@@ -49,13 +49,15 @@ export function ModelOpsSection({
                   ...config,
                   fallback: {
                     ...config.fallback!,
-                    provider: e.target.value === 'openai' ? 'openai' : 'anthropic',
+                    provider:
+                      e.target.value === 'openai' ? 'openai' : e.target.value === 'moonshot' ? 'moonshot' : 'anthropic',
                   },
                 });
               }}
             >
               <option value="anthropic">Anthropic</option>
               <option value="openai">OpenAI</option>
+              <option value="moonshot">Moonshot(Kimi)</option>
             </select>
             <input
               className="flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono"

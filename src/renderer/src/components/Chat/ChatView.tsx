@@ -8,7 +8,7 @@ import { MarkdownMessage } from './MarkdownMessage';
 import { InventoryCard } from './InventoryCard';
 import { ReviewCard } from './ReviewCard';
 import { formatElapsed, useNowTick } from './useElapsed';
-import { DEFAULT_MODELS } from '../../../../shared/models';
+import { DEFAULT_MODELS, PROVIDER_PRESETS } from '../../../../shared/models';
 import { useRunsStore } from '../../stores/runs';
 
 /** ツール入力JSONから path を取り出す(write_file/read_file/edit_file等のリンク化用) */
@@ -187,13 +187,16 @@ export function ChatView(): JSX.Element {
     window.api
       .settingsGet()
       .then((c) => {
-        const on = c.modelPolicy?.enabled === true;
+        // M96: freeMode中はpolicyが実行側で無効化される(effectiveModelPolicy)。バッジも同じ規則で判定
+        const on = c.modelPolicy?.enabled === true && c.freeMode !== true;
         setPolicyOn(on);
-        // M23: 実際に使うモデル名(policy有効時はplanner帯・無効時は本体設定)
+        // M23/M96: 実際に使うモデル名。プリセット使用中はプリセットの既定を表示
+        // (以前は空モデル時に DEFAULT_MODELS[provider] を出し、Kimi実行中に gpt-5.6-sol と表示していた)
+        const preset = c.provider === 'openai' && c.providerPreset ? PROVIDER_PRESETS[c.providerPreset] : undefined;
         setMainModel(
           on && c.modelPolicy
             ? c.modelPolicy.planner.model || DEFAULT_MODELS[c.modelPolicy.planner.provider]
-            : c.model || DEFAULT_MODELS[c.provider],
+            : c.model || (preset ? preset.defaultModel : DEFAULT_MODELS[c.provider]),
         );
       })
       .catch(() => {});

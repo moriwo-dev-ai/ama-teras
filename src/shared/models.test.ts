@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contextLimitFor, DEFAULT_MODELS, FREE_API_TRAINING_NOTICE, isKnownModel, isLocalBaseUrl, KNOWN_MODELS, PROVIDER_PRESETS } from './models';
+import { contextLimitFor, DEFAULT_MODELS, FREE_API_TRAINING_NOTICE, isKnownModel, isLocalBaseUrl, KNOWN_MODELS, MODEL_PRICES, MOONSHOT_BASE_URL, PROVIDER_PRESETS } from './models';
 
 describe('models', () => {
   it('既定モデルは各プロバイダの候補に含まれる', () => {
@@ -96,11 +96,14 @@ describe('M27-1: PROVIDER_PRESETS(無料APIモード)', () => {
     expect(contextLimitFor('deepseek/deepseek-r1:free')).toBe(64_000);
   });
 
-  it('Kimi K3 プリセットは Moonshot の OpenAI互換エンドポイントと1M contextを使う', () => {
-    expect(PROVIDER_PRESETS.kimi.defaultModel).toBe('kimi-k3');
-    expect(PROVIDER_PRESETS.kimi.baseUrl).toBe('https://api.moonshot.ai/v1');
-    expect(PROVIDER_PRESETS.kimi.baseUrl.endsWith('/')).toBe(false);
+  it('M96: Moonshot は正式プロバイダ(既定kimi-k3・OpenAI互換baseURL・1M context・単価あり)', () => {
+    expect(DEFAULT_MODELS.moonshot).toBe('kimi-k3');
+    expect(MOONSHOT_BASE_URL).toBe('https://api.moonshot.ai/v1');
+    expect(MOONSHOT_BASE_URL.endsWith('/')).toBe(false);
     expect(contextLimitFor('kimi-k3')).toBe(1_000_000);
+    expect(MODEL_PRICES.some((p) => p.prefix === 'moonshot/kimi-k3')).toBe(true);
+    // 旧kimiプリセットは廃止(昇格済み)
+    expect('kimi' in PROVIDER_PRESETS).toBe(false);
   });
 });
 

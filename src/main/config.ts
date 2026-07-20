@@ -44,9 +44,8 @@ export const MAX_ESCALATIONS_MAX = 3;
 export const FREE_MODE_DEFAULT_MAX_TURNS = 15;
 
 export function parseProviderPreset(raw: unknown): ProviderPresetId | undefined {
-  return raw === 'gemini' || raw === 'groq' || raw === 'openrouter' || raw === 'kimi' || raw === 'custom'
-    ? raw
-    : undefined;
+  // M96: 'kimi' は正式プロバイダ 'moonshot' へ昇格(load側で自動移行するためここでは弾く)
+  return raw === 'gemini' || raw === 'groq' || raw === 'openrouter' || raw === 'custom' ? raw : undefined;
 }
 
 /** M29-5: 自律モードの包括承認範囲(不正値は未設定=none扱い) */
@@ -147,7 +146,7 @@ export function parseOperationsConfig(raw: unknown): OperationsConfig | undefine
   const parseBand = (v: unknown): ModelBand | undefined => {
     if (typeof v !== 'object' || v === null) return undefined;
     const b = v as Record<string, unknown>;
-    if ((b['provider'] === 'anthropic' || b['provider'] === 'openai') && typeof b['model'] === 'string') {
+    if ((b['provider'] === 'anthropic' || b['provider'] === 'openai' || b['provider'] === 'moonshot') && typeof b['model'] === 'string') {
       return { provider: b['provider'], model: b['model'] };
     }
     return undefined;
@@ -226,7 +225,7 @@ export function evolutionDisabledReason(cfg: AppConfig): string | null {
 function parseBand(raw: unknown): ModelBand | null {
   const rec = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : null;
   if (!rec) return null;
-  if (rec['provider'] !== 'anthropic' && rec['provider'] !== 'openai') return null;
+  if (rec['provider'] !== 'anthropic' && rec['provider'] !== 'openai' && rec['provider'] !== 'moonshot') return null;
   if (typeof rec['model'] !== 'string') return null;
   return { provider: rec['provider'], model: rec['model'] };
 }
@@ -375,6 +374,12 @@ export class ConfigStore {
       // M27-1: 無料APIモード(不正値は未設定として扱う)
       const preset = parseProviderPreset(rec['providerPreset']);
       if (preset !== undefined) merged.providerPreset = preset;
+      // M96: 旧kimiプリセットの自動移行(preset=kimi → 正式プロバイダ moonshot)。
+      // parseProviderPreset は 'kimi' を弾くため、生の値を直接見る
+      if (rec['providerPreset'] === 'kimi' && merged.provider === 'openai') {
+        merged.provider = 'moonshot';
+        delete merged.providerPreset;
+      }
       if (typeof rec['freeMode'] === 'boolean') merged.freeMode = rec['freeMode'];
       if (typeof rec['freeModeAllowEvolution'] === 'boolean') {
         merged.freeModeAllowEvolution = rec['freeModeAllowEvolution'];

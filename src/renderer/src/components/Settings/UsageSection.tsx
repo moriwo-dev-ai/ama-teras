@@ -130,6 +130,12 @@ export function UsageSection(): JSX.Element {
         >
           OpenAI残高を開く ↗
         </button>
+        <button
+          className="rounded border border-zinc-600 px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800"
+          onClick={() => void window.api.openBillingPage('moonshot')}
+        >
+          Moonshot残高を開く ↗
+        </button>
       </div>
     </div>
   );

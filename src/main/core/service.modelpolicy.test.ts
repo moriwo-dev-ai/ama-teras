@@ -19,7 +19,8 @@ const POLICY: ModelPolicy = {
   maxEscalationsPerTask: 1,
 };
 
-function textProvider(id: ProviderId, text: string): LLMProvider & { requests: CompletionRequest[] } {
+// LLMProvider.id はワイヤ規約の族('anthropic'|'openai')。moonshotはopenai互換なのでここには来ない
+function textProvider(id: 'anthropic' | 'openai', text: string): LLMProvider & { requests: CompletionRequest[] } {
   const requests: CompletionRequest[] = [];
   return {
     id,

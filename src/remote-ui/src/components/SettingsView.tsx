@@ -94,6 +94,7 @@ export function SettingsView({ api }: { api: RemoteApi }): JSX.Element {
           <select value={provider} onChange={(e) => patch({ provider: e.target.value })}>
             <option value="anthropic">Anthropic</option>
             <option value="openai">OpenAI</option>
+            <option value="moonshot">Moonshot(Kimi)</option>
           </select>
         </label>
         <label className="row">
@@ -164,6 +165,7 @@ export function SettingsView({ api }: { api: RemoteApi }): JSX.Element {
               >
                 <option value="anthropic">Anthropic</option>
                 <option value="openai">OpenAI</option>
+            <option value="moonshot">Moonshot(Kimi)</option>
               </select>
             </label>
             <label className="row">

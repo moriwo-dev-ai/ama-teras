@@ -95,6 +95,7 @@ function BandRow({
         >
           <option value="anthropic">Anthropic</option>
           <option value="openai">OpenAI</option>
+          <option value="moonshot">Moonshot(Kimi)</option>
         </select>
         <select
           className="min-w-0 flex-1 rounded border border-zinc-600 bg-zinc-800 px-1.5 py-1"

@@ -22,7 +22,8 @@ const POLICY: ModelPolicy = {
   worker: { provider: 'anthropic', model: 'claude-haiku-4-5' },
 };
 
-function textProvider(id: ProviderId, text: string): LLMProvider & { requests: CompletionRequest[] } {
+// LLMProvider.id はワイヤ規約の族('anthropic'|'openai')。moonshotはopenai互換なのでここには来ない
+function textProvider(id: 'anthropic' | 'openai', text: string): LLMProvider & { requests: CompletionRequest[] } {
   const requests: CompletionRequest[] = [];
   return {
     id,
@@ -133,13 +134,13 @@ describe('M27-1: freeMode は modelPolicy を無効化する', () => {
 });
 
 describe('M27-1: providerPreset のプロバイダ生成', () => {
-  it('preset(kimi)使用時は専用スロットのキーで生成される', () => {
+  it('M96: provider=moonshot は専用スロットのキーで生成される(正式プロバイダ)', () => {
     const { svc, secretCalls } = makeService({
-      config: { provider: 'openai', providerPreset: 'kimi', freeMode: true },
+      config: { provider: 'moonshot' },
     });
     const provider = svc.createProvider();
     expect(typeof provider).not.toBe('string');
-    expect(secretCalls).toContain('kimi');
+    expect(secretCalls).toContain('moonshot');
     expect(secretCalls).not.toContain('openai');
   });
 

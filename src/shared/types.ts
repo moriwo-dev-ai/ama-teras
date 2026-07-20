@@ -50,21 +50,25 @@ export type AgentEventBody =
   /** M29-5: 自律実行の終了時に出す仮導入の棚卸しカード(残す/削除は inventoryResolve IPC) */
   | { kind: 'inventory'; sessionId: string; items: ProvisionalInstall[] };
 
-export type ProviderId = 'anthropic' | 'openai';
+/** M96: 'moonshot'(Kimi)を第3の正式プロバイダに昇格。エンジンはOpenAI互換クライアント
+ *  (baseURL固定)を使うが、設定・キー・使用量・表示のすべてで独立した一等市民として扱う */
+export type ProviderId = 'anthropic' | 'openai' | 'moonshot';
 
 /**
  * M27-1: 無料APIモードのプロバイダプリセット。OpenAI互換エンドポイント
  * (openai SDK + baseURL差し替え)として動くため ProviderId は 'openai' のまま。
  * プリセットの実体(baseUrl・既定モデル・案内文)は shared/models.ts の PROVIDER_PRESETS
  */
-/** M35-5: 'custom' = 任意のOpenAI互換エンドポイント(Ollama等。baseURLはconfig.customBaseUrl) */
-export type ProviderPresetId = 'gemini' | 'groq' | 'openrouter' | 'kimi' | 'custom';
+/** M35-5: 'custom' = 任意のOpenAI互換エンドポイント(Ollama等。baseURLはconfig.customBaseUrl)
+ *  M96: 'kimi' プリセットは正式プロバイダ 'moonshot' へ昇格したため削除(設定は自動移行) */
+export type ProviderPresetId = 'gemini' | 'groq' | 'openrouter' | 'custom';
 
 /** APIキーの保存スロット。プリセットはOpenAIと別のキーを持つため独立スロット。
  *  M35-4: 'bluesky' はAPIキーではなく資格情報JSON({identifier, appPassword})を保存する。
  *  M91-2: 'github' はレジストリへのPR提出・本体への要望Issue提出に使うトークン
  *  (公開リポジトリへの書き込みのみ。fork+PRのため public_repo 相当で足りる) */
-export type SecretSlot = ProviderId | ProviderPresetId | 'bluesky' | 'github';
+/** M96: 'kimi' はプリセット時代の旧スロット。moonshot へ自動移行済みだが読み出し互換のため残す */
+export type SecretSlot = ProviderId | ProviderPresetId | 'bluesky' | 'github' | 'kimi';
 
 /** 送信モード。plan は実装前に計画を提示し、ツールを実行しない(承認後に通常モードで実行) */
 export type ChatMode = 'normal' | 'plan';
@@ -81,8 +85,8 @@ export interface SecretsStatus {
   bluesky: boolean;
   /** M91-2: GitHubトークン(レジストリPR・要望Issueの提出に使う)。有無のみ */
   github: boolean;
-  /** M95: Kimi(Moonshot)プリセット用キースロット。有無のみ */
-  kimi: boolean;
+  /** M96: Moonshot(Kimi)正式プロバイダのAPIキー。有無のみ(旧kimiスロットから自動移行) */
+  moonshot: boolean;
 }
 
 /** M27-1: 接続テスト(設定画面の「無料で始める」等)の結果 */

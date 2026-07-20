@@ -327,9 +327,9 @@ describe('M27-1: 無料APIモード(providerPreset / freeMode)', () => {
 
   it('ConfigStore が providerPreset / freeMode / freeModeAllowEvolution を永続化・復元する', () => {
     const store = new ConfigStore(file);
-    store.set({ ...base, providerPreset: 'kimi', freeMode: true, freeModeAllowEvolution: true });
+    store.set({ ...base, providerPreset: 'gemini', freeMode: true, freeModeAllowEvolution: true });
     const again = new ConfigStore(file).get();
-    expect(again.providerPreset).toBe('kimi');
+    expect(again.providerPreset).toBe('gemini');
     expect(again.freeMode).toBe(true);
     expect(again.freeModeAllowEvolution).toBe(true);
   });
