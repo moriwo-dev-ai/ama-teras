@@ -1,0 +1,30 @@
+{
+  "toolName": "ordinal_suffix",
+  "ok": true,
+  "gates": [
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "検査OK"
+    },
+    {
+      "name": "typecheck",
+      "ok": true,
+      "detail": "型検査OK"
+    },
+    {
+      "name": "test",
+      "ok": true,
+      "detail": "11件のテストが通った"
+    },
+    {
+      "name": "smoke",
+      "ok": true,
+      "detail": "1回実行できた(value は有限の数値で指定すること)"
+    }
+  ],
+  "pluginApiVersion": "1.0.0",
+  "codeHash": "b45d6947418d9e74c77bf272b4404380c47df32beb79cab2d1f2ece99be69702",
+  "verifiedAt": "2026-07-20T17:05:23.274Z",
+  "by": "local"
+}

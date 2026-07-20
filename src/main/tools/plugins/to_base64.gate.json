@@ -1,0 +1,30 @@
+{
+  "toolName": "to_base64",
+  "ok": true,
+  "gates": [
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "検査OK"
+    },
+    {
+      "name": "typecheck",
+      "ok": true,
+      "detail": "型検査OK"
+    },
+    {
+      "name": "test",
+      "ok": true,
+      "detail": "10件のテストが通った"
+    },
+    {
+      "name": "smoke",
+      "ok": true,
+      "detail": "1回実行できた(text は文字列で指定すること)"
+    }
+  ],
+  "pluginApiVersion": "1.0.0",
+  "codeHash": "e317e42c23683e802270a4c09f28f1e6e41fcb63c5b71dd91212f72049c69271",
+  "verifiedAt": "2026-07-20T17:05:23.658Z",
+  "by": "local"
+}
