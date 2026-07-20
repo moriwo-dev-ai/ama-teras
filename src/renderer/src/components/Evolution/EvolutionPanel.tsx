@@ -66,15 +66,6 @@ export function EvolutionPanel(): JSX.Element {
   const DONE_STATUSES: EvolutionJobStatus[] = ['done', 'failed', 'rejected', 'cancelled', 'rolled_back'];
   const activeJobs = jobs.filter((j) => !DONE_STATUSES.includes(j.status));
   const doneJobs = jobs.filter((j) => DONE_STATUSES.includes(j.status)).slice().reverse();
-  // M98: 完了ジョブが生んだツールのうち、まだ公開していないもの(重複排除・一括公開の対象)
-  const unpublishedTools = [
-    ...new Set(
-      doneJobs
-        .filter((j) => j.status === 'done' && j.scope !== 'renderer' && j.scope !== 'core')
-        .map((j) => j.toolName)
-        .filter((n): n is string => n !== undefined),
-    ),
-  ].filter((n) => publish.published[n] === undefined);
   const [desc, setDesc] = useState('');
   const [io, setIo] = useState('');
   const [scope, setScope] = useState<EvolutionScope>('tool');
@@ -105,6 +96,17 @@ export function EvolutionPanel(): JSX.Element {
   const [inventoryMsg, setInventoryMsg] = useState('');
   // M91-2: 導入したツールをレジストリへ公開する(下見→全文承認→PR)
   const publish = usePublishPlugin();
+  // M98: 完了ジョブが生んだツールのうち、まだ公開していないもの(重複排除・一括公開の対象)。
+  // publish の後で定義すること — 前に置くと即時実行の filter が TDZ を踏んで画面が真っ白になる
+  // (クロージャ内参照なので typecheck は通ってしまう。実測で踏んだ)
+  const unpublishedTools = [
+    ...new Set(
+      doneJobs
+        .filter((j) => j.status === 'done' && j.scope !== 'renderer' && j.scope !== 'core')
+        .map((j) => j.toolName)
+        .filter((n): n is string => n !== undefined),
+    ),
+  ].filter((n) => publish.published[n] === undefined);
 
   const loadInventory = async (): Promise<void> => {
     try {
