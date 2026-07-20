@@ -298,6 +298,34 @@ export function EvolutionPanel(): JSX.Element {
                 <ScopeBadge {...(j.scope !== undefined ? { scope: j.scope } : {})} />
                 <span className="min-w-0 flex-1 truncate text-zinc-300">{j.description}</span>
                 {j.toolName && <span className="shrink-0 font-mono text-blue-300">{j.toolName}</span>}
+                {/* M97修正: 公開ボタンは「完了」ジョブに出るため、格納庫にも必ず置く
+                    (格納庫を作ったとき落としてしまい、公開導線が事実上消えていた) */}
+                {j.status === 'done' &&
+                  j.scope !== 'renderer' &&
+                  j.scope !== 'core' &&
+                  j.toolName !== undefined &&
+                  (publish.published[j.toolName] !== undefined ? (
+                    <a
+                      className="shrink-0 whitespace-nowrap rounded border border-green-800 px-1.5 py-0.5 text-[10px] text-green-300 hover:bg-green-950"
+                      href={publish.published[j.toolName]!.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="このツールは公開済み。クリックで提出したPRを開く"
+                    >
+                      ✓ 公開済み ↗
+                    </a>
+                  ) : (
+                    <button
+                      className="shrink-0 whitespace-nowrap rounded border border-amber-800 px-1.5 py-0.5 text-[10px] text-amber-300 hover:bg-amber-950"
+                      title="このツールをレジストリへ公開する(送信前に全文を確認・承認します)"
+                      onClick={() => {
+                        jobArchive.hide(); // 公開ダイアログはモーダルの外に出るので閉じる
+                        publish.open(j.toolName!);
+                      }}
+                    >
+                      ⛩ 公開
+                    </button>
+                  ))}
                 <span className={`shrink-0 ${STATUS_LABEL[j.status].cls}`}>{STATUS_LABEL[j.status].text}</span>
               </div>
               {j.error !== undefined && j.error !== '' && (
