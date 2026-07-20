@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -644,6 +644,25 @@ describe('M92-A6 並列生成 + 昇格ミューテックス(実git)', { timeout:
   });
 });
 
+describe('M96: 開発版昇格でも検証証跡(gate.json)を残す', { timeout: 30_000 }, () => {
+  it('昇格後、mainのpluginsにgate.jsonがあり、codeHashが本体と一致する', async () => {
+    const { manager, events } = makeManager();
+    await manager.enqueue({ description: '証跡テスト', expectedIO: 'x' });
+    const status = await waitForTerminal(events);
+    expect(status).toBe('done');
+    const evPath = join(repoDir, 'src/main/tools/plugins/json_format.gate.json');
+    expect(existsSync(evPath)).toBe(true);
+    const ev = JSON.parse(await readFile(evPath, 'utf8'));
+    expect(ev.toolName).toBe('json_format');
+    expect(ev.ok).toBe(true);
+    expect(ev.by).toBe('local');
+    // ハッシュが実コードと一致(=公開ゲートの verificationState が verified になる前提)
+    const { codeHashOf } = await import('./local');
+    const code = await readFile(join(repoDir, 'src/main/tools/plugins/json_format.ts'), 'utf8');
+    expect(ev.codeHash).toBe(await codeHashOf(code));
+  });
+});
+
 describe('M92-A6-2 夜間自動昇格(専用ブランチ・実git)', { timeout: 40_000 }, () => {
   it('auto=true は承認を出さず evolve/nightly へ積み、main は無変更・reloadもしない', async () => {
     const { manager, events, reloads, approvals } = makeManager();
@@ -676,7 +695,11 @@ describe('M92-A6-2 夜間自動昇格(専用ブランチ・実git)', { timeout: 
   });
 
   it('複数の auto ジョブは同じ evolve/nightly に積み上がる(直列マージ)', async () => {
-    const { manager, events } = makeManager({ maxConcurrency: 2 });
+    // M96: 実運用どおりジョブごとに別名ツールを生成する(以前は同名を2連続生成する退化ケースで、
+    // 証跡gate.json(タイムスタンプ入り)の導入により同名同士がマージ衝突するようになった。
+    // 同名の二重生成が衝突で止まるのは安全側の挙動なので、テストを現実形へ)
+    const state = { active: 0, peak: 0 };
+    const { manager, events } = makeManager({ runner: concurrencyProbeRunner(state, 60), maxConcurrency: 2 });
     const id1 = await manager.enqueue({ description: 'nightly one', expectedIO: 'x', auto: true });
     const id2 = await manager.enqueue({ description: 'nightly two', expectedIO: 'x', auto: true });
     const [s1, s2] = await Promise.all([

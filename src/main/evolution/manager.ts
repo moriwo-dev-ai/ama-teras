@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { EvolutionEvent, EvolutionJobSummary, EvolutionScope } from '../../shared/types';
@@ -11,6 +11,8 @@ import {
   type GatesOutcome,
 } from './gates';
 import { GenerationBudget } from './budget';
+import { codeHashOf, type GateEvidence } from './local';
+import { PLUGIN_API_VERSION } from '../tools/versioning';
 import { GenerationMetrics, type GenerationOutcome } from './metrics';
 import { runGit } from './git';
 import type { EvolutionJobRunner, EvolutionRequest } from './job';
@@ -456,6 +458,52 @@ export class EvolutionManager {
           error: budgetStop ?? '検証ゲート不合格(再生成でも解消せず)',
         });
         return;
+      }
+
+      // M96: レジストリ公開の可否判断に使う検証証跡(<name>.gate.json)を、開発版昇格でも残す。
+      // これまで配布版ルート(LocalToolEvolution)だけが書いており、開発版で昇格したツールは
+      // 6ゲート+人間承認を通っているのに「検証の証跡が無い」で公開できなかった(実害)。
+      // 承認diffの前にworktreeへコミットする=承認者が見るdiffに証跡も含まれる(岩戸の掟)。
+      if (scope === 'tool' && artifacts.toolName !== undefined) {
+        try {
+          const codePath = join(worktree.dir, 'src', 'main', 'tools', 'plugins', `${artifacts.toolName}.ts`);
+          const code = await readFile(codePath, 'utf8');
+          const evidence: GateEvidence = {
+            toolName: artifacts.toolName,
+            ok: true,
+            // 開発版ゲート名を証跡の語彙(inspect/typecheck/test/smoke)へ写像。元のゲート名はdetailに残す
+            gates: (this.jobs.get(id)?.gates ?? []).map((g) => ({
+              name:
+                g.name === 'typecheck'
+                  ? ('typecheck' as const)
+                  : g.name === 'vitest'
+                    ? ('test' as const)
+                    : g.name === 'smoke'
+                      ? ('smoke' as const)
+                      : ('inspect' as const),
+              ok: g.ok,
+              detail: `${g.name}: ${g.detail}`,
+            })),
+            pluginApiVersion: PLUGIN_API_VERSION,
+            codeHash: await codeHashOf(code),
+            verifiedAt: new Date().toISOString(),
+            by: 'local',
+          };
+          await writeFile(
+            join(worktree.dir, 'src', 'main', 'tools', 'plugins', `${artifacts.toolName}.gate.json`),
+            JSON.stringify(evidence, null, 2),
+            'utf8',
+          );
+          await runGit(['add', '-A'], worktree.dir);
+          await runGit(
+            ['-c', 'user.name=AMA-teras Evolution', '-c', 'user.email=evolution@amateras.local',
+             'commit', '-m', `evolve: ${artifacts.toolName} の検証証跡を記録 (job-${id})`],
+            worktree.dir,
+          );
+        } catch (err) {
+          // 証跡が書けなくても昇格は止めない(公開できないだけ。理由はログに残す)
+          this.log(job, `検証証跡の記録に失敗(昇格は続行): ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
 
       // M92-A6-2: 夜間自動昇格(auto)は scope='tool' のときだけ有効。core/renderer は auto でも従来どおり人間承認。

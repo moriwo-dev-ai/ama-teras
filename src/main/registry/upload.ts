@@ -58,7 +58,9 @@ export async function verificationState(pluginsDir: string, toolName: string): P
   if (!existsSync(evPath)) {
     return {
       state: 'unverified',
-      reason: '検証の証跡が無い(このアプリの検証ゲートを通っていない)',
+      reason:
+        '検証の証跡(gate.json)が無いため公開できない。組み込みツールと、この版より前に開発版で昇格した' +
+        'ツールには証跡が無い(今後の昇格分は自動で付く)。既存ツールは再検証で証跡を作成できる(将来対応)',
     };
   }
   const codePath = join(pluginsDir, `${toolName}.ts`);

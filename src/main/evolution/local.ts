@@ -82,8 +82,14 @@ export async function sha256(text: string): Promise<string> {
 }
 
 /** 証跡が「今そこにあるコード」に対するものか(導入後に書き換えられていないか) */
+/** M96: 証跡ハッシュは改行正規化してから取る。開発版のプラグインはgit管理下にあり、
+ *  checkout時のCRLF変換で同一内容でも生ハッシュが食い違う(実測)。LFのみの既存証跡は不変=後方互換 */
+export async function codeHashOf(code: string): Promise<string> {
+  return sha256(code.replaceAll('\r\n', '\n'));
+}
+
 export async function evidenceMatchesCode(evidence: GateEvidence, code: string): Promise<boolean> {
-  return evidence.ok && evidence.codeHash === (await sha256(code));
+  return evidence.ok && evidence.codeHash === (await codeHashOf(code));
 }
 
 export class LocalToolEvolution {
@@ -331,7 +337,7 @@ export class LocalToolEvolution {
         ok: true,
         gates: verified.gates,
         pluginApiVersion: PLUGIN_API_VERSION,
-        codeHash: await sha256(code),
+        codeHash: await codeHashOf(code),
         verifiedAt: new Date().toISOString(),
         by: 'local',
       };
