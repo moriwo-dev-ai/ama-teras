@@ -828,6 +828,15 @@ ipc側修正(8027306)+#47(見出しレベルstrip)の合わせ技が効いた。
 **朝の状態**: blueskyMediaPath=demo.gif 設定済み・bluesky資格情報あり → 承認バッチのBluesky投稿カードに
 「添付: demo.gif」付きで並ぶ。承認するだけでGIF付き実投稿。
 
+## M96(2026-07-20): Moonshot(Kimi)を第3の正式プロバイダに昇格 — 898dfb8 / v1.5.0
+
+M95のプリセット追加(#48/#49)から一段引き上げ、Anthropic/OpenAIと並ぶ一等市民へ(ユーザー要望)。
+- ProviderId に 'moonshot'。エンジンはOpenAI互換クライアント+固定baseURL(実装は薄い)
+- 旧kimiプリセット廃止・完全自動移行(config: preset=kimi→provider=moonshot / secrets: kimi→moonshotコピー)。実機で移行動作を確認済み
+- カタログ・単価表(公式確認: 入力$3/出力$15/cache$0.3)・使用量コスト・残高導線・ModelPolicy帯・フォールバック先・リモートUIまで全面統合
+- **表示バグ根治**: チャットのモデルバッジが「Kimi実行中に gpt-5.6-sol」— 空モデル時に DEFAULT_MODELS[provider] を出しプリセットを知らず、freeMode時のpolicy抑制も反映していなかった。バッジを実行時と同じ解決規則に統一
+- 全200テストファイル緑。v1.5.0 として下書きリリース作成済み(公開はオーナー)
+
 ## M95(2026-07-19): 完全独立実験 — Kimi K3プリセットを本体がほぼ独力で追加した(初の双方向分業)
 
 「地図なし・ヒントは『聖域には注意して』のみ」でKimi(Moonshot)正式プリセット追加を依頼する完全独立実験。
