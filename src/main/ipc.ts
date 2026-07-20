@@ -88,7 +88,9 @@ function assertDecision(value: unknown): asserts value is ApprovalDecision {
 }
 
 function assertProvider(value: unknown): asserts value is ProviderId {
-  if (value !== 'anthropic' && value !== 'openai') throw new Error('IPC payload provider が不正');
+  if (value !== 'anthropic' && value !== 'openai' && value !== 'moonshot') {
+    throw new Error('IPC payload provider が不正');
+  }
 }
 
 /** M27-1: APIキー保存スロット(プロバイダ+無料APIプリセット) */
@@ -164,7 +166,7 @@ function assertConfig(value: unknown): asserts value is AppConfig {
     (['safe', 'write', 'exec'] as const).every(
       (k) => typeof (auto as Record<string, unknown>)[k] === 'boolean',
     ) &&
-    (rec['provider'] === 'anthropic' || rec['provider'] === 'openai') &&
+    (rec['provider'] === 'anthropic' || rec['provider'] === 'openai' || rec['provider'] === 'moonshot') &&
     typeof rec['model'] === 'string' &&
     (rec['workspace'] === undefined || typeof rec['workspace'] === 'string') &&
     (rec['scopeMode'] === 'project' || rec['scopeMode'] === 'fullPc') &&
@@ -179,7 +181,8 @@ function assertConfig(value: unknown): asserts value is AppConfig {
         rec['fallback'] !== null &&
         typeof (rec['fallback'] as Record<string, unknown>)['enabled'] === 'boolean' &&
         ((rec['fallback'] as Record<string, unknown>)['provider'] === 'anthropic' ||
-          (rec['fallback'] as Record<string, unknown>)['provider'] === 'openai') &&
+          (rec['fallback'] as Record<string, unknown>)['provider'] === 'openai' ||
+          (rec['fallback'] as Record<string, unknown>)['provider'] === 'moonshot') &&
         typeof (rec['fallback'] as Record<string, unknown>)['model'] === 'string')) &&
     isModelPolicyLike(rec['modelPolicy']) &&
     isReviewGateLike(rec['reviewGate']);
