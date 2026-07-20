@@ -102,6 +102,8 @@ export const IpcChannels = {
   pluginsImport: 'plugins:import',
   /** M91-2: レジストリへの公開。plan=下見(全文と機械チェック。送信しない)/ upload=承認後の送信 */
   pluginsUploadPlan: 'plugins:upload-plan',
+  /** M98: 既存ツールの再検証(本物の4ゲートを回して証跡を作る) */
+  pluginsReverify: 'plugins:reverify',
   pluginsUpload: 'plugins:upload',
   /** 改善1: 公開済みツールの控え(2度目のPRを出させないため、UIが公開ボタンを止める) */
   pluginsPublishedList: 'plugins:published-list',
@@ -316,6 +318,8 @@ export interface AmaterasApi {
    * ユーザーがこれを読んで承認したときだけ pluginsUpload を呼ぶ
    */
   pluginsUploadPlan(toolName: string): Promise<PluginUploadPlanResult>;
+  /** M98: 既存ツールを今から検証し直し、合格すれば証跡を作る(公開可能になる) */
+  pluginsReverify(toolName: string): Promise<{ ok: boolean; toolName: string; message: string }>;
   /** M91-2: 公開の実行(fork → ブランチ → PR)。approvedPreview は下見で見せた全文と一致すること */
   pluginsUpload(
     toolName: string,

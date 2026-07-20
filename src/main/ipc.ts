@@ -69,6 +69,7 @@ import { DEFAULT_GITHUB_CLIENT_ID, DEFAULT_REQUESTS_REPO_URL, GITHUB_OAUTH_SCOPE
 import { pollForToken, requestDeviceCode } from './registry/deviceAuth';
 import { fetchRevocationList } from './registry/killswitch';
 import { exportPlugin } from './registry/packager';
+import { reverifyPlugin } from './registry/reverify';
 import { generateToken, RemoteAuth } from './remote/auth';
 import { RemoteServer } from './remote/server';
 import { SecretStore, type SecretCipher } from './secrets';
@@ -1309,6 +1310,29 @@ export async function registerIpcHandlers(
       fetchFn: systemFetch(),
     });
   };
+
+  // M98: 既存ツールの再検証。証跡が無い(M96より前に作られた)ツールを、今から本物の
+  // 4ゲートに通して証跡を作る。合格しなければ証跡は作らない(嘘の「検証済み」を作らない)
+  ipcMain.handle(IpcChannels.pluginsReverify, async (_e, toolName: unknown) => {
+    assertString(toolName, 'toolName');
+    const dir = uploadPluginsDir(toolName);
+    if (dir === undefined) {
+      return { ok: false, toolName, message: `ツール「${toolName}」のソースが見つからない` };
+    }
+    const plugin = registry.get(toolName);
+    return reverifyPlugin(toolName, {
+      pluginsDir: dir,
+      // 証跡は**コードと同じ場所**に置く。verificationState は「コードのある dir」から
+      // 証跡を読むため、別の場所へ書くと作った証跡を誰も見つけられない
+      evidenceDir: dir,
+      typesRoot: getPluginApiTypesRoot(),
+      typeRoots: getTypeRootsDir(),
+      libDir: getTsLibDir(),
+      workDir: join(app.getPath('userData'), 'plugin-gen'),
+      description: plugin?.description ?? '',
+      author: config.get().registryAuthor ?? '',
+    });
+  });
 
   ipcMain.handle(IpcChannels.pluginsUploadPlan, async (_e, toolName: unknown) => {
     assertString(toolName, 'toolName');

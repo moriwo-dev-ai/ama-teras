@@ -128,7 +128,9 @@
 [data-theme='light'] .hover\:text-zinc-300:hover { color: #2c2c2a; }
 [data-theme='light'] .hover\:bg-red-950:hover,
 [data-theme='light'] .hover\:bg-red-900:hover { background-color: #fde5e5; }
-[data-theme='light'] .hover\:bg-amber-950:hover { background-color: #fdf3df; }
+[data-theme='light'] .hover\:bg-amber-950:hover,
+/* M98: 一括公開ボタン(完了済みジョブの格納庫)で使う。ライトで黒くならないように */
+[data-theme='light'] .hover\:bg-amber-900:hover { background-color: #fdf3df; }
 
 /* 左ペイン: セッション行(ダーク側の見た目は既存踏襲。ライトはホバーでも白のまま、
    選択中のみ淡灰の塗り。枠線・カラーバーは付けない) */

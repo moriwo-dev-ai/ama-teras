@@ -23,11 +23,16 @@ export function usePublishPlugin(): {
   open: (toolName: string) => void;
   close: () => void;
   submit: (draft: boolean) => void;
+  /** M98: 証跡が無くて公開できなかったツール名(再検証を促す) */
+  needsReverify: string | null;
+  /** M98: 再検証(本物の4ゲートを回して証跡を作る)。成功すればそのまま公開下見へ進む */
+  reverify: (toolName: string) => void;
 } {
   const [plan, setPlan] = useState<PublishState | null>(null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [published, setPublished] = useState<Record<string, PublishedPluginInfo>>({});
+  const [needsReverify, setNeedsReverify] = useState<string | null>(null);
 
   const refreshPublished = useCallback((): void => {
     void window.api
@@ -53,6 +58,11 @@ export function usePublishPlugin(): {
           return;
         }
         if (!r.ok || r.preview === undefined) {
+          // M98: 証跡が無いだけなら再検証で公開可能になる。ユーザーに次の一手を示す
+          // (unverified = M96より前に作られたツール。ここで諦めさせない)
+          if (r.verification === 'unverified' || r.verification === 'stale') {
+            setNeedsReverify(toolName);
+          }
           setMessage(`✗ ${r.message}`);
           return;
         }
@@ -85,7 +95,28 @@ export function usePublishPlugin(): {
     setMessage('公開を取りやめました(あとでツール一覧からいつでも公開できます)');
   };
 
-  return { plan, message, busy, published, open, close, submit };
+  /**
+   * M98: 既存ツールの再検証。証跡が無い(M96より前に作られた)ツールを、今から
+   * 本物の4ゲート(検査→型検査→テスト→スモーク)に通して証跡を作る。
+   * 合格したらそのまま公開の下見へ進む(「再検証→公開」を1クリックの流れにする)
+   */
+  const reverify = (toolName: string): void => {
+    setBusy(true);
+    setMessage(`… ${toolName} を検証し直しています(型検査・テスト・スモーク)`);
+    void window.api
+      .pluginsReverify(toolName)
+      .then((r) => {
+        setMessage(`${r.ok ? '✓' : '✗'} ${r.message}`);
+        if (r.ok) {
+          setNeedsReverify(null);
+          open(toolName); // 証跡ができた=そのまま公開の下見へ
+        }
+      })
+      .catch((err: unknown) => setMessage(`✗ ${err instanceof Error ? err.message : String(err)}`))
+      .finally(() => setBusy(false));
+  };
+
+  return { plan, message, busy, published, open, close, submit, needsReverify, reverify };
 }
 
 export function PublishPluginDialog({

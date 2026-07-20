@@ -66,6 +66,15 @@ export function EvolutionPanel(): JSX.Element {
   const DONE_STATUSES: EvolutionJobStatus[] = ['done', 'failed', 'rejected', 'cancelled', 'rolled_back'];
   const activeJobs = jobs.filter((j) => !DONE_STATUSES.includes(j.status));
   const doneJobs = jobs.filter((j) => DONE_STATUSES.includes(j.status)).slice().reverse();
+  // M98: 完了ジョブが生んだツールのうち、まだ公開していないもの(重複排除・一括公開の対象)
+  const unpublishedTools = [
+    ...new Set(
+      doneJobs
+        .filter((j) => j.status === 'done' && j.scope !== 'renderer' && j.scope !== 'core')
+        .map((j) => j.toolName)
+        .filter((n): n is string => n !== undefined),
+    ),
+  ].filter((n) => publish.published[n] === undefined);
   const [desc, setDesc] = useState('');
   const [io, setIo] = useState('');
   const [scope, setScope] = useState<EvolutionScope>('tool');
@@ -291,6 +300,32 @@ export function EvolutionPanel(): JSX.Element {
       <ArchiveToggle label="完了済みジョブ" count={doneJobs.length} onOpen={jobArchive.show} />
       {jobArchive.open && (
         <ArchiveModal title="🧬 完了済みの進化ジョブ" count={doneJobs.length} onClose={jobArchive.hide}>
+          {/* M98: 未公開ツールの一括公開。1つずつ開くのは現実的でないので、順に下見→承認へ回す */}
+          {unpublishedTools.length > 0 && (
+            <div className="mb-2 flex flex-wrap items-center gap-2 rounded border border-amber-900 bg-amber-950/30 px-2 py-1.5">
+              <span className="text-[11px] text-amber-200">
+                未公開のツールが {unpublishedTools.length} 件あります
+              </span>
+              <button
+                className="rounded border border-amber-700 px-2 py-0.5 text-[10px] text-amber-200 hover:bg-amber-900 disabled:opacity-40"
+                disabled={publish.busy}
+                title={
+                  '未公開のツールを1件ずつ順に処理します。証跡が無いものは自動で再検証(型検査・テスト・スモーク)し、' +
+                  '合格したら公開の確認画面を出します。送信は毎回あなたの承認が必要です'
+                }
+                onClick={() => {
+                  jobArchive.hide();
+                  publish.open(unpublishedTools[0]!);
+                }}
+              >
+                ⛩ まとめて公開({unpublishedTools.length}件)
+              </button>
+              <span className="text-[10px] text-zinc-400">
+                次: <span className="font-mono text-zinc-300">{unpublishedTools[0]}</span>
+                {unpublishedTools.length > 1 && ` ほか${unpublishedTools.length - 1}件`}
+              </span>
+            </div>
+          )}
           {doneJobs.map((j) => (
             <div key={j.id} className="rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs">
               <div className="flex items-center gap-2">
@@ -338,6 +373,22 @@ export function EvolutionPanel(): JSX.Element {
         </ArchiveModal>
       )}
       {publish.message !== '' && <p className="text-xs text-zinc-400">{publish.message}</p>}
+      {/* M98: 証跡が無くて公開できなかった → 今から本物の検証を回して証跡を作れる */}
+      {publish.needsReverify !== null && (
+        <div className="flex flex-wrap items-center gap-2 rounded border border-sky-800 bg-sky-950/40 px-2 py-1.5">
+          <span className="text-[11px] text-sky-200">
+            「{publish.needsReverify}」は検証の証跡がありません(この版より前に作られたツール)
+          </span>
+          <button
+            className="rounded border border-sky-700 px-2 py-0.5 text-[10px] text-sky-200 hover:bg-sky-900 disabled:opacity-40"
+            disabled={publish.busy}
+            title="今から本物の検証(検査→型検査→テスト→スモーク)を回して証跡を作ります。合格したらそのまま公開の確認へ進みます"
+            onClick={() => publish.reverify(publish.needsReverify!)}
+          >
+            🔍 検証し直して公開可能にする
+          </button>
+        </div>
+      )}
       {publish.plan !== null && (
         <PublishPluginDialog
           plan={publish.plan}
