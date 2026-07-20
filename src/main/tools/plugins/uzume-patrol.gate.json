@@ -1,0 +1,30 @@
+{
+  "toolName": "uzume-patrol",
+  "ok": true,
+  "gates": [
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "検査OK"
+    },
+    {
+      "name": "typecheck",
+      "ok": true,
+      "detail": "型検査OK"
+    },
+    {
+      "name": "test",
+      "ok": true,
+      "detail": "6件のテストが通った"
+    },
+    {
+      "name": "smoke",
+      "ok": true,
+      "detail": "1回実行できた(items は { url, context, title?, source?, author? } の配列で指定するこ)"
+    }
+  ],
+  "pluginApiVersion": "1.0.0",
+  "codeHash": "83b4d033ccc2299fd6338d15ddce4d29febb65a44188120d13fc249b8c5e8436",
+  "verifiedAt": "2026-07-20T13:47:04.566Z",
+  "by": "local"
+}

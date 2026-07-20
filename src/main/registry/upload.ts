@@ -38,11 +38,36 @@ export interface UploadPlan {
   prBody: string;
 }
 
+/**
+ * M98: プラグイン本体のソースから description を読む(最後の手段)。
+ * manifest も呼び出し側の説明も無いときに使う。`description:` の文字列リテラル
+ * (シングル/ダブル/バッククォート、連結された複数行も可)を素直に拾う。
+ * 取れなければ空文字 — 嘘の説明を作るくらいなら「空」で止めて人間に書かせる
+ */
+export function extractDescription(code: string): string {
+  const m = /description:\s*((?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`)(?:\s*\+\s*(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`))*)/.exec(
+    code,
+  );
+  if (m === null || m[1] === undefined) return '';
+  // 連結された文字列リテラル群を1本に畳む(クォートを外して結合)
+  const parts = m[1].match(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g) ?? [];
+  return parts
+    .map((p) => p.slice(1, -1).replace(/\\(['"`\\])/g, '$1'))
+    .join('')
+    .trim();
+}
+
 export interface BuildUploadPlanOptions {
   pluginsDir: string;
   toolName: string;
   registryUrl: string;
   author: string;
+  /**
+   * M98: ツール自身が持つ説明(プラグインの description フィールド)。
+   * manifest.json が無いツール(開発版で昇格したもの)は、以前ここが空になり
+   * 「説明が空」で公開できなかった。説明の正本はプラグイン本体にあるので、それを使う
+   */
+  description?: string;
   /** index.json を読むため(既存エントリとの重複判定) */
   fetchFn?: FetchLike;
 }
@@ -122,7 +147,8 @@ export async function buildUploadPlan(opts: BuildUploadPlanOptions): Promise<Upl
     name: opts.toolName,
     version: base.version ?? '1.0.0',
     pluginApiVersion: '^1',
-    description: base.description ?? '',
+    // manifest があればそれを優先し、無ければツール自身の説明 → コードからの抽出、の順で埋める
+    description: base.description?.trim() || opts.description?.trim() || extractDescription(code),
     author: opts.author,
     license: base.license ?? 'AGPL-3.0',
     // 宣言と実装の不一致はレジストリCIが自動リジェクトする。ここでも実装から起こす
@@ -131,7 +157,10 @@ export async function buildUploadPlan(opts: BuildUploadPlanOptions): Promise<Upl
     smoke: base.smoke ?? { input: {} },
   };
   if (manifest.description.trim() === '') {
-    throw new Error('説明(description)が空。レジストリの索引検索の対象になるため必須');
+    throw new Error(
+      `説明(description)が空。レジストリの索引検索の対象になるため必須。` +
+        `${opts.toolName}.ts の export default に description を書くか、${opts.toolName}.manifest.json に設定してください`,
+    );
   }
 
   const dir = `plugins/${opts.toolName}`;

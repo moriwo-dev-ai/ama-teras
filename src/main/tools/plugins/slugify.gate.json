@@ -1,0 +1,30 @@
+{
+  "toolName": "slugify",
+  "ok": true,
+  "gates": [
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "検査OK"
+    },
+    {
+      "name": "typecheck",
+      "ok": true,
+      "detail": "型検査OK"
+    },
+    {
+      "name": "test",
+      "ok": true,
+      "detail": "11件のテストが通った"
+    },
+    {
+      "name": "smoke",
+      "ok": true,
+      "detail": "1回実行できた(text は文字列で指定すること)"
+    }
+  ],
+  "pluginApiVersion": "1.0.0",
+  "codeHash": "f64c09370705ccd2f0a658e8814e69ac6a94e986108fccf42bd3e53af59de1cf",
+  "verifiedAt": "2026-07-20T13:46:58.297Z",
+  "by": "local"
+}

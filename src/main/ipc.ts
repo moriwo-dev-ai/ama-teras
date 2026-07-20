@@ -1307,6 +1307,9 @@ export async function registerIpcHandlers(
       toolName,
       registryUrl,
       author,
+      // M98: 説明の正本はプラグイン本体(ロード済みの registry が持っている)。
+      // manifest.json を持たない開発版昇格ツールが「説明が空」で公開できなかった
+      description: registry.get(toolName)?.description ?? '',
       fetchFn: systemFetch(),
     });
   };
