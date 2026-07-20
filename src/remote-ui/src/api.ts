@@ -5,6 +5,7 @@ import type {
   ChatMode,
   EvolutionJobSummary,
   HistoryMessageView,
+  PluginUploadPlanResult,
   SessionLoadResult,
   SessionMeta,
   ToolInfo,
@@ -111,6 +112,33 @@ export class RemoteApi {
 
   evolutionPromoteRespond(jobId: number, approved: boolean): Promise<{ ok: boolean }> {
     return this.req('POST', '/api/evolution/promote-respond', { jobId, approved });
+  }
+
+  // M99: ツールの公開・再検証・獲得能力(デスクトップと同じ掟。送信は全文承認つき)
+  evolutionCapabilities(): Promise<
+    { tag: string; date: string; kind: string; toolNames: string[]; subject: string; body: string }[]
+  > {
+    return this.req('GET', '/api/evolution/capabilities');
+  }
+
+  pluginsPublishedList(): Promise<Record<string, { url: string; ts: string }>> {
+    return this.req('GET', '/api/plugins/published');
+  }
+
+  pluginsUploadPlan(toolName: string): Promise<PluginUploadPlanResult> {
+    return this.req('POST', '/api/plugins/upload-plan', { toolName });
+  }
+
+  pluginsReverify(toolName: string): Promise<{ ok: boolean; toolName: string; message: string }> {
+    return this.req('POST', '/api/plugins/reverify', { toolName });
+  }
+
+  pluginsUpload(
+    toolName: string,
+    approvedPreview: string,
+    draft: boolean,
+  ): Promise<{ ok: boolean; message: string; url?: string }> {
+    return this.req('POST', '/api/plugins/upload', { toolName, approvedPreview, draft });
   }
 
   auditTail(limit = 100): Promise<{ entries: AuditEntryView[] }> {

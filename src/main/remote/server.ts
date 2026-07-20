@@ -41,6 +41,19 @@ export interface RemoteFacade {
     scope?: import('../../shared/types').EvolutionScope,
   ): Promise<{ jobId: number }>;
   evolutionPromoteRespond(jobId: number, approved: boolean): void;
+  /**
+   * M99: ツールの公開・再検証・獲得能力をスマホからも扱う(未注入なら 501 を返す)。
+   * 送信の掟は据え置き: uploadPlan で全文を返し、upload には承認した全文を添えさせる
+   */
+  evolutionCapabilities?(): Promise<unknown[]>;
+  pluginsPublishedList?(): Promise<Record<string, import('../../shared/types').PublishedPluginInfo>>;
+  pluginsUploadPlan?(toolName: string): Promise<import('../../shared/types').PluginUploadPlanResult>;
+  pluginsReverify?(toolName: string): Promise<{ ok: boolean; toolName: string; message: string }>;
+  pluginsUpload?(
+    toolName: string,
+    approvedPreview: string,
+    draft: boolean,
+  ): Promise<import('../../shared/types').PluginUploadResult>;
   getStatus(): AgentStatusView;
   getHistoryView(): HistoryMessageView[];
   /** M22: 表示中の会話IDと実行中ラン一覧(snapshot用) */
@@ -402,6 +415,54 @@ export class RemoteServer {
           throw new HttpError(400, 'scope が不正(tool/renderer/core)');
         }
         return sendJson(res, 200, await facade.evolutionEnqueue(description, expectedIO, scope));
+      }
+
+      // M99: ツールの公開・再検証・獲得能力をスマホからも。
+      // 送信の掟は変えない — plan で全文を返し、upload には「見せた全文」を添えさせる
+      case 'GET /api/evolution/capabilities': {
+        if (facade.evolutionCapabilities === undefined) throw new HttpError(501, 'この環境では未対応');
+        return sendJson(res, 200, await facade.evolutionCapabilities());
+      }
+
+      case 'GET /api/plugins/published': {
+        if (facade.pluginsPublishedList === undefined) throw new HttpError(501, 'この環境では未対応');
+        return sendJson(res, 200, await facade.pluginsPublishedList());
+      }
+
+      case 'POST /api/plugins/upload-plan': {
+        if (facade.pluginsUploadPlan === undefined) throw new HttpError(501, 'この環境では未対応');
+        const body = await readJsonBody(req);
+        const toolName = body['toolName'];
+        if (typeof toolName !== 'string' || toolName.trim() === '') {
+          throw new HttpError(400, 'toolName が必要');
+        }
+        return sendJson(res, 200, await facade.pluginsUploadPlan(toolName));
+      }
+
+      case 'POST /api/plugins/reverify': {
+        if (facade.pluginsReverify === undefined) throw new HttpError(501, 'この環境では未対応');
+        const body = await readJsonBody(req);
+        const toolName = body['toolName'];
+        if (typeof toolName !== 'string' || toolName.trim() === '') {
+          throw new HttpError(400, 'toolName が必要');
+        }
+        return sendJson(res, 200, await facade.pluginsReverify(toolName));
+      }
+
+      case 'POST /api/plugins/upload': {
+        if (facade.pluginsUpload === undefined) throw new HttpError(501, 'この環境では未対応');
+        const body = await readJsonBody(req);
+        const toolName = body['toolName'];
+        const approvedPreview = body['approvedPreview'];
+        const draft = body['draft'];
+        if (typeof toolName !== 'string' || toolName.trim() === '') {
+          throw new HttpError(400, 'toolName が必要');
+        }
+        // 全文承認の担保: 下見で見せた全文をそのまま送り返させる(main側でも突き合わせる)
+        if (typeof approvedPreview !== 'string' || approvedPreview.trim() === '') {
+          throw new HttpError(400, 'approvedPreview(承認した全文)が必要');
+        }
+        return sendJson(res, 200, await facade.pluginsUpload(toolName, approvedPreview, draft === true));
       }
 
       case 'POST /api/autonomous': {

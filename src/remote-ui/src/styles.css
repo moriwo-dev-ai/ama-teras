@@ -171,6 +171,13 @@ pre.preview {
   width: 100%; border-radius: 8px; border: 1px solid var(--border); background: var(--bg);
   color: var(--text); padding: 8px; font: inherit; font-size: 13px; margin-bottom: 8px;
 }
+/* M99: 完了分を畳む見出し。指で押す前提で 44px の当たり判定を確保する */
+.archive-toggle {
+  display: block; width: 100%; text-align: left; margin: 12px 0 8px;
+  min-height: 44px; padding: 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--panel);
+  color: var(--muted); font: inherit; font-size: 13px;
+}
 
 /* 監査 */
 .audit-entry { border-bottom: 1px solid var(--border); padding: 8px 0; font-size: 12px; }

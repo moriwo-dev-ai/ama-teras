@@ -1316,8 +1316,10 @@ export async function registerIpcHandlers(
 
   // M98: 既存ツールの再検証。証跡が無い(M96より前に作られた)ツールを、今から本物の
   // 4ゲートに通して証跡を作る。合格しなければ証跡は作らない(嘘の「検証済み」を作らない)
-  ipcMain.handle(IpcChannels.pluginsReverify, async (_e, toolName: unknown) => {
-    assertString(toolName, 'toolName');
+  // M99: スマホ(リモート)からも同じ処理を呼ぶため、IPCハンドラの外に出して共用する
+  const reverifyPluginByName = async (
+    toolName: string,
+  ): Promise<{ ok: boolean; toolName: string; message: string }> => {
     const dir = uploadPluginsDir(toolName);
     if (dir === undefined) {
       return { ok: false, toolName, message: `ツール「${toolName}」のソースが見つからない` };
@@ -1335,10 +1337,14 @@ export async function registerIpcHandlers(
       description: plugin?.description ?? '',
       author: config.get().registryAuthor ?? '',
     });
+  };
+  ipcMain.handle(IpcChannels.pluginsReverify, async (_e, toolName: unknown) => {
+    assertString(toolName, 'toolName');
+    return reverifyPluginByName(toolName);
   });
 
-  ipcMain.handle(IpcChannels.pluginsUploadPlan, async (_e, toolName: unknown) => {
-    assertString(toolName, 'toolName');
+  // M99: リモート(スマホ)からも同じ下見を使う
+  const uploadPlanByName = async (toolName: string): Promise<import('../shared/types').PluginUploadPlanResult> => {
     const dir = uploadPluginsDir(toolName);
     if (dir === undefined) {
       return { ok: false, message: `ツール「${toolName}」のソースが見つからない`, toolName, verification: 'unverified' };
@@ -1378,13 +1384,19 @@ export async function registerIpcHandlers(
         verification: 'verified',
       };
     }
+  };
+  ipcMain.handle(IpcChannels.pluginsUploadPlan, async (_e, toolName: unknown) => {
+    assertString(toolName, 'toolName');
+    return uploadPlanByName(toolName);
   });
 
-  ipcMain.handle(
-    IpcChannels.pluginsUpload,
-    async (_e, toolName: unknown, approvedPreview: unknown, draft: unknown) => {
-      assertString(toolName, 'toolName');
-      assertString(approvedPreview, 'approvedPreview');
+  // M99: 送信本体も共用(デスクトップ/スマホで同じ掟・同じ二重提出ガードを通す)
+  const uploadByName = async (
+    toolName: string,
+    approvedPreview: string,
+    draft: boolean,
+  ): Promise<import('../shared/types').PluginUploadResult> => {
+    {
       const token = secrets.get('github');
       if (token === null || token.trim() === '') {
         return {
@@ -1425,6 +1437,14 @@ export async function registerIpcHandlers(
       } catch (err) {
         return { ok: false, message: err instanceof Error ? err.message : String(err) };
       }
+    }
+  };
+  ipcMain.handle(
+    IpcChannels.pluginsUpload,
+    async (_e, toolName: unknown, approvedPreview: unknown, draft: unknown) => {
+      assertString(toolName, 'toolName');
+      assertString(approvedPreview, 'approvedPreview');
+      return uploadByName(toolName, approvedPreview, draft === true);
     },
   );
 
@@ -1735,7 +1755,15 @@ export async function registerIpcHandlers(
     const sanitizedConfig = (): Record<string, unknown> =>
       pickRemoteSettings(config.get() as unknown as Record<string, unknown>);
     const server = new RemoteServer({
-      facade: service,
+      // M99: スマホからもツールの公開・再検証・獲得能力を扱えるようにする。
+      // 実体はデスクトップと同じ関数(掟・二重提出ガード・全文突き合わせを共有する)
+      facade: Object.assign(service, {
+        evolutionCapabilities: () => listEvolvedCapabilities(app.getAppPath()),
+        pluginsPublishedList: async () => published.list(),
+        pluginsUploadPlan: uploadPlanByName,
+        pluginsReverify: reverifyPluginByName,
+        pluginsUpload: uploadByName,
+      }),
       bus,
       auth: remoteAuth,
       staticDir: getRemoteUiDir(),

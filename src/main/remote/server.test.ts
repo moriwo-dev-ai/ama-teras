@@ -116,8 +116,11 @@ let calls: FacadeCalls;
 async function startServer(opts?: {
   maxFailures?: number;
   operations?: import('./server').RemoteOperationsFacade;
+  /** M99: 公開系は任意実装。未注入なら 501 を返す(この経路自体もテストする) */
+  plugins?: Partial<RemoteFacade>;
 }): Promise<void> {
   const stub = stubFacade();
+  if (opts?.plugins !== undefined) Object.assign(stub.facade, opts.plugins);
   calls = stub.calls;
   const pair = generateToken();
   token = pair.token;
@@ -645,6 +648,101 @@ describe('M34-6: 運営リモートAPI', () => {
     // 前回比を出すには複数点が要る(スマホは合計値しか見えていなかった)
     expect((await rawGet(port, '/api/ops/history?limit=2', authed())).status).toBe(200);
     expect((await rawGet(port, '/api/ops/adapters', authed())).status).toBe(200);
+  });
+});
+
+/**
+ * M99: スマホからツールを公開できるようにした。外部(GitHub)へ出す経路なので、
+ * 「全文を見せてから送る」掟が HTTP 層でも破れないことを固定する。
+ */
+describe('RemoteServer: ツールの公開(M99)', () => {
+  const postJson = (path: string, body: unknown): Promise<Response> =>
+    fetch(`http://127.0.0.1:${port}/api${path}`, {
+      method: 'POST',
+      headers: { ...authed(), 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  it('approvedPreview 無しの公開は 400(全文承認を迂回できない)', async () => {
+    const uploads: [string, string, boolean][] = [];
+    await startServer({
+      plugins: {
+        pluginsUpload: async (toolName, approvedPreview, draft) => {
+          uploads.push([toolName, approvedPreview, draft]);
+          return { ok: true, message: '送った' };
+        },
+      },
+    });
+
+    expect((await postJson('/plugins/upload', { toolName: 'slugify' })).status).toBe(400);
+    expect((await postJson('/plugins/upload', { toolName: 'slugify', approvedPreview: '   ' })).status).toBe(400);
+    expect((await postJson('/plugins/upload', { approvedPreview: '全文' })).status).toBe(400);
+    // どれも main 側まで届いていないこと(400 を返しつつ送信、が最悪の失敗)
+    expect(uploads).toEqual([]);
+
+    const ok = await postJson('/plugins/upload', {
+      toolName: 'slugify',
+      approvedPreview: '# slugify\n本文',
+      draft: true,
+    });
+    expect(ok.status).toBe(200);
+    expect(uploads).toEqual([['slugify', '# slugify\n本文', true]]);
+  });
+
+  it('draft は明示 true のときだけ下書き(未指定は本番PR扱いにしない)', async () => {
+    const drafts: boolean[] = [];
+    await startServer({
+      plugins: {
+        pluginsUpload: async (_t, _p, draft) => {
+          drafts.push(draft);
+          return { ok: true, message: 'ok' };
+        },
+      },
+    });
+    await postJson('/plugins/upload', { toolName: 't', approvedPreview: 'x' });
+    await postJson('/plugins/upload', { toolName: 't', approvedPreview: 'x', draft: 'yes' });
+    await postJson('/plugins/upload', { toolName: 't', approvedPreview: 'x', draft: true });
+    expect(drafts).toEqual([false, false, true]);
+  });
+
+  it('下見・再検証は toolName 必須。獲得能力と公開控えはそのまま返る', async () => {
+    await startServer({
+      plugins: {
+        pluginsUploadPlan: async (toolName) => ({
+          ok: true,
+          message: '下見',
+          toolName,
+          preview: '全文',
+          verification: 'verified' as const,
+        }),
+        pluginsReverify: async (toolName) => ({ ok: true, toolName, message: '合格' }),
+        pluginsPublishedList: async () => ({ slugify: { url: 'https://example/pr/1', ts: '2026-07-16T00:00:00.000Z' } }),
+        evolutionCapabilities: async () => [
+          { tag: 'evolve/49', date: '2026-07-10T00:00:00.000Z', kind: 'tool', toolNames: ['slugify'], subject: 's', body: 'b' },
+        ],
+      },
+    });
+
+    expect((await postJson('/plugins/upload-plan', {})).status).toBe(400);
+    expect((await postJson('/plugins/reverify', { toolName: '' })).status).toBe(400);
+
+    const plan = await postJson('/plugins/upload-plan', { toolName: 'slugify' });
+    expect(await plan.json()).toMatchObject({ ok: true, preview: '全文' });
+
+    const caps = await rawGet(port, '/api/evolution/capabilities', authed());
+    expect(JSON.parse(caps.body)[0].tag).toBe('evolve/49');
+
+    const pub = await rawGet(port, '/api/plugins/published', authed());
+    expect(JSON.parse(pub.body).slugify.url).toBe('https://example/pr/1');
+  });
+
+  it('公開系を持たない環境(配布版など)では 501 を返し、認証は素通ししない', async () => {
+    await startServer();
+    expect((await rawGet(port, '/api/plugins/published', authed())).status).toBe(501);
+    expect((await rawGet(port, '/api/evolution/capabilities', authed())).status).toBe(501);
+    expect((await postJson('/plugins/upload', { toolName: 't', approvedPreview: 'x' })).status).toBe(501);
+    // 未認証は 501 より先に 401(能力の有無を漏らさない)
+    expect((await rawGet(port, '/api/plugins/published')).status).toBe(401);
   });
 });
 
