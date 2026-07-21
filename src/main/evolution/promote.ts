@@ -105,6 +105,39 @@ export async function promoteToBranch(
   }
 }
 
+/**
+ * M99-3: 夜間昇格の成果をリモートへ退避する。
+ *
+ * evolve/nightly は push されないので**この1台の中にしか存在せず**、朝レビューされるまで
+ * 手つかずで置かれる。実際に枝とタグを消して ordinal_suffix / to_base64 が跡形もなく
+ * 失われた。タグは枝と独立した参照なので本来これが復旧の綱になる — 枝とタグの両方を出す。
+ *
+ * **push の失敗で昇格を失敗にしない。** 夜間は無人で、ネットワークも認証も落ちうる。
+ * 落ちても枝はローカルに残っている = 「退避できなかった」だけなので、記録して先へ進む。
+ * 逆に、成否をログに出さないと「退避したつもり」で消える方が怖い。
+ */
+export async function backupToRemote(
+  repoDir: string,
+  branch: string,
+  tag: string,
+  remote = 'origin',
+): Promise<{ ok: boolean; detail: string }> {
+  const remotes = (await runGit(['remote'], repoDir).catch(() => ''))
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
+  if (!remotes.includes(remote)) {
+    return { ok: false, detail: `リモート ${remote} が無いため退避できない(枝はローカルのみ)` };
+  }
+  try {
+    // 枝とタグを1回で出す。タグは軽量タグなので --follow-tags では出ない=明示する
+    await runGit(['push', remote, `${branch}:${branch}`, `refs/tags/${tag}`], repoDir);
+    return { ok: true, detail: `${remote} へ ${branch} と ${tag} を退避した` };
+  } catch (err) {
+    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /** ロールバック: 昇格マージコミットをrevertして直前タグ状態へ戻す(履歴は残す) */
 export async function rollbackMerge(repoDir: string, mergeCommit: string): Promise<string> {
   await runGit(['revert', '-m', '1', '--no-edit', mergeCommit], repoDir);

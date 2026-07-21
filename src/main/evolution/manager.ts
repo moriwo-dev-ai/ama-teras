@@ -17,7 +17,14 @@ import { GenerationMetrics, type GenerationOutcome } from './metrics';
 import { runGit } from './git';
 import type { EvolutionJobRunner, EvolutionRequest } from './job';
 import { JobStore } from './jobStore';
-import { assertPromotable, nextJobId, promoteBranch, promoteToBranch, rollbackMerge } from './promote';
+import {
+  assertPromotable,
+  backupToRemote,
+  nextJobId,
+  promoteBranch,
+  promoteToBranch,
+  rollbackMerge,
+} from './promote';
 import { SCOPE_ALLOWLISTS, scopeRequiresRestart } from './scopes';
 import { WorktreeManager } from './worktree';
 
@@ -551,6 +558,9 @@ export class EvolutionManager {
           `夜間昇格: ${targetBranch} に ${tag} (${mergeCommit.slice(0, 8)}) を積んだ。` +
             `朝に \`git log ${this.baseRef}..${targetBranch}\` でレビュー(mainは無変更)`,
         );
+        // 退避は失敗しても昇格を失敗にしない(枝はローカルに残る)。ただし黙らない
+        const backup = await backupToRemote(this.deps.repoDir, targetBranch, tag);
+        this.log(job, backup.ok ? `退避: ${backup.detail}` : `退避できず(枝はローカルにある): ${backup.detail}`);
         // A(稼働中)へは載せない=reloadPlugins/health も走らせない。朝レビューで main へ取り込む
         this.update(job, { status: 'done', autoBranch: targetBranch });
         return;

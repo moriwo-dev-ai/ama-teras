@@ -734,4 +734,46 @@ describe('M92-A6-2 夜間自動昇格(専用ブランチ・実git)', { timeout: 
     const branches = await runGit(['branch', '--list', 'evolve/nightly'], repoDir);
     expect(branches.trim()).toBe('');
   });
+
+  /**
+   * M99-3: 夜間の成果は push されず1台の中にしか無いため、枝とタグを消したときに
+   * ツール2つが跡形もなく失われた。退避されること、そして**退避に失敗しても
+   * 昇格が巻き添えで失敗しないこと**の両方を固定する(夜間は無人で復旧できない)。
+   */
+  it('夜間昇格した枝とタグが origin へ退避される', async () => {
+    const remoteDir = join(base, 'remote.git');
+    await runGit(['init', '--bare', '-b', 'main'], await mkdir(remoteDir, { recursive: true }).then(() => remoteDir));
+    await runGit(['remote', 'add', 'origin', remoteDir], repoDir);
+
+    const { manager, events } = makeManager();
+    const id = await manager.enqueue({ description: 'nightly tool', expectedIO: 'x', auto: true });
+    expect(await waitForJobTerminal(events, id)).toBe('done');
+
+    // リモート側に枝とタグが実在する(ローカルを消しても中身が残る状態)
+    const heads = await runGit(['ls-remote', '--heads', 'origin'], repoDir);
+    expect(heads).toContain('refs/heads/evolve/nightly');
+    const tags = await runGit(['ls-remote', '--tags', 'origin'], repoDir);
+    expect(tags).toContain(`refs/tags/evolve/${id}`);
+
+    // ローカルの枝とタグを消しても、リモートから中身を辿れる(これが復旧の綱)
+    const remoteTip = (await runGit(['rev-parse', 'evolve/nightly'], repoDir)).trim();
+    await runGit(['branch', '-D', 'evolve/nightly'], repoDir);
+    await runGit(['tag', '-d', `evolve/${id}`], repoDir);
+    expect(await runGit(['ls-remote', 'origin', `refs/tags/evolve/${id}`], repoDir)).toContain(remoteTip);
+  });
+
+  it('リモートが無い/pushが失敗しても昇格は done のまま(枝はローカルに残る)', async () => {
+    // origin を張らない = push できない環境。無人の夜間で昇格ごと失敗させてはいけない
+    const { manager, events } = makeManager();
+    const id = await manager.enqueue({ description: 'nightly tool', expectedIO: 'x', auto: true });
+    expect(await waitForJobTerminal(events, id)).toBe('done');
+
+    const branches = await runGit(['branch', '--list', 'evolve/nightly'], repoDir);
+    expect(branches.trim()).not.toBe('');
+    // 黙って諦めない: 退避できなかったことがログに残る
+    const upd = events.filter(
+      (e): e is Extract<EvolutionEvent, { kind: 'job_update' }> => e.kind === 'job_update' && e.job.id === id,
+    );
+    expect(upd.at(-1)?.job.log.some((l) => l.includes('退避できず'))).toBe(true);
+  });
 });
