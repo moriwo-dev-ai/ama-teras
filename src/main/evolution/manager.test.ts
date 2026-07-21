@@ -762,6 +762,30 @@ describe('M92-A6-2 夜間自動昇格(専用ブランチ・実git)', { timeout: 
     expect(await runGit(['ls-remote', 'origin', `refs/tags/evolve/${id}`], repoDir)).toContain(remoteTip);
   });
 
+  it('nightly-backup リモートがあれば origin より優先して退避する(公開originに出さない)', async () => {
+    // origin=公開想定 / nightly-backup=非公開想定 の2つを bare で立てる
+    const originDir = join(base, 'origin.git');
+    const backupDir = join(base, 'backup.git');
+    for (const d of [originDir, backupDir]) {
+      await mkdir(d, { recursive: true });
+      await runGit(['init', '--bare', '-b', 'main'], d);
+    }
+    await runGit(['remote', 'add', 'origin', originDir], repoDir);
+    await runGit(['remote', 'add', 'nightly-backup', backupDir], repoDir);
+
+    const { manager, events } = makeManager();
+    const id = await manager.enqueue({ description: 'nightly tool', expectedIO: 'x', auto: true });
+    expect(await waitForJobTerminal(events, id)).toBe('done');
+
+    // 非公開側にだけ載る。公開側(origin)には一切出ていない
+    const backupHeads = await runGit(['ls-remote', '--heads', 'nightly-backup'], repoDir);
+    expect(backupHeads).toContain('refs/heads/evolve/nightly');
+    expect(await runGit(['ls-remote', '--tags', 'nightly-backup'], repoDir)).toContain(
+      `refs/tags/evolve/${id}`,
+    );
+    expect((await runGit(['ls-remote', 'origin'], repoDir)).trim()).toBe('');
+  });
+
   it('リモートが無い/pushが失敗しても昇格は done のまま(枝はローカルに残る)', async () => {
     // origin を張らない = push できない環境。無人の夜間で昇格ごと失敗させてはいけない
     const { manager, events } = makeManager();

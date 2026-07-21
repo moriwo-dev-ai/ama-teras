@@ -115,24 +115,32 @@ export async function promoteToBranch(
  * **push の失敗で昇格を失敗にしない。** 夜間は無人で、ネットワークも認証も落ちうる。
  * 落ちても枝はローカルに残っている = 「退避できなかった」だけなので、記録して先へ進む。
  * 逆に、成否をログに出さないと「退避したつもり」で消える方が怖い。
+ *
+ * 退避先は `nightly-backup` という名前のリモートがあれば**そちらを優先**する。
+ * origin が公開リポジトリだと、レビュー前の生成物(朝に捨てるかもしれないもの)が
+ * 毎晩公開されてしまう — バックアップと公開は別の行為。非公開の退避先を
+ * `git remote add nightly-backup <url>` で登録すればそちらへ、無ければ origin へ。
  */
+export const BACKUP_REMOTE = 'nightly-backup';
+
 export async function backupToRemote(
   repoDir: string,
   branch: string,
   tag: string,
-  remote = 'origin',
+  remote?: string,
 ): Promise<{ ok: boolean; detail: string }> {
   const remotes = (await runGit(['remote'], repoDir).catch(() => ''))
     .split('\n')
     .map((s) => s.trim())
     .filter((s) => s !== '');
-  if (!remotes.includes(remote)) {
-    return { ok: false, detail: `リモート ${remote} が無いため退避できない(枝はローカルのみ)` };
+  const chosen = remote ?? (remotes.includes(BACKUP_REMOTE) ? BACKUP_REMOTE : 'origin');
+  if (!remotes.includes(chosen)) {
+    return { ok: false, detail: `リモート ${chosen} が無いため退避できない(枝はローカルのみ)` };
   }
   try {
     // 枝とタグを1回で出す。タグは軽量タグなので --follow-tags では出ない=明示する
-    await runGit(['push', remote, `${branch}:${branch}`, `refs/tags/${tag}`], repoDir);
-    return { ok: true, detail: `${remote} へ ${branch} と ${tag} を退避した` };
+    await runGit(['push', chosen, `${branch}:${branch}`, `refs/tags/${tag}`], repoDir);
+    return { ok: true, detail: `${chosen} へ ${branch} と ${tag} を退避した` };
   } catch (err) {
     return { ok: false, detail: err instanceof Error ? err.message : String(err) };
   }
