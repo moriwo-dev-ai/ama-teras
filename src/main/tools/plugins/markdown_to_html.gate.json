@@ -1,0 +1,30 @@
+{
+  "toolName": "markdown_to_html",
+  "ok": true,
+  "gates": [
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "検査OK"
+    },
+    {
+      "name": "typecheck",
+      "ok": true,
+      "detail": "型検査OK"
+    },
+    {
+      "name": "test",
+      "ok": true,
+      "detail": "20件のテストが通った"
+    },
+    {
+      "name": "smoke",
+      "ok": true,
+      "detail": "1回実行できた(Invalid input: 文字列フィールド \"markdown\" を持つオブジェクトを渡してください。)"
+    }
+  ],
+  "pluginApiVersion": "1.0.0",
+  "codeHash": "8b8cea83a9000420d049657c6c60651aa5faf51ef8ac0edee702d778c0ddaed6",
+  "verifiedAt": "2026-07-22T06:07:46.334Z",
+  "by": "local"
+}

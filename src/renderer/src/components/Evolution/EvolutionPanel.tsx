@@ -372,10 +372,20 @@ export function EvolutionPanel(): JSX.Element {
           ))}
         </ArchiveModal>
       )}
-      {/* M99-6: 一括公開の進行。再検証などで止まっても「あと何件か」と中断手段を見失わない */}
+      {/* M99-6: 一括公開の進行。再検証などで止まっても「あと何件か」と中断手段を見失わない。
+          M99-7: 「飛ばして次へ」— 再検証不合格などで止まった1件が残りを人質に取らないための脱出口。
+          ダイアログの「やめる」は全体中断なので、1件だけ諦める操作はここにしか無い */}
       {publish.queueLen > 0 && (
         <div className="flex items-center gap-2 rounded border border-amber-900 bg-amber-950/30 px-2 py-1">
           <span className="text-[11px] text-amber-200">⛩ 一括公開 進行中 — この後 {publish.queueLen} 件続く</span>
+          <button
+            className="rounded border border-amber-800 px-1.5 py-0.5 text-[10px] text-amber-200 hover:bg-amber-900"
+            disabled={publish.busy}
+            title="いま止まっている1件を諦めて次のツールへ(諦めた分はあとで個別に公開できます)"
+            onClick={publish.skip}
+          >
+            ⏭ 飛ばして次へ
+          </button>
           <button
             className="rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-800"
             onClick={publish.close}

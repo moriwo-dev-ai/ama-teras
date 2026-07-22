@@ -159,17 +159,28 @@ function matchers(received, negated) {
     toBeGreaterThanOrEqual: (n) => check(received >= n, \`toBeGreaterThanOrEqual: \${fmt(received)} >= \${n}\`),
     toBeLessThan: (n) => check(received < n, \`toBeLessThan: \${fmt(received)} < \${n}\`),
     toBeLessThanOrEqual: (n) => check(received <= n, \`toBeLessThanOrEqual: \${fmt(received)} <= \${n}\`),
-    toThrow: (msg) => {
+    // vitest 互換: toThrow は 文字列=部分一致 / RegExp / Errorクラス / なし=投げれば合格。
+    // 以前は引数を必ず new RegExp() していたため、toThrow(RangeError) がクラスの文字列表現
+    // "function RangeError() { [native code] }" を正規表現として突き合わせて必ず落ちた
+    // (実測: roman_numeral。開発版vitestでは合格するのに再検証だけ不合格 = ツールの冤罪)
+    toThrow: (expected) => {
       let threw = false;
-      let text = '';
+      let err;
       try {
         received();
       } catch (e) {
         threw = true;
-        text = e instanceof Error ? e.message : String(e);
+        err = e;
       }
-      const pass = threw && (msg === undefined || new RegExp(msg).test(text));
-      check(pass, \`toThrow: 例外が出ない、または \${msg} に一致しない(実際: \${text})\`);
+      const text = err instanceof Error ? err.message : String(err);
+      let pass = threw;
+      if (threw && expected !== undefined) {
+        if (typeof expected === 'function') pass = err instanceof expected;
+        else if (expected instanceof RegExp) pass = expected.test(text);
+        else pass = text.includes(String(expected));
+      }
+      const want = typeof expected === 'function' ? (expected.name || 'そのクラス') : fmt(expected);
+      check(pass, \`toThrow: 例外が出ない、または \${want} に一致しない(実際: \${threw ? text : '例外なし'})\`);
     },
   };
   // 未対応のマッチャは「関数が無い」ではなく、名前を挙げて落ちる。
@@ -194,17 +205,25 @@ export function expect(received) {
   const api = matchers(received, false);
   api.not = matchers(received, true);
   api.rejects = {
-    toThrow: async (msg) => {
+    // vitest 互換(同上): 文字列=部分一致 / RegExp / Errorクラス
+    toThrow: async (expected) => {
       let threw = false;
-      let text = '';
+      let err;
       try {
         await received;
       } catch (e) {
         threw = true;
-        text = e instanceof Error ? e.message : String(e);
+        err = e;
       }
-      if (!threw || (msg !== undefined && !new RegExp(msg).test(text))) {
-        throw new Error(\`rejects.toThrow: 例外が出ない、または一致しない(実際: \${text})\`);
+      const text = err instanceof Error ? err.message : String(err);
+      let pass = threw;
+      if (threw && expected !== undefined) {
+        if (typeof expected === 'function') pass = err instanceof expected;
+        else if (expected instanceof RegExp) pass = expected.test(text);
+        else pass = text.includes(String(expected));
+      }
+      if (!pass) {
+        throw new Error(\`rejects.toThrow: 例外が出ない、または一致しない(実際: \${threw ? text : '例外なし'})\`);
       }
     },
   };

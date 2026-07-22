@@ -1,0 +1,30 @@
+{
+  "toolName": "svg_bar_chart",
+  "ok": true,
+  "gates": [
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "検査OK"
+    },
+    {
+      "name": "typecheck",
+      "ok": true,
+      "detail": "型検査OK"
+    },
+    {
+      "name": "test",
+      "ok": true,
+      "detail": "11件のテストが通った"
+    },
+    {
+      "name": "smoke",
+      "ok": true,
+      "detail": "1回実行できた(data は {label, value} の空でない配列で指定すること)"
+    }
+  ],
+  "pluginApiVersion": "1.0.0",
+  "codeHash": "b59194d3639e1bd4862dc77a2bf519b95b32062b6617939d2b1b5b9825e613ca",
+  "verifiedAt": "2026-07-22T06:07:44.991Z",
+  "by": "local"
+}

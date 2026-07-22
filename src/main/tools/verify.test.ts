@@ -193,3 +193,79 @@ it('未対応', () => {
     expect(r.gates[0]?.ok).toBe(false);
   }, 60_000);
 });
+
+/**
+ * M99-7: toThrow(RangeError) の冤罪回帰。ハーネスが引数を必ず new RegExp() していたため、
+ * Errorクラス指定が "function RangeError() { [native code] }" の正規表現になり必ず落ちた。
+ * 開発版vitestでは合格するツール(実測: roman_numeral)が再検証だけ不合格になる=最悪の不整合。
+ */
+describe('ミニハーネスの toThrow 互換(vitest と同じ4形式)', () => {
+  const throwingPlugin = `import type { ToolPlugin } from '../types';
+
+const plugin: ToolPlugin = {
+  name: 'sum_numbers',
+  description: '範囲チェック付き',
+  risk: 'safe',
+  inputSchema: { type: 'object', properties: {}, required: [] },
+  async execute() {
+    return { content: 'ok', isError: false };
+  },
+};
+
+export default plugin;
+export function guard(n: number): number {
+  if (n < 1) throw new RangeError(\`guard: n は 1 以上であること (received: \${n})\`);
+  return n;
+}
+`;
+
+  it('Errorクラス・RegExp・部分一致文字列・引数なし、の全形式が通る', async () => {
+    await writeFile(join(dir, 'sum_numbers.ts'), throwingPlugin, 'utf8');
+    await writeFile(
+      join(dir, 'sum_numbers.test.ts'),
+      `import { describe, expect, it } from 'vitest';
+import { guard } from './sum_numbers';
+
+describe('guard', () => {
+  it('クラス指定', () => {
+    expect(() => guard(0)).toThrow(RangeError);
+  });
+  it('RegExp指定', () => {
+    expect(() => guard(0)).toThrow(/n は 1 以上/);
+  });
+  it('文字列は部分一致(received: 0 の括弧が正規表現にならない)', () => {
+    expect(() => guard(0)).toThrow('(received: 0)');
+  });
+  it('引数なし=投げれば合格', () => {
+    expect(() => guard(-5)).toThrow();
+  });
+  it('not.toThrow', () => {
+    expect(() => guard(3)).not.toThrow();
+  });
+});
+`,
+      'utf8',
+    );
+    const r = await run();
+    expect(r.gates.find((g) => g.name === 'test')?.ok, JSON.stringify(r.gates)).toBe(true);
+  });
+
+  it('違うクラスを投げたら不合格になる(クラス照合が本物であること)', async () => {
+    await writeFile(join(dir, 'sum_numbers.ts'), throwingPlugin.replace('new RangeError', 'new Error'), 'utf8');
+    await writeFile(
+      join(dir, 'sum_numbers.test.ts'),
+      `import { describe, expect, it } from 'vitest';
+import { guard } from './sum_numbers';
+
+describe('guard', () => {
+  it('クラス指定', () => {
+    expect(() => guard(0)).toThrow(RangeError);
+  });
+});
+`,
+      'utf8',
+    );
+    const r = await run();
+    expect(r.gates.find((g) => g.name === 'test')?.ok).toBe(false);
+  });
+});

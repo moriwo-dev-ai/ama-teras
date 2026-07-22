@@ -1,0 +1,30 @@
+{
+  "toolName": "duration_format",
+  "ok": true,
+  "gates": [
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "検査OK"
+    },
+    {
+      "name": "typecheck",
+      "ok": true,
+      "detail": "型検査OK"
+    },
+    {
+      "name": "test",
+      "ok": true,
+      "detail": "11件のテストが通った"
+    },
+    {
+      "name": "smoke",
+      "ok": true,
+      "detail": "1回実行できた(seconds は有限の数値で指定すること)"
+    }
+  ],
+  "pluginApiVersion": "1.0.0",
+  "codeHash": "f91f286af20f957ee91f2e72fb8a32d9ab49130bd463790fc7222e81f5708391",
+  "verifiedAt": "2026-07-22T06:07:48.801Z",
+  "by": "local"
+}

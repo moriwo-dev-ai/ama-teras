@@ -1,0 +1,30 @@
+{
+  "toolName": "sparkline_svg",
+  "ok": true,
+  "gates": [
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "検査OK"
+    },
+    {
+      "name": "typecheck",
+      "ok": true,
+      "detail": "型検査OK"
+    },
+    {
+      "name": "test",
+      "ok": true,
+      "detail": "12件のテストが通った"
+    },
+    {
+      "name": "smoke",
+      "ok": true,
+      "detail": "1回実行できた(data は数値の配列で指定すること)"
+    }
+  ],
+  "pluginApiVersion": "1.0.0",
+  "codeHash": "c64780e2c03a48d5de3561c5fc705039857e3ea0f9b5cf09fbb72de0172096db",
+  "verifiedAt": "2026-07-22T06:07:45.691Z",
+  "by": "local"
+}

@@ -1,0 +1,30 @@
+{
+  "toolName": "calendar_heatmap_svg",
+  "ok": true,
+  "gates": [
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "検査OK"
+    },
+    {
+      "name": "typecheck",
+      "ok": true,
+      "detail": "型検査OK"
+    },
+    {
+      "name": "test",
+      "ok": true,
+      "detail": "12件のテストが通った"
+    },
+    {
+      "name": "smoke",
+      "ok": true,
+      "detail": "1回実行できた(data は {date, value} オブジェクトの配列で指定すること)"
+    }
+  ],
+  "pluginApiVersion": "1.0.0",
+  "codeHash": "3694cdd9c8088b9b6d55a373183db6e888035fa9fa4e013a9b21d329b5d5db66",
+  "verifiedAt": "2026-07-22T06:07:47.035Z",
+  "by": "local"
+}

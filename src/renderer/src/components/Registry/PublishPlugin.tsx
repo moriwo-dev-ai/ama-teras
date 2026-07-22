@@ -29,6 +29,12 @@ export function usePublishPlugin(): {
   openMany: (toolNames: string[]) => void;
   /** 一括公開の残り件数(0=単発)。進行表示と取りやめボタンに使う */
   queueLen: number;
+  /**
+   * M99-7: 今止まっているツールを飛ばして次へ(一括中のみ意味を持つ)。
+   * 再検証が不合格だと出口が「もう一度(また落ちる)」か「取りやめ(残り全部が道連れ)」しか
+   * 無かった(実機でユーザーが発見)。1件の不合格が残りを人質に取らないための脱出口
+   */
+  skip: () => void;
   close: () => void;
   submit: (draft: boolean) => void;
   /** M98: 証跡が無くて公開できなかったツール名(再検証を促す) */
@@ -127,11 +133,21 @@ export function usePublishPlugin(): {
     queueRef.current = [];
     setQueueLen(0);
     setPlan(null);
+    setNeedsReverify(null);
     setMessage(
       remaining > 0
         ? `一括公開を取りやめました(残り${remaining}件は未公開のまま。あとで「まとめて公開」からやり直せます)`
         : '公開を取りやめました(あとでツール一覧からいつでも公開できます)',
     );
+  };
+
+  /** M99-7: 止まっている1件(下見中・再検証待ち・不合格のいずれでも)を諦めて次へ */
+  const skip = (): void => {
+    setPlan(null);
+    setNeedsReverify(null);
+    if (!advance()) {
+      setMessage('飛ばした(一括公開はこれで終わり。飛ばした分はあとでツール一覧から個別に公開できます)');
+    }
   };
 
   /**
@@ -155,7 +171,7 @@ export function usePublishPlugin(): {
       .finally(() => setBusy(false));
   };
 
-  return { plan, message, busy, published, open, openMany, queueLen, close, submit, needsReverify, reverify };
+  return { plan, message, busy, published, open, openMany, queueLen, skip, close, submit, needsReverify, reverify };
 }
 
 export function PublishPluginDialog({

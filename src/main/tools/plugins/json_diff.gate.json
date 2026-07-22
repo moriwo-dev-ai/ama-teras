@@ -1,0 +1,30 @@
+{
+  "toolName": "json_diff",
+  "ok": true,
+  "gates": [
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "検査OK"
+    },
+    {
+      "name": "typecheck",
+      "ok": true,
+      "detail": "型検査OK"
+    },
+    {
+      "name": "test",
+      "ok": true,
+      "detail": "14件のテストが通った"
+    },
+    {
+      "name": "smoke",
+      "ok": true,
+      "detail": "1回実行できた(入力には a と b の両方が必要(null でも明示的に渡すこと))"
+    }
+  ],
+  "pluginApiVersion": "1.0.0",
+  "codeHash": "e65061759b669e025bf9b41f051d727be17c1543cb944a31576342188318f66f",
+  "verifiedAt": "2026-07-22T06:07:47.704Z",
+  "by": "local"
+}

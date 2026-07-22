@@ -1,0 +1,30 @@
+{
+  "toolName": "roman_numeral",
+  "ok": true,
+  "gates": [
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "検査OK"
+    },
+    {
+      "name": "typecheck",
+      "ok": true,
+      "detail": "型検査OK"
+    },
+    {
+      "name": "test",
+      "ok": true,
+      "detail": "10件のテストが通った"
+    },
+    {
+      "name": "smoke",
+      "ok": true,
+      "detail": "1回実行できた(n は数値で指定すること)"
+    }
+  ],
+  "pluginApiVersion": "1.0.0",
+  "codeHash": "ee8422643a67e4e9aa977e4ad9ad7d9a7138212e645c080dfabd12df6aa388ba",
+  "verifiedAt": "2026-07-22T06:12:17.986Z",
+  "by": "local"
+}
