@@ -1,31 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { splitMarkdownSegments } from '../../../shared/markdownBlocks';
+import { copyText } from '../clipboard';
 import type { ChatImageInput, ChatMode } from '../../../shared/types';
 import type { RemoteApi } from '../api';
 import { useRemoteStore } from '../store';
 
-/** M16-3: HTTP(非secure context)では navigator.clipboard が無いので execCommand へフォールバック */
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    /* fallthrough */
-  }
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand('copy');
-    ta.remove();
-    return ok;
-  } catch {
-    return false;
-  }
-}
+// M99-10: copyText は clipboard.ts へ共通化(OpsView が独自実装で同じ罠を踏んだため)
 
 /** M16-3: assistant本文をコードブロック単位に分割して描画(markdown全体レンダリングはしない軽量版) */
 function AssistantBody({ text }: { text: string }): JSX.Element {

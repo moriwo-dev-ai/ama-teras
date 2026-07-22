@@ -21,6 +21,7 @@ import {
   xIntentUrl,
 } from '../../../shared/operations';
 import type { RemoteApi } from '../api';
+import { copyText } from '../clipboard';
 
 /**
  * M34-6 / M40: リモートUIの「運営」タブ — 出先のスマホだけで運営が完結する。
@@ -741,21 +742,34 @@ function DraftCard({
       </div>
       <LongText text={draft.body} />
       <div className="row">
-        <button onClick={() => void navigator.clipboard.writeText(draft.body).then(() => setNotice('コピーした'))}>
+        <button
+          onClick={() =>
+            void copyText(draft.body).then((ok) =>
+              setNotice(ok ? 'コピーした' : 'コピーできなかった(本文を長押しで選択してください)'),
+            )
+          }
+        >
           コピー
         </button>
         {draft.kind === 'x-post' && draft.status === 'draft' && (
           <button
             onClick={() => {
               // M99-9: スマホでは x.com のインテントURLがXアプリに横取りされ、本文が
-              // 引き継がれないことがある(実機でユーザー報告。しかも開いた瞬間 posted に
-              // なるので下書きも一覧から消えて見える)。開く前に本文をクリップボードへ
-              // 入れておき、消えたら貼り付ければ済むようにする。
+              // 引き継がれないことがある。開く前に本文をコピーしておき、消えたら貼り付ければ済む。
+              // M99-10: コピーは必ず copyText(フォールバック付き)経由。navigator.clipboard を
+              // 直に触ると、HTTP(スマホの常態)では undefined で同期例外になり、
+              // window.open まで到達せず「Xが開かなくなった」(実機でユーザー報告)
               // M44: 開いた=投稿済み(二重送信防止)。window.open はタップと同じ同期処理内で
               // 呼ぶこと(await の後だとポップアップブロックに塞がれる)
-              void navigator.clipboard.writeText(draft.body).catch(() => {});
+              const copied = copyText(draft.body);
               window.open(xIntentUrl(draft.body), '_blank', 'noopener,noreferrer');
-              setNotice('本文をコピーした — Xアプリで本文が空だったら、そのまま貼り付けてください(取り消しは「未投稿に戻す」)');
+              void copied.then((ok) =>
+                setNotice(
+                  ok
+                    ? '本文をコピーした — Xアプリで本文が空だったら、そのまま貼り付けてください(取り消しは「未投稿に戻す」)'
+                    : 'Xを開いた(本文コピーは失敗。空だったら「未投稿に戻す」→「コピー」からやり直してください)',
+                ),
+              );
               void api.opsDraftUpdate(draft.id, { status: 'posted', media: 'x' }).then(() => onDone());
             }}
           >
