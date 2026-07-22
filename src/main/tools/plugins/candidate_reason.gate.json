@@ -1,0 +1,40 @@
+{
+  "toolName": "candidate_reason",
+  "ok": true,
+  "gates": [
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "protected: 聖域への変更なし(2ファイル検査)"
+    },
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "danger: 危険パターンなし"
+    },
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "diff_allowlist: 変更 2 ファイル(すべて許可パス内)"
+    },
+    {
+      "name": "typecheck",
+      "ok": true,
+      "detail": "typecheck: 合格"
+    },
+    {
+      "name": "test",
+      "ok": true,
+      "detail": "vitest: 合格"
+    },
+    {
+      "name": "smoke",
+      "ok": true,
+      "detail": "smoke: 合格"
+    }
+  ],
+  "pluginApiVersion": "1.0.0",
+  "codeHash": "a273653c529f757a07433a0b1cebb08e25fba0dee7a22246909ff166f2e50ad9",
+  "verifiedAt": "2026-07-22T01:36:49.389Z",
+  "by": "local"
+}
