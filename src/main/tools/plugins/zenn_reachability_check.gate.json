@@ -1,0 +1,40 @@
+{
+  "toolName": "zenn_reachability_check",
+  "ok": true,
+  "gates": [
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "protected: 聖域への変更なし(2ファイル検査)"
+    },
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "danger: 警告: ネットワークアクセスを行う可能性のあるコードを含む"
+    },
+    {
+      "name": "inspect",
+      "ok": true,
+      "detail": "diff_allowlist: 変更 2 ファイル(すべて許可パス内)"
+    },
+    {
+      "name": "typecheck",
+      "ok": true,
+      "detail": "typecheck: 合格"
+    },
+    {
+      "name": "test",
+      "ok": true,
+      "detail": "vitest: 合格"
+    },
+    {
+      "name": "smoke",
+      "ok": true,
+      "detail": "smoke: 合格"
+    }
+  ],
+  "pluginApiVersion": "1.0.0",
+  "codeHash": "ff32bfd059054b65e920606a442b70af65f44fa7e984ab1e56036ef6cdc117bc",
+  "verifiedAt": "2026-07-22T01:46:51.310Z",
+  "by": "local"
+}
