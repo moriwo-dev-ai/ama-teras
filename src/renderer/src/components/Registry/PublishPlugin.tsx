@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type JSX } from 'react';
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import type { PublishedPluginInfo } from '../../../../shared/types';
 
 /**
@@ -21,6 +21,14 @@ export function usePublishPlugin(): {
   /** 改善1: 公開済みツール(名前→PR URL/時刻)。ボタンを止め、「公開済み」を出すのに使う */
   published: Record<string, PublishedPluginInfo>;
   open: (toolName: string) => void;
+  /**
+   * M99-6: 一括公開。1件目の下見を開き、その後は「送るたびに次の下見が自動で開く」。
+   * **承認は1件ずつ全文を読んでもらう**(まとめて承認は作らない — 岩戸の掟)。
+   * 続くのはダイアログの連鎖であって、承認の省略ではない
+   */
+  openMany: (toolNames: string[]) => void;
+  /** 一括公開の残り件数(0=単発)。進行表示と取りやめボタンに使う */
+  queueLen: number;
   close: () => void;
   submit: (draft: boolean) => void;
   /** M98: 証跡が無くて公開できなかったツール名(再検証を促す) */
@@ -33,6 +41,9 @@ export function usePublishPlugin(): {
   const [busy, setBusy] = useState(false);
   const [published, setPublished] = useState<Record<string, PublishedPluginInfo>>({});
   const [needsReverify, setNeedsReverify] = useState<string | null>(null);
+  // M99-6: 一括公開の残り。state だと .then 内のクロージャが古い値を掴む(=1件で止まる)ので ref
+  const queueRef = useRef<string[]>([]);
+  const [queueLen, setQueueLen] = useState(0);
 
   const refreshPublished = useCallback((): void => {
     void window.api
@@ -45,6 +56,15 @@ export function usePublishPlugin(): {
 
   useEffect(() => refreshPublished(), [refreshPublished]);
 
+  /** 一括公開の次の1件へ。続きが無ければ false(単発時も false) */
+  const advance = (): boolean => {
+    const next = queueRef.current.shift();
+    setQueueLen(queueRef.current.length);
+    if (next === undefined) return false;
+    open(next);
+    return true;
+  };
+
   const open = (toolName: string): void => {
     setMessage(`… ${toolName} の公開内容を用意しています`);
     setBusy(true);
@@ -55,6 +75,7 @@ export function usePublishPlugin(): {
         if (r.published === true) {
           setMessage(`✓ ${r.message}`);
           refreshPublished();
+          advance(); // 一括中なら公開済みは飛ばして次へ
           return;
         }
         if (!r.ok || r.preview === undefined) {
@@ -63,6 +84,8 @@ export function usePublishPlugin(): {
           if (r.verification === 'unverified' || r.verification === 'stale') {
             setNeedsReverify(toolName);
           }
+          // 一括中はここで**止まる**(飛ばさない)。再検証→公開が済めば advance で続きが動く。
+          // 残り件数は進行表示に出ていて、「取りやめ」でいつでも中断できる
           setMessage(`✗ ${r.message}`);
           return;
         }
@@ -71,6 +94,14 @@ export function usePublishPlugin(): {
       })
       .catch((err: unknown) => setMessage(`✗ ${err instanceof Error ? err.message : String(err)}`))
       .finally(() => setBusy(false));
+  };
+
+  /** M99-6: 一括公開の入口。以前は先頭1件を開くだけで、公開後に続きが無かった(実機で発覚) */
+  const openMany = (toolNames: string[]): void => {
+    if (toolNames.length === 0) return;
+    queueRef.current = toolNames.slice(1);
+    setQueueLen(queueRef.current.length);
+    open(toolNames[0]!);
   };
 
   const submit = (draft: boolean): void => {
@@ -84,6 +115,7 @@ export function usePublishPlugin(): {
         if (r.ok) {
           setPlan(null);
           refreshPublished(); // 出せた瞬間に控えを反映=以後この機体では公開ボタンが消える
+          advance(); // 一括中は次の下見を開く(承認は次の全文で改めてもらう)
         }
       })
       .catch((err: unknown) => setMessage(`✗ ${err instanceof Error ? err.message : String(err)}`))
@@ -91,8 +123,15 @@ export function usePublishPlugin(): {
   };
 
   const close = (): void => {
+    const remaining = queueRef.current.length;
+    queueRef.current = [];
+    setQueueLen(0);
     setPlan(null);
-    setMessage('公開を取りやめました(あとでツール一覧からいつでも公開できます)');
+    setMessage(
+      remaining > 0
+        ? `一括公開を取りやめました(残り${remaining}件は未公開のまま。あとで「まとめて公開」からやり直せます)`
+        : '公開を取りやめました(あとでツール一覧からいつでも公開できます)',
+    );
   };
 
   /**
@@ -116,7 +155,7 @@ export function usePublishPlugin(): {
       .finally(() => setBusy(false));
   };
 
-  return { plan, message, busy, published, open, close, submit, needsReverify, reverify };
+  return { plan, message, busy, published, open, openMany, queueLen, close, submit, needsReverify, reverify };
 }
 
 export function PublishPluginDialog({

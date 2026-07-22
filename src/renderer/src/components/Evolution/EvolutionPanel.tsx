@@ -316,14 +316,15 @@ export function EvolutionPanel(): JSX.Element {
                 }
                 onClick={() => {
                   jobArchive.hide();
-                  publish.open(unpublishedTools[0]!);
+                  // M99-6: 全件をキューに積む。送るたびに次の下見が自動で開く
+                  // (承認は1件ずつ全文。以前は先頭1件で止まっていた)
+                  publish.openMany(unpublishedTools);
                 }}
               >
                 ⛩ まとめて公開({unpublishedTools.length}件)
               </button>
               <span className="text-[10px] text-zinc-400">
-                次: <span className="font-mono text-zinc-300">{unpublishedTools[0]}</span>
-                {unpublishedTools.length > 1 && ` ほか${unpublishedTools.length - 1}件`}
+                1件ずつ全文を確認して承認します(承認するたびに次が開く)
               </span>
             </div>
           )}
@@ -370,6 +371,18 @@ export function EvolutionPanel(): JSX.Element {
             </div>
           ))}
         </ArchiveModal>
+      )}
+      {/* M99-6: 一括公開の進行。再検証などで止まっても「あと何件か」と中断手段を見失わない */}
+      {publish.queueLen > 0 && (
+        <div className="flex items-center gap-2 rounded border border-amber-900 bg-amber-950/30 px-2 py-1">
+          <span className="text-[11px] text-amber-200">⛩ 一括公開 進行中 — この後 {publish.queueLen} 件続く</span>
+          <button
+            className="rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-800"
+            onClick={publish.close}
+          >
+            取りやめ
+          </button>
+        </div>
       )}
       {publish.message !== '' && <p className="text-xs text-zinc-400">{publish.message}</p>}
       {/* M98: 証跡が無くて公開できなかった → 今から本物の検証を回して証跡を作れる */}
