@@ -1196,8 +1196,11 @@ export function OperationsPanel(): JSX.Element {
     .filter((d) => d.status !== 'discarded')
     .slice()
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const activeDrafts = sortedDrafts.filter((d) => d.status === 'draft');
-  const doneDrafts = sortedDrafts.filter((d) => d.status !== 'draft');
+  // M99-9: article-body(Zenn本文の控え)は同じ記事の outline と中身がほぼ同じで、現役一覧に
+  // 並べると二重に見える(スマホ実機でユーザー指摘。デスクトップも同罪)。現役からは外し、
+  // 控えとして格納庫(完了済み)側に置く
+  const activeDrafts = sortedDrafts.filter((d) => d.status === 'draft' && d.kind !== 'article-body');
+  const doneDrafts = sortedDrafts.filter((d) => d.status !== 'draft' || d.kind === 'article-body');
   const activeCandidates = candidates.filter((c) => c.status !== 'discarded').reverse();
 
   return (

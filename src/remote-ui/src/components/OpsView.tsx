@@ -95,18 +95,29 @@ function signed(n: number): string {
   return n >= 0 ? `+${n}` : `${n}`;
 }
 
-const totals = (s: MetricsSnapshot): { stars: number; liked: number; hatena: number; views: number; downloads: number } => ({
+const totals = (
+  s: MetricsSnapshot,
+): { stars: number; liked: number; hatena: number; views: number; downloads: number; clones: number } => ({
   stars: Object.values(s.github).reduce((a, m) => a + m.stars, 0),
   liked: Object.values(s.zenn).reduce((a, m) => a + m.liked, 0),
   hatena: s.hatena === undefined ? 0 : Object.values(s.hatena).reduce((a, c) => a + c, 0),
   views: Object.values(s.github).reduce((a, m) => a + (m.views ?? 0), 0),
   downloads: Object.values(s.github).reduce((a, m) => a + (m.downloads ?? 0), 0),
+  // M99-9: clone数はPCでは出るのにスマホに無かった(ユーザー指摘)
+  clones: Object.values(s.github).reduce((a, m) => a + (m.clones ?? 0), 0),
 });
 
 function diffTotals(cur: MetricsSnapshot, prev: MetricsSnapshot): ReturnType<typeof totals> {
   const c = totals(cur);
   const p = totals(prev);
-  return { stars: c.stars - p.stars, liked: c.liked - p.liked, hatena: c.hatena - p.hatena, views: c.views - p.views, downloads: c.downloads - p.downloads };
+  return {
+    stars: c.stars - p.stars,
+    liked: c.liked - p.liked,
+    hatena: c.hatena - p.hatena,
+    views: c.views - p.views,
+    downloads: c.downloads - p.downloads,
+    clones: c.clones - p.clones,
+  };
 }
 
 /** 数字と前回比。0のときは差分を出さない(「動いていない」ことが一目で分かるように) */
@@ -736,13 +747,19 @@ function DraftCard({
         {draft.kind === 'x-post' && draft.status === 'draft' && (
           <button
             onClick={() => {
-              // M44: 開いた=投稿済み(二重送信防止)。タップと同じ同期処理内で開くこと
-              // (await の後だとポップアップブロックに塞がれる)
+              // M99-9: スマホでは x.com のインテントURLがXアプリに横取りされ、本文が
+              // 引き継がれないことがある(実機でユーザー報告。しかも開いた瞬間 posted に
+              // なるので下書きも一覧から消えて見える)。開く前に本文をクリップボードへ
+              // 入れておき、消えたら貼り付ければ済むようにする。
+              // M44: 開いた=投稿済み(二重送信防止)。window.open はタップと同じ同期処理内で
+              // 呼ぶこと(await の後だとポップアップブロックに塞がれる)
+              void navigator.clipboard.writeText(draft.body).catch(() => {});
               window.open(xIntentUrl(draft.body), '_blank', 'noopener,noreferrer');
+              setNotice('本文をコピーした — Xアプリで本文が空だったら、そのまま貼り付けてください(取り消しは「未投稿に戻す」)');
               void api.opsDraftUpdate(draft.id, { status: 'posted', media: 'x' }).then(() => onDone());
             }}
           >
-            𝕏 投稿画面
+            𝕏 投稿画面(本文コピー付き)
           </button>
         )}
         {draft.kind === 'x-post' && url !== null && (
@@ -989,12 +1006,16 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
   const hatena = latest?.hatena !== undefined ? Object.values(latest.hatena).reduce((a, c) => a + c, 0) : null;
   const views = latest ? Object.values(latest.github).reduce((a, m) => a + (m.views ?? 0), 0) : null;
   const downloads = latest ? Object.values(latest.github).reduce((a, m) => a + (m.downloads ?? 0), 0) : null;
+  const clones = latest ? Object.values(latest.github).reduce((a, m) => a + (m.clones ?? 0), 0) : null;
   const delta = latest !== null && prev !== null ? diffTotals(latest, prev) : null;
   // M84: 神々が積んだ下書きは、画面上どれが新しいのか分からなかった(日時をどこにも出していない)。
   // 順番が分からないと「どっちを先に出すか」を決められない。新しい順に並べ、カードに時刻を出す
   const byNewest = (list: OperationsDraft[]): OperationsDraft[] =>
     list.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const activeDrafts = byNewest(drafts.filter((d) => d.status === 'draft'));
+  // M99-9: article-body(Zenn記事の本文控え)は同じ記事の article-outline と中身がほぼ同じで、
+  // 一覧に並ぶと「同じ内容が二重にある」ように見える(ユーザー指摘)。本文はZennリポジトリに
+  // コミット済みの控えでしかないので、現役一覧には出さない(投稿済みになれば履歴には残る)
+  const activeDrafts = byNewest(drafts.filter((d) => d.status === 'draft' && d.kind !== 'article-body'));
   // M55: 投稿済みも出す。以前は status==='draft' だけを描いていたため、
   // 「未投稿に戻す」ボタンが**永久に描画されず**、X投稿画面を開いて(=posted化)から
   // 投稿を取りやめても、スマホからは取り消せなかった
@@ -1035,6 +1056,7 @@ export function OpsView({ api }: { api: RemoteApi }): JSX.Element {
           {hatena !== null && <Metric label="B!" value={hatena} delta={delta?.hatena} />}
           {views !== null && <Metric label="閲覧" value={views} delta={delta?.views} />}
           {downloads !== null && <Metric label="DL" value={downloads} delta={delta?.downloads} />}
+          {clones !== null && <Metric label="clone" value={clones} delta={delta?.clones} />}
         </div>
         {latest !== null && (
           <div className="muted" style={{ fontSize: 11 }}>
