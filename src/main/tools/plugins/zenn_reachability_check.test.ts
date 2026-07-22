@@ -106,7 +106,8 @@ describe('execute(到達性チェック)', () => {
     vi.stubGlobal('fetch', fetchMock);
     const r = await zennReachabilityCheck.execute({ username: 'u', slugs: ['ok-one', 'ng-one'] }, ctx());
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(r.isError).toBe(true);
+    // 検出結果は正常(ツール障害ではない)ので isError は立てない
+    expect(r.isError).toBeUndefined();
     expect(r.content).toContain('全2件中 ok=1 / 読めない=1件');
     expect(r.content).toContain('god-failure/metrics');
     expect(r.content).toContain('ng-one');
@@ -136,7 +137,7 @@ describe('execute(到達性チェック)', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     const r = await zennReachabilityCheck.execute({ username: 'u', slugs: ['dead'] }, ctx());
-    expect(r.isError).toBe(true);
+    expect(r.isError).toBeUndefined();
     expect(r.content).toContain('unreachable');
     expect(r.content).toContain('ECONNREFUSED');
   });

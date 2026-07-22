@@ -161,7 +161,8 @@ export default {
     }
 
     const report = buildInboxReport(results);
-    const hasNg = results.some((r) => r.status !== 'ok');
-    return { content: report, isError: hasNg ? true : undefined };
+    // 読めない slug の検出はツールの障害ではなく「検出結果」なので isError は立てない。
+    // エラー扱いにするとスモーク/呼び出し側が失敗と誤認し、受け箱本文を落とすため。
+    return { content: report };
   },
 } satisfies ToolPlugin;
