@@ -25,6 +25,23 @@ function GodClocks(): JSX.Element {
   const reload = useCallback((): void => {
     void window.api.operationsClocks().then(setJobs);
   }, []);
+  // M99-8: 「▶ 今すぐ」に実行中表示と結果表示を付ける。以前は押しても画面が無反応で、
+  // LLMを使う神(ウズメ等)は30〜60秒かかるため「起動しない」と誤解された(実機でユーザー報告)。
+  // 結果は受信箱にも残るが、押したその場に返事が無いのは体験として欠陥
+  const [runningGod, setRunningGod] = useState<string | null>(null);
+  const [runResult, setRunResult] = useState('');
+  const runNow = (godId: string, label: string): void => {
+    setRunningGod(godId);
+    setRunResult(`… ${label} を実行中(神によっては1分ほどかかります)`);
+    void window.api
+      .operationsGodRun(godId)
+      .then((r) => setRunResult(`${r.ok ? '✓' : '✗'} ${label}: ${r.detail}${r.tokensUsed > 0 ? `(${r.tokensUsed.toLocaleString()}tok)` : ''}`))
+      .catch((err: unknown) => setRunResult(`✗ ${label}: ${err instanceof Error ? err.message : String(err)}`))
+      .finally(() => {
+        setRunningGod(null);
+        reload();
+      });
+  };
   useEffect(() => {
     reload();
     const timer = setInterval(reload, 60_000);
@@ -41,6 +58,9 @@ function GodClocks(): JSX.Element {
   if (jobs.length === 0) return <p className="text-xs text-zinc-500">時計は次回アプリ再起動後に動き出す</p>;
   return (
     <div className="space-y-1">
+      {runResult !== '' && (
+        <p className="rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-[10px] text-zinc-300">{runResult}</p>
+      )}
       {jobs.map((j) => (
         <div key={j.id} className="flex flex-wrap items-center gap-2 rounded border border-zinc-800 bg-zinc-950 p-1.5 text-[10px]">
           <button
@@ -53,11 +73,12 @@ function GodClocks(): JSX.Element {
           <span className="font-semibold text-zinc-200">{GOD_LABEL[j.godId] ?? j.godId}</span>
           {/* M42-6: 定刻を待たずに1回動かす(スマホには既にあったが、デスクトップに無かった) */}
           <button
-            className="rounded border border-zinc-700 px-1.5 py-0.5 text-zinc-400 hover:bg-zinc-800"
+            className="rounded border border-zinc-700 px-1.5 py-0.5 text-zinc-400 hover:bg-zinc-800 disabled:opacity-40"
             title="この神を今すぐ1回実行する(定刻を待たない)"
-            onClick={() => void window.api.operationsGodRun(j.godId).then(reload)}
+            disabled={runningGod !== null}
+            onClick={() => runNow(j.godId, GOD_LABEL[j.godId] ?? j.godId)}
           >
-            ▶ 今すぐ
+            {runningGod === j.godId ? '⏳ 実行中…' : '▶ 今すぐ'}
           </button>
           <span className="text-zinc-500">
             {j.dailyTimes !== undefined ? `毎日 ${j.dailyTimes.join('/')}` : `${j.intervalMin}分ごと`}
