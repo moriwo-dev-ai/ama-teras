@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CoreRequest } from '../../shared/types';
-import { RequestStore } from './store';
+import { RequestStore, requestScope } from './store';
 import { buildRequestIssue, findSimilarIssues, requestPreviewText, submitRequest } from './submit';
 
 /**
@@ -132,5 +132,46 @@ describe('findSimilarIssues(重複を出さない)', () => {
   it('検索が落ちても提出は止めない(重複チェックは「できたら止める」もの)', async () => {
     const gh = (() => Promise.reject(new Error('rate limit'))) as unknown as typeof fetch;
     expect(await findSimilarIssues('t', REPO, buildRequestIssue(draft(), '1.2.1'), gh)).toEqual([]);
+  });
+});
+
+/**
+ * M99-5: 開発機では要望をIssueにせず進化ジョブとして起票する(案a)。
+ * 「本体から本体に要望を送る」一周無駄の解消(ユーザー指摘)。
+ */
+describe('requestScope(要望→進化スコープの対応)', () => {
+  it('ui は renderer、core は core になる', () => {
+    expect(requestScope('ui')).toBe('renderer');
+    expect(requestScope('core')).toBe('core');
+  });
+
+  it('tool には決してならない(「UIを直して」がプラグイン生成になると永久に的を外す)', () => {
+    for (const kind of ['ui', 'core'] as const) {
+      expect(requestScope(kind)).not.toBe('tool');
+    }
+  });
+});
+
+describe('RequestStore: filed(ジョブとして起票済み)', () => {
+  it('filed + jobId で更新でき、往復しても保持される', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'amateras-req-'));
+    try {
+      const store = new RequestStore(join(dir, 'requests.json'));
+      const req = await store.create({
+        kind: 'ui',
+        title: 'ボタンが遠い',
+        body: '近くして',
+        source: 'agent',
+        createdAt: '2026-07-22T00:00:00.000Z',
+      });
+      await store.update(req.id, { status: 'filed', jobId: 51 });
+      // 別インスタンスで読み直しても残っている(=永続化されている)
+      const reloaded = new RequestStore(join(dir, 'requests.json'));
+      const got = await reloaded.get(req.id);
+      expect(got?.status).toBe('filed');
+      expect(got?.jobId).toBe(51);
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
   });
 });

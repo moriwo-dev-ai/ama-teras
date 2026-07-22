@@ -70,6 +70,7 @@ const api: AmaterasApi = {
   requestsPlan: (id) => ipcRenderer.invoke(IpcChannels.requestsPlan, id),
   requestsSubmit: (id, approvedPreview) => ipcRenderer.invoke(IpcChannels.requestsSubmit, id, approvedPreview),
   requestsDiscard: (id) => ipcRenderer.invoke(IpcChannels.requestsDiscard, id),
+  requestsFileJob: (id) => ipcRenderer.invoke(IpcChannels.requestsFileJob, id),
   conversationMoveWorkspace: (newWorkspace) =>
     ipcRenderer.invoke(IpcChannels.conversationMoveWorkspace, newWorkspace),
 

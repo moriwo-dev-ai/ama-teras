@@ -14,6 +14,15 @@ import type { CoreRequest, CoreRequestKind, CoreRequestSource } from '../../shar
  *   - agent: AMA-teras 自身が「コア/UIの制約に当たった」と気づいて書いた要望
  *            (request_core_change ツール。ツールで解決できないことだけがここに来る)
  */
+/**
+ * M99-5: 要望の kind → 進化スコープの対応。
+ * ui=画面(renderer) / core=本体。tool にしない — 「UIを直して」がプラグイン生成になると
+ * 永久に的を外す(KUEBIKO の M91-4 と同じ理由)
+ */
+export function requestScope(kind: CoreRequestKind): 'renderer' | 'core' {
+  return kind === 'ui' ? 'renderer' : 'core';
+}
+
 export class RequestStore {
   private items: CoreRequest[] = [];
   private loaded = false;

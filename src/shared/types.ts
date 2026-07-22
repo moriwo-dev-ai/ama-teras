@@ -1017,7 +1017,8 @@ export interface GithubAuthPollResult {
 export type CoreRequestKind = 'core' | 'ui';
 /** human=人が書いた / agent=AMA-teras が制約に当たって書いた */
 export type CoreRequestSource = 'human' | 'agent';
-export type CoreRequestStatus = 'draft' | 'sent' | 'discarded';
+/** M99-5: filed = 開発機で進化ジョブとして起票済み(Issueは経由しない) */
+export type CoreRequestStatus = 'draft' | 'sent' | 'discarded' | 'filed';
 
 export interface CoreRequest {
   id: string;
@@ -1029,6 +1030,8 @@ export interface CoreRequest {
   createdAt: string;
   /** 送信後のIssue URL */
   url?: string;
+  /** M99-5: filed のとき、起票した進化ジョブの番号 */
+  jobId?: number;
 }
 
 /** 送信の下見(送信しない)。重複候補と機械チェックを添えて人間に見せる */

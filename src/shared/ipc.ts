@@ -117,6 +117,7 @@ export const IpcChannels = {
   requestsPlan: 'requests:plan',
   requestsSubmit: 'requests:submit',
   requestsDiscard: 'requests:discard',
+  requestsFileJob: 'requests:file-job',
   /** M26-7: 表示中の会話の workspace を明示的に移動する */
   conversationMoveWorkspace: 'conversation:move-workspace',
   /** M11-3: 自動チェックポイント(Debugパネル) */
@@ -345,6 +346,11 @@ export interface AmaterasApi {
   /** 承認済みの全文を添えて送信(下見と食い違えば送らない) */
   requestsSubmit(id: string, approvedPreview: string): Promise<CoreRequestSubmitResult>;
   requestsDiscard(id: string): Promise<{ ok: boolean }>;
+  /**
+   * M99-5: 開発機のみ。要望をIssueにせず、そのまま進化ジョブとして起票する(案a)。
+   * この機体が上流なので、GitHubを経由する意味がない。配布版は従来どおりIssue経路
+   */
+  requestsFileJob(id: string): Promise<{ ok: boolean; message: string; jobId?: number }>;
   /** M26-7: 表示中の会話の workspace を移動(実行中は不可)。以降のツール実行が移動先を参照 */
   conversationMoveWorkspace(newWorkspace: string): Promise<{ ok: boolean; message: string }>;
 

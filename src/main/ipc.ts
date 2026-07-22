@@ -58,7 +58,7 @@ import {
 import { systemFetch } from './providers/systemFetch';
 import { PublishedStore } from './registry/published';
 import { repoFromRegistryUrl, type RepoRef } from './registry/github';
-import { RequestStore } from './requests/store';
+import { RequestStore, requestScope } from './requests/store';
 import {
   buildRequestIssue,
   findSimilarIssues,
@@ -1613,6 +1613,34 @@ export async function registerIpcHandlers(
   ipcMain.handle(IpcChannels.requestsDiscard, async (_e, id: unknown) => {
     assertString(id, 'id');
     return { ok: await requests.remove(id) };
+  });
+
+  // M99-5: 開発機では要望をIssueにせず、そのまま進化ジョブとして起票する(案a)。
+  // この機体が上流なので「本体への要望を自分のリポジトリにIssueで送って自分で拾う」は一周無駄。
+  // 下書き→全文承認→起票という門の形は変えず、宛先だけ自分の進化パイプラインに付け替える
+  ipcMain.handle(IpcChannels.requestsFileJob, async (_e, id: unknown) => {
+    assertString(id, 'id');
+    if (app.isPackaged) {
+      return { ok: false, message: '配布版では起票できない(従来どおりIssueとして送信してください)' };
+    }
+    const req = await requests.get(id);
+    if (req === undefined) return { ok: false, message: '要望が見つからない' };
+    if (req.status !== 'draft') return { ok: false, message: 'この要望は下書きではない' };
+    const scope = requestScope(req.kind);
+    try {
+      const { jobId } = await service.evolutionEnqueue(`[要望] ${req.title}`, req.body, scope);
+      await requests.update(id, { status: 'filed', jobId });
+      audit.append({
+        tool: 'core-request',
+        scope: 'system',
+        paths: [],
+        event: 'result',
+        detail: `${req.kind}/${req.source}: 進化ジョブ #${jobId} として起票(Issue経由なし)`,
+      });
+      return { ok: true, message: `進化ジョブ #${jobId} として起票した(進捗・昇格承認はこのタブの上部)`, jobId };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
   });
 
   // M26-7: 表示中の会話の workspace 移動(実行中は service 側で拒否)
