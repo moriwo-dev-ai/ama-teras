@@ -3,12 +3,16 @@ import {
   buildApprovalBatch,
   buildKamuhakariPrompt,
   classifyParamChange,
+  buildThreadContext,
+  formatMetricsSeries,
   formatPublishState,
+  parseThreadAction,
   parseKamuhakariOutput,
   reclassifyBudgetChange,
   type ParamChange,
 } from './kamuhakari';
 import { clampIntervalMin, INTERVAL_MIN_FLOOR } from './scheduler';
+import type { GodClockJob, MetricsSnapshot } from '../../shared/types';
 
 /**
  * M33-4: 神議の2段階制をテストで固定する(NIGHT_TASKS7 T4)。
@@ -163,5 +167,61 @@ describe('M33-4: 神議の入出力', () => {
     expect(batch?.items).toHaveLength(2);
     expect(batch?.items.every((i) => i.status === 'pending')).toBe(true);
     expect(buildApprovalBatch('分析だけ', [], [])).toBeNull();
+  });
+});
+
+/**
+ * M99-11: 運営チャットの知識と操作。
+ * チャットが「クローン数の時系列データは未取得」と誤答した実害
+ * (勘違いではなく、プロンプトに時系列を渡していなかった)を塞ぐ。
+ */
+describe('M99-11: メトリクス時系列と運営チャットの文脈', () => {
+  const snap = (ts: string, clones: number, unique: number): MetricsSnapshot =>
+    ({
+      ts,
+      github: { 'o/ama-teras': { stars: 0, forks: 0, views: 69, clones, clonesUnique: unique, downloads: 10 } },
+      zenn: {},
+    }) as unknown as MetricsSnapshot;
+
+  it('時系列に clone(u付き)が入る — 神議とチャットの両方が推移を語れる', () => {
+    const s = formatMetricsSeries([snap('2026-07-21T06:58:00Z', 544, 213), snap('2026-07-22T06:59:00Z', 554, 216)]);
+    expect(s).toContain('clone544(u213)');
+    expect(s).toContain('clone554(u216)');
+  });
+
+  it('buildThreadContext は時系列・時計・下書き・公開状態を含む', () => {
+    const ctx = buildThreadContext({
+      history: [snap('2026-07-22T06:59:00Z', 554, 216)],
+      jobs: [
+        { id: 'j1', godId: 'uzume-drafts', enabled: true, intervalMin: 1440, dailyTokenBudget: 20000, spentToday: 0 },
+      ] as unknown as GodClockJob[],
+      postedDrafts: [],
+      stagedDrafts: [],
+      activeDraftTitles: ['進化・公開フローの安全性と復旧性を改善'],
+      evolutionJobs: [],
+    });
+    expect(ctx).toContain('clone554(u216)');
+    expect(ctx).toContain('uzume-drafts');
+    expect(ctx).toContain('進化・公開フローの安全性と復旧性を改善');
+    expect(ctx).toContain('公開状態の一次情報');
+  });
+});
+
+describe('M99-11: チャット返信のアクション解析', () => {
+  it('run-god を取り出し、表示本文からタグを除く', () => {
+    const { body, action } = parseThreadAction(
+      'リリースノートの下書きを生成します。\n<action>{"kind":"run-god","godId":"uzume-drafts"}</action>',
+    );
+    expect(action).toEqual({ kind: 'run-god', godId: 'uzume-drafts' });
+    expect(body).toBe('リリースノートの下書きを生成します。');
+    expect(body).not.toContain('<action>');
+  });
+
+  it('アクション無し・壊れたJSON・未知kindは本文だけ返す(チャットを壊さない)', () => {
+    expect(parseThreadAction('ただの返事')).toEqual({ body: 'ただの返事', action: null });
+    expect(parseThreadAction('x <action>{壊れてる}</action>').action).toBeNull();
+    expect(parseThreadAction('x <action>{"kind":"rm-rf","godId":"a"}</action>').action).toBeNull();
+    // 本文は残る
+    expect(parseThreadAction('x <action>{壊れてる}</action>').body).toBe('x');
   });
 });

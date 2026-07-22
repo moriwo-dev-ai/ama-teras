@@ -90,6 +90,99 @@ export function formatPublishState(state: PublishState | undefined): string {
 }
 
 /** 神議プロンプト(planner帯) */
+/**
+ * M99-11: メトリクス時系列の整形(神議・運営チャット共用)。
+ * clone は観測(OMOI-kami)が取っていたのにここで落としていたため、神議は
+ * 「クローン数の時系列データは未取得」と答えた(勘違いではなく、本当に渡されていなかった)。
+ * 渡すデータを増やしたら、この関数に足すこと(戦略会議とチャットの知識が同時に揃う)
+ */
+export function formatMetricsSeries(history: MetricsSnapshot[]): string {
+  return history
+    .slice(-14)
+    .map((s) => {
+      const gh = Object.entries(s.github)
+        .map(
+          ([r, m]) =>
+            `${r}:★${m.stars}/閲覧${m.views ?? '?'}/DL${m.downloads ?? '?'}/clone${m.clones ?? '?'}(u${m.clonesUnique ?? '?'})`,
+        )
+        .join(' ');
+      const zn = Object.entries(s.zenn)
+        .map(([slug, m]) => `zenn:${slug}♥${m.liked}`)
+        .join(' ');
+      return `- ${s.ts.slice(5, 16)} ${gh} ${zn}`;
+    })
+    .join('\n');
+}
+
+/**
+ * M99-11: 運営チャット(スレッド即応)の文脈。以前は「神々の時計+直近会話」しか渡しておらず、
+ * チャットは運営をほぼ何も知らない状態で答えていた(クローン推移を「未取得」と誤答した実害)。
+ * 戦略会議(buildKamuhakariPrompt)と同じ一次情報を、チャット向けに圧縮して渡す
+ */
+export function buildThreadContext(input: {
+  history: MetricsSnapshot[];
+  jobs: GodClockJob[];
+  postedDrafts: OperationsDraft[];
+  stagedDrafts: OperationsDraft[];
+  activeDraftTitles: string[];
+  evolutionJobs: EvolutionJobSummary[];
+  publishState?: PublishState;
+}): string {
+  const clocks = input.jobs
+    .map((j) => `- ${j.godId}: ${j.enabled ? '稼働' : '停止'} 間隔${j.intervalMin}分 予算${j.dailyTokenBudget}(今日${j.spentToday})`)
+    .join('\n');
+  const evolution = input.evolutionJobs
+    .slice(-8)
+    .map((j) => `- #${j.id} [${j.status}] ${j.description.slice(0, 60)}`)
+    .join('\n');
+  return `# メトリクス時系列(直近。clone=クローン数, u=ユニーク)
+${formatMetricsSeries(input.history) || '(なし)'}
+
+# 神々の時計
+${clocks || '(なし)'}
+
+# 発信の状態
+現役の下書き: ${input.activeDraftTitles.length}件${input.activeDraftTitles.length > 0 ? `(${input.activeDraftTitles.slice(0, 6).join(' / ')})` : ''}
+投稿済み(直近): ${input.postedDrafts.slice(-5).map((d) => `[${d.media ?? '?'}] ${d.title}`).join(' / ') || '(なし)'}
+公開待ち(まだ誰も読めない): ${input.stagedDrafts.map((d) => d.title).join(' / ') || '(なし)'}
+
+# 公開状態の一次情報(推測禁止。ここに無いことは「分からない」と答える)
+${formatPublishState(input.publishState)}
+
+# 進化ジョブ(直近)
+${evolution || '(なし)'}`;
+}
+
+/** M99-11: チャット返信に添えられる機械可読アクション。今は run-god のみ */
+export interface ThreadAction {
+  kind: 'run-god';
+  godId: string;
+}
+
+/**
+ * 返信本文から <action>{...}</action> を1つだけ取り出す(表示用本文からは取り除く)。
+ * 不正なJSON・未知のkindは無視して本文だけ返す(チャットを壊さない)
+ */
+export function parseThreadAction(reply: string): { body: string; action: ThreadAction | null } {
+  const m = /<action>([\s\S]*?)<\/action>/.exec(reply);
+  if (m === null) return { body: reply.trim(), action: null };
+  const body = (reply.slice(0, m.index) + reply.slice(m.index + m[0].length)).trim();
+  try {
+    const parsed: unknown = JSON.parse(m[1] ?? '');
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      (parsed as Record<string, unknown>)['kind'] === 'run-god' &&
+      typeof (parsed as Record<string, unknown>)['godId'] === 'string'
+    ) {
+      return { body, action: { kind: 'run-god', godId: (parsed as Record<string, unknown>)['godId'] as string } };
+    }
+  } catch {
+    /* 不正なアクションは無視(本文は生かす) */
+  }
+  return { body, action: null };
+}
+
 export function buildKamuhakariPrompt(input: {
   unread: InboxItem[];
   history: MetricsSnapshot[];
@@ -120,18 +213,7 @@ export function buildKamuhakariPrompt(input: {
     .slice(0, 40)
     .map((i) => `- [${i.kind}] ${i.godId}: ${i.title}`)
     .join('\n');
-  const series = input.history
-    .slice(-14)
-    .map((s) => {
-      const gh = Object.entries(s.github)
-        .map(([r, m]) => `${r}:★${m.stars}/閲覧${m.views ?? '?'}/DL${m.downloads ?? '?'}`)
-        .join(' ');
-      const zn = Object.entries(s.zenn)
-        .map(([slug, m]) => `zenn:${slug}♥${m.liked}`)
-        .join(' ');
-      return `- ${s.ts.slice(5, 16)} ${gh} ${zn}`;
-    })
-    .join('\n');
+  const series = formatMetricsSeries(input.history);
   const posted = input.postedDrafts.map((d) => `- ${d.postedAt ?? ''} [${d.media ?? '?'}] ${d.title}`).join('\n');
   const staged = (input.stagedDrafts ?? [])
     .map((d) => `- ${d.postedAt ?? ''} [${d.media ?? '?'}] ${d.title}`)

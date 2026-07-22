@@ -74,8 +74,10 @@ import { Inbox } from './inbox';
 import {
   buildApprovalBatch,
   buildKamuhakariPrompt,
+  buildThreadContext,
   classifyParamChange,
   parseKamuhakariOutput,
+  parseThreadAction,
   reclassifyBudgetChange,
   type ApprovalBatch,
   type ParamChange,
@@ -1439,7 +1441,15 @@ ${d.body}`))
     return this.thread.pendingCount();
   }
 
-  /** ユーザーの発言(⛩運営スレッド)。planner帯で神議が即応する */
+  /**
+   * ユーザーの発言(⛩運営スレッド)。planner帯で神議が即応する。
+   *
+   * M99-11: 以前は「神々の時計+直近会話」しか渡しておらず、チャットは運営をほぼ何も
+   * 知らない状態で答えていた(クローン推移を「時系列データは未取得」と誤答した実害。
+   * モデルの賢さの問題ではなく、文脈の配線欠落)。戦略会議と同じ一次情報を渡す。
+   * あわせて <action> による神の即時実行(run-god)を受け付ける — ユーザーが明示的に
+   * 依頼したときだけ。外部発信・公開は従来どおり岩戸ゲート必須のまま
+   */
   async threadSend(text: string): Promise<OpsThreadMessage[]> {
     if (!this.ensureInitialized() || this.thread === null) return [];
     this.thread.post({ role: 'user', kind: 'text', body: text });
@@ -1448,19 +1458,52 @@ ${d.body}`))
       this.thread.post({ role: 'system', kind: 'notice', body: provider });
       return this.thread.list();
     }
-    const context = this.thread
+    const conversation = this.thread
       .list(20)
       .map((m) => `${m.role}: ${m.body.slice(0, 500)}`)
       .join('\n');
-    const clocks = this.clocks()
-      .map((j) => `- ${j.godId}: ${j.enabled ? '稼働' : '停止'} 間隔${j.intervalMin}分 予算${j.dailyTokenBudget}`)
-      .join('\n');
+    // 一次情報(publishState は gh を叩くため落ちうる。落ちても会話は続ける)
+    const publishState = await this.publishState().catch(() => undefined);
+    const drafts = this.drafts?.list() ?? [];
+    const opsContext = buildThreadContext({
+      history: this.omoi?.history(14) ?? [],
+      jobs: this.clocks(),
+      // M54: 未公開機能に触れる投稿履歴は見せない(戦略会議と同じ規律)
+      postedDrafts: outward(drafts, 'posted'),
+      stagedDrafts:
+        publishState !== undefined ? notYetCommitted(outward(drafts, 'staged'), publishState) : outward(drafts, 'staged'),
+      activeDraftTitles: drafts.filter((d) => d.status === 'draft' && d.kind !== 'article-body').map((d) => d.title),
+      evolutionJobs: this.deps.evolutionJobs?.() ?? [],
+      ...(publishState !== undefined ? { publishState } : {}),
+    });
+    const godIds = this.clocks().map((j) => j.godId);
     const { text: reply } = await completeTextWithUsage(
       provider,
-      'あなたはAMA-teras運営の相談役(神議)。簡潔に日本語で答える。パラメータ変更の依頼には「次回の神議で反映する」と伝える(即時変更はできない)。外部発信は岩戸ゲート承認が必要と案内する。',
-      `# 神々の時計\n${clocks}\n\n# 直近の会話\n${context}\n\n# ユーザーの発言\n${text}\n\n返答:`,
+      'あなたはAMA-teras運営の相談役(神議)。簡潔に日本語で答える。' +
+        '下の「運営の現況」だけを根拠に答える(推測禁止。現況に無いデータは「取れていない」と正直に言う)。' +
+        `ユーザーが神の実行を明示的に依頼したときだけ、返答の末尾に <action>{"kind":"run-god","godId":"名前"}</action> を1つ添える(godIdは ${godIds.join('/')} のみ。` +
+        'リリースノートや発信の下書き生成は uzume-drafts)。' +
+        'パラメータ変更の依頼には「次回の神議で反映する」と伝える(即時変更はできない)。' +
+        '外部への発信・公開(X/Zenn/GitHub Release)は岩戸ゲート承認が必須と案内する。' +
+        'リリース準備の流れ: uzume-drafts 実行 → AMENO-uzumeセクションの下書きから「GitHub Releaseにする」→ ビルドして添付 → 公開。',
+      `# 運営の現況(一次情報)\n${opsContext}\n\n# 直近の会話\n${conversation}\n\n# ユーザーの発言\n${text}\n\n返答:`,
     );
-    this.thread.post({ role: 'kamuhakari', kind: 'text', body: reply.trim() });
+    const { body, action } = parseThreadAction(reply);
+    this.thread.post({ role: 'kamuhakari', kind: 'text', body });
+    // アクションは返信の後に実行し、結果を必ずスレッドへ残す(黙って動かない・黙って失敗しない)
+    if (action !== null) {
+      if (!godIds.includes(action.godId)) {
+        this.thread.post({ role: 'system', kind: 'notice', body: `✗ 未知の神は実行できない: ${action.godId}` });
+      } else {
+        this.thread.post({ role: 'system', kind: 'notice', body: `▶ ${action.godId} を実行する(チャット依頼)` });
+        const r = await this.runGodNow(action.godId);
+        this.thread.post({
+          role: 'system',
+          kind: 'notice',
+          body: `${r.ok ? '✓' : '✗'} ${action.godId}: ${r.detail}${r.tokensUsed > 0 ? `(${r.tokensUsed.toLocaleString()}tok)` : ''}`,
+        });
+      }
+    }
     return this.thread.list();
   }
 
