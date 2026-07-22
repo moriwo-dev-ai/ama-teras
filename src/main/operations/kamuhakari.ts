@@ -138,6 +138,9 @@ export function buildThreadContext(input: {
   return `# メトリクス時系列(直近。clone=クローン数, u=ユニーク)
 ${formatMetricsSeries(input.history) || '(なし)'}
 
+# 流入元(最新観測のreferrer。ボットはreferrerを残さない=閲覧とクローンの乖離はボット)
+${formatReferrers(input.history)}
+
 # 神々の時計
 ${clocks || '(なし)'}
 
@@ -151,6 +154,19 @@ ${formatPublishState(input.publishState)}
 
 # 進化ジョブ(直近)
 ${evolution || '(なし)'}`;
+}
+
+/**
+ * M99-12: 流入元(referrer)。観測(OMOI-kami)は前から取れていて週報には出していたのに、
+ * 神議・チャットのプロンプトに入れていなかった(「流入経路はわからない」の正体も配線欠落)
+ */
+export function formatReferrers(history: MetricsSnapshot[]): string {
+  const latest = history[history.length - 1];
+  if (latest === undefined) return '(なし)';
+  const rows = Object.entries(latest.github).flatMap(([repo, m]) =>
+    (m.referrers ?? []).map((r) => `- ${repo} ← ${r.referrer}: ${r.count}閲覧(u${r.uniques})`),
+  );
+  return rows.length > 0 ? rows.join('\n') : '(なし)';
 }
 
 /** M99-11: チャット返信に添えられる機械可読アクション。今は run-god のみ */
@@ -246,6 +262,9 @@ ${inboxSummary || '(なし)'}
 
 # メトリクス時系列(直近)
 ${series || '(なし)'}
+
+# 流入元(最新観測のreferrer)
+${formatReferrers(input.history)}
 
 # 投下履歴(**実際に公開された**発信。これだけが人の目に触れている)
 ${posted || '(なし)'}

@@ -145,8 +145,14 @@ export function makeTokenProvider(
 
 /** M-blob: Blueskyのblob上限(バイト)。超えるとuploadBlobがサーバ側で拒否されるため事前に弾く */
 const MAX_BLOB_BYTES = 1_000_000;
+/**
+ * M99-12: 動画の上限。GIFは画像扱いだとBluesky側で静止画化されて動かない(実機で発覚)ので、
+ * 動画は app.bsky.embed.video で埋め込む。サーバ側の上限は公表が揺れるため、ここでは
+ * 控えめに20MBで事前に弾く(超えていたらサーバのエラーがそのまま出る)
+ */
+const MAX_VIDEO_BYTES = 20_000_000;
 
-/** 拡張子→MIMEタイプ。画像/GIF添付はこの一覧のみ対応(それ以外は明示的にエラー) */
+/** 拡張子→MIMEタイプ。この一覧のみ対応(それ以外は明示的にエラー) */
 function mimeTypeForMedia(path: string): string {
   const ext = path.slice(path.lastIndexOf('.')).toLowerCase();
   switch (ext) {
@@ -159,8 +165,13 @@ function mimeTypeForMedia(path: string): string {
       return 'image/jpeg';
     case '.webp':
       return 'image/webp';
+    case '.mp4':
+      // GIFを動かしたいときもこちら(画像GIFは静止画化される)。ffmpegで gif→mp4 に変換して指定する
+      return 'video/mp4';
     default:
-      throw new Error(`unsupported media type: 拡張子 '${ext}' はBluesky添付に未対応(gif/png/jpg/jpeg/webpのみ)`);
+      throw new Error(
+        `unsupported media type: 拡張子 '${ext}' はBluesky添付に未対応(gif/png/jpg/jpeg/webp/mp4のみ)`,
+      );
   }
 }
 
@@ -228,17 +239,19 @@ export class BlueskyWriter {
     if (mediaPath !== undefined) {
       // 拡張子チェックはファイル読み込み前に行う(未対応拡張子で不要なI/Oをしない)
       const mimeType = mimeTypeForMedia(mediaPath);
+      const isVideo = mimeType.startsWith('video/');
       const bytes = await readFile(mediaPath);
-      if (bytes.byteLength > MAX_BLOB_BYTES) {
+      const limit = isVideo ? MAX_VIDEO_BYTES : MAX_BLOB_BYTES;
+      if (bytes.byteLength > limit) {
         throw new Error(
-          `画像サイズ(${bytes.byteLength}バイト)がBluesky blob上限(${MAX_BLOB_BYTES}バイト)を超過している`,
+          `${isVideo ? '動画' : '画像'}サイズ(${bytes.byteLength}バイト)がBluesky blob上限(${limit}バイト)を超過している`,
         );
       }
       const blob = await this.uploadBlob(session, bytes, mimeType);
-      record['embed'] = {
-        $type: 'app.bsky.embed.images',
-        images: [{ image: blob, alt: mediaAlt ?? '' }],
-      };
+      // M99-12: 動画は embed.video(画像扱いのGIFは静止画化されて動かない)
+      record['embed'] = isVideo
+        ? { $type: 'app.bsky.embed.video', video: blob, alt: mediaAlt ?? '' }
+        : { $type: 'app.bsky.embed.images', images: [{ image: blob, alt: mediaAlt ?? '' }] };
     }
     const uri = await this.createRecord(session, 'app.bsky.feed.post', record);
     return `投稿した: ${uri}`;
