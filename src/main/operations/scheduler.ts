@@ -167,6 +167,19 @@ export class GodScheduler {
   }
 
   /**
+   * M99-13: スケジューラ外の消費(運営チャットのツールループ等)を神の予算に計上する。
+   * チャットが予算の外にいると、1つの質問で1日分を食い潰しても誰も気づけない
+   */
+  recordSpend(godId: string, tokens: number): void {
+    const job = this.jobs.find((j) => j.godId === godId);
+    if (job === undefined || tokens <= 0) return;
+    const updated = addSpent(job, tokens, this.nowFn());
+    job.spentToday = updated.spentToday;
+    job.spentDate = updated.spentDate;
+    this.save();
+  }
+
+  /**
    * 神議の自律調整/ユーザー操作の入口。間隔はクランプ、dailyTimesはHH:MM形式のみ。
    * M36-1: byUser=true(ユーザーの直接設定・人間承認済みの変更)による予算設定は
    * budgetSetByUser を立て、以後の神議の自律予算調整(引き下げ含む)より優先される
