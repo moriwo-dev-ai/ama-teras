@@ -43,3 +43,16 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
+
+# M99-19: クロスプラットフォーム(実験的)。mac/linuxはCI(GitHub Actions)でビルドする。
+# 署名なし: macは初回起動時に右クリック→開く(または xattr -d com.apple.quarantine)が必要
+mac:
+  icon: build/icon-512.png
+  identity: null
+  target:
+    - dmg
+linux:
+  icon: build/icon-512.png
+  category: Development
+  target:
+    - AppImage

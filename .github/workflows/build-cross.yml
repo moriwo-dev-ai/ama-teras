@@ -1,0 +1,50 @@
+# M99-19: mac / linux の実験的ビルド(みんなが欲しい機能=Windows限定の解消)。
+# Windowsは従来どおりローカルの release.mjs(A7)で作る。ここは mac/linux の補完。
+# 署名なし(CSC_IDENTITY_AUTO_DISCOVERY=false)。tag入力があれば既存リリースへ添付する。
+name: build-cross
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'このリリースタグに成果物を添付(空=Artifactsのみ)'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --mac
+            glob: release/*.dmg
+          - os: ubuntu-latest
+            args: --linux
+            glob: release/*.AppImage
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag != '' && inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: アプリ本体+スマホUIをビルド
+        run: npm run build
+      - name: electron-builder(署名なし)
+        run: npx electron-builder ${{ matrix.args }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: ${{ matrix.glob }}
+          if-no-files-found: error
+      - name: リリースへ添付(tag指定時のみ)
+        if: inputs.tag != ''
+        run: gh release upload "${{ inputs.tag }}" ${{ matrix.glob }} --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
