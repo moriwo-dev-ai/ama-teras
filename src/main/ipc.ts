@@ -59,6 +59,7 @@ import { systemFetch } from './providers/systemFetch';
 import { PublishedStore } from './registry/published';
 import { repoFromRegistryUrl, type RepoRef } from './registry/github';
 import { RequestStore, requestScope } from './requests/store';
+import { addSkillFiles } from './registry/skillExport';
 import {
   buildRequestIssue,
   findSimilarIssues,
@@ -1280,12 +1281,24 @@ export async function registerIpcHandlers(
     if (result.canceled || result.filePaths.length === 0) {
       return { ok: false, message: 'キャンセルされた' };
     }
-    return exportPlugin({
+    const exported = await exportPlugin({
       pluginsDir: srcDir,
       toolName,
       description: plugin.description,
       destRoot: result.filePaths[0]!,
     });
+    // M99-18: SKILL.md形式(16以上のエージェント互換)も同梱。失敗しても本体エクスポートは有効
+    if (exported.ok && exported.path !== undefined) {
+      const skill = await addSkillFiles({
+        outDir: exported.path,
+        toolName,
+        description: plugin.description,
+        pluginsDir: srcDir,
+        repoUrl: 'https://github.com/moriwo-dev-ai/ama-teras',
+      });
+      return { ...exported, message: `${exported.message}\n${skill.detail}` };
+    }
+    return exported;
   });
 
   ipcMain.handle(IpcChannels.pluginsImport, async () => {
