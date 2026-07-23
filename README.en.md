@@ -8,6 +8,19 @@ A self-evolving desktop AI agent (Electron + React + TypeScript). It plans → i
 debugs → tests through conversation, and when it lacks a capability, it **writes a new tool
 for itself — which only ships after passing verification gates and your explicit approval**.
 
+## Why — an agent that no corporation owns
+
+Agent capability is quietly becoming synonymous with a specific vendor's pricing plan.
+AMA-teras points the other way.
+
+- **Models are swappable parts**: switch between Anthropic / OpenAI / Moonshot (Kimi) in settings,
+  or run on free-tier APIs (Gemini / Groq / OpenRouter). No lock-in, ever
+- **What grows is *your* machine**: every tool the agent writes stays on your PC as your asset —
+  export it, share it, fork it (AGPL)
+- **Nothing ships unreviewed**: in an era where audits find 12–20% of marketplace skills malicious,
+  the same verification gates (isolated worktree → typecheck → tests → smoke run → **your approval**)
+  apply to its own creations and to anything imported from others
+
 ## Demo
 
 ![Demo: "I want a YAML-to-JSON tool" → approval → self-generation → verification gates → promotion approval → usable immediately](docs/demo.gif)
