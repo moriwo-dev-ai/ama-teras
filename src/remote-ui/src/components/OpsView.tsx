@@ -776,6 +776,28 @@ function DraftCard({
             𝕏 投稿画面(本文コピー付き)
           </button>
         )}
+        {draft.kind === 'x-post' && draft.status === 'draft' && (
+          <button
+            className="primary"
+            disabled={busy}
+            title="岩戸ゲートに全文を出し、承認されたら設定のメディア(動画/画像)付きでAPI投稿する"
+            onClick={() => {
+              // M99-14: 従来Bluesky投稿は神議の提案経由のみで、「この下書きを今出す」が無かった
+              setBusy(true);
+              setNotice('🦋 岩戸ゲートに承認カードを出した。「⛩ 岩戸ゲート」欄で全文を確認して承認すると投稿されます(却下もそこで)');
+              void api
+                .opsDraftBluesky(draft.id)
+                .then((r) => setNotice(`${r.ok ? '✓' : '✗'} ${r.detail}`))
+                .catch((e: unknown) => setNotice(`✗ ${e instanceof Error ? e.message : String(e)}`))
+                .finally(() => {
+                  setBusy(false);
+                  onDone();
+                });
+            }}
+          >
+            🦋 Bluesky投稿(承認へ)
+          </button>
+        )}
         {draft.kind === 'x-post' && url !== null && (
           <button onClick={() => window.open(hatenaPanelUrl(url), '_blank', 'noopener,noreferrer')}>B! はてブ</button>
         )}

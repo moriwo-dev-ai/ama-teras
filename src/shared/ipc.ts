@@ -197,6 +197,7 @@ export const IpcChannels = {
   operationsZennRedeploy: 'operations:zenn-redeploy',
   operationsZennStuck: 'operations:zenn-stuck',
   operationsDraftZennArticle: 'operations:draft-zenn-article',
+  operationsDraftBluesky: 'operations:draft-bluesky',
   /** M38-3: 発信の効果測定(投稿→前後メトリクス差分) */
   operationsImpacts: 'operations:impacts',
   operationsStrategyBoard: 'operations:strategy-board',
@@ -501,6 +502,8 @@ export interface AmaterasApi {
   operationsDraftZennArticle(
     draftId: string,
   ): Promise<{ ok: boolean; detail: string; bodyDraftId?: string }>;
+  /** M99-14: 未投稿ドラフトをBlueskyへ(岩戸ゲート承認→設定メディア添付で投稿) */
+  operationsDraftBluesky(draftId: string): Promise<{ ok: boolean; detail: string }>;
   /** M38-3: 投稿ごとの前後メトリクス差分(相関であって因果ではない) */
   operationsImpacts(windowHours?: number): Promise<ImpactEntry[]>;
   operationsStrategyBoard(): Promise<MediaStrategyEntry[]>;

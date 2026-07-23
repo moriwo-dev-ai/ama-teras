@@ -1443,6 +1443,50 @@ ${d.body}`))
   }
 
   /**
+   * M99-14: 任意の未投稿ドラフトをBlueskyへ投稿する(岩戸ゲート経由・設定のメディア自動添付)。
+   * 従来Bluesky投稿は神議の提案バッチ経由しか経路が無く、ユーザーが「この下書きを今出したい」
+   * と思っても出せなかった(実機で発覚: チャット承認済みの下書きを手動投稿するしかなかった)。
+   * 承認の形は変えない — 岩戸ゲートに全文(+添付パス)を出し、承認されたときだけ投稿する
+   */
+  async draftBlueskyPost(draftId: string): Promise<{ ok: boolean; detail: string }> {
+    if (!this.ensureInitialized() || this.gate === null || this.drafts === null) {
+      return { ok: false, detail: '未初期化' };
+    }
+    const d = this.drafts.list().find((x) => x.id === draftId);
+    if (d === undefined) return { ok: false, detail: '下書きが見つからない' };
+    if (d.status !== 'draft') return { ok: false, detail: 'この下書きは未投稿ではない' };
+    if (!this.blueskyExecAvailable) return { ok: false, detail: 'Bluesky資格情報が未設定(設定→接続)' };
+    const body = resolvePostText(d.body, this.projectUrl());
+    if ([...body].length > 300) {
+      return { ok: false, detail: `本文が300字を超えている(${[...body].length}字)。分割してください` };
+    }
+    const cfg = this.opsConfig();
+    const mediaPathRaw = cfg.blueskyMediaPath ?? '';
+    const media =
+      mediaPathRaw.trim() === ''
+        ? null
+        : {
+            path: isAbsolute(mediaPathRaw)
+              ? mediaPathRaw
+              : join(this.deps.getConfig().workspace ?? '', mediaPathRaw),
+            alt: cfg.blueskyMediaAlt ?? d.title,
+          };
+    const result = await this.gate.requestExecute(
+      'bluesky',
+      'post',
+      `Bluesky 投稿「${d.title}」`,
+      media === null ? body : `${body}\n\n添付: ${media.path}`,
+      media === null
+        ? { text: body, draftId: d.id }
+        : { text: body, draftId: d.id, mediaPath: media.path, mediaAlt: media.alt },
+    );
+    if (result.ok) {
+      this.drafts.update(d.id, { status: draftStatusAfter('bluesky'), media: mediaOf('bluesky') });
+    }
+    return result;
+  }
+
+  /**
    * ユーザーの発言(⛩運営スレッド)。planner帯で神議が即応する。
    *
    * M99-11: 以前は「神々の時計+直近会話」しか渡しておらず、チャットは運営をほぼ何も

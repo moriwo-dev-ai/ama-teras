@@ -1084,6 +1084,10 @@ export async function registerIpcHandlers(
     assertString(draftId, 'draftId');
     return operations.requestZennArticle(draftId);
   });
+  ipcMain.handle(IpcChannels.operationsDraftBluesky, (_e, draftId: unknown) => {
+    assertString(draftId, 'draftId');
+    return operations.draftBlueskyPost(draftId);
+  });
   ipcMain.handle(IpcChannels.operationsImpacts, (_e, windowHours: unknown) =>
     operations.impacts(typeof windowHours === 'number' ? windowHours : 24),
   );
@@ -1822,6 +1826,7 @@ export async function registerIpcHandlers(
         draftUpdate: (id, patch) => operations.updateDraft(id, patch),
         draftRelease: (draftId, repo, tag) => operations.requestRelease(draftId, repo, tag),
         draftZennArticle: (draftId) => operations.requestZennArticle(draftId),
+        draftBluesky: (draftId) => operations.draftBlueskyPost(draftId),
         clockUpdate: (id, patch) => operations.updateClock(id, patch),
         godRun: (godId) => operations.runGodNow(godId),
         // M60: スマホから「公開」まで届かせる。公開できないせいで、Zenn2本・Release2件が

@@ -126,6 +126,8 @@ export interface RemoteOperationsFacade {
   draftRelease(draftId: string, repo: string, tag: string): Promise<{ ok: boolean; detail: string }>;
   /** 記事アウトライン → Zenn記事化(published: false でコミット) */
   draftZennArticle(draftId: string): Promise<{ ok: boolean; detail: string }>;
+  /** M99-14: 未投稿ドラフトをBlueskyへ(岩戸ゲート経由) */
+  draftBluesky(draftId: string): Promise<{ ok: boolean; detail: string }>;
   /** 神々の時計の操作(稼働/間隔/予算/🔒解錠) */
   clockUpdate(
     id: string,
@@ -612,6 +614,13 @@ export class RemoteServer {
           200,
           await this.deps.operations.draftRelease(body['draftId'], body['repo'], body['tag']),
         );
+      }
+
+      case 'POST /api/ops/draft-bluesky': {
+        if (!this.deps.operations) throw new HttpError(404, 'operations 未対応');
+        const b99 = await readJsonBody(req);
+        if (typeof b99['draftId'] !== 'string') throw new HttpError(400, 'draftId(string) が必要');
+        return sendJson(res, 200, await this.deps.operations.draftBluesky(b99['draftId']));
       }
 
       case 'POST /api/ops/draft-zenn': {

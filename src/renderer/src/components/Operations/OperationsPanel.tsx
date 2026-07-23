@@ -913,6 +913,8 @@ function formatDraftTime(iso: string): string {
 
 function DraftCard({ draft, onUpdate }: { draft: OperationsDraft; onUpdate: () => void }): JSX.Element {
   const [media, setMedia] = useState(draft.media ?? 'x');
+  // M99-14: Bluesky投稿の結果表示(アラートは使わない=エラーを握りつぶさずUIに出す規約)
+  const [bskyMsg, setBskyMsg] = useState('');
   // M37: 行き先は種類ごとにコードで固定(Xに載らない種類にXボタンを出さない)
   const actions = draftActionsFor(draft.kind);
   const url = firstUrl(draft.body);
@@ -977,6 +979,26 @@ function DraftCard({ draft, onUpdate }: { draft: OperationsDraft; onUpdate: () =
             B! はてブ画面を開く
           </button>
         )}
+        {/* M99-14: 従来Bluesky投稿は神議の提案経由のみ。「この下書きを今出す」ボタン(岩戸承認→設定メディア付きAPI投稿) */}
+        {actions.includes('x-intent') && draft.status === 'draft' && (
+          <button
+            className="shrink-0 rounded border border-sky-800 px-2 py-0.5 text-[10px] text-sky-300 hover:bg-sky-950"
+            title="岩戸ゲートに全文を出し、承認されたら設定のメディア(動画/画像)付きでBlueskyへAPI投稿する"
+            onClick={() => {
+              setBskyMsg('🦋 岩戸ゲートの承認待ち(承認ダイアログで全文を確認)…');
+              void window.api
+                .operationsDraftBluesky(draft.id)
+                .then((r) => {
+                  setBskyMsg(`${r.ok ? '✓' : '✗'} ${r.detail}`);
+                  if (r.ok) onUpdate();
+                })
+                .catch((e: unknown) => setBskyMsg(`✗ ${e instanceof Error ? e.message : String(e)}`));
+            }}
+          >
+            🦋 Bluesky投稿(承認へ)
+          </button>
+        )}
+        {bskyMsg !== '' && <span className="text-[10px] text-zinc-400">{bskyMsg}</span>}
         {actions.includes('github-release') && draft.status === 'draft' && <ReleaseAction draft={draft} />}
         {actions.includes('zenn-article') && draft.status === 'draft' && (
           <ZennArticleAction draft={draft} onUpdate={onUpdate} />
