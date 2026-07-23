@@ -212,6 +212,11 @@ export class RemoteApi {
     return this.req('POST', '/api/ops/draft-release', { draftId, repo, tag });
   }
 
+  /** M99-16: 記事ドラフトをdev.toへ(岩戸承認制。published=falseは下書き送信) */
+  opsDraftDevto(draftId: string, published: boolean): Promise<{ ok: boolean; detail: string }> {
+    return this.req('POST', '/api/ops/draft-devto', { draftId, published });
+  }
+
   /** M99-14: 下書きをBlueskyへ(岩戸承認→設定メディア添付で投稿)。承認されるまで応答は返らない */
   opsDraftBluesky(draftId: string): Promise<{ ok: boolean; detail: string }> {
     return this.req('POST', '/api/ops/draft-bluesky', { draftId });

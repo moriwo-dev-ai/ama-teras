@@ -515,6 +515,7 @@ describe('M34-6: 運営リモートAPI', () => {
     draftRelease: async (draftId, repo, tag) => ({ ok: true, detail: `${repo} ${tag} ${draftId}` }),
     draftZennArticle: async (draftId) => ({ ok: true, detail: `zenn ${draftId}` }),
     draftBluesky: async (draftId) => ({ ok: true, detail: `bluesky ${draftId}` }),
+    draftDevto: async (draftId, published) => ({ ok: true, detail: `devto ${draftId} ${published}` }),
     clockUpdate: (id, patch) => {
       clockUpdates.push([id, JSON.stringify(patch)]);
       return null;

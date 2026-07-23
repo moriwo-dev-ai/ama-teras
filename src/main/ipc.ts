@@ -104,6 +104,7 @@ function assertSecretSlot(value: unknown): asserts value is SecretSlot {
     value !== 'openrouter' &&
     value !== 'custom' &&
     value !== 'bluesky' &&
+    value !== 'devto' &&
     value !== 'github' &&
     // M96: moonshot=正式プロバイダのキースロット。'kimi' は旧スロット(移行済み・互換で受理)
     value !== 'moonshot' &&
@@ -880,6 +881,7 @@ export async function registerIpcHandlers(
     bluesky: secrets.has('bluesky'),
     github: secrets.has('github'), // M91-2: レジストリPR・要望Issueの提出に使う
     moonshot: secrets.has('moonshot'), // M96: Moonshot(Kimi)正式プロバイダ
+    devto: secrets.has('devto'), // M99-16: dev.to英語記事の投稿
   });
   ipcMain.handle(IpcChannels.secretsStatus, () => secretsStatus());
   ipcMain.handle(IpcChannels.secretsSet, (_e, slot: unknown, apiKey: unknown) => {
@@ -948,6 +950,8 @@ export async function registerIpcHandlers(
     roleProvider: (role) => service.operationsProvider(role),
     // M35-4: Bluesky実行系の資格情報(secretsのblueskyスロット。無ければ提案のみ)
     getBlueskySecret: () => secrets.get('bluesky'),
+    // M99-16: dev.to APIキー(英語記事のpull型出口)
+    getDevtoSecret: () => secrets.get('devto'),
     // M38-2: 承認された能力ギャップ(evolve)を進化ジョブへ。昇格は従来どおり承認制
     enqueueEvolution: (description, expectedIO, scope) =>
       service.evolutionEnqueue(description, expectedIO, scope).then((r) => r.jobId),
@@ -1087,6 +1091,10 @@ export async function registerIpcHandlers(
   ipcMain.handle(IpcChannels.operationsDraftBluesky, (_e, draftId: unknown) => {
     assertString(draftId, 'draftId');
     return operations.draftBlueskyPost(draftId);
+  });
+  ipcMain.handle(IpcChannels.operationsDraftDevto, (_e, draftId: unknown, published: unknown) => {
+    assertString(draftId, 'draftId');
+    return operations.draftDevtoPost(draftId, published === true);
   });
   ipcMain.handle(IpcChannels.operationsImpacts, (_e, windowHours: unknown) =>
     operations.impacts(typeof windowHours === 'number' ? windowHours : 24),
@@ -1827,6 +1835,7 @@ export async function registerIpcHandlers(
         draftRelease: (draftId, repo, tag) => operations.requestRelease(draftId, repo, tag),
         draftZennArticle: (draftId) => operations.requestZennArticle(draftId),
         draftBluesky: (draftId) => operations.draftBlueskyPost(draftId),
+        draftDevto: (draftId, published) => operations.draftDevtoPost(draftId, published),
         clockUpdate: (id, patch) => operations.updateClock(id, patch),
         godRun: (godId) => operations.runGodNow(godId),
         // M60: スマホから「公開」まで届かせる。公開できないせいで、Zenn2本・Release2件が

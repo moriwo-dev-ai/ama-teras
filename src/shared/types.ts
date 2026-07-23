@@ -68,7 +68,8 @@ export type ProviderPresetId = 'gemini' | 'groq' | 'openrouter' | 'custom';
  *  M91-2: 'github' はレジストリへのPR提出・本体への要望Issue提出に使うトークン
  *  (公開リポジトリへの書き込みのみ。fork+PRのため public_repo 相当で足りる) */
 /** M96: 'kimi' はプリセット時代の旧スロット。moonshot へ自動移行済みだが読み出し互換のため残す */
-export type SecretSlot = ProviderId | ProviderPresetId | 'bluesky' | 'github' | 'kimi';
+/** M99-16: 'devto' = dev.to(Forem)のAPIキー。英語記事の投稿(岩戸承認制)に使う */
+export type SecretSlot = ProviderId | ProviderPresetId | 'bluesky' | 'github' | 'kimi' | 'devto';
 
 /** 送信モード。plan は実装前に計画を提示し、ツールを実行しない(承認後に通常モードで実行) */
 export type ChatMode = 'normal' | 'plan';
@@ -87,6 +88,8 @@ export interface SecretsStatus {
   github: boolean;
   /** M96: Moonshot(Kimi)正式プロバイダのAPIキー。有無のみ(旧kimiスロットから自動移行) */
   moonshot: boolean;
+  /** M99-16: dev.to APIキー(英語記事の投稿。岩戸承認制)。有無のみ */
+  devto: boolean;
 }
 
 /** M27-1: 接続テスト(設定画面の「無料で始める」等)の結果 */

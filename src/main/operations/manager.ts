@@ -49,6 +49,7 @@ import { createGithubAdapter, defaultGhRunner, detectGhPath, GithubReader, type 
 import { createHatenaAdapter, HatenaReader } from './adapters/hatena';
 import { createRepoVersionAdapter, readPackageVersion, versionFromTag } from './adapters/repoVersion';
 import { createReleaseBuildAdapter, type ReleaseBuildRunner } from './adapters/releaseBuild';
+import { createDevtoAdapter } from './adapters/devto';
 import { createHnAdapter, fetchItem, fetchUserKarma, HnReader, type HnStory } from './adapters/hn';
 import { createXAdapter, buildXSearchSuggestions, type XSearchSuggestion } from './adapters/x';
 import { createZennAdapter, ZennReader, type FetchLike } from './adapters/zenn';
@@ -132,6 +133,8 @@ export interface OperationsManagerDeps {
   roleProvider?: (role: 'kamuhakari' | 'gods') => LLMProvider | string;
   /** M35-4: Bluesky実行系の資格情報(secrets 'bluesky' スロットのJSON)。未注入/未設定=提案のみ */
   getBlueskySecret?: () => string | null;
+  /** M99-16: dev.to APIキー(無ければ提案のみ) */
+  getDevtoSecret?: () => string | null;
   /**
    * M38-2: 承認済みの能力ギャップ(branch='evolve')を進化ジョブとして起票する。
    * 起票の引き金は必ず「人間が承認バッチで承認した」ことで、神議が自分で起票することはない。
@@ -398,6 +401,7 @@ export class OperationsManager {
     // 実行は岩戸ゲート経由のみ(executorは登録時に封印される)
     const blueskyCreds = parseBlueskyCredentials(this.deps.getBlueskySecret?.() ?? null);
     gate.register(createBlueskyAdapter(blueskyCreds, this.deps.fetchImpl));
+    gate.register(createDevtoAdapter(this.deps.getDevtoSecret?.() ?? null, this.deps.fetchImpl));
     this.blueskyExecAvailable = blueskyCreds !== null;
     gate.register(createHnAdapter());
     gate.register(createHatenaAdapter());
@@ -1517,6 +1521,41 @@ ${d.body}`))
     );
     if (result.ok) {
       this.drafts.update(d.id, { status: draftStatusAfter('bluesky'), media: mediaOf('bluesky') });
+    }
+    return result;
+  }
+
+  /**
+   * M99-16: 記事系ドラフトをdev.toへ送る(岩戸ゲート経由)。英語圏へのpull型出口。
+   * published=false なら下書き送信(公開はdev.to上で人間が押す)= 外部露出は二重の人間確認。
+   * published=true は岩戸の全文承認が唯一の門(Blueskyのpostと同じ扱い)
+   */
+  async draftDevtoPost(draftId: string, published: boolean): Promise<{ ok: boolean; detail: string }> {
+    if (!this.ensureInitialized() || this.gate === null || this.drafts === null) {
+      return { ok: false, detail: '未初期化' };
+    }
+    const d = this.drafts.list().find((x) => x.id === draftId);
+    if (d === undefined) return { ok: false, detail: '下書きが見つからない' };
+    if (d.status !== 'draft') return { ok: false, detail: 'この下書きは未投稿ではない' };
+    if ((this.deps.getDevtoSecret?.() ?? '') === '' || this.deps.getDevtoSecret?.() === null) {
+      return { ok: false, detail: 'dev.to APIキーが未設定(設定→接続)' };
+    }
+    const body = resolvePostText(d.body, this.projectUrl());
+    const result = await this.gate.requestExecute(
+      'devto',
+      'article',
+      `dev.to ${published ? '公開' : '下書き送信'}「${d.title}」`,
+      `# ${d.title}\n\n${body}`,
+      {
+        title: d.title,
+        bodyMarkdown: body,
+        tags: ['ai', 'opensource', 'electron', 'typescript'],
+        published,
+        draftId: d.id,
+      },
+    );
+    if (result.ok) {
+      this.drafts.update(d.id, { status: published ? 'posted' : 'staged', media: 'devto' });
     }
     return result;
   }

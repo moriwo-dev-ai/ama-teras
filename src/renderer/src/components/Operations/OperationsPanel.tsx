@@ -1003,6 +1003,25 @@ function DraftCard({ draft, onUpdate }: { draft: OperationsDraft; onUpdate: () =
         {actions.includes('zenn-article') && draft.status === 'draft' && (
           <ZennArticleAction draft={draft} onUpdate={onUpdate} />
         )}
+        {/* M99-16: 英語圏pull型出口。下書き送信=公開の最終ボタンはdev.to上(二重の人間確認) */}
+        {(draft.kind === 'article-body' || draft.kind === 'article-outline') && draft.status === 'draft' && (
+          <button
+            className="shrink-0 rounded border border-indigo-800 px-2 py-0.5 text-[10px] text-indigo-300 hover:bg-indigo-950"
+            title="dev.toへ下書きとして送る(岩戸承認→API送信。公開はdev.to上で押す)"
+            onClick={() => {
+              setBskyMsg('📤 岩戸ゲートの承認待ち…');
+              void window.api
+                .operationsDraftDevto(draft.id, false)
+                .then((r) => {
+                  setBskyMsg(`${r.ok ? '✓' : '✗'} ${r.detail}`);
+                  if (r.ok) onUpdate();
+                })
+                .catch((e: unknown) => setBskyMsg(`✗ ${e instanceof Error ? e.message : String(e)}`));
+            }}
+          >
+            📤 dev.toへ(下書き)
+          </button>
+        )}
         {draft.status === 'draft' && (
           <>
             <select

@@ -149,6 +149,53 @@ function BlueskyCredsSection(): JSX.Element {
   );
 }
 
+/** M99-16: dev.to APIキー(英語記事のpull型出口。記事送信は岩戸承認制) */
+function DevtoKeySection(): JSX.Element {
+  const [apiKey, setApiKey] = useState('');
+  const [registered, setRegistered] = useState<boolean | null>(null);
+  const [notice, setNotice] = useState('');
+  useEffect(() => {
+    void window.api.secretsStatus().then((s) => setRegistered(s.devto));
+  }, []);
+  return (
+    <div className="space-y-1 rounded border border-zinc-800 p-2">
+      <p className="text-xs font-semibold text-zinc-300">
+        dev.to(英語記事){registered === true ? '(設定済み)' : '(未設定=送信不可)'}
+      </p>
+      <p className="text-[10px] text-zinc-500">
+        dev.to → Settings → Extensions → DEV Community API Keys で発行したキーを登録。
+        記事は岩戸ゲートの全文承認後に「下書き」として送られ、公開の最終ボタンはdev.to上で押す(二重確認)
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        <input
+          type="password"
+          className="min-w-[12rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono text-xs"
+          placeholder="dev.to APIキー"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value.trim())}
+        />
+        <button
+          className="shrink-0 rounded bg-blue-600 px-3 py-1 text-xs hover:bg-blue-500 disabled:opacity-40"
+          disabled={apiKey === ''}
+          onClick={() => {
+            void window.api
+              .secretsSet('devto', apiKey)
+              .then((s) => {
+                setRegistered(s.devto);
+                setApiKey('');
+                setNotice('保存した(送信は毎回あなたの承認制)');
+              })
+              .catch((err: unknown) => setNotice(err instanceof Error ? err.message : String(err)));
+          }}
+        >
+          保存
+        </button>
+      </div>
+      {notice !== '' && <p className="text-[10px] text-zinc-400">{notice}</p>}
+    </div>
+  );
+}
+
 /** M34-7: 運営の今日の実測コスト(usage帯別集計の kamuhakari/gods 行) */
 function OpsCostToday(): JSX.Element | null {
   const [text, setText] = useState<string | null>(null);
@@ -444,6 +491,7 @@ function OwnerModeSection({
             <OpsCostToday />
           </div>
           <BlueskyCredsSection />
+          <DevtoKeySection />
         </div>
       )}
     </div>

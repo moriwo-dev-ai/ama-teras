@@ -806,6 +806,27 @@ function DraftCard({
             未投稿に戻す
           </button>
         )}
+        {(draft.kind === 'article-body' || draft.kind === 'article-outline') && draft.status === 'draft' && (
+          <button
+            disabled={busy}
+            title="dev.toへ下書きとして送る(岩戸承認→API送信。公開はdev.to上で押す)"
+            onClick={() => {
+              // M99-16: 英語圏pull型出口。まず下書き送信(公開の最終ボタンはdev.to上=二重の人間確認)
+              setBusy(true);
+              setNotice('📤 岩戸ゲートに承認カードを出した。「⛩ 岩戸ゲート」欄で全文確認・承認するとdev.toへ下書き送信されます');
+              void api
+                .opsDraftDevto(draft.id, false)
+                .then((r) => setNotice(`${r.ok ? '✓' : '✗'} ${r.detail}`))
+                .catch((e: unknown) => setNotice(`✗ ${e instanceof Error ? e.message : String(e)}`))
+                .finally(() => {
+                  setBusy(false);
+                  onDone();
+                });
+            }}
+          >
+            📤 dev.toへ(下書き)
+          </button>
+        )}
         {draft.kind === 'article-outline' && (
           <button
             className="primary"

@@ -294,6 +294,7 @@ describe('M32-1: オーナーモードゲート(manager)', () => {
     // M37: zenn-repo(記事コミット。パス未設定なら availability=false)
     expect(status.adapters.map((a) => a.id).sort()).toEqual([
       'bluesky',
+      'devto', // M99-16: 英語圏pull型出口(キー無しはexecute空)
       'github',
       'god-definition',
       'hatena',
