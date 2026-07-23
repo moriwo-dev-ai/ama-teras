@@ -585,7 +585,8 @@ export interface CommunityCandidate {
   /** その人の直近の話題への返信下書き(宣伝ではなく内容への反応) */
   replyDraft?: string;
   createdAt: string;
-  status: 'new' | 'kept' | 'discarded';
+  /** M99-15: followed = フォロー実行済み(再提案しない) */
+  status: 'new' | 'kept' | 'discarded' | 'followed';
 }
 
 /** TEDIKA-rao: Issue/PRトリアージカード */

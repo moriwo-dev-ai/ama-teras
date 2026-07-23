@@ -8,7 +8,9 @@ import {
   createBlueskyAdapter,
   parseBlueskyCredentials,
 } from './adapters/bluesky';
+import { CandidateStore } from './amenoUzume';
 import { OperationsManager } from './manager';
+import type { LLMProvider } from '../providers/types';
 import { OpsThread } from './thread';
 
 /**
@@ -339,5 +341,121 @@ describe('M35-4: 承認バッチ→岩戸ゲート→実行の結線', () => {
     const result = await manager.batchRespond('b2', 'i2', true);
     expect(result.ok).toBe(false);
     expect(fetchImpl.mock.calls.some(([u]) => (u as string).includes('createSession'))).toBe(false);
+  });
+});
+
+/**
+ * M99-15: 「残す」の罠の解消。
+ * フォロー提案が new のみ対象だったため、「残す(kept)」を押した人が永遠に提案から
+ * 外れていた(実機で5人が塩漬け)。さらに巡回が自分の投稿を拾い「自分をフォローする」
+ * 提案まで出した。kept込み・自分除外・実行済み(followed)の再提案なし、を固定する。
+ */
+describe('M99-15: フォロー提案の対象と実行後の記録', () => {
+  function managerWith(candidateSeeds: { profile: string; status: 'new' | 'kept' | 'discarded' | 'followed' }[]): {
+    manager: OperationsManager;
+    store: CandidateStore;
+  } {
+    const store = new CandidateStore(join(dir, 'operations'));
+    for (const seed of candidateSeeds) {
+      const c = store.add({ source: 'bluesky:test', profile: seed.profile, verdict: 'match', reasons: ['理由'] });
+      if (seed.status !== 'new') store.resolve(c.id, seed.status as 'kept' | 'discarded' | 'followed');
+    }
+    const manager = new OperationsManager({
+      userDataDir: dir,
+      getConfig: () =>
+        ({ operations: { enabled: true, repos: [], zennSlugs: [] } }) as unknown as AppConfig,
+      audit: () => {},
+      approvalPrompt: () => Promise.resolve(true),
+      bandProvider: () => fakeKamuhakariProvider(),
+      ghRunner: async () => '[]',
+      fetchImpl: mockAtproto(),
+      getBlueskySecret: () => CREDS,
+    });
+    return { manager, store };
+  }
+
+  function fakeKamuhakariProvider(): LLMProvider {
+    const out = JSON.stringify({ analysis: 'x', paramChanges: [], proposals: [] });
+    return {
+      name: 'fake',
+      // eslint-disable-next-line @typescript-eslint/require-await
+      async *complete() {
+        yield { type: 'text_delta', text: out };
+        yield { type: 'message_done', usage: { inputTokens: 1, outputTokens: 1 } };
+      },
+    } as unknown as LLMProvider;
+  }
+
+  it('kept も提案対象になり、自分自身と followed は提案されない', async () => {
+    const { manager } = managerWith([
+      { profile: '@alice.bsky.social (新規の人)', status: 'new' },
+      { profile: '@bob.bsky.social (残した人)', status: 'kept' },
+      { profile: '@moriwo.bsky.social (自分)', status: 'new' }, // CREDS の identifier と同一
+      { profile: '@carol.bsky.social (実行済み)', status: 'followed' },
+      { profile: '@dave.bsky.social (破棄済み)', status: 'discarded' },
+    ]);
+    await manager.status();
+    const { batch } = await manager.runKamuhakari();
+    const titles = (batch?.items ?? []).filter((i) => i.title.includes('フォロー')).map((i) => i.title);
+    expect(titles).toContain('Bluesky: @alice.bsky.social をフォロー(仲間候補)');
+    expect(titles).toContain('Bluesky: @bob.bsky.social をフォロー(仲間候補)'); // kept が対象になった
+    expect(titles.some((t) => t.includes('moriwo.bsky.social'))).toBe(false); // 自分は出ない
+    expect(titles.some((t) => t.includes('carol'))).toBe(false); // 実行済みは出ない
+    expect(titles.some((t) => t.includes('dave'))).toBe(false);
+  });
+
+  it('フォロー実行に成功した候補は followed になる(再提案が止まる)', async () => {
+    const { manager, store } = managerWith([{ profile: '@alice.bsky.social (新規)', status: 'new' }]);
+    await manager.status();
+    const { batch } = await manager.runKamuhakari();
+    const item = batch?.items.find((i) => i.title.includes('フォロー'));
+    expect(item).toBeDefined();
+
+    const r = await manager.batchRespond(batch!.id, item!.id, true);
+    expect(r.ok, r.detail).toBe(true);
+    const after = store.list().find((c) => c.profile.includes('alice'));
+    expect(after?.status).toBe('followed');
+
+    // 次の神議では再提案されない
+    const second = await manager.runKamuhakari();
+    const again = (second.batch?.items ?? []).filter((i) => i.title.includes('フォロー'));
+    expect(again).toHaveLength(0);
+  });
+});
+
+describe('M99-15: 実フォロー状態との突き合わせ', () => {
+  it('Bluesky実態でフォロー済みの候補は提案せず、台帳をfollowedへ同期する', async () => {
+    const store = new CandidateStore(join(dir, 'operations'));
+    store.add({ source: 'bluesky:t', profile: '@bob.bsky.social (既フォロー)', verdict: 'match', reasons: ['r'] });
+    store.add({ source: 'bluesky:t', profile: '@alice.bsky.social (未フォロー)', verdict: 'match', reasons: ['r'] });
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes('getFollows')) return jsonRes({ follows: [{ handle: 'bob.bsky.social' }] });
+      return jsonRes(null, false);
+    });
+    const out = JSON.stringify({ analysis: 'x', paramChanges: [], proposals: [] });
+    const manager = new OperationsManager({
+      userDataDir: dir,
+      getConfig: () => ({ operations: { enabled: true, repos: [], zennSlugs: [] } }) as unknown as AppConfig,
+      audit: () => {},
+      approvalPrompt: () => Promise.resolve(true),
+      bandProvider: () =>
+        ({
+          name: 'fake',
+          // eslint-disable-next-line @typescript-eslint/require-await
+          async *complete() {
+            yield { type: 'text_delta', text: out };
+            yield { type: 'message_done', usage: { inputTokens: 1, outputTokens: 1 } };
+          },
+        }) as unknown as LLMProvider,
+      ghRunner: async () => '[]',
+      fetchImpl: fetchImpl as never,
+      getBlueskySecret: () => CREDS,
+    });
+    await manager.status();
+    const { batch } = await manager.runKamuhakari();
+    const titles = (batch?.items ?? []).filter((i) => i.title.includes('フォロー')).map((i) => i.title);
+    expect(titles).toEqual(['Bluesky: @alice.bsky.social をフォロー(仲間候補)']);
+    // 台帳が実態に同期された
+    expect(store.list().find((c) => c.profile.includes('bob'))?.status).toBe('followed');
   });
 });

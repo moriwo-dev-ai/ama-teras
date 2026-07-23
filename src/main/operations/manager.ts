@@ -1113,15 +1113,48 @@ export class OperationsManager {
     let batch = buildApprovalBatch(parsed.analysis, approvalChanges, parsed.proposals);
 
     // M35-4: 仲間候補のフォロー提案(LLM任せにせず決定的に生成)。承認→岩戸ゲート→実行の結線
+    // M99-15: 対象は new と kept の両方。以前は new のみで、ユーザーが「残す」を押すと
+    // その人が永遠にフォロー提案から外れる罠になっていた(実機で5人が塩漬け)。
+    // 自分自身は提案しない(巡回が自分の投稿を拾い、自分をフォローする提案を出した実害)。
+    // followed は実行済みなので再提案しない
     if (this.blueskyExecAvailable && this.candidates !== null) {
+      const ownHandle = parseBlueskyCredentials(this.deps.getBlueskySecret?.() ?? null)?.identifier?.toLowerCase();
+      // M99-15: 実際のフォロー状態(一次情報)と突き合わせる。台帳がkeptでも実態が
+      // フォロー済みなら提案しない+台帳をfollowedへ同期(二重フォロー提案の防止)。
+      // 取得失敗時は空集合=従来挙動(提案は岩戸を通るので安全側)
+      let alreadyFollowing = new Set<string>();
+      if (ownHandle !== undefined) {
+        try {
+          const f = this.deps.fetchImpl ?? ((url: string) => fetch(url));
+          const res = await f(
+            `https://public.api.bsky.app/xrpc/app.bsky.graph.getFollows?actor=${encodeURIComponent(ownHandle)}&limit=100`,
+          );
+          const j = (await res.json()) as { follows?: { handle?: string }[] };
+          alreadyFollowing = new Set(
+            (j.follows ?? []).map((x) => String(x.handle ?? '').toLowerCase()).filter((h) => h !== ''),
+          );
+        } catch {
+          /* 公開APIの不調は提案生成を止めない */
+        }
+      }
       const newMatches = this.candidates
         .list()
-        .filter((c) => c.status === 'new' && c.verdict === 'match' && c.source.startsWith('bluesky'))
-        .slice(0, 3);
+        .filter(
+          (c) =>
+            (c.status === 'new' || c.status === 'kept') &&
+            c.verdict === 'match' &&
+            c.source.startsWith('bluesky'),
+        )
+        .slice(0, 5);
       const followItems = newMatches
         .map((c) => {
           const handle = /^@([\w.:-]+)/.exec(c.profile)?.[1];
           if (handle === undefined) return null;
+          if (ownHandle !== undefined && handle.toLowerCase() === ownHandle) return null; // 自分は提案しない
+          if (alreadyFollowing.has(handle.toLowerCase())) {
+            this.candidates?.resolve(c.id, 'followed'); // 台帳を実態に同期
+            return null;
+          }
           return {
             id: randomUUID(),
             kind: 'exec-action' as const,
@@ -1132,7 +1165,7 @@ export class OperationsManager {
               actionName: 'follow',
               target: `@${handle}`,
               preview: `Blueskyで @${handle} をフォローする(自動化は承認制で運用)`,
-              params: { handle },
+              params: { handle, candidateId: c.id },
             },
             status: 'pending' as const,
           };
@@ -1829,6 +1862,10 @@ ${d.body}`))
       this.thread.respondBatchItem(batchId, r.itemId, gateOk && r.ok);
       // 発信ドラフト由来なら、実際に出せたものだけ「投稿済み」にする(効果測定の起点)
       const src = prepared.find((p) => p.id === r.itemId);
+      // M99-15: 一括承認経由のフォロー成功も候補へ記録(単発経路と同じ。片方だけ直すと再提案が残る)
+      if (gateOk && r.ok && adapterId === 'bluesky' && actionName === 'follow' && typeof src?.params['candidateId'] === 'string') {
+        this.candidates?.resolve(String(src.params['candidateId']), 'followed');
+      }
       if (gateOk && r.ok && src?.draftId !== undefined) {
         this.drafts.update(src.draftId, { status: draftStatusAfter(adapterId), media: mediaOf(adapterId) });
         // M45: Zennは承認直前に本文(article-body)を起こす。その本文の下書きも投稿済みにする
@@ -1960,7 +1997,12 @@ ${d.body}`))
       if (this.draftAlreadyPosted(a.params)) {
         return { ok: false, detail: 'この下書きはすでに投稿済み(重複を回避した)' };
       }
-      return await this.execute(a.adapterId, a.actionName, a.target, a.preview, a.params);
+      const r = await this.execute(a.adapterId, a.actionName, a.target, a.preview, a.params);
+      // M99-15: フォロー成功は候補に記録(しないと同じ人を次の神議が再提案し続ける)
+      if (r.ok && a.adapterId === 'bluesky' && a.actionName === 'follow' && typeof a.params['candidateId'] === 'string') {
+        this.candidates?.resolve(a.params['candidateId'], 'followed');
+      }
+      return r;
     }
     // M33-6: 能力ギャップの3分岐
     if (item.kind === 'capability-gap' && item.gap !== undefined) {
@@ -2811,7 +2853,7 @@ ${d.body}`))
     return this.candidates.list();
   }
 
-  resolveCandidate(id: string, status: 'kept' | 'discarded'): CommunityCandidate | null {
+  resolveCandidate(id: string, status: 'kept' | 'discarded' | 'followed'): CommunityCandidate | null {
     if (!this.ensureInitialized() || this.candidates === null) return null;
     return this.candidates.resolve(id, status);
   }

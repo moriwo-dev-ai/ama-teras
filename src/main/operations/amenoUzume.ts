@@ -266,7 +266,7 @@ export class CandidateStore {
     return created;
   }
 
-  resolve(id: string, status: 'kept' | 'discarded'): CommunityCandidate | null {
+  resolve(id: string, status: 'kept' | 'discarded' | 'followed'): CommunityCandidate | null {
     const all = this.list();
     const idx = all.findIndex((c) => c.id === id);
     const target = all[idx];
