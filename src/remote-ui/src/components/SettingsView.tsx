@@ -30,9 +30,19 @@ export function SettingsView({ api }: { api: RemoteApi }): JSX.Element {
   // M25-4: テーマはサーバ設定ではなく端末ローカルのUI好み(デスクトップと同様、localStorage保存)
   const [theme, setThemeState] = useState<Theme>(() => loadTheme());
 
+  // M99-17: スマホからのdev.toキー登録(英語記事のpull型出口を今夜から使うため)。
+  // 宣言は refresh より前に置く(過去にTDZで画面が真っ白になった教訓)
+  const [secretsInfo, setSecretsInfo] = useState<Record<string, boolean> | null>(null);
+  const [devtoKey, setDevtoKey] = useState('');
+
   const refresh = (): void => {
     api.settingsGet().then(setCfg).catch((e: unknown) => setError(String(e)));
     api.usage().then(setUsage).catch(() => setUsage(null));
+    // M99-17: 秘密の有無だけ(値は返らない)。旧サーバでは404になるので握りつぶす
+    api
+      .secretsStatus()
+      .then(setSecretsInfo)
+      .catch(() => setSecretsInfo(null));
   };
   useEffect(refresh, [api]);
 
@@ -67,6 +77,41 @@ export function SettingsView({ api }: { api: RemoteApi }): JSX.Element {
           {error !== '' ? `保存できなかった: ${error}` : '✓ 保存した'}
         </div>
       )}
+
+      {/* M99-17: dev.to APIキー(スマホから登録可。値は暗号化保存され、二度と表示されない) */}
+      <div className="card">
+        <h3>📤 dev.to(英語記事){secretsInfo?.['devto'] === true ? ' — 設定済み ✓' : ''}</h3>
+        <p className="muted" style={{ fontSize: 11 }}>
+          dev.to → Settings → Extensions → DEV Community API Keys で発行したキーを登録。
+          記事は岩戸ゲートの全文承認後に「下書き」として送られ、公開の最終ボタンはdev.to上で押す
+        </p>
+        <div className="row">
+          <input
+            type="password"
+            placeholder="dev.to APIキー"
+            value={devtoKey}
+            onChange={(e) => setDevtoKey(e.target.value.trim())}
+            style={{ flex: 1 }}
+          />
+          <button
+            className="primary"
+            disabled={devtoKey === ''}
+            onClick={() => {
+              void api
+                .secretsSetDevto(devtoKey)
+                .then(() => {
+                  setDevtoKey('');
+                  setNotice('dev.toキーを保存した(送信は毎回承認制)');
+                  setError('');
+                  refresh();
+                })
+                .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+            }}
+          >
+            保存
+          </button>
+        </div>
+      </div>
 
       <div className="card">
         <h3>表示</h3>

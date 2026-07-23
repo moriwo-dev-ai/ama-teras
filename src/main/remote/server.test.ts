@@ -748,6 +748,48 @@ describe('RemoteServer: ツールの公開(M99)', () => {
   });
 });
 
+/**
+ * M99-17: スマホからの秘密登録。許可スロットは devto のみ(最小権限)。
+ * 値は status では絶対に返さない(有無のブールだけ)。
+ */
+describe('RemoteServer: 秘密登録(M99-17)', () => {
+  const postJson17 = (path: string, body: unknown): Promise<Response> =>
+    fetch(`http://127.0.0.1:${port}/api${path}`, {
+      method: 'POST',
+      headers: { ...authed(), 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  it('devto は登録でき、他スロットは400(providerキーの上書きをスマホから許さない)', async () => {
+    const saved: [string, string][] = [];
+    await startServer({
+      plugins: {
+        secretsSet: async (slot, value) => {
+          saved.push([slot, value]);
+          return { ok: true };
+        },
+        secretsStatus: async () => ({ devto: true, anthropic: true }),
+      },
+    });
+    expect((await postJson17('/secrets', { slot: 'devto', value: 'key-1' })).status).toBe(200);
+    expect(saved).toEqual([['devto', 'key-1']]);
+    for (const slot of ['anthropic', 'openai', 'bluesky', 'github', 'moonshot']) {
+      expect((await postJson17('/secrets', { slot, value: 'x' })).status).toBe(400);
+    }
+    expect((await postJson17('/secrets', { slot: 'devto', value: '  ' })).status).toBe(400);
+    expect(saved).toHaveLength(1); // 400のものは1件もfacadeへ届いていない
+
+    const st = await fetch(`http://127.0.0.1:${port}/api/secrets/status`, { headers: authed() });
+    expect(await st.json()).toEqual({ devto: true, anthropic: true }); // ブールのみ(値は無い)
+  });
+
+  it('未認証は401、未実装環境は501', async () => {
+    await startServer();
+    expect((await fetch(`http://127.0.0.1:${port}/api/secrets/status`)).status).toBe(401);
+    expect((await fetch(`http://127.0.0.1:${port}/api/secrets/status`, { headers: authed() })).status).toBe(501);
+  });
+});
+
 describe('RemoteServer: ライフサイクル', () => {
   it('stop 後は接続できない', async () => {
     await startServer();

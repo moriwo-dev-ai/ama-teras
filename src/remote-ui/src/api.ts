@@ -212,6 +212,16 @@ export class RemoteApi {
     return this.req('POST', '/api/ops/draft-release', { draftId, repo, tag });
   }
 
+  /** M99-17: 秘密の有無だけ(値は返らない) */
+  secretsStatus(): Promise<Record<string, boolean>> {
+    return this.req('GET', '/api/secrets/status');
+  }
+
+  /** M99-17: スマホからの秘密登録(サーバ側で devto のみ許可) */
+  secretsSetDevto(value: string): Promise<{ ok: boolean }> {
+    return this.req('POST', '/api/secrets', { slot: 'devto', value });
+  }
+
   /** M99-16: 記事ドラフトをdev.toへ(岩戸承認制。published=falseは下書き送信) */
   opsDraftDevto(draftId: string, published: boolean): Promise<{ ok: boolean; detail: string }> {
     return this.req('POST', '/api/ops/draft-devto', { draftId, published });

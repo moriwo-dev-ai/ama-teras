@@ -1803,6 +1803,14 @@ export async function registerIpcHandlers(
         pluginsUploadPlan: uploadPlanByName,
         pluginsReverify: reverifyPluginByName,
         pluginsUpload: uploadByName,
+        // M99-17: スマホからの秘密登録(サーバ側でスロット制限。Tailscale+トークンが境界)
+        secretsSet: async (slot: string, value: string) => {
+          assertSecretSlot(slot);
+          secrets.set(slot, value);
+          operations.reset(); // アダプタ宣言(devto実行系の有効化)へ即反映
+          return { ok: true };
+        },
+        secretsStatus: async () => secretsStatus() as unknown as Record<string, boolean>,
       }),
       bus,
       auth: remoteAuth,

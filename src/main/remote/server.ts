@@ -54,6 +54,9 @@ export interface RemoteFacade {
     approvedPreview: string,
     draft: boolean,
   ): Promise<import('../../shared/types').PluginUploadResult>;
+  /** M99-17: スマホからの秘密登録(許可スロットはサーバ側で制限。値は絶対に返さない) */
+  secretsSet?(slot: string, value: string): Promise<{ ok: boolean }>;
+  secretsStatus?(): Promise<Record<string, boolean>>;
   getStatus(): AgentStatusView;
   getHistoryView(): HistoryMessageView[];
   /** M22: 表示中の会話IDと実行中ラン一覧(snapshot用) */
@@ -616,6 +619,22 @@ export class RemoteServer {
           200,
           await this.deps.operations.draftRelease(body['draftId'], body['repo'], body['tag']),
         );
+      }
+
+      case 'GET /api/secrets/status': {
+        if (facade.secretsStatus === undefined) throw new HttpError(501, 'この環境では未対応');
+        return sendJson(res, 200, await facade.secretsStatus());
+      }
+
+      case 'POST /api/secrets': {
+        if (facade.secretsSet === undefined) throw new HttpError(501, 'この環境では未対応');
+        const bs = await readJsonBody(req);
+        const slot = bs['slot'];
+        const value = bs['value'];
+        // M99-17: スマホから登録できるのは devto のみ(最小権限。他スロットはデスクトップで)
+        if (slot !== 'devto') throw new HttpError(400, 'このスロットはスマホから登録できない(devtoのみ)');
+        if (typeof value !== 'string' || value.trim() === '') throw new HttpError(400, 'value(string) が必要');
+        return sendJson(res, 200, await facade.secretsSet(slot, value.trim()));
       }
 
       case 'POST /api/ops/draft-devto': {
