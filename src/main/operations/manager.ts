@@ -1144,8 +1144,9 @@ export class OperationsManager {
             (c.status === 'new' || c.status === 'kept') &&
             c.verdict === 'match' &&
             c.source.startsWith('bluesky'),
-        )
-        .slice(0, 5);
+        );
+      // M99-15: slice は除外(自分・既フォロー)の後で行う。先に切ると、除外された分だけ
+      // 提案枠が無駄になり、後ろの候補が次回まで出てこない(実測: atsushieno が1周遅れた)
       const followItems = newMatches
         .map((c) => {
           const handle = /^@([\w.:-]+)/.exec(c.profile)?.[1];
@@ -1170,7 +1171,8 @@ export class OperationsManager {
             status: 'pending' as const,
           };
         })
-        .filter((i): i is NonNullable<typeof i> => i !== null);
+        .filter((i): i is NonNullable<typeof i> => i !== null)
+        .slice(0, 5);
       if (followItems.length > 0) {
         if (batch === null) {
           batch = { id: randomUUID(), ts: new Date().toISOString(), analysis: parsed.analysis, items: followItems };
