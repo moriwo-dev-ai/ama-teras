@@ -520,6 +520,8 @@ export interface MetricsSnapshot {
   hatena?: Record<string, number>;
   /** M34-2: HN観測(karma等) */
   hn?: { karma?: number };
+  /** M101-2: dev.to観測(watchUrls内のdev.to記事URL→反応数)。英語圏pullチャネルの効果測定 */
+  devto?: Record<string, { reactions: number; comments: number }>;
 }
 
 /**

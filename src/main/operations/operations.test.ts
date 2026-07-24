@@ -367,3 +367,42 @@ describe('M32-1: オーナーモードゲート(manager)', () => {
     expect(String(replies[0]?.payload['fullText'])).toContain('great project');
   });
 });
+
+describe('M101-2: dev.to観測(watchUrls経由)', () => {
+  it('watchUrls内のdev.to記事URLだけAPIで読み、snapshot.devtoに反応数が入る', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url === 'https://dev.to/api/articles/moriwodevai/my-article-2jfl') {
+        return jsonRes({ positive_reactions_count: 4, comments_count: 1 });
+      }
+      return jsonRes(null, false);
+    });
+    const omoi = new OmoiKami(dir, { github: null, zenn: new ZennReader(fetchImpl), fetchImpl });
+    const snap = await omoi.collectSnapshot({
+      enabled: true,
+      repos: [],
+      zennSlugs: [],
+      watchUrls: [
+        'https://dev.to/moriwodevai/my-article-2jfl',
+        'https://example.com/not-devto',
+      ],
+    });
+    expect(snap.devto).toEqual({
+      'https://dev.to/moriwodevai/my-article-2jfl': { reactions: 4, comments: 1 },
+    });
+    // dev.to API以外(example.com)には問い合わせない
+    expect(fetchImpl).not.toHaveBeenCalledWith(expect.stringContaining('example.com'));
+  });
+
+  it('dev.to不達・形式不正はdevtoフィールドごと省略(スナップショットは壊れない)', async () => {
+    const fetchImpl = vi.fn(async () => jsonRes({ weird: true }));
+    const omoi = new OmoiKami(dir, { github: null, zenn: new ZennReader(fetchImpl), fetchImpl });
+    const snap = await omoi.collectSnapshot({
+      enabled: true,
+      repos: [],
+      zennSlugs: [],
+      watchUrls: ['https://dev.to/u/a-post'],
+    });
+    expect(snap.devto).toBeUndefined();
+    expect(typeof snap.ts).toBe('string');
+  });
+});

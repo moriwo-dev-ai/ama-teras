@@ -67,6 +67,32 @@ export class OmoiKami {
       }
     }
 
+    // M101-2: dev.to記事の反応(watchUrls内の dev.to URL から公開APIで読む。認証不要・読み取りのみ)
+    {
+      const devtoUrls = (cfg.watchUrls ?? []).filter((u) => /^https:\/\/dev\.to\/[^/]+\/[^/]+/.test(u));
+      if (devtoUrls.length > 0) {
+        const fetchImpl = this.deps.fetchImpl ?? ((url: string) => fetch(url));
+        const devto: Record<string, { reactions: number; comments: number }> = {};
+        for (const url of devtoUrls) {
+          try {
+            const m = /^https:\/\/dev\.to\/([^/]+)\/([^/?#]+)/.exec(url);
+            if (!m) continue;
+            const res = await fetchImpl(`https://dev.to/api/articles/${m[1]}/${m[2]}`);
+            if (!res.ok) continue;
+            const data = (await res.json()) as Record<string, unknown>;
+            const reactions = data['positive_reactions_count'];
+            const comments = data['comments_count'];
+            if (typeof reactions === 'number' && typeof comments === 'number') {
+              devto[url] = { reactions, comments };
+            }
+          } catch {
+            // 個別記事の不達はスナップショット全体を壊さない
+          }
+        }
+        if (Object.keys(devto).length > 0) snapshot.devto = devto;
+      }
+    }
+
     // M34-2: HN karma(読み取りのみ)
     if (cfg.hnUser !== undefined && cfg.hnUser !== '') {
       const fetchImpl = this.deps.fetchImpl ?? ((url: string) => fetch(url));

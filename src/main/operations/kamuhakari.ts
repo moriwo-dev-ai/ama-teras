@@ -109,7 +109,11 @@ export function formatMetricsSeries(history: MetricsSnapshot[]): string {
       const zn = Object.entries(s.zenn)
         .map(([slug, m]) => `zenn:${slug}♥${m.liked}`)
         .join(' ');
-      return `- ${s.ts.slice(5, 16)} ${gh} ${zn}`;
+      // M101-2: dev.to(英語圏pull)。URLはスラッグ末尾だけに圧縮
+      const dv = Object.entries(s.devto ?? {})
+        .map(([url, m]) => `devto:${url.split('/').pop()?.slice(0, 24) ?? '?'}♥${m.reactions}💬${m.comments}`)
+        .join(' ');
+      return `- ${s.ts.slice(5, 16)} ${gh} ${zn}${dv !== '' ? ` ${dv}` : ''}`;
     })
     .join('\n');
 }
