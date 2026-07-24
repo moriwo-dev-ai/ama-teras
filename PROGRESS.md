@@ -1,5 +1,18 @@
 # PROGRESS
 
+## M100: UI英語化(段階導入)— 英語圏流入の変換率対策
+
+動機: dev.to記事・awesome PR等の英語圏導線から来た人が日本語UIで離脱する(成長ループ分析)。
+
+- **M100-1(2026-07-25 完了)**: i18n土台+主要4画面。
+  - `uiLanguage` 設定('auto'|'ja'|'en'。auto=OSロケール判定)。config正規化+テスト
+  - `src/renderer/src/i18n/`: 依存ゼロの最小実装(ja.ts=キーの正 / en.ts=型で全キー強制 /
+    zustand + `t()`/`useT()`。{name} プレースホルダ置換)。辞書整合はユニットテストでも担保
+  - 変換済み: App.tsx / LeftPane / ChatView / ApprovalDialog + 設定「基本」に言語切替(即時反映)
+- **M100-2(次)**: EvolutionPanel(進化=製品の看板画面)・SettingsPanel残りタブ・Registry系
+- **M100-3(以降)**: Operations系(オーナー向けのため優先度低)・remote-ui(スマホ)
+- 方針: 文言は必ず辞書経由(`t('key')`)。新規UI追加時も ja/en 両方に書く(enはtypecheckが落ちるので忘れない)
+
 ## M42(TUKU-yomi): Mode: 月読 — 記憶の義手
 
 太陽(AMA-teras)が「作る」なら、月(TUKU-yomi)は「覚えている」。PC作業ではなく
