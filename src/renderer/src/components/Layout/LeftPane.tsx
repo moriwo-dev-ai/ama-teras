@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { groupSessionsByProject } from '../../../../shared/sessionGroups';
 import type { SessionMeta } from '../../../../shared/types';
+import { t as tt, useT } from '../../i18n';
 import { useChatStore } from '../../stores/chat';
 import { useOperationsStore } from '../../stores/operations';
 import { useOpsThreadStore } from '../../stores/opsThread';
@@ -23,11 +24,11 @@ function projectName(ws: string): string {
 function relTime(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
   const min = Math.floor(ms / 60000);
-  if (min < 1) return 'たった今';
-  if (min < 60) return `${min}分前`;
+  if (min < 1) return tt('left.justNow');
+  if (min < 60) return tt('left.minutesAgo', { n: min });
   const h = Math.floor(min / 60);
-  if (h < 24) return `${h}時間前`;
-  return `${Math.floor(h / 24)}日前`;
+  if (h < 24) return tt('left.hoursAgo', { n: h });
+  return tt('left.daysAgo', { n: Math.floor(h / 24) });
 }
 
 /**
@@ -35,6 +36,7 @@ function relTime(iso: string): string {
  * 承認待ちバッチがあるときは未読バッジを出す
  */
 function OpsThreadEntry(): JSX.Element | null {
+  const t = useT();
   const enabled = useOperationsStore((s) => s.enabled);
   const refreshOps = useOperationsStore((s) => s.refresh);
   const { open, pending, setOpen, refreshPending } = useOpsThreadStore();
@@ -53,7 +55,7 @@ function OpsThreadEntry(): JSX.Element | null {
       className={`relative w-full rounded border px-2 py-1.5 text-center text-xs ${
         open ? 'border-orange-700 bg-orange-950/40 text-orange-200' : 'border-zinc-700 text-zinc-200 hover:bg-zinc-800'
       }`}
-      title="運営(Project TAKAMA-gahara)— 神議との会話・承認バッチ"
+      title={t('left.opsEntryTitle')}
       onClick={() => setOpen(!open)}
     >
       ⛩ 運営
@@ -71,6 +73,7 @@ function OpsThreadEntry(): JSX.Element | null {
  * 鍵が無い/月読OFFの機体では main が enabled:false を返すので、自然に消える
  */
 function TsukuyomiThreadEntry(): JSX.Element | null {
+  const t = useT();
   const status = useTsukuyomiStore((s) => s.status);
   const refresh = useTsukuyomiStore((s) => s.refresh);
   const { open, setOpen } = useTsukuyomiThreadStore();
@@ -85,7 +88,7 @@ function TsukuyomiThreadEntry(): JSX.Element | null {
           ? 'border-indigo-700 bg-indigo-950/40 text-indigo-200'
           : 'border-zinc-700 text-zinc-200 hover:bg-zinc-800'
       }`}
-      title="TUKU-yomi — 話した内容と、月読がやったことの履歴"
+      title={t('left.tsukuyomiTitle')}
       onClick={() => setOpen(!open)}
     >
       🌙 TUKU-yomi
@@ -100,6 +103,7 @@ function TsukuyomiThreadEntry(): JSX.Element | null {
 }
 
 export function LeftPane(): JSX.Element {
+  const t = useT();
   const { sessions, refreshSessions, loadSession, newSession, activeSessionId, conversationId } = useChatStore();
   // M22: 実行中でも切替・新規はブロックしない。busy は表示にのみ使う
   const busy = activeSessionId !== null;
@@ -183,7 +187,7 @@ export function LeftPane(): JSX.Element {
   const doRename = async (): Promise<void> => {
     if (!renaming) return;
     const ok = await window.api.sessionsRename(renaming.id, renaming.title);
-    if (!ok) setNotice('名前を変更できない');
+    if (!ok) setNotice(tt('left.renameFailed'));
     setRenaming(null);
     await refreshSessions();
     if (searchResults) setSearchResults(await window.api.sessionsSearch(query));
@@ -206,10 +210,10 @@ export function LeftPane(): JSX.Element {
       <div className="space-y-2 border-b border-zinc-800 p-2">
         <button
           className="w-full rounded border border-zinc-700 px-2 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800"
-          title={busy ? '実行は止まらずに新しいタスクを開始する' : undefined}
+          title={busy ? t('left.newTaskBusy') : undefined}
           onClick={() => void newSession()}
         >
-          + 新しいタスク
+          {t('left.newTask')}
         </button>
         <OpsThreadEntry />
         <TsukuyomiThreadEntry />
@@ -217,7 +221,7 @@ export function LeftPane(): JSX.Element {
           ref={searchRef}
           id="session-search"
           className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs"
-          placeholder="検索(タイトル・本文)… Ctrl+K"
+          placeholder={t('left.search')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -225,7 +229,7 @@ export function LeftPane(): JSX.Element {
 
       <div className="flex-1 overflow-y-auto p-1 text-xs">
         {groups.length === 0 && (
-          <p className="p-2 text-zinc-500">{query ? '該当なし' : 'セッションはまだ無い'}</p>
+          <p className="p-2 text-zinc-500">{query ? t('left.noMatch') : t('left.noSessions')}</p>
         )}
         {groups.map(([ws, items]) => (
           <div key={ws} className="mb-2">
@@ -240,11 +244,11 @@ export function LeftPane(): JSX.Element {
               <span className={`truncate ${ws === currentWs ? 'text-blue-300' : ''}`} title={ws}>
                 📁 {projectName(ws)}
               </span>
-              {ws === currentWs && <span className="rounded bg-blue-900 px-1 text-[9px] text-blue-300">現在</span>}
+              {ws === currentWs && <span className="rounded bg-blue-900 px-1 text-[9px] text-blue-300">{t('left.current')}</span>}
               {ws === currentWs && (
                 <button
                   className="ml-auto rounded border border-zinc-700 px-1 text-[10px] text-zinc-500 hover:bg-zinc-800"
-                  title="別フォルダで新規プロジェクト"
+                  title={t('left.newProject')}
                   onClick={(e) => {
                     e.stopPropagation();
                     void addProject();
@@ -275,7 +279,7 @@ export function LeftPane(): JSX.Element {
                       className={`sess-btn flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-zinc-300 ${
                         s.id === conversationId ? 'sess-btn-active' : ''
                       }`}
-                      title={`${s.title}(${new Date(s.updatedAt).toLocaleString()})${runningIds.has(s.id) ? ' — 実行中' : ''}`}
+                      title={`${s.title}(${new Date(s.updatedAt).toLocaleString()})${runningIds.has(s.id) ? ` — ${t('left.running')}` : ''}`}
                       onClick={() => void open(s)}
                       onContextMenu={(e) => {
                         e.preventDefault();
@@ -284,12 +288,12 @@ export function LeftPane(): JSX.Element {
                     >
                       {/* M22: 実行中インジケータ(このセッションでエージェントが動いている) */}
                       {runningIds.has(s.id) && (
-                        <span className="anim-spin shrink-0 text-blue-400" title="実行中">
+                        <span className="anim-spin shrink-0 text-blue-400" title={t('left.running')}>
                           ◌
                         </span>
                       )}
                       {/* タイトルだけを truncate し、更新時刻は右端に固定(ペイン幅を変えても見える) */}
-                      <span className="min-w-0 flex-1 truncate">{s.title || '(無題)'}</span>
+                      <span className="min-w-0 flex-1 truncate">{s.title || t('left.untitled')}</span>
                       <span className="shrink-0 whitespace-nowrap text-[10px] text-zinc-500">
                         {relTime(s.updatedAt)}
                       </span>
@@ -320,13 +324,13 @@ export function LeftPane(): JSX.Element {
                   setMenu(null);
                 }}
               >
-                名前変更
+                {t('left.rename')}
               </button>
               <button
                 className="block w-full px-3 py-1 text-left text-red-400 hover:bg-zinc-800"
                 onClick={() => void doDelete(menu.id)}
               >
-                削除
+                {t('left.delete')}
               </button>
             </>
           ) : (
@@ -338,7 +342,7 @@ export function LeftPane(): JSX.Element {
                 setMenu(null);
               }}
             >
-              📂 フォルダで開く
+              {t('left.revealFolder')}
             </button>
           )}
         </div>

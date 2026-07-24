@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChatImageInput } from '../../../../shared/types';
+import { t as tt, useT } from '../../i18n';
 import { useChatStore, type UiMessage } from '../../stores/chat';
 import { usePreviewStore } from '../../stores/preview';
 import { revealContextMenuHandler } from '../../stores/revealMenu';
@@ -28,7 +29,7 @@ async function fileToAttachment(file: File): Promise<ChatImageInput | null> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error('読み込み失敗'));
+    reader.onerror = () => reject(new Error(tt('chat.readFailed')));
     reader.readAsDataURL(file);
   });
   const comma = dataUrl.indexOf(',');
@@ -37,6 +38,7 @@ async function fileToAttachment(file: File): Promise<ChatImageInput | null> {
 }
 
 function ToolCard({ msg }: { msg: Extract<UiMessage, { role: 'tool' }> }): JSX.Element {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const openPreview = usePreviewStore((s) => s.open);
   const path = pathFromInputPreview(msg.inputPreview);
@@ -61,13 +63,13 @@ function ToolCard({ msg }: { msg: Extract<UiMessage, { role: 'tool' }> }): JSX.E
           {msg.running && (
             <span className="flex items-center gap-1 text-zinc-400">
               <span className="anim-spin">◌</span>
-              <span className="anim-pulse">実行中</span>
+              <span className="anim-pulse">{t('chat.running')}</span>
               {msg.startedAt !== undefined && (
                 <span className="font-mono text-zinc-500">{formatElapsed(now - msg.startedAt)}</span>
               )}
               {silentSec >= 30 && (
-                <span className="text-amber-300" title="出力が途絶えているが実行は継続中(killしない)">
-                  ⏳無応答{silentSec}s
+                <span className="text-amber-300" title={t('chat.silentTitle')}>
+                  {t('chat.silent', { n: silentSec })}
                 </span>
               )}
             </span>
@@ -83,7 +85,7 @@ function ToolCard({ msg }: { msg: Extract<UiMessage, { role: 'tool' }> }): JSX.E
         {path && (
           <button
             className="mt-0.5 block truncate font-mono text-[11px] text-blue-300 underline decoration-dotted hover:text-blue-200"
-            title={`${path} をプレビュー(右クリック: フォルダで開く)`}
+            title={t('chat.previewTitle', { path })}
             onClick={() => void openPreview(path)}
             onContextMenu={revealContextMenuHandler(path)}
           >
@@ -96,7 +98,7 @@ function ToolCard({ msg }: { msg: Extract<UiMessage, { role: 'tool' }> }): JSX.E
               <img
                 key={i}
                 src={src}
-                alt="ツール結果画像"
+                alt={t('chat.toolResultImage')}
                 className="max-h-48 max-w-[320px] rounded border border-zinc-700 object-contain"
               />
             ))}
@@ -114,11 +116,16 @@ function ToolCard({ msg }: { msg: Extract<UiMessage, { role: 'tool' }> }): JSX.E
 
 /** M21-4: 受領指示の直下に出す「現在の状況」ライン(スピナー+経過+最新思考のライブ表示) */
 function LiveStatusLine(): JSX.Element {
+  const t = useT();
   const { status, narration, runStartedAt, messages } = useChatStore();
   const now = useNowTick(true);
   const runningTool = [...messages].reverse().find((m) => m.role === 'tool' && m.running);
   const label =
-    status === 'calling_llm' ? 'モデル応答中' : status === 'executing_tool' ? 'ツール実行中' : '実行中';
+    status === 'calling_llm'
+      ? t('chat.statusCallingLlm')
+      : status === 'executing_tool'
+        ? t('chat.statusExecutingTool')
+        : t('chat.running');
   // 思考の末尾1行だけ(改行を潰して詰める)
   const tail = narration.replace(/\s+/g, ' ').trim().slice(-120);
   return (
@@ -134,7 +141,7 @@ function LiveStatusLine(): JSX.Element {
         )}
         {tail !== '' && (
           <div className="mt-0.5 text-zinc-500">
-            <span className="text-zinc-600">現在の状況: </span>
+            <span className="text-zinc-600">{t('chat.currentStatus')}</span>
             {tail}
           </div>
         )}
@@ -145,6 +152,7 @@ function LiveStatusLine(): JSX.Element {
 
 /** M21-4: 入力欄上の常時ステータス(スクロール位置に関係なく生存が見える)。M23: 実行中モデルも表示 */
 function BottomStatus({ status }: { status: string }): JSX.Element {
+  const t = useT();
   const runStartedAt = useChatStore((s) => s.runStartedAt);
   const activeSessionId = useChatStore((s) => s.activeSessionId);
   const runModel = useRunsStore((s) => s.runs.find((r) => r.sessionId === activeSessionId)?.model);
@@ -152,7 +160,8 @@ function BottomStatus({ status }: { status: string }): JSX.Element {
   return (
     <p className="mb-1 flex items-center gap-1.5 text-xs text-zinc-500">
       <span className="anim-spin text-blue-300">◌</span>
-      状態: {status === 'calling_llm' ? 'モデル応答中' : status === 'executing_tool' ? 'ツール実行中' : status}
+      {t('chat.statusLabel')}
+      {status === 'calling_llm' ? t('chat.statusCallingLlm') : status === 'executing_tool' ? t('chat.statusExecutingTool') : status}
       {runStartedAt !== null && <span className="font-mono">{formatElapsed(now - runStartedAt)}</span>}
       {runModel !== undefined && <span className="font-mono text-zinc-600">{runModel}</span>}
     </p>
@@ -160,6 +169,7 @@ function BottomStatus({ status }: { status: string }): JSX.Element {
 }
 
 export function ChatView(): JSX.Element {
+  const t = useT();
   const { messages, status, activeSessionId, send, cancel } = useChatStore();
   const [input, setInput] = useState('');
   const [planMode, setPlanMode] = useState(false);
@@ -227,17 +237,15 @@ export function ChatView(): JSX.Element {
     <div className="flex min-h-0 flex-1 flex-col">
       {autonomous && (
         <div className="auto-warn-bar flex items-center justify-center gap-3 border-b px-4 py-1.5 text-xs">
-          <span>🔓 自律モード有効 — ツールを承認なしで自動実行中(自己責任)</span>
+          <span>{t('chat.autonomousOn')}</span>
           <button className="auto-warn-off rounded px-2 py-0.5" onClick={() => void window.api.autonomousSet(false)}>
-            OFFにする
+            {t('chat.autonomousOff')}
           </button>
         </div>
       )}
       <div className="flex-1 space-y-2 overflow-y-auto px-4 py-3">
         {messages.length === 0 && (
-          <p className="mt-16 text-center text-sm text-zinc-500">
-            指示を入力するとエージェントが作業を開始します(APIキーは設定パネルから登録)
-          </p>
+          <p className="mt-16 text-center text-sm text-zinc-500">{t('chat.emptyHint')}</p>
         )}
         {messages.map((m, i) => {
           // M21-4: 受領した指示(最後のuserメッセージ)の直下に「現在の状況」ラインを挟む
@@ -273,7 +281,7 @@ export function ChatView(): JSX.Element {
                       <img
                         key={i}
                         src={src}
-                        alt="添付画像"
+                        alt={t('chat.attachedImage')}
                         className="max-h-40 max-w-[240px] rounded border border-blue-400/40 object-contain"
                       />
                     ))}
@@ -281,14 +289,14 @@ export function ChatView(): JSX.Element {
                 )}
                 {/* M21-1: 実行中に積まれた追加指示のバッジ */}
                 {m.role === 'user' && m.queued && (
-                  <div className="mb-0.5 text-[10px] text-blue-200/80">↩ 追加指示(次のターンで反映)</div>
+                  <div className="mb-0.5 text-[10px] text-blue-200/80">{t('chat.queuedInstruction')}</div>
                 )}
                 {/* M18/M23: メイン応答が使うモデルを明示(policy有効ならplanner帯)。
                     M30-2: クリックでモデル設定を開く(policy有効=モデル運用タブ/無効=基本タブ) */}
                 {m.role === 'assistant' && mainModel !== '' && (
                   <button
                     className="mb-0.5 block text-[9px] tracking-wider text-zinc-500 hover:text-zinc-300 hover:underline"
-                    title={policyOn ? 'クリックでモデル運用(帯設定)を開く' : 'クリックでモデル設定を開く'}
+                    title={policyOn ? t('chat.openModelPolicy') : t('chat.openModelSettings')}
                     onClick={() =>
                       window.dispatchEvent(
                         new CustomEvent('amateras:open-settings', {
@@ -312,7 +320,7 @@ export function ChatView(): JSX.Element {
                       )
                     }
                   >
-                    ⚙ 設定を開く({m.settingsHint === 'models' ? 'モデル運用' : '基本'}タブ)
+                    {t('chat.openSettingsTab', { tab: m.settingsHint === 'models' ? t('chat.tabModels') : t('chat.tabBasic') })}
                   </button>
                 )}
                 {m.streaming && <span className="anim-pulse ml-1">▍</span>}
@@ -335,9 +343,9 @@ export function ChatView(): JSX.Element {
         <div className="mb-2 flex items-center gap-3 text-xs">
           <label className="flex items-center gap-1 text-zinc-400">
             <input type="checkbox" checked={planMode} onChange={(e) => setPlanMode(e.target.checked)} />
-            プランモード(実装前に計画のみ提示・ツール不実行)
+            {t('chat.planMode')}
           </label>
-          <span className="text-zinc-600">画像はドラッグ&ドロップ / ペーストで添付</span>
+          <span className="text-zinc-600">{t('chat.dropHint')}</span>
         </div>
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
@@ -345,7 +353,7 @@ export function ChatView(): JSX.Element {
               <div key={i} className="relative">
                 <img
                   src={`data:${a.mediaType};base64,${a.data}`}
-                  alt={a.description ?? '添付画像'}
+                  alt={a.description ?? t('chat.attachedImage')}
                   className="h-16 w-16 rounded border border-zinc-700 object-cover"
                 />
                 <button
@@ -367,7 +375,7 @@ export function ChatView(): JSX.Element {
                 ? 'border-amber-500 bg-amber-900/50 text-amber-200 hover:bg-amber-800'
                 : 'border-zinc-600 text-zinc-400 hover:bg-zinc-800')
             }
-            title={autonomous ? '自律モードをOFFにする' : '自律モード(承認なし自動実行)をONにする'}
+            title={autonomous ? t('chat.autonomousTurnOff') : t('chat.autonomousTurnOn')}
             onClick={() => {
               if (autonomous) void window.api.autonomousSet(false);
               else setAutoModal(true);
@@ -382,11 +390,7 @@ export function ChatView(): JSX.Element {
                 (busy ? 'pr-12' : 'pr-3')
               }
               rows={2}
-              placeholder={
-                busy
-                  ? '追加の指示を入力(実行中でも送れる・次のターンで反映)'
-                  : '指示を入力(Enterで送信 / Shift+Enterで改行)'
-              }
+              placeholder={busy ? t('chat.placeholderBusy') : t('chat.placeholder')}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -409,7 +413,7 @@ export function ChatView(): JSX.Element {
             {busy && (
               <button
                 className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-black hover:opacity-80"
-                title="停止"
+                title={t('chat.stop')}
                 onClick={cancel}
               >
                 <span className="block h-3 w-3 rounded-[2px] bg-white" aria-hidden />

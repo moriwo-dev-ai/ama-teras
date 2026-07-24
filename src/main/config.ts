@@ -441,6 +441,10 @@ export class ConfigStore {
       if (typeof rec['customBaseUrl'] === 'string' && /^https?:\/\//.test(rec['customBaseUrl'])) {
         merged.customBaseUrl = rec['customBaseUrl'];
       }
+      // M100-1: UI言語。不正値は未設定(=auto)へフォールバック
+      if (rec['uiLanguage'] === 'auto' || rec['uiLanguage'] === 'ja' || rec['uiLanguage'] === 'en') {
+        merged.uiLanguage = rec['uiLanguage'];
+      }
       const remote = rec['remote'];
       if (typeof remote === 'object' && remote !== null && merged.remote) {
         const r = remote as Record<string, unknown>;
@@ -546,6 +550,13 @@ export class ConfigStore {
     // M35-5: カスタムbaseURLの正規化(不正形式・空は未設定へ。末尾スラッシュはprovider側で処理)
     if (clone.customBaseUrl !== undefined && !/^https?:\/\//.test(clone.customBaseUrl)) {
       delete clone.customBaseUrl;
+    }
+    // M100-1: UI言語の正規化(不正値は未設定=autoへ)
+    if (
+      clone.uiLanguage !== undefined &&
+      clone.uiLanguage !== 'auto' && clone.uiLanguage !== 'ja' && clone.uiLanguage !== 'en'
+    ) {
+      delete clone.uiLanguage;
     }
     this.config = clone;
     mkdirSync(dirname(this.filePath), { recursive: true });

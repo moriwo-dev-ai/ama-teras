@@ -15,6 +15,7 @@ import {
   isLocalBaseUrl,
 } from '../../../../shared/models';
 import { applyCustomThemeJson, clearCustomTheme, storedCustomThemeJson } from '../../lib/customTheme';
+import { resolveLang, useI18nStore, useT } from '../../i18n';
 
 const CUSTOM = '__custom__';
 
@@ -43,6 +44,7 @@ export function BasicSection({
   /** M30-2: モデル運用タブへの導線(ModelPolicy有効時の注意表示から使う) */
   onOpenModels: () => void;
 }): JSX.Element {
+  const t = useT();
   const [apiKey, setApiKey] = useState('');
   // fullPc 有効化は影響が大きいため確認モーダルを挟む(M9-4)
   const [confirmFullPc, setConfirmFullPc] = useState(false);
@@ -378,6 +380,25 @@ export function BasicSection({
             {testResult.message}
           </p>
         )}
+      </div>
+
+      {/* M100-1: UI言語(auto=OSロケール)。切替は即時反映(i18nストアも同時更新) */}
+      <div className="space-y-1">
+        <label className="text-xs text-zinc-400">{t('settings.language')}</label>
+        <select
+          className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 text-sm"
+          value={config.uiLanguage ?? 'auto'}
+          onChange={(e) => {
+            const v = e.target.value === 'ja' || e.target.value === 'en' ? e.target.value : 'auto';
+            useI18nStore.getState().setLang(resolveLang(v, navigator.language));
+            void updateConfig({ uiLanguage: v });
+          }}
+        >
+          <option value="auto">{t('settings.languageAuto')}</option>
+          <option value="ja">日本語</option>
+          <option value="en">English</option>
+        </select>
+        <p className="text-[11px] text-zinc-500">{t('settings.languageHint')}</p>
       </div>
 
       <div className="space-y-1">

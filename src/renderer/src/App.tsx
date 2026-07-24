@@ -14,6 +14,7 @@ import { speak } from './components/Tsukuyomi/speak';
 import { WatchIndicator } from './components/Tsukuyomi/WatchIndicator';
 import { useTsukuyomiStore } from './stores/tsukuyomi';
 import { SettingsPanel } from './components/Settings/SettingsPanel';
+import { resolveLang, useI18nStore, useT } from './i18n';
 import { useApprovalStore } from './stores/approval';
 import { useChatStore } from './stores/chat';
 import { useOpsThreadStore } from './stores/opsThread';
@@ -25,6 +26,14 @@ import { useRunsStore } from './stores/runs';
 import { useSubAgentStore } from './stores/subagents';
 
 export default function App(): JSX.Element {
+  const t = useT();
+  // M100-1: 起動時に設定からUI言語を反映(auto=OSロケール)。設定画面の切替は即時反映される
+  useEffect(() => {
+    window.api
+      .settingsGet()
+      .then((cfg) => useI18nStore.getState().setLang(resolveLang(cfg.uiLanguage, navigator.language)))
+      .catch(() => {});
+  }, []);
   const handleChatEvent = useChatStore((s) => s.handleEvent);
   const enqueueApproval = useApprovalStore((s) => s.enqueue);
   const resolveApprovalExternally = useApprovalStore((s) => s.resolveExternally);
@@ -139,8 +148,8 @@ export default function App(): JSX.Element {
       {flags?.safeMode && (
         <div className="flex items-center justify-center gap-3 border-b border-red-700 bg-red-950 px-4 py-1.5 text-xs text-red-200">
           <span>
-            ⚠ セーフモード: 進化 {flags.safeModeInfo?.tag} の再起動が連続失敗したため進化機能を停止中。
-            復旧: <code className="rounded bg-zinc-900 px-1">git reset --hard {flags.safeModeInfo?.prevCommit.slice(0, 8)} && npm run build</code>
+            {t('app.safeMode', { tag: flags.safeModeInfo?.tag ?? '?' })}{' '}
+            <code className="rounded bg-zinc-900 px-1">git reset --hard {flags.safeModeInfo?.prevCommit.slice(0, 8)} && npm run build</code>
           </span>
           <button
             className="rounded border border-red-600 px-2 py-0.5 text-red-100 hover:bg-red-900"
@@ -148,13 +157,13 @@ export default function App(): JSX.Element {
               void window.api.safeModeClear().then(() => setFlags((f) => (f ? { ...f, safeMode: false } : f)));
             }}
           >
-            解除(要再起動)
+            {t('app.safeModeClear')}
           </button>
         </div>
       )}
       {flags?.restartedFrom && !restartNoticeClosed && (
         <div className="flex items-center justify-center gap-3 border-b border-emerald-800 bg-emerald-950/70 px-4 py-1 text-xs text-emerald-200">
-          <span>✅ 進化 {flags.restartedFrom} の再起動が完了しました(新しいコードで稼働中)</span>
+          <span>{t('app.restarted', { tag: flags.restartedFrom })}</span>
           <button className="text-emerald-300 hover:text-emerald-100" onClick={() => setRestartNoticeClosed(true)}>
             ✕
           </button>
@@ -163,24 +172,24 @@ export default function App(): JSX.Element {
       <header className="flex items-center gap-2 border-b border-zinc-700 px-4 py-2">
         <button
           className="rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800"
-          title="左ペイン(Ctrl+B)"
+          title={t('app.leftPane')}
           onClick={left.toggle}
         >
           ☰
         </button>
         <h1 className="text-sm font-semibold tracking-wide text-rose-700">AMA-teras</h1>
-        <span className="text-xs text-zinc-400">自己進化型AIエージェント</span>
+        <span className="text-xs text-zinc-400">{t('app.tagline')}</span>
         <div className="ml-auto flex gap-2">
           <button
             className="rounded border border-zinc-600 px-2 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800"
-            title="設定を開く(プロバイダ・APIキー・スコープ等)"
+            title={t('app.settingsTitle')}
             onClick={() => setShowSettings(true)}
           >
-            設定
+            {t('app.settings')}
           </button>
           <button
             className="rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800"
-            title="右ペイン(Ctrl+J)"
+            title={t('app.rightPane')}
             onClick={right.toggle}
           >
             ◨

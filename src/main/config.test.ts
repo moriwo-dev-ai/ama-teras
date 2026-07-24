@@ -509,3 +509,28 @@ describe('M43-1: operations.projectUrl(発信の {URL} 解決先)が保存で消
     expect(new ConfigStore(file).get().operations?.projectUrl).toBeUndefined();
   });
 });
+
+describe('M100-1: uiLanguage(UI表示言語)の保存と正規化', () => {
+  const base: AppConfig = {
+    autoApprove: { safe: true, write: false, exec: false },
+    provider: 'anthropic',
+    model: '',
+    scopeMode: 'project',
+  };
+
+  it('ja/en/auto は保存・再読込で保持される', () => {
+    const store = new ConfigStore(file);
+    store.set({ ...base, uiLanguage: 'en' });
+    expect(new ConfigStore(file).get().uiLanguage).toBe('en');
+    store.set({ ...base, uiLanguage: 'auto' });
+    expect(new ConfigStore(file).get().uiLanguage).toBe('auto');
+  });
+
+  it('不正値は未設定(=auto扱い)へ落とす。未設定の既定も undefined', () => {
+    const store = new ConfigStore(file);
+    // set() 経由の不正値(型を偽装してIPC経由の異常系を再現)
+    store.set({ ...base, uiLanguage: 'fr' as unknown as 'en' });
+    expect(new ConfigStore(file).get().uiLanguage).toBeUndefined();
+    expect(new ConfigStore(file).get().uiLanguage).toBeUndefined();
+  });
+});

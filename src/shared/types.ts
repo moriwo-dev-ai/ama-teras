@@ -388,6 +388,11 @@ export interface AppConfig {
    * http(s)のみ。localhost系はキー不要(ダミーキーで接続)
    */
   customBaseUrl?: string;
+  /**
+   * M100-1: UI表示言語。'auto'(既定)=OSロケールがja*なら日本語、それ以外は英語。
+   * 英語圏からの流入(dev.to等)が日本語UIで離脱する問題への段階対応(まず主要画面から)
+   */
+  uiLanguage?: 'auto' | 'ja' | 'en';
 }
 
 // ---- M32: Project TAKAMA-gahara(運営) ----
