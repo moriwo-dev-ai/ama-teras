@@ -1,5 +1,26 @@
 # PROGRESS
 
+## M101: SKILL.md互換スキル機構(2026-07-25 完了)— 「みんなが欲しがる機能」枠
+
+ユーザー依頼「Claude Code/Codex圏の人気スキル上位20をツール化」への回答。個別ハードコードでなく
+**オープン標準の消費側対応**として実装(1000本超の既存エコシステム資産がそのまま使える)。
+
+- `skill_list` / `skill_use` プラグイン: 同梱 `resources/skills/` + `userData/skills/` の
+  `<name>/SKILL.md` を読む。frontmatter(name/description)のみ一覧に出し、本文は使う瞬間に
+  ロード(progressive disclosure)。同名はプラグインローダと同じく**同梱が勝つ**(乗っ取り防止)
+- name は `^[a-z0-9][a-z0-9_-]{0,63}$`(大文字も可)のみ=パストラバーサルは形式チェックで遮断
+- 同梱20本(上位人気スキルの能力を**全てオリジナル執筆**。他リポジトリの文面コピーなし):
+  tdd-workflow / plan-interview / planning-with-files / commit-craft / concise-mode /
+  frontend-design / theme-factory / react-best-practices / webapp-testing / playwright-e2e /
+  skill-creator / docs-to-skill / mcp-builder / session-memory / docs-lookup / security-review /
+  pdf-extract / docx-basics / xlsx-basics / pptx-basics
+- 配布: electron-builder extraResources に `resources/skills` を追加(プラグインは
+  process.resourcesPath / process.cwd()/resources の両対応)
+- テスト8本(20本の存在・frontmatter形式・一覧・本文・トラバーサル拒否・ユーザースキル・
+  同名乗っ取り防止・同梱ファイル一覧)。README(ja/en)に「SKILL.md互換」節
+- 残: M99-18エクスポートとの相互リンク(エクスポート物をそのまま skills へ入れる導線)、
+  スキル本文の充実(実測ベースの追記)
+
 ## M100: UI英語化(段階導入)— 英語圏流入の変換率対策
 
 動機: dev.to記事・awesome PR等の英語圏導線から来た人が日本語UIで離脱する(成長ループ分析)。

@@ -60,6 +60,19 @@ Assign the right model to each role, and spend your top-tier model only where it
 A quality review gate (severity-based) scores every milestone and automatically sends
 work back when high-severity findings remain.
 
+### 📚 SKILL.md compatible (open standard, both directions)
+
+AMA-teras speaks the **SKILL.md** standard adopted by 30+ agents (Claude Code, Codex, Cursor, …) —
+as a consumer and as a producer.
+
+- **Use**: the `skill_list` / `skill_use` tools load 20 bundled skills plus any SKILL.md folder
+  you drop into `userData/skills/` — loaded only at the moment they're needed, so existing
+  community skills work as-is
+- **20 bundled skills**: TDD discipline, frontend design, security review, Playwright E2E,
+  pdf/docx/xlsx/pptx handling and more — original write-ups of the ecosystem's essentials
+- **Produce**: tools that pass the verification gates export as `SKILL.md + run.mjs + evidence`,
+  runnable by other agents out of the box (AMA-teras as a tool factory)
+
 ### 🆓 Free API mode
 
 Try it without a credit card. From Settings → "Start for free", connect a free-tier API key
