@@ -14,6 +14,9 @@ extraResources:
     filter:
       - '**/*.ts'
       - '!**/*.test.ts'
+  # M101: 同梱スキル(SKILL.mdオープン標準)。skill_list / skill_use が読む
+  - from: resources/skills
+    to: skills
   # M91: プラグイン単位の型検査ゲート(tools/verify.ts)が読む ToolPlugin の型。
   # プラグインの `../types` → その先の `../../shared/types` が解決できるよう、
   # リポジトリと同じ相対配置(main/tools/types.ts, shared/types.ts)で置く
