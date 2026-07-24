@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { ja, type MessageKey } from './ja';
 import { en } from './en';
 
+export type { MessageKey } from './ja';
+
 /**
  * M100-1: UI表示言語の最小i18n。
  * - 既定は 'auto'(OSロケールがja*なら日本語、それ以外は英語)

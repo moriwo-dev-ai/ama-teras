@@ -1,23 +1,24 @@
 import { useEffect, useState } from 'react';
 import { isPublishableJob } from '../../../../shared/evolutionStatus';
 import type { EvolutionJobStatus, EvolutionScope, ProvisionalInstall } from '../../../../shared/types';
+import { useT, type MessageKey } from '../../i18n';
 import { useEvolutionStore } from '../../stores/evolution';
 import { PublishPluginDialog, usePublishPlugin } from '../Registry/PublishPlugin';
 import { RequestsSection } from '../Registry/RequestsSection';
 import { ArchiveModal, ArchiveToggle, useArchive } from '../common/ArchiveModal';
 
-const STATUS_LABEL: Record<EvolutionJobStatus, { text: string; cls: string }> = {
-  queued: { text: '待機中', cls: 'text-zinc-400' },
-  preparing_worktree: { text: 'B環境準備中', cls: 'text-blue-300' },
-  generating: { text: '生成中', cls: 'text-blue-300' },
-  verifying: { text: '検証中', cls: 'text-amber-300' },
-  awaiting_promotion: { text: '昇格承認待ち', cls: 'text-amber-300' },
-  promoting: { text: '昇格中', cls: 'text-blue-300' },
-  done: { text: '完了', cls: 'text-green-400' },
-  failed: { text: '失敗', cls: 'text-red-400' },
-  rejected: { text: '却下', cls: 'text-zinc-400' },
-  cancelled: { text: 'キャンセル済み', cls: 'text-zinc-400' },
-  rolled_back: { text: 'ロールバック済み', cls: 'text-red-400' },
+const STATUS_LABEL: Record<EvolutionJobStatus, { key: MessageKey; cls: string }> = {
+  queued: { key: 'evo.statusQueued', cls: 'text-zinc-400' },
+  preparing_worktree: { key: 'evo.statusPreparing', cls: 'text-blue-300' },
+  generating: { key: 'evo.statusGenerating', cls: 'text-blue-300' },
+  verifying: { key: 'evo.statusVerifying', cls: 'text-amber-300' },
+  awaiting_promotion: { key: 'evo.statusAwaiting', cls: 'text-amber-300' },
+  promoting: { key: 'evo.statusPromoting', cls: 'text-blue-300' },
+  done: { key: 'evo.statusDone', cls: 'text-green-400' },
+  failed: { key: 'evo.statusFailed', cls: 'text-red-400' },
+  rejected: { key: 'evo.statusRejected', cls: 'text-zinc-400' },
+  cancelled: { key: 'evo.statusCancelled', cls: 'text-zinc-400' },
+  rolled_back: { key: 'evo.statusRolledBack', cls: 'text-red-400' },
 };
 
 /** M26-6: キャンセル可能な状態(昇格待ち以降は昇格ダイアログの「却下」が担当) */
@@ -61,6 +62,7 @@ function ScopeBadge({ scope }: { scope?: EvolutionScope }): JSX.Element {
 }
 
 export function EvolutionPanel(): JSX.Element {
+  const t = useT();
   const { jobs, loadJobs } = useEvolutionStore();
   // M97: 終わったジョブは畳む。現役(実行中・承認待ち)だけを常時表示する
   const jobArchive = useArchive();
@@ -153,31 +155,28 @@ export function EvolutionPanel(): JSX.Element {
           作れないのは本体(core/renderer)だけ — それは全員が同じコアを使うための設計 */}
       {packaged && (
         <div className="rounded border border-sky-800 bg-sky-950/60 p-2 text-xs text-sky-200">
-          ℹ 配布版では <b>ツール(プラグイン)の生成・導入</b> ができます(型検査・テスト実行・
-          スモークを実際に回してから、全文確認と承認を経て導入)。
-          <b>本体(core/renderer)の書き換えは開発版のみ</b>です — 全員が同じコア/UIを使う設計のため。
-          本体への要望は「要望を送る」からIssueとして提出できます
+          {t('evo.packagedNotice')}
         </div>
       )}
       {/* M29-3: 狭幅では折り返す(flex-wrap)。ボタン文字の縦書き化・横スクロールを防ぐ */}
       <div className="flex flex-wrap items-center gap-2">
-        <span className="shrink-0 whitespace-nowrap text-xs font-semibold text-zinc-400">進化ジョブ</span>
+        <span className="shrink-0 whitespace-nowrap text-xs font-semibold text-zinc-400">{t('evo.jobsHeading')}</span>
         <input
           className="min-w-[10rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
-          placeholder="必要な能力/変更の説明(手動起動・デバッグ用)"
+          placeholder={t('evo.descPlaceholder')}
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
         />
         <input
           className="min-w-[8rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
-          placeholder="期待する入出力/挙動"
+          placeholder={t('evo.ioPlaceholder')}
           value={io}
           onChange={(e) => setIo(e.target.value)}
         />
         <select
           className="shrink-0 rounded border border-zinc-600 bg-zinc-800 px-1 py-1 text-xs"
           value={scope}
-          title="進化スコープ(renderer/coreは常に人間承認+再起動)"
+          title={t('evo.scopeTitle')}
           onChange={(e) => setScope(e.target.value as EvolutionScope)}
         >
           <option value="tool">tool</option>
@@ -192,20 +191,20 @@ export function EvolutionPanel(): JSX.Element {
         <button
           className="shrink-0 whitespace-nowrap rounded bg-purple-700 px-3 py-1 text-xs hover:bg-purple-600 disabled:opacity-40"
           disabled={!desc.trim() || (packaged && scope !== 'tool')}
-          title={packaged && scope !== 'tool' ? '配布版では本体(core/renderer)の書き換えはできません' : ''}
+          title={packaged && scope !== 'tool' ? t('evo.enqueueDisabledPackaged') : ''}
           onClick={() => {
-            void window.api.evolutionEnqueue(desc, io || '(指定なし)', scope);
+            void window.api.evolutionEnqueue(desc, io || t('evo.ioUnspecified'), scope);
             setDesc('');
             setIo('');
           }}
         >
-          ジョブ起動
+          {t('evo.enqueue')}
         </button>
         {/* M27-4: 共有プラグインのインポート(検査→検証ゲート→承認→導入) */}
         <button
           className="shrink-0 whitespace-nowrap rounded bg-emerald-800 px-3 py-1 text-xs hover:bg-emerald-700 disabled:opacity-40"
           disabled={importing}
-          title="コミュニティ/エクスポート済みプラグインのフォルダを選んで導入する(検査と承認を必ず通る)"
+          title={t('evo.importTitle')}
           onClick={() => {
             setImporting(true);
             setImportMsg('');
@@ -219,13 +218,13 @@ export function EvolutionPanel(): JSX.Element {
               .finally(() => setImporting(false));
           }}
         >
-          📦 インポート
+          {t('evo.import')}
         </button>
       </div>
       {importMsg !== '' && (
         <p className="whitespace-pre-wrap text-xs text-zinc-300">{importMsg}</p>
       )}
-      {jobs.length === 0 && <p className="text-xs text-zinc-500">ジョブはまだない</p>}
+      {jobs.length === 0 && <p className="text-xs text-zinc-500">{t('evo.noJobs')}</p>}
       <div className="max-h-56 space-y-1 overflow-y-auto">
         {activeJobs.map((j) => (
           <div key={j.id} className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs">
@@ -237,17 +236,17 @@ export function EvolutionPanel(): JSX.Element {
               {j.toolName && <span className="shrink-0 font-mono text-blue-300">{j.toolName}</span>}
               {/* M20: 聖域トリップワイヤによる拒否は明示的に表示 */}
               {j.protectedReject === true && (
-                <span className="shrink-0 whitespace-nowrap rounded bg-red-900/70 px-1 text-[10px] text-red-300">🛡 保護領域のため拒否</span>
+                <span className="shrink-0 whitespace-nowrap rounded bg-red-900/70 px-1 text-[10px] text-red-300">{t('evo.protectedReject')}</span>
               )}
-              <span className={`shrink-0 whitespace-nowrap ${STATUS_LABEL[j.status].cls}`}>{STATUS_LABEL[j.status].text}</span>
+              <span className={`shrink-0 whitespace-nowrap ${STATUS_LABEL[j.status].cls}`}>{t(STATUS_LABEL[j.status].key)}</span>
               {/* M26-6: 実行中/待機中ジョブのキャンセル */}
               {CANCELLABLE.includes(j.status) && (
                 <button
                   className="shrink-0 whitespace-nowrap rounded border border-red-800 px-1.5 py-0.5 text-[10px] text-red-300 hover:bg-red-950"
-                  title="このジョブをキャンセルする(待機中=キューから除去/実行中=中断)"
+                  title={t('evo.cancelTitle')}
                   onClick={() => void window.api.evolutionCancel(j.id)}
                 >
-                  ✕ キャンセル
+                  {t('evo.cancel')}
                 </button>
               )}
               {/* M91-2: 検証を通って導入された直後が、公開するか決める自然な瞬間。
@@ -261,17 +260,17 @@ export function EvolutionPanel(): JSX.Element {
                     href={publish.published[j.toolName]!.url}
                     target="_blank"
                     rel="noreferrer"
-                    title="このツールは公開済み。クリックで提出したPRを開く"
+                    title={t('evo.publishedTitle')}
                   >
-                    ✓ 公開済み ↗
+                    {t('evo.published')}
                   </a>
                 ) : (
                   <button
                     className="shrink-0 whitespace-nowrap rounded border border-amber-800 px-1.5 py-0.5 text-[10px] text-amber-300 hover:bg-amber-950"
-                    title="このツールをレジストリへ公開する(送信前に全文を確認・承認します)"
+                    title={t('evo.publishTitle')}
                     onClick={() => publish.open(j.toolName!)}
                   >
-                    ⛩ 公開しますか？
+                    {t('evo.publishAsk')}
                   </button>
                 ))}
               <button
@@ -283,7 +282,7 @@ export function EvolutionPanel(): JSX.Element {
             </div>
             {openLog === j.id && (
               <div className="mt-1 space-y-1 border-t border-zinc-700 pt-1 text-zinc-400">
-                {j.error && <p className="text-red-400">エラー: {j.error}</p>}
+                {j.error && <p className="text-red-400">{t('evo.errorLabel')}{j.error}</p>}
                 {j.gates.map((g) => (
                   <p key={g.name}>
                     {g.ok ? '✓' : '✗'} {g.name}: {g.detail.slice(0, 300)}
@@ -298,22 +297,19 @@ export function EvolutionPanel(): JSX.Element {
         ))}
       </div>
       {/* M97: 終わったジョブは畳んで格納。クリックで一覧モーダル(現役の項目を埋もれさせない) */}
-      <ArchiveToggle label="完了済みジョブ" count={doneJobs.length} onOpen={jobArchive.show} />
+      <ArchiveToggle label={t('evo.doneJobs')} count={doneJobs.length} onOpen={jobArchive.show} />
       {jobArchive.open && (
-        <ArchiveModal title="🧬 完了済みの進化ジョブ" count={doneJobs.length} onClose={jobArchive.hide}>
+        <ArchiveModal title={t('evo.doneJobsTitle')} count={doneJobs.length} onClose={jobArchive.hide}>
           {/* M98: 未公開ツールの一括公開。1つずつ開くのは現実的でないので、順に下見→承認へ回す */}
           {unpublishedTools.length > 0 && (
             <div className="mb-2 flex flex-wrap items-center gap-2 rounded border border-amber-900 bg-amber-950/30 px-2 py-1.5">
               <span className="text-[11px] text-amber-200">
-                未公開のツールが {unpublishedTools.length} 件あります
+                {t('evo.unpublishedCount', { n: unpublishedTools.length })}
               </span>
               <button
                 className="rounded border border-amber-700 px-2 py-0.5 text-[10px] text-amber-200 hover:bg-amber-900 disabled:opacity-40"
                 disabled={publish.busy}
-                title={
-                  '未公開のツールを1件ずつ順に処理します。証跡が無いものは自動で再検証(型検査・テスト・スモーク)し、' +
-                  '合格したら公開の確認画面を出します。送信は毎回あなたの承認が必要です'
-                }
+                title={t('evo.publishManyTitle')}
                 onClick={() => {
                   jobArchive.hide();
                   // M99-6: 全件をキューに積む。送るたびに次の下見が自動で開く
@@ -321,11 +317,9 @@ export function EvolutionPanel(): JSX.Element {
                   publish.openMany(unpublishedTools);
                 }}
               >
-                ⛩ まとめて公開({unpublishedTools.length}件)
+                {t('evo.publishMany', { n: unpublishedTools.length })}
               </button>
-              <span className="text-[10px] text-zinc-400">
-                1件ずつ全文を確認して承認します(承認するたびに次が開く)
-              </span>
+              <span className="text-[10px] text-zinc-400">{t('evo.publishManyNote')}</span>
             </div>
           )}
           {doneJobs.map((j) => (
@@ -345,23 +339,23 @@ export function EvolutionPanel(): JSX.Element {
                       href={publish.published[j.toolName]!.url}
                       target="_blank"
                       rel="noreferrer"
-                      title="このツールは公開済み。クリックで提出したPRを開く"
+                      title={t('evo.publishedTitle')}
                     >
-                      ✓ 公開済み ↗
+                      {t('evo.published')}
                     </a>
                   ) : (
                     <button
                       className="shrink-0 whitespace-nowrap rounded border border-amber-800 px-1.5 py-0.5 text-[10px] text-amber-300 hover:bg-amber-950"
-                      title="このツールをレジストリへ公開する(送信前に全文を確認・承認します)"
+                      title={t('evo.publishTitle')}
                       onClick={() => {
                         jobArchive.hide(); // 公開ダイアログはモーダルの外に出るので閉じる
                         publish.open(j.toolName!);
                       }}
                     >
-                      ⛩ 公開
+                      {t('evo.publish')}
                     </button>
                   ))}
-                <span className={`shrink-0 ${STATUS_LABEL[j.status].cls}`}>{STATUS_LABEL[j.status].text}</span>
+                <span className={`shrink-0 ${STATUS_LABEL[j.status].cls}`}>{t(STATUS_LABEL[j.status].key)}</span>
               </div>
               {j.error !== undefined && j.error !== '' && (
                 <p className="mt-0.5 truncate text-[11px] text-red-400" title={j.error}>
@@ -377,20 +371,20 @@ export function EvolutionPanel(): JSX.Element {
           ダイアログの「やめる」は全体中断なので、1件だけ諦める操作はここにしか無い */}
       {publish.queueLen > 0 && (
         <div className="flex items-center gap-2 rounded border border-amber-900 bg-amber-950/30 px-2 py-1">
-          <span className="text-[11px] text-amber-200">⛩ 一括公開 進行中 — この後 {publish.queueLen} 件続く</span>
+          <span className="text-[11px] text-amber-200">{t('evo.bulkProgress', { n: publish.queueLen })}</span>
           <button
             className="rounded border border-amber-800 px-1.5 py-0.5 text-[10px] text-amber-200 hover:bg-amber-900"
             disabled={publish.busy}
-            title="いま止まっている1件を諦めて次のツールへ(諦めた分はあとで個別に公開できます)"
+            title={t('evo.skipNextTitle')}
             onClick={publish.skip}
           >
-            ⏭ 飛ばして次へ
+            {t('evo.skipNext')}
           </button>
           <button
             className="rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-800"
             onClick={publish.close}
           >
-            取りやめ
+            {t('evo.abort')}
           </button>
         </div>
       )}
@@ -399,15 +393,15 @@ export function EvolutionPanel(): JSX.Element {
       {publish.needsReverify !== null && (
         <div className="flex flex-wrap items-center gap-2 rounded border border-sky-800 bg-sky-950/40 px-2 py-1.5">
           <span className="text-[11px] text-sky-200">
-            「{publish.needsReverify}」は検証の証跡がありません(この版より前に作られたツール)
+            {t('evo.noEvidence', { name: publish.needsReverify })}
           </span>
           <button
             className="rounded border border-sky-700 px-2 py-0.5 text-[10px] text-sky-200 hover:bg-sky-900 disabled:opacity-40"
             disabled={publish.busy}
-            title="今から本物の検証(検査→型検査→テスト→スモーク)を回して証跡を作ります。合格したらそのまま公開の確認へ進みます"
+            title={t('evo.reverifyTitle')}
             onClick={() => publish.reverify(publish.needsReverify!)}
           >
-            🔍 検証し直して公開可能にする
+            {t('evo.reverify')}
           </button>
         </div>
       )}
@@ -426,26 +420,26 @@ export function EvolutionPanel(): JSX.Element {
       {/* M29-5: 仮導入の棚卸し(未応答分。自律実行終了時のカードと同じ操作) */}
       {provisional.length > 0 && (
         <div className="space-y-1 rounded border border-emerald-800 bg-emerald-950/30 p-2">
-          <p className="text-xs font-semibold text-emerald-300">📦 仮導入の棚卸し({provisional.length}件)</p>
+          <p className="text-xs font-semibold text-emerald-300">{t('evo.inventoryHeading', { n: provisional.length })}</p>
           {provisional.map((p) => (
             <div key={p.jobId} className="flex flex-wrap items-center gap-2 text-xs">
               <span className="font-mono text-emerald-300">{p.toolName}</span>
               <span className="shrink-0 rounded bg-zinc-800 px-1 text-[10px] text-zinc-400">
-                {p.origin === 'registry' ? 'コミュニティ' : '自己生成'}
+                {p.origin === 'registry' ? t('evo.originRegistry') : t('evo.originSelf')}
               </span>
               <span className="ml-auto flex shrink-0 gap-1.5">
                 <button
                   className="whitespace-nowrap rounded bg-emerald-700 px-2 py-0.5 text-[11px] hover:bg-emerald-600"
                   onClick={() => resolveInventory(p.jobId, true)}
                 >
-                  残す
+                  {t('evo.keep')}
                 </button>
                 <button
                   className="whitespace-nowrap rounded border border-red-800 px-2 py-0.5 text-[11px] text-red-300 hover:bg-red-950"
-                  title="完全アンインストール(昇格をrevertする)"
+                  title={t('evo.removeTitle')}
                   onClick={() => resolveInventory(p.jobId, false)}
                 >
-                  削除
+                  {t('evo.remove')}
                 </button>
               </span>
             </div>
@@ -457,17 +451,17 @@ export function EvolutionPanel(): JSX.Element {
       {/* M20: ロールバック履歴(evolveタグ)と「1つ前へ戻す」— 右ペインの残り高さを使う */}
       <div className="flex min-h-0 flex-1 flex-col border-t border-zinc-800 pt-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="whitespace-nowrap text-xs font-semibold text-zinc-400">獲得した能力(昇格履歴)</span>
+          <span className="whitespace-nowrap text-xs font-semibold text-zinc-400">{t('evo.historyHeading')}</span>
           <button
             className="shrink-0 whitespace-nowrap rounded border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-400 hover:bg-zinc-800"
             onClick={() => void loadHistory()}
           >
-            更新
+            {t('evo.refresh')}
           </button>
           <button
             className="shrink-0 whitespace-nowrap rounded border border-red-800 px-2 py-0.5 text-[11px] text-red-300 hover:bg-red-950 disabled:opacity-40"
             disabled={history.length === 0}
-            title="HEADが最新evolveマージのときのみrevertする(履歴は残る)"
+            title={t('evo.rollbackTitle')}
             onClick={() => {
               void window.api.evolutionRollbackLast().then((r) => {
                 setRollbackMsg(r.message);
@@ -475,12 +469,12 @@ export function EvolutionPanel(): JSX.Element {
               });
             }}
           >
-            ⏪ 1つ前へ戻す
+            {t('evo.rollback')}
           </button>
         </div>
         {rollbackMsg && <p className="mt-1 text-[11px] text-amber-300">{rollbackMsg}</p>}
         {history.length === 0 ? (
-          <p className="mt-1 text-[11px] text-zinc-500">昇格履歴なし(進化で獲得した能力がここに並ぶ)</p>
+          <p className="mt-1 text-[11px] text-zinc-500">{t('evo.noHistory')}</p>
         ) : (
           <ul className="mt-1 max-h-[60vh] min-h-0 flex-1 space-y-1 overflow-y-auto text-[11px] text-zinc-400">
             {history.map((h) => {
@@ -499,7 +493,7 @@ export function EvolutionPanel(): JSX.Element {
                             : 'bg-red-900/70 text-red-300'
                       }`}
                     >
-                      {h.kind === 'tool' ? '🔧 ツール追加' : h.kind === 'renderer' ? '🎨 UI自己書き換え' : '⚙ コア自己書き換え'}
+                      {h.kind === 'tool' ? t('evo.kindTool') : h.kind === 'renderer' ? t('evo.kindRenderer') : t('evo.kindCore')}
                     </span>
                     {h.toolNames.map((n) => (
                       <span key={n} className="rounded bg-emerald-900/50 px-1 font-mono text-[10px] text-emerald-300">
@@ -514,7 +508,7 @@ export function EvolutionPanel(): JSX.Element {
                   )}
                   <details className="mt-0.5">
                     <summary className="cursor-pointer text-zinc-500">
-                      変更ファイル {h.files.length}件 — {h.subject}
+                      {t('evo.changedFiles', { n: h.files.length, subject: h.subject })}
                     </summary>
                     <ul className="mt-0.5 space-y-0.5 pl-3 font-mono text-[10px] text-zinc-500">
                       {h.files.map((f) => (
@@ -533,6 +527,7 @@ export function EvolutionPanel(): JSX.Element {
 }
 
 export function PromotionDialog(): JSX.Element | null {
+  const t = useT();
   const { promotion, respondPromotion } = useEvolutionStore();
   const [confirmed, setConfirmed] = useState(false);
   if (!promotion) return null;
@@ -548,21 +543,20 @@ export function PromotionDialog(): JSX.Element | null {
       >
         {isCoreChange && (
           <div className="mb-2 rounded-md border border-red-700 bg-red-950 p-2 text-xs font-semibold text-red-300">
-            ⚠ これは本体のコア変更です(scope: {promotion.scope})。
-            {promotion.requiresRestart === true && ' 承認すると再ビルド+健全性チェック後にアプリが再起動します。'}
-            失敗時は自動でrevertされ、再起動後の連続クラッシュはセーフモードで保護されます。
+            {t('promo.coreWarn', { scope: promotion.scope ?? '' })}
+            {promotion.requiresRestart === true && t('promo.coreRestart')}
+            {t('promo.coreRevert')}
           </div>
         )}
         <h2 className="mb-2 text-sm font-semibold">
-          進化ジョブ #{promotion.jobId} の昇格承認:{' '}
+          {t('promo.title', { id: promotion.jobId })}
           <code className="text-purple-300">{promotion.toolName}</code>
           {promotion.scope !== undefined && (
             <span className="ml-2 rounded bg-zinc-800 px-1.5 text-xs text-zinc-300">scope: {promotion.scope}</span>
           )}
         </h2>
         <p className="mb-2 text-xs text-zinc-400">
-          検証ゲート(聖域トリップワイヤ / 危険検出 / 差分検査 / typecheck / vitest / build / スモーク)は全合格。
-          mainブランチへマージして{isCoreChange ? '再ビルド・再起動で反映する' : '稼働中のアプリに動的ロードする'}。
+          {t('promo.gatesPassed', { action: isCoreChange ? t('promo.actionCore') : t('promo.actionTool') })}
         </p>
         {promotion.warnings.length > 0 && (
           <div className="mb-2 rounded-md border border-red-700 bg-red-950 p-2 text-xs text-red-300">
@@ -577,7 +571,7 @@ export function PromotionDialog(): JSX.Element | null {
         {isCoreChange && (
           <label className="mb-3 flex items-center gap-2 text-xs text-zinc-200">
             <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-            diff全文を確認し、本体コードの変更であることを理解した
+            {t('promo.confirmCheck')}
           </label>
         )}
         <div className="flex justify-end gap-2">
@@ -588,7 +582,7 @@ export function PromotionDialog(): JSX.Element | null {
               respondPromotion(false);
             }}
           >
-            却下
+            {t('promo.reject')}
           </button>
           <button
             className={`rounded-md px-4 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-40 ${
@@ -600,7 +594,7 @@ export function PromotionDialog(): JSX.Element | null {
               respondPromotion(true);
             }}
           >
-            {isCoreChange ? '本体変更を承認(自己責任)' : '昇格を承認'}
+            {isCoreChange ? t('promo.approveCore') : t('promo.approve')}
           </button>
         </div>
       </div>

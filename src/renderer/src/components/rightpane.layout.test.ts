@@ -22,10 +22,14 @@ describe('M29-3: 進化タブのレスポンシブ構造', () => {
 
   it('「ジョブ起動」「インポート」ボタンは whitespace-nowrap(縦書き化防止)', () => {
     const s = src();
-    const jobBtn = s.indexOf('ジョブ起動');
-    const importBtn = s.indexOf('📦 インポート');
-    // 各ボタンの className(直前300文字以内)に whitespace-nowrap があること
+    // M100-2: 文言はi18n辞書へ移動したため、キー参照を目印にする
+    const jobBtn = s.indexOf("t('evo.enqueue')");
+    const importBtn = s.indexOf("t('evo.import')");
+    expect(jobBtn).toBeGreaterThan(0);
+    expect(importBtn).toBeGreaterThan(0);
+    // 各ボタンの className(直前の範囲)に whitespace-nowrap があること
     expect(s.slice(jobBtn - 600, jobBtn)).toContain('whitespace-nowrap');
+    // インポートボタンは className とラベルの間に長い onClick が挟まるため窓を広めに取る
     expect(s.slice(importBtn - 1500, importBtn)).toContain('whitespace-nowrap');
   });
 
