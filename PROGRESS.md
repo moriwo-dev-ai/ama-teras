@@ -9,7 +9,9 @@
   - `src/renderer/src/i18n/`: 依存ゼロの最小実装(ja.ts=キーの正 / en.ts=型で全キー強制 /
     zustand + `t()`/`useT()`。{name} プレースホルダ置換)。辞書整合はユニットテストでも担保
   - 変換済み: App.tsx / LeftPane / ChatView / ApprovalDialog + 設定「基本」に言語切替(即時反映)
-- **M100-2(次)**: EvolutionPanel(進化=製品の看板画面)・SettingsPanel残りタブ・Registry系
+- **M100-2(2026-07-25 完了)**: EvolutionPanel+PromotionDialog(進化=製品の看板画面)を辞書化。
+  レイアウト構造テスト(rightpane.layout)は文言→i18nキー参照へ更新
+- **M100-3(次)**: SettingsPanel残りタブ・Registry系(RequestsSection/PublishPlugin)・AutonomousModal
 - **M100-3(以降)**: Operations系(オーナー向けのため優先度低)・remote-ui(スマホ)
 - 方針: 文言は必ず辞書経由(`t('key')`)。新規UI追加時も ja/en 両方に書く(enはtypecheckが落ちるので忘れない)
 
