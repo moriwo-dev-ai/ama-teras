@@ -16,8 +16,10 @@ import { publishArticleMarkdown } from './adapters/zennRepo';
  * **岩戸ゲートで全文を読んで承認したときだけ公開できる**。
  */
 
+// M101-3: 公開には最小本文長(MIN_ARTICLE_BODY_CHARS)が要るため、詰め物で満たす
+const FILLER = '検証ゲートと承認の設計について、実測に基づく詳細な説明が続く。'.repeat(20);
 const article = (slug: string, body: string, published = false): string =>
-  ['---', `title: "${slug}"`, 'emoji: "🔥"', 'type: "tech"', 'topics: ["ai"]', `published: ${published}`, '---', '', body, ''].join('\n');
+  ['---', `title: "${slug}"`, 'emoji: "🔥"', 'type: "tech"', 'topics: ["ai"]', `published: ${published}`, '---', '', body, '', FILLER, ''].join('\n');
 
 let dir: string;
 let repoDir: string;
@@ -127,5 +129,22 @@ describe('M73: Zenn記事の公開(岩戸ゲート必須)', () => {
     expect(list.map((a) => a.slug).sort()).toEqual(['my-article-001', 'my-article-002']); // 公開済みは出ない
     expect(list.find((a) => a.slug === 'my-article-001')!.blocked).toBeNull();
     expect(list.find((a) => a.slug === 'my-article-002')!.blocked).toContain('未公開機能');
+  });
+});
+
+describe('M101-3: 空記事の公開ガード', () => {
+  it('本文が最小長未満の記事は、承認しても公開されない(frontmatterのみ空記事が3本pushされた実害)', async () => {
+    // 詰め物なしの生frontmatter+短文(実際に起きた形)
+    const bare = ['---', 'title: "empty-article-001"', 'emoji: "🔥"', 'type: "tech"', 'topics: ["ai"]', 'published: false', '---', ''].join('\n');
+    writeFileSync(join(repoDir, 'articles', 'empty-article-001.md'), bare, 'utf8');
+    const { manager, git } = makeManager(() => true);
+    await manager.status();
+
+    const r = await manager.requestZennPublish('empty-article-001');
+
+    expect(r.ok).toBe(false);
+    expect(r.detail).toContain('空記事は公開しない');
+    expect(readFileSync(join(repoDir, 'articles', 'empty-article-001.md'), 'utf8')).toContain('published: false');
+    expect(git.some((c) => c[0] === 'push')).toBe(false);
   });
 });

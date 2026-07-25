@@ -58,6 +58,7 @@ import {
   buildArticleMarkdown,
   createZennRepoAdapter,
   defaultGitRunner,
+  MIN_ARTICLE_BODY_CHARS,
   type GitRunner,
 } from './adapters/zennRepo';
 import {
@@ -1973,6 +1974,17 @@ ${d.body}`))
         role: 'system',
         kind: 'notice',
         body: `🚫 記事「${draft.title}」の本文に未公開機能(月読)への言及が残ったため、記事化を中止した(下書きも作らない)`,
+      });
+      return null;
+    }
+    // M101-3: 本文の最小長ガード。LLM生成の空振り(空/数行)がそのままゲート→commit→
+    // published: true まで流れ、**frontmatterだけの空記事が3本Zennへpushされた**(実害。
+    // Zennは空記事の同期を拒否=403の正体)。空記事は作らない・出さない
+    if (cleaned.trim().length < MIN_ARTICLE_BODY_CHARS) {
+      this.thread?.post({
+        role: 'system',
+        kind: 'notice',
+        body: `🚫 記事「${draft.title}」の本文生成が${cleaned.trim().length}字しかないため記事化を中止した(最小${MIN_ARTICLE_BODY_CHARS}字。生成の失敗を疑いアウトラインから再実行を)`,
       });
       return null;
     }

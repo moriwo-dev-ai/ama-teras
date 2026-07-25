@@ -22,7 +22,8 @@ afterEach(() => {
 const fakeLLM: LLMProvider = {
   id: 'anthropic',
   async *complete(): AsyncGenerator<ProviderEvent> {
-    yield { type: 'text_delta', text: '## 本文' };
+    // M101-3: 本文の最小長ガード(MIN_ARTICLE_BODY_CHARS)を満たす長さの本文を返す
+    yield { type: 'text_delta', text: `## 本文\n${'検証ゲートの設計と実測の詳細な説明。'.repeat(40)}` };
     yield { type: 'message_done', usage: { inputTokens: 1, outputTokens: 1 }, stopReason: 'end_turn' } as ProviderEvent;
   },
 };

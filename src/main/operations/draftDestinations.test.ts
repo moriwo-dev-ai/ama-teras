@@ -159,7 +159,8 @@ describe('M37-3: manager(下書き→行き先。種類の取り違えを拒否)
   const fakeLLM: LLMProvider = {
     id: 'anthropic',
     async *complete(): AsyncGenerator<ProviderEvent> {
-      yield { type: 'text_delta', text: '## 章\n本文' };
+      // M101-3: 本文の最小長ガード(MIN_ARTICLE_BODY_CHARS)を満たす長さの本文を返す
+      yield { type: 'text_delta', text: `## 章\n本文\n${'検証ゲートの設計と実測の詳細な説明。'.repeat(40)}` };
       yield {
         type: 'message_done',
         usage: { inputTokens: 10, outputTokens: 20 },

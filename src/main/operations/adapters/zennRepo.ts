@@ -99,6 +99,18 @@ export function publishArticleMarkdown(markdown: string): string | null {
   return `${m[1]}published: true${m[2]}`;
 }
 
+/**
+ * M101-3: 記事本文の最小長。生成の空振り(frontmatterだけの記事)が published: true で
+ * 3本pushされた実害への下限。生成側(buildZennArticle)と公開側(publish-article)の両層で使う
+ */
+export const MIN_ARTICLE_BODY_CHARS = 500;
+
+/** frontmatter(--- ... ---)を除いた本文部分 */
+export function articleBodyOf(markdown: string): string {
+  const m = /^---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/.exec(markdown);
+  return (m?.[1] ?? markdown).trim();
+}
+
 export function createZennRepoAdapter(getRepoDir: () => string | null, deps: ZennRepoDeps): AdapterRuntime {
   const write =
     deps.writeArticle ??
@@ -135,6 +147,13 @@ export function createZennRepoAdapter(getRepoDir: () => string | null, deps: Zen
         const abs = join(repoDir, 'articles', `${slug}.md`);
         if (!existsSync(abs)) throw new Error(`記事が見つからない: ${rel}`);
         const current = deps.readArticle?.(abs) ?? readFileSync(abs, 'utf8');
+        // M101-3: 空記事(本文が実質無い)を公開状態にしない。生成側のガードをすり抜けた
+        // 既存ファイルもここで止まる(実際にfrontmatterのみの記事が3本publishされた)
+        if (articleBodyOf(current).length < MIN_ARTICLE_BODY_CHARS) {
+          throw new Error(
+            `${rel} の本文が${articleBodyOf(current).length}字しかない(最小${MIN_ARTICLE_BODY_CHARS}字)。空記事は公開しない — 本文を書いてから publish すること`,
+          );
+        }
         const published = publishArticleMarkdown(current);
         if (published === null) throw new Error(`${rel} は published: false ではない(すでに公開済みの可能性)`);
         write(abs, published);
