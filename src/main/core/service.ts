@@ -1836,8 +1836,19 @@ export class AgentService {
       // 履歴が閾値超なら圧縮してから応答する(M8-1、M13-1で実測トークントリガー化)。
       // 要約失敗は致命的でないため、失敗しても圧縮せず継続する。
       try {
+        // M106: 圧縮は起きても沈黙していた(ユーザーは「なぜか続くな」としか分からない)。
+        // 発生と削減量を情報カードで見せる — 長丁場を任せる信頼の土台は可視性
+        const beforeTokens = estimateTokens(conv.history);
         const compacted = await this.maybeCompact(conv, provider, ac.signal);
-        if (compacted) emit({ kind: 'status', sessionId, status: 'calling_llm' });
+        if (compacted) {
+          const afterTokens = estimateTokens(conv.history);
+          emit({
+            kind: 'info',
+            sessionId,
+            message: `長い会話のため履歴を要約圧縮しました(推定 ${Math.round(beforeTokens / 1000)}k → ${Math.round(afterTokens / 1000)}k トークン。要点は「[これまでの経緯の要約]」として残り、作業は継続します)`,
+          });
+          emit({ kind: 'status', sessionId, status: 'calling_llm' });
+        }
       } catch {
         /* 圧縮失敗は無視して通常応答へ進む */
       }
