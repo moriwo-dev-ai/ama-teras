@@ -35,6 +35,14 @@ interface ManagedProcess {
 export class ProcessManager {
   private readonly procs = new Map<number, ManagedProcess>();
   private nextId = 1;
+  /** M107: 終了通知(イベント駆動の再開用)。未設定なら従来どおり沈黙 */
+  private onExit: ((info: { id: number; command: string; exitCode: number | null; exitSignal: string | null }) => void) | null =
+    null;
+
+  /** M107: バックグラウンドプロセス終了時のコールバックを設定(1つだけ。後勝ち) */
+  setOnExit(cb: ((info: { id: number; command: string; exitCode: number | null; exitSignal: string | null }) => void) | null): void {
+    this.onExit = cb;
+  }
 
   constructor(
     private readonly maxBufferBytes: number = DEFAULT_MAX_BUFFER_BYTES,
@@ -95,6 +103,12 @@ export class ProcessManager {
       mp.running = false;
       mp.exitCode = code;
       mp.exitSignal = signal;
+      // M107: 終了を通知(コールバック内の例外でプロセス管理を壊さない)
+      try {
+        this.onExit?.({ id: mp.id, command: mp.command, exitCode: code, exitSignal: signal });
+      } catch {
+        /* 通知失敗は無視 */
+      }
     });
     this.procs.set(id, mp);
     return { id, pid: child.pid };

@@ -87,3 +87,26 @@ describe('ProcessManager(M11-2)', () => {
     expect(windowsKillArgs(1234)).toEqual({ cmd: 'taskkill', args: ['/pid', '1234', '/T', '/F'] });
   });
 });
+
+describe('M107: 終了通知(onExit)', () => {
+  it('プロセス終了でコールバックが呼ばれる(id・コマンド・exitCode付き)', async () => {
+    const pm = new ProcessManager();
+    const exits: { id: number; command: string; exitCode: number | null }[] = [];
+    pm.setOnExit((info) => exits.push({ id: info.id, command: info.command, exitCode: info.exitCode }));
+    const { id } = pm.start(`node -e "console.log('bye')"`, process.cwd());
+    await waitFor(() => exits.length === 1);
+    expect(exits[0]!.id).toBe(id);
+    expect(exits[0]!.exitCode).toBe(0);
+    expect(exits[0]!.command).toContain('node');
+  });
+
+  it('コールバック内の例外はプロセス管理を壊さない', async () => {
+    const pm = new ProcessManager();
+    pm.setOnExit(() => {
+      throw new Error('boom');
+    });
+    const { id } = pm.start(`node -e "process.exit(3)"`, process.cwd());
+    await waitFor(() => pm.read(id)?.running === false);
+    expect(pm.read(id)?.exitCode).toBe(3); // 状態記録は無傷
+  });
+});

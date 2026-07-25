@@ -1358,6 +1358,47 @@ export class AgentService {
     return { provider: cfg.provider, model: cfg.model || fallbackModel };
   }
 
+  // ---- M107: イベント駆動の自律(ウェイクアップ+プロセス終了再開) ----
+
+  private nextWakeupId = 1;
+  private readonly wakeupTimers = new Set<NodeJS.Timeout>();
+
+  /**
+   * M107: 会話へ自動投入する共通経路。実行中なら次ターン境界の追加指示キュー(M21-1)へ、
+   * アイドルなら新しい指示として即ラン開始(chatSend)。どちらも通常の承認フローの中で動く
+   * (自動投入だからといって承認が緩むことは一切ない)
+   */
+  private resumeConversation(conv: ConvState, text: string): void {
+    try {
+      if (conv.run) {
+        conv.run.pendingInstructions.push({ text });
+        this.deps.bus.publish('chat:event', {
+          kind: 'instruction_queued',
+          sessionId: conv.run.sessionId,
+          text,
+          conversationId: conv.id,
+        });
+        return;
+      }
+      this.chatSend(text, 'normal', undefined, conv);
+    } catch (err) {
+      // 再開失敗でアプリを壊さない(次のユーザー操作で普通に続けられる)
+      console.error('[wakeup] 自動再開失敗:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  /** M107: schedule_wakeup プラグインから注入される予約。セッション内のみ(再起動で消える) */
+  private scheduleWakeup(conv: ConvState, delaySec: number, note: string): { id: number; fireAtIso: string } {
+    const id = this.nextWakeupId++;
+    const fireAtIso = new Date(Date.now() + delaySec * 1000).toISOString();
+    const timer = setTimeout(() => {
+      this.wakeupTimers.delete(timer);
+      this.resumeConversation(conv, `[wakeup #${id}] ${note}`);
+    }, delaySec * 1000);
+    this.wakeupTimers.add(timer);
+    return { id, fireAtIso };
+  }
+
   /**
    * M16-1: プロバイダ/モデル切替の検知。切替時は prompt cache が無効になり長い履歴の
    * 再送が高くつくため、閾値(既定24k)超なら初回LLM呼び出しの前に圧縮しておく。
@@ -1675,6 +1716,12 @@ export class AgentService {
       model: `${this.currentLLM().provider}/${this.currentLLM().model}`,
     };
     conv.run = run;
+    // M107: バックグラウンドプロセスの終了で自動再開する。実行中なら次ターン境界へ、
+    // ラン終了後(アイドル)なら新しい指示として投入(=「待ちのある作業」を無人で完走できる)
+    run.processes.setOnExit((info) => {
+      const note = `[process-exit] バックグラウンドプロセス #${info.id}(${info.command.slice(0, 80)})が終了した(exit ${info.exitCode ?? info.exitSignal ?? '?'})。bash_output で結果を確認し、作業を続けるか完了させること。`;
+      this.resumeConversation(conv, note);
+    });
     // 既存会話の workspace は黙って上書きしない。未記録(初送信)のみ束縛値を記録し、
     // 記録とグローバル設定が食い違う場合は警告を出す(会話の記録が優先される)
     if (conv.workspace === '') {
@@ -1878,6 +1925,10 @@ export class AgentService {
               processes: run.processes,
               userMemoryDir: this.deps.denyPaths.userDataDir,
               ...this.screenshotContext(),
+              // M107: 自己ウェイクアップ(schedule_wakeup プラグイン専用)
+              wakeups: {
+                schedule: (delaySec: number, note: string) => this.scheduleWakeup(conv, delaySec, note),
+              },
               subagent: {
                 // M18: サブエージェントは worker 帯(policy無効時はメインと同一)。
                 // M26-3: 単発run(mode:"read"の調査)は安価な explorer 帯(未設定ならworker)

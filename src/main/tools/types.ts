@@ -151,6 +151,15 @@ export interface ToolContext {
   screenshot?: {
     capture(url: string, width?: number, height?: number): Promise<{ data: string; mediaType: string }>;
   };
+  /**
+   * M107: 自己ウェイクアップ(イベント駆動の自律)。schedule_wakeup プラグインだけが使う。
+   * 期限が来ると「[wakeup] note」がこの会話へ自動投入される(実行中なら次ターン境界、
+   * アイドルなら新しい指示として)。セッション内のみ有効=アプリ再起動で消える。
+   * 進化ジョブには注入されない
+   */
+  wakeups?: {
+    schedule(delaySec: number, note: string): { id: number; fireAtIso: string };
+  };
 }
 
 /**
