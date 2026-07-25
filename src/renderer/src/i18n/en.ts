@@ -167,4 +167,42 @@ export const en: Record<MessageKey, string> = {
   'settings.language': 'UI language / UI言語',
   'settings.languageAuto': 'Auto (follow OS) / 自動',
   'settings.languageHint': 'Applies immediately. Coverage is expanding screen by screen (main screens first).',
+
+  // Autonomous mode warning (AutonomousModal.tsx)
+  'auto.title': '🔓 Enable autonomous mode?',
+  'auto.warnPre': 'In autonomous mode, file changes, command execution, and system-area operations run',
+  'auto.warnBold': 'without confirmation',
+  'auto.warnPost': '. Nothing stops the AI if it makes a wrong move.',
+  'auto.bullet1': 'Only destruction of API keys (secrets), the app config area, and OS-breaking commands are auto-rejected',
+  'auto.bullet2': 'Every operation is recorded in the audit log (audit.jsonl)',
+  'auto.bullet3': 'Effective for this session only (turns OFF on app restart or session switch)',
+  'auto.scopeHeading': 'Blanket approval for plugin installs (this run only)',
+  'auto.scopeNone': 'No auto-install — existing tools and new generation only (promotion still needs approval)',
+  'auto.scopeVerified': 'Verified only (recommended) — provisionally install registry-verified plugins without dangerous permissions',
+  'auto.scopeVerifiedGen': 'Verified + generated — additionally auto-install self-generated plugins provisionally',
+  'auto.scopeNote':
+    'Provisional installs still pass all three gates (typecheck → tests → smoke), and plugins with dangerous permissions (network / external processes) are never installed unattended. A final keep/remove review card appears when the run ends.',
+  'auto.understood': 'I understand the risks',
+  'auto.cancel': 'Cancel',
+  'auto.enable': 'Enable (at my own risk)',
+
+  // Settings panel (SettingsPanel.tsx)
+  'settings.title': 'Settings',
+  'settings.loading': 'Loading…',
+  'settings.theme': 'Theme',
+  'settings.themeDark': 'Dark',
+  'settings.themeLight': 'Light',
+  'settings.anim': 'Motion',
+  'settings.animTitle':
+    'Subtle motion for messages and tab switches. Stays off when the OS "reduce motion" setting is enabled.',
+  'settings.close': '✕ Close',
+  'settings.tabBasic': 'Basic',
+  'settings.tabModels': 'Models',
+  'settings.tabQuality': 'Quality',
+  'settings.tabConnect': 'Connect',
+  'settings.tabMemory': 'Memory',
+  'settings.keySaved': 'API key saved (OS-encrypted storage)',
+  'settings.saveFailed': 'Save failed: {msg}',
+  'settings.userMemorySaved': 'User policy saved (AMATERAS-USER.md)',
+  'settings.memorySaved': 'Project memory saved (AMATERAS.md)',
 } as const;

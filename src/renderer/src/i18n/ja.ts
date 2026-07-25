@@ -166,6 +166,44 @@ export const ja = {
   'settings.language': 'UI言語 / Language',
   'settings.languageAuto': '自動(OSに合わせる)/ Auto',
   'settings.languageHint': '切替は即時反映。日本語/英語の対応は主要画面から段階的に拡大中',
+
+  // 自律モード警告(AutonomousModal.tsx)
+  'auto.title': '🔓 自律モードを有効化しますか?',
+  'auto.warnPre': '自律モードでは、ファイル変更・コマンド実行・システム領域の操作を',
+  'auto.warnBold': '確認なしで実行',
+  'auto.warnPost': 'します。AIが誤った操作をしても止まりません。',
+  'auto.bullet1': 'APIキー(secrets)とアプリ設定領域の破壊、OSを壊す破壊的コマンドだけは自動で拒否されます',
+  'auto.bullet2': '実行された全操作は監査ログ(audit.jsonl)に記録されます',
+  'auto.bullet3': 'このセッション限り有効(アプリ再起動・セッション切替でOFFに戻ります)',
+  'auto.scopeHeading': 'プラグイン導入の包括承認(この実行のみ)',
+  'auto.scopeNone': '自動導入なし — 手持ちツールと新規生成のみ(生成の反映は従来どおり昇格承認待ち)',
+  'auto.scopeVerified': '検証済みのみ仮導入(推奨)— レジストリの検証済み+危険権限なしを無人で仮導入',
+  'auto.scopeVerifiedGen': '検証済み+生成も仮導入 — 上記に加え自己生成プラグインも無人で仮導入',
+  'auto.scopeNote':
+    '仮導入も検証3段(typecheck→テスト→スモーク)を必ず通り、危険権限(ネットワーク/外部プロセス)持ちは範囲に関わらず無人導入されません。終了時の棚卸しカードで「残す/削除」を最終確認します',
+  'auto.understood': 'リスクを理解しました',
+  'auto.cancel': 'キャンセル',
+  'auto.enable': '有効化(自己責任)',
+
+  // 設定パネル(SettingsPanel.tsx)
+  'settings.title': '設定',
+  'settings.loading': '読込中…',
+  'settings.theme': 'テーマ',
+  'settings.themeDark': 'ダーク',
+  'settings.themeLight': 'ライト',
+  'settings.anim': 'アニメ',
+  'settings.animTitle':
+    'メッセージ表示・タブ切替などの控えめな動き。OSの「視差効果を減らす」が有効な場合はONでも動かない',
+  'settings.close': '✕ 閉じる',
+  'settings.tabBasic': '基本',
+  'settings.tabModels': 'モデル運用',
+  'settings.tabQuality': '品質',
+  'settings.tabConnect': '接続',
+  'settings.tabMemory': '記憶',
+  'settings.keySaved': 'APIキーを保存した(OS暗号化ストレージ)',
+  'settings.saveFailed': '保存失敗: {msg}',
+  'settings.userMemorySaved': 'ユーザー方針を保存した(AMATERAS-USER.md)',
+  'settings.memorySaved': 'プロジェクト記憶を保存した(AMATERAS.md)',
 } as const;
 
 export type MessageKey = keyof typeof ja;

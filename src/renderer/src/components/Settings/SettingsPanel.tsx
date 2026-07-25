@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { AppConfig, SecretSlot, SecretsStatus } from '../../../../shared/types';
+import { useT, type MessageKey } from '../../i18n';
 import { animEnabled, setAnimEnabled } from '../../lib/animPref';
 import { currentTheme, setTheme as persistTheme } from '../../lib/themePref';
 import { BasicSection } from './BasicSection';
@@ -17,12 +18,12 @@ import { QualitySection } from './QualitySection';
 
 type SettingsTab = 'basic' | 'models' | 'quality' | 'connect' | 'memory';
 
-const TABS: { id: SettingsTab; label: string }[] = [
-  { id: 'basic', label: '基本' },
-  { id: 'models', label: 'モデル運用' },
-  { id: 'quality', label: '品質' },
-  { id: 'connect', label: '接続' },
-  { id: 'memory', label: '記憶' },
+const TABS: { id: SettingsTab; labelKey: MessageKey }[] = [
+  { id: 'basic', labelKey: 'settings.tabBasic' },
+  { id: 'models', labelKey: 'settings.tabModels' },
+  { id: 'quality', labelKey: 'settings.tabQuality' },
+  { id: 'connect', labelKey: 'settings.tabConnect' },
+  { id: 'memory', labelKey: 'settings.tabMemory' },
 ];
 
 export function SettingsPanel({
@@ -37,6 +38,7 @@ export function SettingsPanel({
   const [status, setStatus] = useState<SecretsStatus | null>(null);
   const [notice, setNotice] = useState('');
   const [memory, setMemory] = useState('');
+  const t = useT();
   const [userMemory, setUserMemory] = useState('');
   const [animOn, setAnimOn] = useState(animEnabled());
   const [theme, setTheme] = useState(currentTheme());
@@ -49,7 +51,7 @@ export function SettingsPanel({
     void window.api.userMemoryGet().then(setUserMemory);
   }, []);
 
-  if (!config) return <div className="p-4 text-sm text-zinc-400">読込中…</div>;
+  if (!config) return <div className="p-4 text-sm text-zinc-400">{t('settings.loading')}</div>;
 
   const updateConfig = async (patch: Partial<AppConfig>): Promise<void> => {
     const next = { ...config, ...patch };
@@ -66,9 +68,9 @@ export function SettingsPanel({
     if (!key.trim()) return;
     try {
       setStatus(await window.api.secretsSet(slot, key));
-      setNotice('APIキーを保存した(OS暗号化ストレージ)');
+      setNotice(t('settings.keySaved'));
     } catch (err) {
-      setNotice(`保存失敗: ${err instanceof Error ? err.message : String(err)}`);
+      setNotice(t('settings.saveFailed', { msg: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -77,10 +79,10 @@ export function SettingsPanel({
       {/* M29-2: 高さは固定(タブ切替でモーダル外形が動かない)。中身側が overflow-y-auto でスクロール */}
       <div className="flex h-[85vh] w-[560px] max-w-[90vw] flex-col rounded-lg border border-zinc-600 bg-zinc-900 text-sm shadow-xl">
         <div className="flex items-center justify-between px-5 pt-4">
-          <h2 className="font-semibold">設定</h2>
+          <h2 className="font-semibold">{t('settings.title')}</h2>
           <div className="flex items-center gap-3 text-xs text-zinc-400">
             <label className="flex items-center gap-1">
-              テーマ
+              {t('settings.theme')}
               <select
                 className="rounded border border-zinc-600 bg-zinc-800 px-1 py-0.5 text-xs"
                 value={theme}
@@ -90,11 +92,11 @@ export function SettingsPanel({
                   persistTheme(next);
                 }}
               >
-                <option value="dark">ダーク</option>
-                <option value="light">ライト</option>
+                <option value="dark">{t('settings.themeDark')}</option>
+                <option value="light">{t('settings.themeLight')}</option>
               </select>
             </label>
-            <label className="flex items-center gap-1" title="メッセージ表示・タブ切替などの控えめな動き。OSの「視差効果を減らす」が有効な場合はONでも動かない">
+            <label className="flex items-center gap-1" title={t('settings.animTitle')}>
               <input
                 type="checkbox"
                 checked={animOn}
@@ -103,25 +105,25 @@ export function SettingsPanel({
                   setAnimOn(e.target.checked);
                 }}
               />
-              アニメ
+              {t('settings.anim')}
             </label>
             <button className="text-zinc-400 hover:text-zinc-200" onClick={onClose}>
-              ✕ 閉じる
+              {t('settings.close')}
             </button>
           </div>
         </div>
 
         {/* タブ(RightPaneと同じパターン) */}
         <div className="mt-2 flex border-b border-zinc-800 px-5 text-xs">
-          {TABS.map((t) => (
+          {TABS.map((tabDef) => (
             <button
-              key={t.id}
+              key={tabDef.id}
               className={`relative px-2.5 py-1.5 ${
-                tab === t.id ? 'border-b-2 border-blue-500 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
+                tab === tabDef.id ? 'border-b-2 border-blue-500 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
               }`}
-              onClick={() => setTab(t.id)}
+              onClick={() => setTab(tabDef.id)}
             >
-              {t.label}
+              {t(tabDef.labelKey)}
             </button>
           ))}
         </div>
@@ -152,13 +154,13 @@ export function SettingsPanel({
               setUserMemory={setUserMemory}
               onSaveUserMemory={async () => {
                 await window.api.userMemorySet(userMemory);
-                setNotice('ユーザー方針を保存した(AMATERAS-USER.md)');
+                setNotice(t('settings.userMemorySaved'));
               }}
               memory={memory}
               setMemory={setMemory}
               onSaveMemory={async () => {
                 await window.api.memorySet(memory);
-                setNotice('プロジェクト記憶を保存した(AMATERAS.md)');
+                setNotice(t('settings.memorySaved'));
               }}
             />
           )}
