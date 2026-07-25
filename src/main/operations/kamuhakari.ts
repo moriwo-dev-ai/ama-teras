@@ -131,6 +131,8 @@ export function buildThreadContext(input: {
   activeDraftTitles: string[];
   evolutionJobs: EvolutionJobSummary[];
   publishState?: PublishState;
+  /** M103: 戦略台帳(チャットにも同じ長期記憶を渡す) */
+  strategy?: string;
 }): string {
   const clocks = input.jobs
     .map((j) => `- ${j.godId}: ${j.enabled ? '稼働' : '停止'} 間隔${j.intervalMin}分 予算${j.dailyTokenBudget}(今日${j.spentToday})`)
@@ -139,7 +141,7 @@ export function buildThreadContext(input: {
     .slice(-8)
     .map((j) => `- #${j.id} [${j.status}] ${j.description.slice(0, 60)}`)
     .join('\n');
-  return `# メトリクス時系列(直近。clone=クローン数, u=ユニーク)
+  return `${input.strategy !== undefined && input.strategy !== '' ? `# 戦略台帳(ミッション・目標・過去の決定。あなた自身の長期記憶)\n${input.strategy}\n\n` : ''}# メトリクス時系列(直近。clone=クローン数, u=ユニーク)
 ${formatMetricsSeries(input.history) || '(なし)'}
 
 # 流入元(最新観測のreferrer。ボットはreferrerを残さない=閲覧とクローンの乖離はボット)
@@ -228,6 +230,11 @@ export function buildKamuhakariPrompt(input: {
    * 引いた実状態をそのまま渡す
    */
   publishState?: PublishState;
+  /**
+   * M103: 戦略台帳(strategy.md)。ミッション・目標・過去の決定を毎回渡す —
+   * これが無いと神議は毎回「記憶喪失の参謀」になる(Claude Codeとの最大の構造差だった)
+   */
+  strategy?: string;
 }): string {
   const inboxSummary = input.unread
     .slice(0, 40)
@@ -260,6 +267,7 @@ export function buildKamuhakariPrompt(input: {
 # プロジェクト
 ${input.project.name}: ${input.project.description}
 目的: どうすれば本当にAIを楽しむ人々にこのプロジェクトが届くか。誇張やスパムは絶対にしない。
+${input.strategy !== undefined && input.strategy !== '' ? `\n# 戦略台帳(ミッション・目標・過去の決定。あなた自身の長期記憶 — 分析はここから出発する)\n${input.strategy}\n` : ''}
 
 # 受け箱(未読)
 ${inboxSummary || '(なし)'}
@@ -326,9 +334,11 @@ ${input.currentKeywords.join(', ') || '(未設定)'}
 {
  "analysis": "何が効いたか・現状分析(3〜6文。データが乏しければ正直にそう書く)",
  "paramChanges": [{"kind":"interval|keywords|pause|resume|budget-decrease|budget-increase|judge-prompt|god-create","godId":"...","reason":"...","value": 数値または["キーワード"]}],
- "proposals": [{"kind":"exec-action|capability-gap","title":"...","detail":"...","branch":"adhoc|evolve|new-god(capability-gapのみ)","godDraft":{...}(new-godのみ)}]
+ "proposals": [{"kind":"exec-action|capability-gap","title":"...","detail":"...","branch":"adhoc|evolve|new-god(capability-gapのみ)","godDraft":{...}(new-godのみ)}],
+ "strategyAppend": "戦略台帳に残すべき今回の要点1行(効果判定・決定・学び。残す価値が無ければ省略可)"
 }
-変更が不要なら paramChanges は空配列でよい。提案は多くても5件。`;
+変更が不要なら paramChanges は空配列でよい。提案は多くても5件。
+strategyAppend は将来の自分(次回の神議)への申し送り — 数字の変化と因果の仮説、捨てた施策、決めたことを優先して書く。`;
 }
 
 export interface KamuhakariProposal {
@@ -342,11 +352,14 @@ export function parseKamuhakariOutput(raw: string): {
   analysis: string;
   paramChanges: ParamChange[];
   proposals: KamuhakariProposal[];
+  /** M103: 戦略台帳への申し送り(1行)。無ければ undefined */
+  strategyAppend?: string;
 } | null {
   const parsed = extractJson(raw);
   if (typeof parsed !== 'object' || parsed === null) return null;
   const rec = parsed as Record<string, unknown>;
   const analysis = String(rec['analysis'] ?? '').trim();
+  const strategyAppend = typeof rec['strategyAppend'] === 'string' ? rec['strategyAppend'].trim() : '';
   const paramChanges: ParamChange[] = [];
   if (Array.isArray(rec['paramChanges'])) {
     for (const c of rec['paramChanges'] as unknown[]) {
@@ -379,7 +392,7 @@ export function parseKamuhakariOutput(raw: string): {
     }
   }
   if (analysis === '' && paramChanges.length === 0 && proposals.length === 0) return null;
-  return { analysis, paramChanges, proposals };
+  return { analysis, paramChanges, proposals, ...(strategyAppend !== '' ? { strategyAppend } : {}) };
 }
 
 /** 承認バッチの組み立て(純関数) */

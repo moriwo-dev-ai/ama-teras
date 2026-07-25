@@ -87,6 +87,7 @@ import {
 } from './kamuhakari';
 import { completeText, completeTextWithUsage } from './llm';
 import { OmoiKami } from './omoiKami';
+import { appendStrategyEntry, readStrategy } from './strategy';
 import { IwatoGate, type IwatoAuditEvent } from './protocol';
 import { GodRegistry, type GodDefinition } from './gods';
 import { GodScheduler, isOverBudget, type GodClockJob } from './scheduler';
@@ -1034,6 +1035,8 @@ export class OperationsManager {
     const publishState = await this.publishState();
     const prompt = buildKamuhakariPrompt({
       unread,
+      // M103: 戦略台帳(長期記憶)。読めなければ空=従来挙動
+      strategy: readStrategy(this.dir),
       history: this.omoi.history(14),
       // M54: 未公開機能(月読)に触れる投稿履歴は神議に見せない。
       // 見せると神議はそれを「効いた発信」として数え、続編を書こうとする(実際、
@@ -1232,6 +1235,11 @@ export class OperationsManager {
       ? `\n\n自律調整(即適用・記録済み):\n${appliedChanges.map((a) => `- [${a.change.godId}] ${a.change.kind}: ${a.change.reason} → ${a.detail}`).join('\n')}`
       : '';
     this.thread.post({ role: 'kamuhakari', kind: 'text', body: `${parsed.analysis}${appliedNote}` });
+    // M103: 申し送りを戦略台帳へ追記(内部ファイル・appendのみ。失敗しても運営は止めない)
+    if (parsed.strategyAppend !== undefined) {
+      const ok = appendStrategyEntry(this.dir, parsed.strategyAppend);
+      if (ok) this.thread.post({ role: 'system', kind: 'notice', body: `📔 戦略台帳に記録: ${parsed.strategyAppend.slice(0, 120)}` });
+    }
     if (batch !== null) {
       this.thread.post({ role: 'kamuhakari', kind: 'approval-batch', body: `承認バッチ(${batch.items.length}件)`, batchId: batch.id });
     }
@@ -1587,6 +1595,8 @@ ${d.body}`))
     const drafts = this.drafts?.list() ?? [];
     const opsContext = buildThreadContext({
       history: this.omoi?.history(14) ?? [],
+      // M103: チャットにも同じ長期記憶を渡す(戦略会議と情報格差を作らない)
+      strategy: readStrategy(this.dir),
       jobs: this.clocks(),
       // M54: 未公開機能に触れる投稿履歴は見せない(戦略会議と同じ規律)
       postedDrafts: outward(drafts, 'posted'),
