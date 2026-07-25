@@ -101,7 +101,7 @@ export function BasicSection({
   return (
     <div className="space-y-4">
       <div className="space-y-1">
-        <label className="text-xs text-zinc-400">プロバイダ</label>
+        <label className="text-xs text-zinc-400">{t('basic.provider')}</label>
         <select
           className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5"
           value={config.provider}
@@ -120,23 +120,22 @@ export function BasicSection({
         </select>
         {preset !== undefined && (
           <p className="text-xs text-zinc-500">
-            プリセット使用中: OpenAI互換エンドポイント(
-            {preset.id === 'custom' ? (config.customBaseUrl ?? '未設定') : preset.baseUrl})で動作
+            {t('basic.presetInUse', {
+              url: preset.id === 'custom' ? (config.customBaseUrl ?? t('basic.unset')) : preset.baseUrl,
+            })}
           </p>
         )}
       </div>
 
       {/* M27-1: 無料で始める(カード登録なしの無料APIプリセット) */}
       <div className="space-y-2 rounded border border-emerald-800 bg-emerald-950/30 p-3">
-        <p className="text-xs font-semibold text-emerald-300">
-          無料で始める(カード登録なし・無料枠APIで即開始)
-        </p>
+        <p className="text-xs font-semibold text-emerald-300">{t('basic.freeHeading')}</p>
         <select
           className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 text-xs"
           value={config.providerPreset ?? ''}
           onChange={(e) => selectPreset(e.target.value as ProviderPresetId | '')}
         >
-          <option value="">使わない(Anthropic / OpenAI の有料APIを使う)</option>
+          <option value="">{t('basic.freeNone')}</option>
           {Object.values(PROVIDER_PRESETS).map((p) => (
             <option key={p.id} value={p.id}>
               {p.label}
@@ -153,7 +152,7 @@ export function BasicSection({
             {/* M35-5: カスタム(OpenAI互換)= baseURL自由入力。localhost系はキー不要 */}
             {preset.id === 'custom' && (
               <div className="space-y-1">
-                <label className="text-xs text-zinc-400">接続先 baseURL(OpenAI互換)</label>
+                <label className="text-xs text-zinc-400">{t('basic.customBaseUrl')}</label>
                 <input
                   key={config.customBaseUrl}
                   className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
@@ -168,11 +167,7 @@ export function BasicSection({
                   }}
                 />
                 {isLocalBaseUrl(config.customBaseUrl ?? '') && (
-                  <p className="text-xs text-amber-400">
-                    ℹ ローカルモデル(Ollama等)はAPIキー不要で接続できます。ただし
-                    ローカルモデルは自己進化の検証ゲート通過率が下がる場合があります
-                    (生成コードの品質はモデル性能に依存するため。ゲート自体は同じ厳しさで動きます)
-                  </p>
+                  <p className="text-xs text-amber-400">{t('basic.localNote')}</p>
                 )}
               </div>
             )}
@@ -182,7 +177,7 @@ export function BasicSection({
                   className="rounded bg-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-600"
                   onClick={() => void window.api.openBillingPage(preset.id)}
                 >
-                  APIキー取得ページを開く ↗
+                  {t('basic.openKeyPage')}
                 </button>
               )}
               <button
@@ -194,11 +189,11 @@ export function BasicSection({
                 title={
                   keySet || (preset.id === 'custom' && isLocalBaseUrl(config.customBaseUrl ?? ''))
                     ? ''
-                    : '先に下の欄でAPIキーを保存してください(localhost系のカスタム接続はキー不要)'
+                    : t('basic.testKeyFirst')
                 }
                 onClick={runConnectionTest}
               >
-                {testing ? '接続テスト中…' : '接続テスト'}
+                {testing ? t('basic.testing') : t('basic.test')}
               </button>
             </div>
             {testResult !== null && (
@@ -222,7 +217,7 @@ export function BasicSection({
                   saveConfig(next);
                 }}
               />
-              無料モード(既定を軽量化: maxTurns 15・レビューゲートOFF・ModelPolicy無効)
+              {t('basic.freeMode')}
             </label>
             {config.freeMode === true && (
               <label className="flex items-center gap-2 text-xs text-zinc-300">
@@ -236,7 +231,7 @@ export function BasicSection({
                     saveConfig(next);
                   }}
                 />
-                無料モードでも自己進化(新規プラグイン生成)を許可(無料枠を消費しやすい)
+                {t('basic.freeModeEvo')}
               </label>
             )}
           </>
@@ -244,19 +239,16 @@ export function BasicSection({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs text-zinc-400">モデル</label>
+        <label className="text-xs text-zinc-400">{t('basic.model')}</label>
         {/* M30-2: ModelPolicy有効時はこの欄ではなく帯設定が使われることを明示 */}
         {config.modelPolicy?.enabled === true && (
           <div className="flex flex-wrap items-center gap-2 rounded border border-amber-700 bg-amber-950/50 p-2 text-xs text-amber-200">
-            <span className="min-w-0 flex-1">
-              ⚠ モデル自動切替が有効のため、この欄ではなく「モデル運用」タブの帯設定
-              (planner/worker等)が使われます
-            </span>
+            <span className="min-w-0 flex-1">{t('basic.policyActive')}</span>
             <button
               className="shrink-0 whitespace-nowrap rounded border border-amber-600 px-2 py-0.5 hover:bg-amber-950"
               onClick={onOpenModels}
             >
-              モデル運用タブを開く
+              {t('basic.openModelsTab')}
             </button>
           </div>
         )}
@@ -283,19 +275,19 @@ export function BasicSection({
                   else void updateConfig({ model: v });
                 }}
               >
-                <option value="">既定({defaultModel})</option>
+                <option value="">{t('basic.modelDefault', { model: defaultModel })}</option>
                 {choices.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.label}
                   </option>
                 ))}
-                <option value={CUSTOM}>カスタム(モデルIDを直接入力)</option>
+                <option value={CUSTOM}>{t('basic.modelCustom')}</option>
               </select>
               {(isCustom || selectValue === CUSTOM) && (
                 <input
                   className="mt-1 w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
                   value={config.model.trim()}
-                  placeholder="例: claude-opus-4-8"
+                  placeholder="claude-opus-4-8"
                   autoFocus
                   onChange={(e) => setConfig({ ...config, model: e.target.value })}
                   onBlur={() => void updateConfig({ model: config.model.trim() })}
@@ -308,15 +300,13 @@ export function BasicSection({
         {config.provider === 'anthropic' &&
           (config.model.trim() === '' ? DEFAULT_MODELS.anthropic : config.model.trim()) ===
             'claude-fable-5' && (
-            <p className="text-xs text-amber-400">
-              ℹ claude-fable-5 では、入力データは安全対策のため30日間保持されます(ZDR非適用)
-            </p>
+            <p className="text-xs text-amber-400">{t('basic.fableRetention')}</p>
           )}
       </div>
 
       {/* M92-A5-a: 自己進化のツール生成だけに使うモデル。空欄=本体と同じ */}
       <div className="space-y-1">
-        <label className="text-xs text-zinc-400">生成専用モデル(自己進化のツール生成用)</label>
+        <label className="text-xs text-zinc-400">{t('basic.generationModel')}</label>
         {(() => {
           const gm = (config.generationModel ?? '').trim();
           const known = KNOWN_MODELS[config.provider];
@@ -327,32 +317,31 @@ export function BasicSection({
               value={gm}
               onChange={(e) => void updateConfig({ generationModel: e.target.value })}
             >
-              <option value="">本体と同じ(既定)</option>
+              <option value="">{t('basic.sameAsMain')}</option>
               {known.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.label}
                 </option>
               ))}
-              {!inList && <option value={gm}>{gm}(現在の指定)</option>}
+              {!inList && <option value={gm}>{t('basic.currentValue', { value: gm })}</option>}
             </select>
           );
         })()}
-        <p className="text-[11px] text-zinc-500">
-          難しいツールの生成成功率を上げたいとき、生成だけ強いモデルに寄せられる(同じ接続・キーのまま)。空欄=本体モデル。
-        </p>
+        <p className="text-[11px] text-zinc-500">{t('basic.generationModelHint')}</p>
       </div>
 
       <div className="space-y-1">
         <label className="text-xs text-zinc-400">
-          APIキー{preset !== undefined ? `(${keySlot} 用)` : ''}{' '}
-          {keySet ? '(設定済み。再入力で上書き)' : '(未設定)'}
+          {t('basic.apiKey')}
+          {preset !== undefined ? t('basic.apiKeyFor', { slot: keySlot }) : ''}
+          {keySet ? t('basic.keySet') : t('basic.keyUnset')}
         </label>
         <div className="flex gap-2">
           <input
             type="password"
             className="flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
             value={apiKey}
-            placeholder={preset !== undefined ? 'APIキーを貼り付け' : 'sk-ant-…'}
+            placeholder={preset !== undefined ? t('basic.pasteKey') : 'sk-ant-…'}
             onChange={(e) => setApiKey(e.target.value)}
           />
           <button
@@ -362,16 +351,16 @@ export function BasicSection({
               void onSaveKey(keySlot, apiKey).then(() => setApiKey(''));
             }}
           >
-            保存
+            {t('basic.save')}
           </button>
           {/* M30-2: 有料プロバイダ(Anthropic/OpenAI)でも接続テスト(無料プリセットと同じ診断表示) */}
           <button
             className="shrink-0 whitespace-nowrap rounded bg-emerald-700 px-3 py-1.5 text-xs hover:bg-emerald-600 disabled:opacity-40"
             disabled={testing || !keySet}
-            title={keySet ? '現在の設定で1リクエスト送って疎通確認する' : '先にAPIキーを保存してください'}
+            title={keySet ? t('basic.testTitle') : t('basic.saveKeyFirst')}
             onClick={runConnectionTest}
           >
-            {testing ? 'テスト中…' : '接続テスト'}
+            {testing ? t('basic.testingShort') : t('basic.test')}
           </button>
         </div>
         {testResult !== null && (
@@ -402,12 +391,12 @@ export function BasicSection({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs text-zinc-400">作業ディレクトリ(エージェントがファイル操作する場所)</label>
+        <label className="text-xs text-zinc-400">{t('basic.workspace')}</label>
         <div className="flex gap-2">
           <input
             readOnly
             className="flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs text-zinc-300"
-            value={config.workspace && config.workspace.trim() !== '' ? config.workspace : '(既定: アプリのルート)'}
+            value={config.workspace && config.workspace.trim() !== '' ? config.workspace : t('basic.workspaceDefault')}
           />
           <button
             className="rounded bg-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-600"
@@ -416,21 +405,21 @@ export function BasicSection({
               if (picked) void updateConfig({ workspace: picked });
             }}
           >
-            選択…
+            {t('basic.pick')}
           </button>
           {config.workspace && (
             <button
               className="rounded bg-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-600"
               onClick={() => void updateConfig({ workspace: '' })}
             >
-              既定に戻す
+              {t('basic.resetDefault')}
             </button>
           )}
         </div>
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs text-zinc-400">操作範囲(scopeMode)</label>
+        <label className="text-xs text-zinc-400">{t('basic.scope')}</label>
         <div className="space-y-1 text-xs text-zinc-300">
           <label className="flex items-center gap-2">
             <input
@@ -439,7 +428,7 @@ export function BasicSection({
               checked={config.scopeMode === 'project'}
               onChange={() => void updateConfig({ scopeMode: 'project' })}
             />
-            project — 作業ディレクトリ内のみ(既定・従来どおり)
+            {t('basic.scopeProject')}
           </label>
           <label className="flex items-center gap-2">
             <input
@@ -450,13 +439,11 @@ export function BasicSection({
                 if (config.scopeMode !== 'fullPc') setConfirmFullPc(true);
               }}
             />
-            fullPc — PC全体を承認制で許可(プロジェクト外は毎回承認)
+            {t('basic.scopeFullPc')}
           </label>
         </div>
         {config.scopeMode === 'fullPc' && (
-          <p className="text-xs text-amber-400">
-            ⚠ fullPc 有効中: プロジェクト外の操作は毎回承認ダイアログが出る(自動承認・セッション許可は無効)
-          </p>
+          <p className="text-xs text-amber-400">{t('basic.fullPcActive')}</p>
         )}
         <label className="flex items-center gap-2 text-xs text-zinc-300">
           <input
@@ -469,20 +456,16 @@ export function BasicSection({
               saveConfig(next);
             }}
           />
-          fullPc時の「セッション中許可(このフォルダ)」を有効化(M14-5)
+          {t('basic.fullPcSession')}
         </label>
         {config.fullPcAllowSession === true && (
-          <p className="text-xs text-amber-400">
-            ⚠ 放置作業の利便と引き換えに、許可したフォルダへの書き込みがセッション中
-            ノーチェックになる(ツール×フォルダ単位。bash等の実行系と保護領域は対象外。
-            自動通過も全件 audit.jsonl に記録)
-          </p>
+          <p className="text-xs text-amber-400">{t('basic.fullPcSessionWarn')}</p>
         )}
       </div>
 
       {/* M27-6(土台): カスタムテーマ(JSON)。将来「見た目の共有=データ流通」の受け口 */}
       <details className="rounded border border-zinc-700 p-2">
-        <summary className="cursor-pointer text-xs text-zinc-400">カスタムテーマ(JSON・実験的)</summary>
+        <summary className="cursor-pointer text-xs text-zinc-400">{t('basic.customTheme')}</summary>
         <div className="mt-2 space-y-2">
           <textarea
             className="h-28 w-full resize-none rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono text-[11px]"
@@ -496,44 +479,38 @@ export function BasicSection({
               disabled={themeJson.trim() === ''}
               onClick={() => setThemeMsg(applyCustomThemeJson(themeJson).message)}
             >
-              適用
+              {t('basic.apply')}
             </button>
             <button
               className="rounded border border-zinc-600 px-3 py-1 text-xs hover:bg-zinc-800"
               onClick={() => {
                 clearCustomTheme();
-                setThemeMsg('標準テーマに戻した');
+                setThemeMsg(t('basic.themeReset'));
               }}
             >
-              標準に戻す
+              {t('basic.resetTheme')}
             </button>
             {themeMsg !== '' && <span className="text-xs text-zinc-400">{themeMsg}</span>}
           </div>
-          <p className="text-[11px] text-zinc-500">
-            配色をJSONデータとして定義する(スロット: bgDeep / bgPanel / bgRaised / bgHover /
-            border / textMain / textSub / accent / accentText。値は16進カラーのみ)。
-            未指定スロットは base(dark/light)の標準値が使われる
-          </p>
+          <p className="text-[11px] text-zinc-500">{t('basic.themeHint')}</p>
         </div>
       </details>
 
       {confirmFullPc && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="w-[440px] max-w-[90vw] space-y-3 rounded-lg border border-amber-600 bg-zinc-900 p-5 text-sm shadow-xl">
-            <h3 className="font-semibold text-amber-400">⚠ PC全体スコープを有効にする</h3>
+            <h3 className="font-semibold text-amber-400">{t('basic.fullPcConfirmTitle')}</h3>
             <p className="text-xs leading-relaxed text-zinc-300">
-              エージェントが作業ディレクトリの外(デスクトップ・ドキュメント等、PC全体)の
-              ファイル操作とコマンド実行を要求できるようになる。プロジェクト外の操作は
-              risk や自動承認設定に関係なく<span className="font-semibold text-amber-300">毎回</span>
-              承認ダイアログで確認される。アプリ設定領域(userData)と Windows システム領域への
-              書き込みは引き続き拒否される。
+              {t('basic.fullPcConfirmPre')}
+              <span className="font-semibold text-amber-300">{t('basic.fullPcConfirmEvery')}</span>
+              {t('basic.fullPcConfirmPost')}
             </p>
             <div className="flex justify-end gap-2">
               <button
                 className="rounded-md border border-zinc-600 px-3 py-1.5 text-sm hover:bg-zinc-800"
                 onClick={() => setConfirmFullPc(false)}
               >
-                キャンセル
+                {t('basic.cancel')}
               </button>
               <button
                 className="rounded-md bg-amber-600 px-4 py-1.5 text-sm hover:bg-amber-500"
@@ -542,7 +519,7 @@ export function BasicSection({
                   void updateConfig({ scopeMode: 'fullPc' });
                 }}
               >
-                有効にする
+                {t('basic.enable')}
               </button>
             </div>
           </div>
