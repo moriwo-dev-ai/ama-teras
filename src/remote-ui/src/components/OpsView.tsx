@@ -18,6 +18,8 @@ import {
   hatenaPanelUrl,
   isLinkOnlyAdapter,
   MAX_LINKS_PER_OPEN,
+  redditSubmitUrl,
+  subredditFromTitle,
   xIntentUrl,
 } from '../../../shared/operations';
 import type { RemoteApi } from '../api';
@@ -774,6 +776,27 @@ function DraftCard({
             }}
           >
             𝕏 投稿画面(本文コピー付き)
+          </button>
+        )}
+        {(draft.kind === 'x-post' || draft.kind === 'article-body') && draft.status === 'draft' && (
+          <button
+            onClick={() => {
+              // M102: Xと同じ流儀 — 開く前に本文コピー、投稿ボタンとCAPTCHAは人間。
+              // タイトルはドラフトのタイトル(先頭の「r/xxx 」はsubreddit指定として消費)
+              const sub = subredditFromTitle(draft.title);
+              const title = draft.title.replace(/^r\/[A-Za-z0-9_]+\s*/, '');
+              const copied = copyText(draft.body);
+              window.open(redditSubmitUrl(title, draft.body, sub), '_blank', 'noopener,noreferrer');
+              void copied.then((ok) =>
+                setNotice(
+                  ok
+                    ? '本文をコピーした — Redditの本文が空だったら貼り付けてください(CAPTCHAと投稿ボタンはあなたの操作)'
+                    : 'Redditを開いた(本文コピーは失敗。「コピー」からやり直せます)',
+                ),
+              );
+            }}
+          >
+            👽 Reddit投稿画面(本文コピー付き)
           </button>
         )}
         {draft.kind === 'x-post' && draft.status === 'draft' && (

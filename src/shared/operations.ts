@@ -28,6 +28,23 @@ export function hatenaPanelUrl(url: string): string {
 }
 
 /**
+ * M102: Reddit投稿画面(タイトル・本文プリセット付き)。投稿ボタン・CAPTCHAは人間が担当する
+ * (bot検出の突破は設計として行わない)。スマホではRedditアプリに横取りされて本文が
+ * 消えることがあるため、Xと同じく「開く前に本文コピー」とセットで使う。
+ * subredditはドラフトのタイトル先頭の「r/名前 」表記から拾い、無ければ選択画面から
+ */
+export function redditSubmitUrl(title: string, body: string, subreddit?: string): string {
+  const base = subreddit !== undefined && subreddit !== '' ? `https://www.reddit.com/r/${subreddit}/submit` : 'https://www.reddit.com/submit';
+  return `${base}?title=${encodeURIComponent(title)}&text=${encodeURIComponent(body)}&type=TEXT`;
+}
+
+/** ドラフトタイトル先頭の「r/xxx 」からsubredditを拾う(例: 「r/SideProject v1.7.0紹介」) */
+export function subredditFromTitle(title: string): string | undefined {
+  const m = /^r\/([A-Za-z0-9_]+)\b/.exec(title.trim());
+  return m?.[1];
+}
+
+/**
  * M43-1: 発信テキストのプレースホルダ解決。
  * AMENO-uzume のプロンプトは「リンクは {URL} と書け」と指示するが、**置換する処理が
  * どこにも無かった**ため、X・Blueskyへ `{URL}` の文字列がそのまま投稿されていた(実害)。

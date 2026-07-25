@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { marksDraftPosted, nextVersion, sameVersion, xIntentUrl, hatenaPanelUrl } from '../../shared/operations';
+import { marksDraftPosted, nextVersion, redditSubmitUrl, sameVersion, subredditFromTitle, xIntentUrl, hatenaPanelUrl } from '../../shared/operations';
 import type { AppConfig, ApprovalBatch } from '../../shared/types';
 import { DraftStore } from './amenoUzume';
 import { OperationsManager } from './manager';
@@ -211,5 +211,21 @@ describe('M46: リリースのバージョンを自動採番する(前回の版�
     const info = await manager.releaseInfo('o/r');
     expect(info.latestTag).toBeNull();
     expect(info.mismatch).toBe(false); // 食い違いようがない
+  });
+});
+
+describe('M102: Reddit投稿画面URL(スマホのワンタップ用)', () => {
+  it('subreddit指定ありはr/xxx/submitへ、無しは共通submitへ(title/textプリセット)', () => {
+    const u = redditSubmitUrl('My Title', 'Body text', 'SideProject');
+    expect(u).toContain('https://www.reddit.com/r/SideProject/submit?');
+    expect(u).toContain(`title=${encodeURIComponent('My Title')}`);
+    expect(u).toContain(`text=${encodeURIComponent('Body text')}`);
+    expect(redditSubmitUrl('T', 'B')).toContain('https://www.reddit.com/submit?');
+  });
+
+  it('ドラフトタイトル先頭の「r/xxx 」をsubredditとして拾う(無ければundefined)', () => {
+    expect(subredditFromTitle('r/SideProject v1.7.0の紹介')).toBe('SideProject');
+    expect(subredditFromTitle('普通のタイトル')).toBeUndefined();
+    expect(subredditFromTitle('r/LocalLLaMA')).toBe('LocalLLaMA');
   });
 });
