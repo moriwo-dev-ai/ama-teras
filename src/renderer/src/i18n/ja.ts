@@ -167,6 +167,44 @@ export const ja = {
   'settings.languageAuto': '自動(OSに合わせる)/ Auto',
   'settings.languageHint': '切替は即時反映。日本語/英語の対応は主要画面から段階的に拡大中',
 
+  // 本体への要望(RequestsSection.tsx)
+  'req.heading': '📮 本体への要望(コア/UI)',
+  'req.descDev':
+    'この機体が上流(開発機)なので、要望はIssueにせずそのまま進化ジョブとして起票する。AMA-teras が作業中に「これはツールでは越えられない」と気づいたときも、ここに下書きが積まれる。起票前に必ず全文を確認・承認する',
+  'req.descPackaged':
+    'ツールは自分の機体で作れる。コア/UIは全員で同じものを使うので、ここから開発リポジトリへ要望として出す。AMA-teras が作業中に「これはツールでは越えられない」と気づいたときも、ここに下書きが積まれる。送信前に必ず全文を確認・承認する',
+  'req.kindUi': 'ui(画面)',
+  'req.kindCore': 'core(本体の仕組み)',
+  'req.titlePlaceholder': '要望のタイトル(1行)',
+  'req.bodyPlaceholder': '何をしようとして、どこで行き止まりになったか。期待する挙動',
+  'req.draftIt': '下書きにする',
+  'req.drafted': '✓ 下書きにした(下の一覧から内容を確認して送信できます)',
+  'req.preparing': '… 送信内容を用意しています',
+  'req.byAgentTitle': 'AMA-teras が作業中に起票した',
+  'req.byHumanTitle': '人が書いた',
+  'req.byHuman': '人',
+  'req.reviewSend': '内容を見て送信',
+  'req.reviewFile': '内容を見て起票',
+  'req.discard': '破棄',
+  'req.confirmJob':
+    '🧬 起票の確認 — この機体の進化ジョブになります(生成が走る=トークン消費)。全文を読んでから承認してください',
+  'req.confirmIssue': '📮 送信の確認 — これから外部(GitHub Issue)へ出します。全文を読んでから承認してください',
+  'req.sanctuaryNote': '※ 聖域(保護領域)に触る変更は protected ゲートで弾かれます。その場合はチャットで直接依頼してください',
+  'req.similar': '似た要望が既にあります(重複なら破棄してください):',
+  'req.leaks': '⚠ 機械チェックの検出(このままでは送信できません):',
+  'req.filing': '… 起票中',
+  'req.sending': '… 送信中',
+  'req.approveFile': '承認して起票する',
+  'req.approveSend': '承認して送信する',
+  'req.cancel': 'やめる',
+  'req.cancelled': '送信を取りやめました(下書きは残っています)',
+  'req.sentHeading': '送信・起票済み({n}件)',
+  'req.job': '🧬 ジョブ #{id}',
+  'req.openIssue': 'Issueを開く ↗',
+  'req.noUrl': 'URL不明',
+  'req.scopeUi': 'renderer(画面)',
+  'req.scopeCore': 'core(本体の仕組み)',
+
   // 設定「接続」タブ(ConnectionsSection.tsx — 一般ユーザー向け部分)
   'conn.registryHeading': 'コミュニティレジストリ',
   'conn.registryDesc':

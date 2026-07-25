@@ -1,5 +1,6 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { CoreRequest, CoreRequestKind } from '../../../../shared/types';
+import { useT } from '../../i18n';
 
 /**
  * M91-3: 本体(コア/UI)への要望。
@@ -14,6 +15,7 @@ import type { CoreRequest, CoreRequestKind } from '../../../../shared/types';
  * (「本体から本体に要望を送る」一周無駄をなくす。ユーザー指摘)
  */
 export function RequestsSection(): JSX.Element {
+  const t = useT();
   const [items, setItems] = useState<CoreRequest[]>([]);
   const [kind, setKind] = useState<CoreRequestKind>('ui');
   const [title, setTitle] = useState('');
@@ -53,7 +55,7 @@ export function RequestsSection(): JSX.Element {
 
   const openPlan = (id: string): void => {
     setBusy(true);
-    setMsg('… 送信内容を用意しています');
+    setMsg(t('req.preparing'));
     void window.api
       .requestsPlan(id)
       .then((r) => {
@@ -70,11 +72,11 @@ export function RequestsSection(): JSX.Element {
 
   /** M99-5: 開発機の下見。外部送信ではないので機械チェック・重複検索は不要=全文確認だけが門 */
   const openJobPlan = (r: CoreRequest): void => {
-    const scope = r.kind === 'ui' ? 'renderer(画面)' : 'core(本体の仕組み)';
+    const scope = r.kind === 'ui' ? t('req.scopeUi') : t('req.scopeCore');
     setPlan({
       id: r.id,
       mode: 'job',
-      preview: `[要望] ${r.title}\n\nスコープ: ${scope}\n出どころ: ${r.source === 'agent' ? 'AMA-teras(制約に当たって起票)' : '人'}\n\n${r.body}`,
+      preview: `[要望] ${r.title}\n\nスコープ: ${scope}\n出どころ: ${r.source === 'agent' ? 'AMA-teras' : t('req.byHuman')}\n\n${r.body}`,
       leaks: [],
       similar: [],
     });
@@ -83,15 +85,9 @@ export function RequestsSection(): JSX.Element {
 
   return (
     <div className="space-y-1 rounded border border-zinc-700 bg-zinc-900/60 p-2">
-      <p className="text-xs font-semibold text-zinc-300">📮 本体への要望(コア/UI)</p>
+      <p className="text-xs font-semibold text-zinc-300">{t('req.heading')}</p>
       <p className="text-[11px] text-zinc-500">
-        {packaged === false
-          ? 'この機体が上流(開発機)なので、要望はIssueにせずそのまま進化ジョブとして起票する。' +
-            'AMA-teras が作業中に「これはツールでは越えられない」と気づいたときも、ここに下書きが積まれる。' +
-            '起票前に必ず全文を確認・承認する'
-          : 'ツールは自分の機体で作れる。コア/UIは全員で同じものを使うので、ここから開発リポジトリへ要望として出す。' +
-            'AMA-teras が作業中に「これはツールでは越えられない」と気づいたときも、ここに下書きが積まれる。' +
-            '送信前に必ず全文を確認・承認する'}
+        {packaged === false ? t('req.descDev') : t('req.descPackaged')}
       </p>
 
       <div className="flex flex-wrap items-center gap-1">
@@ -100,19 +96,19 @@ export function RequestsSection(): JSX.Element {
           value={kind}
           onChange={(e) => setKind(e.target.value as CoreRequestKind)}
         >
-          <option value="ui">ui(画面)</option>
-          <option value="core">core(本体の仕組み)</option>
+          <option value="ui">{t('req.kindUi')}</option>
+          <option value="core">{t('req.kindCore')}</option>
         </select>
         <input
           className="min-w-[10rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
-          placeholder="要望のタイトル(1行)"
+          placeholder={t('req.titlePlaceholder')}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
       </div>
       <textarea
         className="h-16 w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
-        placeholder="何をしようとして、どこで行き止まりになったか。期待する挙動"
+        placeholder={t('req.bodyPlaceholder')}
         value={body}
         onChange={(e) => setBody(e.target.value)}
       />
@@ -126,14 +122,14 @@ export function RequestsSection(): JSX.Element {
             .then(() => {
               setTitle('');
               setBody('');
-              setMsg('✓ 下書きにした(下の一覧から内容を確認して送信できます)');
+              setMsg(t('req.drafted'));
               load();
             })
             .catch((err: unknown) => setMsg(`✗ ${err instanceof Error ? err.message : String(err)}`))
             .finally(() => setBusy(false));
         }}
       >
-        下書きにする
+        {t('req.draftIt')}
       </button>
 
       {msg !== '' && <p className="text-[11px] text-zinc-400">{msg}</p>}
@@ -147,9 +143,9 @@ export function RequestsSection(): JSX.Element {
                 className={`rounded px-1 text-[10px] ${
                   r.source === 'agent' ? 'bg-purple-900/70 text-purple-300' : 'bg-zinc-800 text-zinc-400'
                 }`}
-                title={r.source === 'agent' ? 'AMA-teras が作業中に起票した' : '人が書いた'}
+                title={r.source === 'agent' ? t('req.byAgentTitle') : t('req.byHumanTitle')}
               >
-                {r.source === 'agent' ? 'AMA-teras' : '人'}
+                {r.source === 'agent' ? 'AMA-teras' : t('req.byHuman')}
               </span>
               <span className="min-w-0 flex-1 truncate">{r.title}</span>
               {packaged !== null && (
@@ -157,7 +153,7 @@ export function RequestsSection(): JSX.Element {
                   className="shrink-0 rounded border border-amber-800 px-1.5 py-0.5 text-[10px] text-amber-300 hover:bg-amber-950"
                   onClick={() => (packaged ? openPlan(r.id) : openJobPlan(r))}
                 >
-                  {packaged ? '内容を見て送信' : '内容を見て起票'}
+                  {packaged ? t('req.reviewSend') : t('req.reviewFile')}
                 </button>
               )}
               <button
@@ -169,7 +165,7 @@ export function RequestsSection(): JSX.Element {
                   });
                 }}
               >
-                破棄
+                {t('req.discard')}
               </button>
             </li>
           ))}
@@ -180,17 +176,17 @@ export function RequestsSection(): JSX.Element {
         <div className="rounded border border-amber-800 bg-amber-950/40 p-2">
           <p className="text-[11px] font-semibold text-amber-200">
             {plan.mode === 'job'
-              ? '🧬 起票の確認 — この機体の進化ジョブになります(生成が走る=トークン消費)。全文を読んでから承認してください'
-              : '📮 送信の確認 — これから外部(GitHub Issue)へ出します。全文を読んでから承認してください'}
+              ? t('req.confirmJob')
+              : t('req.confirmIssue')}
           </p>
           {plan.mode === 'job' && (
             <p className="mt-1 text-[11px] text-amber-200/80">
-              ※ 聖域(保護領域)に触る変更は protected ゲートで弾かれます。その場合はチャットで直接依頼してください
+              {t('req.sanctuaryNote')}
             </p>
           )}
           {plan.similar.length > 0 && (
             <div className="mt-1 text-[11px] text-amber-200">
-              似た要望が既にあります(重複なら破棄してください):
+              {t('req.similar')}
               <ul className="ml-3 list-disc">
                 {plan.similar.slice(0, 5).map((s) => (
                   <li key={s.number}>
@@ -202,7 +198,7 @@ export function RequestsSection(): JSX.Element {
           )}
           {plan.leaks.length > 0 && (
             <p className="mt-1 whitespace-pre-wrap text-[11px] text-red-300">
-              {`⚠ 機械チェックの検出(このままでは送信できません):\n${plan.leaks.join('\n')}`}
+              {`${t('req.leaks')}\n${plan.leaks.join('\n')}`}
             </p>
           )}
           <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-zinc-950 p-2 text-[10px] text-zinc-300">
@@ -214,7 +210,7 @@ export function RequestsSection(): JSX.Element {
               disabled={busy || plan.leaks.length > 0}
               onClick={() => {
                 setBusy(true);
-                setMsg(plan.mode === 'job' ? '… 起票中' : '… 送信中');
+                setMsg(plan.mode === 'job' ? t('req.filing') : t('req.sending'));
                 const action =
                   plan.mode === 'job'
                     ? window.api.requestsFileJob(plan.id)
@@ -229,16 +225,16 @@ export function RequestsSection(): JSX.Element {
                   .finally(() => setBusy(false));
               }}
             >
-              {plan.mode === 'job' ? '承認して起票する' : '承認して送信する'}
+              {plan.mode === 'job' ? t('req.approveFile') : t('req.approveSend')}
             </button>
             <button
               className="rounded border border-zinc-700 px-3 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800"
               onClick={() => {
                 setPlan(null);
-                setMsg('送信を取りやめました(下書きは残っています)');
+                setMsg(t('req.cancelled'));
               }}
             >
-              やめる
+              {t('req.cancel')}
             </button>
           </div>
         </div>
@@ -246,7 +242,7 @@ export function RequestsSection(): JSX.Element {
 
       {sent.length > 0 && (
         <div className="space-y-1 border-t border-zinc-800 pt-1">
-          <p className="text-[11px] font-semibold text-zinc-400">送信・起票済み({sent.length}件)</p>
+          <p className="text-[11px] font-semibold text-zinc-400">{t('req.sentHeading', { n: sent.length })}</p>
           <ul className="space-y-1">
             {[...sent]
               .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -260,16 +256,16 @@ export function RequestsSection(): JSX.Element {
                     className={`rounded px-1 text-[10px] ${
                       r.source === 'agent' ? 'bg-purple-900/70 text-purple-300' : 'bg-zinc-800 text-zinc-400'
                     }`}
-                    title={r.source === 'agent' ? 'AMA-teras が起票した' : '人が書いた'}
+                    title={r.source === 'agent' ? t('req.byAgentTitle') : t('req.byHumanTitle')}
                   >
-                    {r.source === 'agent' ? 'AMA-teras' : '人'}
+                    {r.source === 'agent' ? 'AMA-teras' : t('req.byHuman')}
                   </span>
                   <span className="min-w-0 flex-1 truncate" title={r.title}>
                     {r.title}
                   </span>
                   {r.status === 'filed' ? (
                     <span className="shrink-0 rounded border border-purple-800 px-1.5 py-0.5 text-[10px] text-purple-300">
-                      🧬 ジョブ #{r.jobId ?? '?'}
+                      {t('req.job', { id: r.jobId ?? '?' })}
                     </span>
                   ) : r.url !== undefined ? (
                     <a
@@ -279,10 +275,10 @@ export function RequestsSection(): JSX.Element {
                       rel="noreferrer"
                       title={r.url}
                     >
-                      Issueを開く ↗
+                      {t('req.openIssue')}
                     </a>
                   ) : (
-                    <span className="shrink-0 text-[10px] text-zinc-600">URL不明</span>
+                    <span className="shrink-0 text-[10px] text-zinc-600">{t('req.noUrl')}</span>
                   )}
                 </li>
               ))}

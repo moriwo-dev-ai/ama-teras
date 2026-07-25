@@ -168,6 +168,44 @@ export const en: Record<MessageKey, string> = {
   'settings.languageAuto': 'Auto (follow OS) / 自動',
   'settings.languageHint': 'Applies immediately. Coverage is expanding screen by screen (main screens first).',
 
+  // Core requests (RequestsSection.tsx)
+  'req.heading': '📮 Requests to the core (core/UI)',
+  'req.descDev':
+    'This machine is the upstream (dev machine), so requests are filed directly as evolution jobs instead of Issues. When AMA-teras hits a wall a tool cannot cross mid-task, a draft also lands here. Always review the full text before filing.',
+  'req.descPackaged':
+    'Tools you can build on your own machine. The core/UI is shared by everyone, so requests go to the development repository from here. When AMA-teras hits a wall a tool cannot cross mid-task, a draft also lands here. Always review the full text before sending.',
+  'req.kindUi': 'ui (screen)',
+  'req.kindCore': 'core (app internals)',
+  'req.titlePlaceholder': 'Request title (one line)',
+  'req.bodyPlaceholder': 'What you were trying to do, where you hit the wall, and the expected behavior',
+  'req.draftIt': 'Save as draft',
+  'req.drafted': '✓ Drafted (review and send it from the list below)',
+  'req.preparing': '… preparing the submission',
+  'req.byAgentTitle': 'Filed by AMA-teras mid-task',
+  'req.byHumanTitle': 'Written by a human',
+  'req.byHuman': 'human',
+  'req.reviewSend': 'Review & send',
+  'req.reviewFile': 'Review & file',
+  'req.discard': 'Discard',
+  'req.confirmJob':
+    '🧬 Filing confirmation — becomes an evolution job on this machine (generation runs = token cost). Read the full text before approving.',
+  'req.confirmIssue': '📮 Send confirmation — this goes to an external GitHub Issue. Read the full text before approving.',
+  'req.sanctuaryNote': '* Changes touching the sanctuary (protected areas) are blocked by the protected gate. Ask directly in chat instead.',
+  'req.similar': 'Similar requests already exist (discard if duplicate):',
+  'req.leaks': '⚠ Machine check findings (cannot send as-is):',
+  'req.filing': '… filing',
+  'req.sending': '… sending',
+  'req.approveFile': 'Approve & file',
+  'req.approveSend': 'Approve & send',
+  'req.cancel': 'Cancel',
+  'req.cancelled': 'Cancelled (the draft is kept)',
+  'req.sentHeading': 'Sent / filed ({n})',
+  'req.job': '🧬 Job #{id}',
+  'req.openIssue': 'Open Issue ↗',
+  'req.noUrl': 'no URL',
+  'req.scopeUi': 'renderer (screen)',
+  'req.scopeCore': 'core (app internals)',
+
   // Settings "Connect" tab (ConnectionsSection.tsx — general-user parts)
   'conn.registryHeading': 'Community registry',
   'conn.registryDesc':
