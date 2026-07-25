@@ -99,6 +99,9 @@ import type { ToolPlugin } from '../tools/types';
 import { resolveBandLLM, resolveOperationsLLM, type ModelBandName } from './bands';
 import type { EventBus } from './events';
 import { ProcessManager } from './processes';
+import { BackgroundTasks } from './backgroundTasks';
+import { TaskWorktreeManager } from './taskWorktree';
+import type { ToolContext } from '../tools/types';
 import { previewFile, resolveRevealTarget, type RevealResolveResult } from './filePreview';
 import { foldHistoryIfOversize, SESSION_SCHEMA_VERSION, type SessionData } from './sessions';
 
@@ -1387,6 +1390,45 @@ export class AgentService {
     }
   }
 
+  // ---- M108: バックグラウンドタスク(隔離worktree) ----
+
+  private readonly backgroundTasksByConv = new Map<string, BackgroundTasks>();
+
+  /**
+   * M108: 会話ごとのバックグラウンドタスク束。完了通知はM107のresumeConversation経路で
+   * その会話へ自動投入される。worktreeの取り込みは apply_background_task(risk:'write')の
+   * 承認フローが門になる
+   */
+  private backgroundTasksFor(conv: ConvState): ToolContext['backgroundTasks'] {
+    let tasks = this.backgroundTasksByConv.get(conv.id);
+    if (tasks === undefined) {
+      const ws = conv.run?.workspace ?? this.getWorkspace();
+      tasks = new BackgroundTasks({
+        worktrees: new TaskWorktreeManager(ws),
+        provider: () => {
+          const p = this.createProvider();
+          if (typeof p === 'string') throw new Error(p);
+          return p;
+        },
+        registry: this.deps.registry,
+        notify: (text) => this.resumeConversation(conv, text),
+        maxTurns: 30,
+      });
+      this.backgroundTasksByConv.set(conv.id, tasks);
+    }
+    const t = tasks;
+    return {
+      dispatch: (instruction) => t.dispatch(instruction),
+      apply: (id) => t.apply(id),
+      discard: (id) => t.discard(id),
+      status: () =>
+        t
+          .list()
+          .map((r) => `#${r.id} [${r.status}] ${r.instruction.slice(0, 60)}`)
+          .join('\n') || '(タスクなし)',
+    };
+  }
+
   /** M107: schedule_wakeup プラグインから注入される予約。セッション内のみ(再起動で消える) */
   private scheduleWakeup(conv: ConvState, delaySec: number, note: string): { id: number; fireAtIso: string } {
     const id = this.nextWakeupId++;
@@ -1929,6 +1971,8 @@ export class AgentService {
               wakeups: {
                 schedule: (delaySec: number, note: string) => this.scheduleWakeup(conv, delaySec, note),
               },
+              // M108: バックグラウンドタスク(隔離worktree)。会話単位に束ねる
+              backgroundTasks: this.backgroundTasksFor(conv),
               subagent: {
                 // M18: サブエージェントは worker 帯(policy無効時はメインと同一)。
                 // M26-3: 単発run(mode:"read"の調査)は安価な explorer 帯(未設定ならworker)

@@ -160,6 +160,18 @@ export interface ToolContext {
   wakeups?: {
     schedule(delaySec: number, note: string): { id: number; fireAtIso: string };
   };
+  /**
+   * M108: バックグラウンドタスク(隔離worktree)。dispatch_background /
+   * apply_background_task プラグインだけが使う。worktree内はファイル系ツールのみ・
+   * 機械的スコープ制限つきで自動実行、本体への取り込みは承認制。
+   * 進化ジョブ・サブエージェントには注入されない(ネスト禁止)
+   */
+  backgroundTasks?: {
+    dispatch(instruction: string): Promise<{ id: number }>;
+    apply(id: number): Promise<string>;
+    discard(id: number): Promise<string>;
+    status(): string;
+  };
 }
 
 /**

@@ -20,11 +20,18 @@
 - **M107 イベント駆動自律(完了)**: schedule_wakeupツール(60〜3600秒・[wakeup]自動投入。
   実行中=次ターン境界/アイドル=即再開)+バックグラウンドプロセス終了の自動再開
   ([process-exit]投入)。承認待ちのスマホ到達はSSE(approval:request)既存導線を確認
-- **M108 並行タスク(設計のみ・未実装)**: 進化ジョブのworktree隔離を一般タスクへ一般化する。
-  設計: ①chatSendに mode:'background' を追加 ②進化のworktree作成部(evolution/local)を
-  共通モジュールへ抽出 ③別worktree+独立ProcessManagerでサブエージェント実行
-  ④結果は git diff として会話へ提示 ⑤取り込みは承認ダイアログ(diff全文)経由でmainへ適用
-  ⑥失敗・放棄時はworktreeを破棄(mainは無傷)。実装は次の夜間枠(推定3〜4時間)
+- **M108 並行タスク(完了)**: 進化B環境の原理を一般タスクへ —
+  「worktree内は機械的スコープ制限つきで自動実行、本体への取り込みだけ承認制」。
+  - core/taskWorktree.ts: task/N ブランチのworktree(進化の聖域はリファクタせず独立実装。
+    重複30行より巻き込み事故の方が高くつく判断)。diff(未追跡含む)・applyPatch(3-way)・
+    残骸自動掃除。実gitテスト5本
+  - core/backgroundTasks.ts: 隔離worktreeでサブエージェント実行。ツールは
+    read_file/write_file/edit_file/list_dir/grep のみ(bashはcdで脱出できるため不許可=
+    進化のrestrictExecと同じ理由)。全パスをcollectDeclaredPathsで機械検査し脱出は即拒否
+  - ツール: dispatch_background(起動・本体はブロックされない)/
+    apply_background_task(risk:'write'=取り込みは承認フロー必須。discardは無傷破棄)。
+    完了時は [bg-task #N] +diffがM107経路で会話へ自動投入
+  - テスト: 実git+実ツール+スクリプトLLMの統合4本(取り込み反映・脱出拒否・破棄無傷・非git明示エラー)
 
 ## M101: SKILL.md互換スキル機構(2026-07-25 完了)— 「みんなが欲しがる機能」枠
 
