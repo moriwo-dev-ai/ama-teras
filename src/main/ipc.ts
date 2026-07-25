@@ -928,6 +928,36 @@ export async function registerIpcHandlers(
     // M92-A7: リリース下書きのビルド実行。開発版のみ注入(配布版はソース+ビルド環境が無い)。
     // scripts/release.mjs を --publish 無しで回す(バージョン上げ→ビルド→下書きに.exe添付まで)
     ...(app.isPackaged ? {} : { releaseBuildRunner: makeReleaseBuildRunner() }),
+    // M105: オーナー限定ブラウザのウィンドウ生成(managerは鍵ファイルの有無で使うか決める)。
+    // 隔離パーティション=ログインはこの中だけに永続し、可視ウィンドウで動きが必ず見える
+    createOwnerBrowserWindow: async () => {
+      const win = new BrowserWindow({
+        show: true,
+        width: 1100,
+        height: 800,
+        title: 'AMA-teras owner browser(隔離パーティション)',
+        webPreferences: {
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+          partition: 'persist:owner-browser',
+        },
+      });
+      return {
+        loadURL: async (url: string) => {
+          await Promise.race([
+            win.loadURL(url),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('読み込みタイムアウト(20s)')), 20_000)),
+          ]);
+          await new Promise((r) => setTimeout(r, 700));
+        },
+        executeJavaScript: (code: string) => win.webContents.executeJavaScript(code, true),
+        captureJpeg: async () => (await win.webContents.capturePage()).toJPEG(80).toString('base64'),
+        currentUrl: () => win.webContents.getURL(),
+        isDestroyed: () => win.isDestroyed(),
+        destroy: () => win.destroy(),
+      };
+    },
     audit: (e) =>
       audit.append({
         tool: `operations:${e.adapterId}`,

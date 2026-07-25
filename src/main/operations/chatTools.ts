@@ -36,6 +36,11 @@ export interface ChatToolDeps {
   fetchImpl: (url: string) => Promise<{ status: number }>;
   /** M104: web_read用。本文まで読むfetch(未注入ならグローバルfetch) */
   fetchTextImpl?: (url: string) => Promise<{ status: number; text(): Promise<string> }>;
+  /**
+   * M105: オーナー限定ブラウザ(鍵がある機体のみ注入)。読み取り(open/read)だけを
+   * チャットに公開する。クリック・送信は承認バッチ+岩戸ゲートの領分でここには無い
+   */
+  ownerBrowser?: { open(url: string): Promise<string>; readText(): Promise<string> };
 }
 
 /** プロンプトに載せるツール一覧(ここが唯一の定義。増やすときは読み取り専用のみ) */
@@ -127,8 +132,15 @@ export function extractReadableText(body: string, contentTypeHint?: string): str
     .trim();
 }
 
-/** 返信本文から <tool>{...}</tool> を1つ取り出す(表示用本文からは取り除く) */
-export function parseToolCall(reply: string): { body: string; call: ChatToolCall | null } {
+/**
+ * 返信本文から <tool>{...}</tool> を1つ取り出す(表示用本文からは取り除く)。
+ * M105: extraSpecs はオーナー鍵がある機体でだけ合流するツール(browser系)。
+ * 鍵なし機体では名前が一覧に無い=呼び出しは「呼び出し無し」として無視される
+ */
+export function parseToolCall(
+  reply: string,
+  extraSpecs: { name: string }[] = [],
+): { body: string; call: ChatToolCall | null } {
   const m = /<tool>([\s\S]*?)<\/tool>/.exec(reply);
   if (m === null) return { body: reply.trim(), call: null };
   const body = (reply.slice(0, m.index) + reply.slice(m.index + m[0].length)).trim();
@@ -136,7 +148,7 @@ export function parseToolCall(reply: string): { body: string; call: ChatToolCall
     const parsed: unknown = JSON.parse(m[1] ?? '');
     if (typeof parsed === 'object' && parsed !== null) {
       const name = (parsed as Record<string, unknown>)['name'];
-      if (typeof name === 'string' && CHAT_TOOL_SPECS.some((s) => s.name === name)) {
+      if (typeof name === 'string' && [...CHAT_TOOL_SPECS, ...extraSpecs].some((s) => s.name === name)) {
         const args = (parsed as Record<string, unknown>)['args'];
         return {
           body,
@@ -243,6 +255,23 @@ export async function executeChatTool(call: ChatToolCall, deps: ChatToolDeps): P
     }
     case 'zenn_reachability':
       return zennReachability(deps);
+    case 'browser_open': {
+      if (deps.ownerBrowser === undefined) return 'この機体ではブラウザは使えない(オーナー鍵なし)';
+      const url = typeof call.args['url'] === 'string' ? call.args['url'].trim() : '';
+      try {
+        return await deps.ownerBrowser.open(url);
+      } catch (err) {
+        return `browser_open失敗: ${err instanceof Error ? err.message.slice(0, 120) : String(err)}`;
+      }
+    }
+    case 'browser_read': {
+      if (deps.ownerBrowser === undefined) return 'この機体ではブラウザは使えない(オーナー鍵なし)';
+      try {
+        return await deps.ownerBrowser.readText();
+      } catch (err) {
+        return `browser_read失敗: ${err instanceof Error ? err.message.slice(0, 120) : String(err)}`;
+      }
+    }
     case 'web_read': {
       const url = typeof call.args['url'] === 'string' ? call.args['url'].trim() : '';
       const forbidden = isForbiddenWebReadUrl(url);

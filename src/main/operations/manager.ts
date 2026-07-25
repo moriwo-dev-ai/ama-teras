@@ -88,6 +88,13 @@ import {
 import { completeText, completeTextWithUsage } from './llm';
 import { OmoiKami } from './omoiKami';
 import { appendStrategyEntry, readStrategy } from './strategy';
+import {
+  createOwnerBrowserAdapter,
+  hasOwnerBrowserKey,
+  OWNER_BROWSER_CHAT_SPECS,
+  OwnerBrowser,
+  type OwnerBrowserWindow,
+} from './ownerBrowser';
 import { IwatoGate, type IwatoAuditEvent } from './protocol';
 import { GodRegistry, type GodDefinition } from './gods';
 import { GodScheduler, isOverBudget, type GodClockJob } from './scheduler';
@@ -188,6 +195,11 @@ export interface OperationsManagerDeps {
   fetchImpl?: FetchLike;
   /** workspace のPROGRESS.md/git logを読む(発信ドラフトの素材) */
   readHighlightSources?: () => Promise<{ progressExcerpt: string; recentCommits: string }>;
+  /**
+   * M105: オーナー限定ブラウザのウィンドウ生成(electron依存のためipc.tsが注入)。
+   * 未注入 or オーナー鍵(.owner-browser)なし = 機能ごと存在しない(月読方式)
+   */
+  createOwnerBrowserWindow?: () => Promise<OwnerBrowserWindow>;
 }
 
 export interface OperationsStatus {
@@ -348,6 +360,8 @@ export class OperationsManager {
   private scheduler: GodScheduler | null = null;
   private gods: GodRegistry | null = null;
   private blueskyExecAvailable = false;
+  /** M105: オーナー限定ブラウザ(鍵がある機体のみ非null) */
+  private ownerBrowser: OwnerBrowser | null = null;
 
   private hn: HnReader;
 
@@ -424,6 +438,12 @@ export class OperationsManager {
     // executor は封印され、承認を通ったときだけ scripts/release.mjs(--publish 無し)を回す
     if (this.deps.releaseBuildRunner !== undefined) {
       gate.register(createReleaseBuildAdapter(this.deps.releaseBuildRunner));
+    }
+    // M105: オーナー限定ブラウザ(月読方式)。鍵ファイル+ウィンドウ生成器の両方がある機体のみ。
+    // 無い機体ではアダプタもチャットツールも登録されない=機能ごと存在しない
+    if (hasOwnerBrowserKey(this.dir) && this.deps.createOwnerBrowserWindow !== undefined) {
+      this.ownerBrowser = new OwnerBrowser({ createWindow: this.deps.createOwnerBrowserWindow });
+      gate.register(createOwnerBrowserAdapter(this.ownerBrowser));
     }
 
     // M33-5: 神の定義レジストリ+定義変更アダプタ。
@@ -1612,7 +1632,9 @@ ${d.body}`))
     // ③同一ツール+同一引数の2回目=強制打ち切り(暴走の実型は再試行ループ)
     const kamuhakariJob = this.scheduler?.list().find((j) => j.godId === 'kamuhakari');
     const budgetLeft = kamuhakariJob === undefined || !isOverBudget(kamuhakariJob);
-    const toolDocs = CHAT_TOOL_SPECS.map((s) => `- ${s.name}: ${s.description}`).join('\n');
+    // M105: オーナー鍵がある機体だけブラウザ(読み系)ツールが一覧に合流する
+    const extraSpecs = this.ownerBrowser !== null ? OWNER_BROWSER_CHAT_SPECS : [];
+    const toolDocs = [...CHAT_TOOL_SPECS, ...extraSpecs].map((s) => `- ${s.name}: ${s.description}`).join('\n');
     const system =
       'あなたはAMA-teras運営の相談役(神議)。簡潔に日本語で答える。' +
       '「運営の現況」と「ツール結果」だけを根拠に答える(推測禁止。無いデータは「取れていない」と正直に言う)。' +
@@ -1638,6 +1660,8 @@ ${d.body}`))
         return dir === '' ? null : join(dir, 'articles');
       })(),
       fetchImpl: this.deps.fetchImpl ?? ((url: string) => fetch(url)),
+      // M105: オーナー鍵がある機体のみ読み取り系ブラウザをチャットへ
+      ...(this.ownerBrowser !== null ? { ownerBrowser: this.ownerBrowser } : {}),
     };
 
     const basePrompt = `# 運営の現況(一次情報)\n${opsContext}\n\n# 直近の会話\n${conversation}\n\n# ユーザーの発言\n${text}\n\n返答:`;
@@ -1650,7 +1674,7 @@ ${d.body}`))
     for (let round = 0; round < MAX_ROUNDS + 1; round++) {
       const r = await completeTextWithUsage(provider, system, basePrompt + transcript);
       spent += r.tokensUsed;
-      const { body: replyBody, call } = parseToolCall(r.text);
+      const { body: replyBody, call } = parseToolCall(r.text, extraSpecs);
       if (call === null || !budgetLeft || round === MAX_ROUNDS) {
         finalBody = replyBody;
         break;
