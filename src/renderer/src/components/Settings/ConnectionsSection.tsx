@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { AppConfig, GodClockJob, ModelBand, OperationsConfig } from '../../../../shared/types';
+import { useT } from '../../i18n';
 import { DEFAULT_GITHUB_CLIENT_ID, DEFAULT_REGISTRY_URL, KNOWN_MODELS } from '../../../../shared/models';
 import { estimateOpsCost } from '../../../../shared/opsCost';
 import { useOperationsStore } from '../../stores/operations';
@@ -95,6 +96,7 @@ function OpsBandPicker({
  * 登録すると bluesky アダプタの execute(post/follow/reply・岩戸ゲート承認制)が有効化される
  */
 function BlueskyCredsSection(): JSX.Element {
+  const t = useT();
   const [identifier, setIdentifier] = useState('');
   const [appPassword, setAppPassword] = useState('');
   const [registered, setRegistered] = useState<boolean | null>(null);
@@ -105,24 +107,21 @@ function BlueskyCredsSection(): JSX.Element {
   return (
     <div className="space-y-1 rounded border border-zinc-800 p-2">
       <p className="text-xs font-semibold text-zinc-300">
-        Bluesky実行系(フォロー・投稿・返信){registered === true ? '(設定済み)' : '(未設定=提案のみ)'}
+        {t('conn.bskyHeading')}
+        {registered === true ? t('conn.bskySet') : t('conn.bskyUnset')}
       </p>
-      <p className="text-[10px] text-zinc-500">
-        app passwordを登録すると、承認したフォロー・投稿を岩戸ゲート経由で実行できる
-        (bsky.app → Settings → App Passwords で発行。メインパスワードは絶対に入れない)。
-        プロフィールに「一部運用を自動化(承認制)」の開示を推奨
-      </p>
+      <p className="text-[10px] text-zinc-500">{t('conn.bskyDesc')}</p>
       <div className="flex flex-wrap gap-1.5">
         <input
           className="min-w-[10rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono text-xs"
-          placeholder="ハンドル(例: moriwo.bsky.social)"
+          placeholder={t('conn.bskyHandle')}
           value={identifier}
           onChange={(e) => setIdentifier(e.target.value.trim())}
         />
         <input
           type="password"
           className="min-w-[10rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono text-xs"
-          placeholder="app password(xxxx-xxxx-xxxx-xxxx)"
+          placeholder={t('conn.bskyAppPassword')}
           value={appPassword}
           onChange={(e) => setAppPassword(e.target.value.trim())}
         />
@@ -136,12 +135,12 @@ function BlueskyCredsSection(): JSX.Element {
                 setRegistered(s.bluesky);
                 setIdentifier('');
                 setAppPassword('');
-                setNotice('保存した(実行系が有効化された。実行は毎回あなたの承認制)');
+                setNotice(t('conn.bskySaved'));
               })
               .catch((err: unknown) => setNotice(err instanceof Error ? err.message : String(err)));
           }}
         >
-          保存
+          {t('conn.save')}
         </button>
       </div>
       {notice !== '' && <p className="text-[10px] text-zinc-400">{notice}</p>}
@@ -151,6 +150,7 @@ function BlueskyCredsSection(): JSX.Element {
 
 /** M99-16: dev.to APIキー(英語記事のpull型出口。記事送信は岩戸承認制) */
 function DevtoKeySection(): JSX.Element {
+  const t = useT();
   const [apiKey, setApiKey] = useState('');
   const [registered, setRegistered] = useState<boolean | null>(null);
   const [notice, setNotice] = useState('');
@@ -160,17 +160,15 @@ function DevtoKeySection(): JSX.Element {
   return (
     <div className="space-y-1 rounded border border-zinc-800 p-2">
       <p className="text-xs font-semibold text-zinc-300">
-        dev.to(英語記事){registered === true ? '(設定済み)' : '(未設定=送信不可)'}
+        {t('conn.devtoHeading')}
+        {registered === true ? t('conn.bskySet') : t('conn.devtoUnset')}
       </p>
-      <p className="text-[10px] text-zinc-500">
-        dev.to → Settings → Extensions → DEV Community API Keys で発行したキーを登録。
-        記事は岩戸ゲートの全文承認後に「下書き」として送られ、公開の最終ボタンはdev.to上で押す(二重確認)
-      </p>
+      <p className="text-[10px] text-zinc-500">{t('conn.devtoDesc')}</p>
       <div className="flex flex-wrap gap-1.5">
         <input
           type="password"
           className="min-w-[12rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono text-xs"
-          placeholder="dev.to APIキー"
+          placeholder={t('conn.devtoKey')}
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value.trim())}
         />
@@ -183,12 +181,12 @@ function DevtoKeySection(): JSX.Element {
               .then((s) => {
                 setRegistered(s.devto);
                 setApiKey('');
-                setNotice('保存した(送信は毎回あなたの承認制)');
+                setNotice(t('conn.devtoSaved'));
               })
               .catch((err: unknown) => setNotice(err instanceof Error ? err.message : String(err)));
           }}
         >
-          保存
+          {t('conn.save')}
         </button>
       </div>
       {notice !== '' && <p className="text-[10px] text-zinc-400">{notice}</p>}
@@ -711,25 +709,21 @@ export function ConnectionsSection({
   config: AppConfig;
   saveConfig: (next: AppConfig) => void;
 }): JSX.Element {
+  const t = useT();
   return (
     <div className="space-y-4">
       <UsageSection />
 
       {/* M28-3/M29-4: コミュニティレジストリ(作る前に探す) */}
       <div className="space-y-1">
-        <p className="text-xs font-semibold text-zinc-300">コミュニティレジストリ</p>
-        <p className="text-xs text-zinc-500">
-          「作る前に探す」— エージェントが新しいツールを作る前にレジストリを検索し、
-          コミュニティの既存プラグインがあれば提案する(承諾すると検証ゲート付きでインポート)。
-          未達・候補なしのときは静かに従来の生成へフォールバックする。
-          既定は公式レジストリ。社内レジストリ等のURLに変更もできる
-        </p>
+        <p className="text-xs font-semibold text-zinc-300">{t('conn.registryHeading')}</p>
+        <p className="text-xs text-zinc-500">{t('conn.registryDesc')}</p>
         <div className="flex flex-wrap items-center gap-2">
           <input
             key={config.registryUrl /* 「既定に戻す」での上書きを反映するため */}
             className="min-w-[12rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
             defaultValue={config.registryUrl ?? ''}
-            placeholder="レジストリのベースURL(index.json をこの直下から取得)"
+            placeholder={t('conn.registryPlaceholder')}
             onBlur={(e) => {
               const raw = e.target.value.trim();
               saveConfig({ ...config, registryUrl: raw });
@@ -740,10 +734,10 @@ export function ConnectionsSection({
             title={DEFAULT_REGISTRY_URL}
             onClick={() => saveConfig({ ...config, registryUrl: DEFAULT_REGISTRY_URL })}
           >
-            既定に戻す
+            {t('conn.resetDefault')}
           </button>
         </div>
-        <p className="text-xs text-zinc-500">空欄にすると検索無効(生成のみになる)</p>
+        <p className="text-xs text-zinc-500">{t('conn.registryEmptyNote')}</p>
       </div>
 
       <RegistryPublishSection config={config} saveConfig={saveConfig} />
@@ -770,6 +764,7 @@ function RegistryPublishSection({
   config: AppConfig;
   saveConfig: (next: AppConfig) => void;
 }): JSX.Element {
+  const t = useT();
   const [token, setToken] = useState('');
   const [registered, setRegistered] = useState(false);
   const [msg, setMsg] = useState('');
@@ -821,42 +816,36 @@ function RegistryPublishSection({
 
   return (
     <div className="space-y-1.5">
-      <p className="text-xs font-semibold text-zinc-300">レジストリへの公開(GitHub)</p>
-      <p className="text-xs text-zinc-500">
-        自分の機体で作ったツールを、上のレジストリへPRとして提出できる(ツール一覧の「⛩ 公開」)。
-        送信前に必ず全文を確認・承認する。出せるのは検証ゲートを通ったツールだけで、
-        検証後にコードを書き換えたものは「未検証」になり公開できない
-      </p>
+      <p className="text-xs font-semibold text-zinc-300">{t('ghpub.heading')}</p>
+      <p className="text-xs text-zinc-500">{t('ghpub.desc')}</p>
 
       {/* 接続状態 */}
       {registered ? (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded bg-emerald-900/60 px-2 py-0.5 text-xs text-emerald-300">✓ GitHub 接続済み</span>
+          <span className="rounded bg-emerald-900/60 px-2 py-0.5 text-xs text-emerald-300">{t('ghpub.connected')}</span>
           <button
             className="rounded border border-zinc-600 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
             onClick={() => {
               void window.api.githubSignOut().then(() => {
-                setMsg('サインアウトした');
+                setMsg(t('ghpub.signedOut'));
                 refresh();
               });
             }}
           >
-            サインアウト
+            {t('ghpub.signOut')}
           </button>
         </div>
       ) : userCode !== '' ? (
         // 承認待ち: このコードをブラウザに入れて承認してもらう
         <div className="rounded border border-sky-800 bg-sky-950/50 p-2">
-          <p className="text-xs text-sky-200">
-            ブラウザ(自動で開きます)で、次のコードを入力して承認してください:
-          </p>
+          <p className="text-xs text-sky-200">{t('ghpub.enterCode')}</p>
           <p className="my-1 select-all text-center font-mono text-lg tracking-widest text-sky-100">{userCode}</p>
           <p className="text-[11px] text-zinc-400">
-            開かない場合は{' '}
+            {t('ghpub.ifNotOpen')}{' '}
             <button className="underline hover:text-zinc-200" onClick={() => void window.api.openExternal(verifyUri)}>
               {verifyUri}
-            </button>{' '}
-            を開く。承認するとここが自動で「接続済み」に変わります(待機中…)
+            </button>
+            {t('ghpub.waiting')}
           </p>
         </div>
       ) : (
@@ -864,12 +853,12 @@ function RegistryPublishSection({
           <button
             className="rounded bg-sky-700 px-3 py-1.5 text-xs hover:bg-sky-600 disabled:opacity-40"
             disabled={connecting || clientId === ''}
-            title={clientId === '' ? 'OAuth App の Client ID を下に入れると使えます' : ''}
+            title={clientId === '' ? t('ghpub.needClientId') : ''}
             onClick={connect}
           >
-            {connecting ? '接続中…' : 'GitHub と接続(推奨)'}
+            {connecting ? t('ghpub.connecting') : t('ghpub.connect')}
           </button>
-          <span className="text-[11px] text-zinc-500">ブラウザで承認するだけ。トークンの手作り不要</span>
+          <span className="text-[11px] text-zinc-500">{t('ghpub.connectNote')}</span>
         </div>
       )}
 
@@ -878,7 +867,7 @@ function RegistryPublishSection({
         key={config.registryAuthor}
         className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 text-xs"
         defaultValue={config.registryAuthor ?? ''}
-        placeholder="クレジット(GitHubのユーザー名など。manifest の author と署名に使う)"
+        placeholder={t('ghpub.credit')}
         onBlur={(e) => saveConfig({ ...config, registryAuthor: e.target.value.trim() })}
       />
 
@@ -886,33 +875,33 @@ function RegistryPublishSection({
 
       {/* 詳細設定(Client ID とトークン貼り付けフォールバック) */}
       <details className="text-xs text-zinc-500">
-        <summary className="cursor-pointer hover:text-zinc-300">詳細設定(Client ID / トークン貼り付け)</summary>
+        <summary className="cursor-pointer hover:text-zinc-300">{t('ghpub.advanced')}</summary>
         <div className="mt-1.5 space-y-1.5 border-l border-zinc-700 pl-2">
           <div>
-            <p>OAuth App の Client ID(Device Flow 用。公開情報なので秘密ではない)</p>
+            <p>{t('ghpub.clientIdLabel')}</p>
             <input
               key={config.githubClientId}
               className="mt-0.5 w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
               defaultValue={config.githubClientId ?? ''}
-              placeholder="Iv1.xxxxxxxxxxxx(GitHub → Settings → Developer settings → OAuth Apps)"
+              placeholder={t('ghpub.clientIdPlaceholder')}
               onBlur={(e) => saveConfig({ ...config, githubClientId: e.target.value.trim() })}
             />
           </div>
           <div>
-            <p>または、トークンを直接貼り付ける(public_repo 権限)</p>
+            <p>{t('ghpub.tokenLabel')}</p>
             <div className="mt-0.5 flex flex-wrap items-center gap-2">
               <input
                 className="min-w-[10rem] flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5 font-mono text-xs"
                 type={showToken ? 'text' : 'password'}
                 value={token}
-                placeholder={registered ? '登録済み(変更するなら新しいトークン)' : 'ghp_...'}
+                placeholder={registered ? t('ghpub.tokenSet') : 'ghp_...'}
                 onChange={(e) => setToken(e.target.value)}
               />
               <button
                 className="shrink-0 rounded border border-zinc-600 px-2 py-1.5 text-xs hover:bg-zinc-800"
                 onClick={() => setShowToken((v) => !v)}
               >
-                {showToken ? '隠す' : '表示'}
+                {showToken ? t('ghpub.hide') : t('ghpub.show')}
               </button>
               <button
                 className="shrink-0 rounded bg-zinc-700 px-2 py-1.5 text-xs hover:bg-zinc-600 disabled:opacity-40"
@@ -923,12 +912,12 @@ function RegistryPublishSection({
                     .then((s) => {
                       setRegistered(s.github);
                       setToken('');
-                      setMsg('✓ トークンを保存した(OSの暗号化ストアに保存)');
+                      setMsg(t('ghpub.tokenSaved'));
                     })
                     .catch((err: unknown) => setMsg(`✗ ${err instanceof Error ? err.message : String(err)}`));
                 }}
               >
-                保存
+                {t('conn.save')}
               </button>
             </div>
           </div>
