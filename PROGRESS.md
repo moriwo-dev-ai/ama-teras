@@ -1,5 +1,28 @@
 # PROGRESS
 
+## M109: 日中作業A〜D(2026-07-27)
+
+- **M109-A 多言語実証(ブロック・未完)**: workspace=C:/dev/polyglot-test で
+  「Pythonのwordfreq.py CLI+テスト」をアプリに依頼 → ラン即死。原因を追跡した結果
+  **Anthropic APIのクレジット残高不足(400)** — 本体チャット(provider=anthropic)が
+  全滅する状態だった。さらに設定は provider=Anthropic + custom model "kimi-k3" という
+  不整合(Anthropicにkimi-k3を投げていた)。運営の神々は openai(gpt-5.5)帯なので無事。
+  復旧はオーナー操作待ち: ①設定でProviderをMoonshot(Kimi)に切替(キー登録済み)
+  または ②Anthropic残高補充。ツール実行環境の切替はエージェント権限で2回ブロックされた
+  ため実施せず(正しい抑止と判断)。workspace は C:\dev\mycodex へ復帰済み
+- **M109-B スキルのレジストリ出品(完了)**: amateras-registry に skills/ カテゴリを新設し
+  同梱20本を出品(076bec6・CI green)。build-skills-index.mjs(frontmatter→索引再生成)、
+  validate.mjs にスキル検証(name規則=本体skill_use.tsと同一・索引双方向整合・
+  資格情報混入検査)、PRテンプレ刷新(汎用+plugin/god/skill専用)。スキルは
+  SKILL.md標準形式なのでAMA-teras以外のエージェントでも使える=エコシステム露出
+- **M109-C オーナーブラウザ磨き(完了)**: owner-browser-domains.json 許可リスト
+  (オーナーが置いた時だけ有効・毎回読み直し・サブドメインのみ許可で接尾辞偽装は拒否)+
+  承認済み操作(click/type/submit)の⛩運営スレッド通知。テスト16本
+- **M109-D デモ素材(一部完了)**: 英語UIスクリーンショット2枚を docs/screenshots/ へ
+  (chat-en.png / evolution-en.png。サイドバー=実セッション名は畳んで撮影)。READMEに
+  英語UIの一文を追加。GIF/mp4はエージェント実走が必要=A のクレジット問題で撮影不能。
+  復旧後に撮る
+
 ## M103〜M108: 「Claude Code級の自律」への構造ギャップ解消(2026-07-26 夜間)
 
 分析(オーナーとの相談で確定): 差は個々の機能ではなく「長期記憶・外向きの目・手・
