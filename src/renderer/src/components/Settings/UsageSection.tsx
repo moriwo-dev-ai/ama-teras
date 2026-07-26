@@ -1,20 +1,21 @@
 import { useEffect, useState } from 'react';
 import type { UsageSummary } from '../../../../shared/types';
+import { useT, type MessageKey } from '../../i18n';
 
 const fmt = (n: number): string => n.toLocaleString();
 const cost = (v: number | null): string => (v === null ? '—' : `$${v.toFixed(2)}`);
 
 /** M26-4: 帯ラベルの表示名(band無しの旧記録・進化ジョブ等は other に集約される) */
-const BAND_LABEL: Record<string, string> = {
-  main: 'main(単一モデル)',
-  planner: 'planner(計画)',
-  worker: 'worker(実行)',
-  explorer: 'explorer(調査)',
-  reviewer: 'reviewer(レビュー)',
-  midEscalation: 'midEscalation(中間格上げ)',
-  escalation: 'escalation(格上げ)',
-  fallback: 'fallback(切替)',
-  other: 'その他',
+const BAND_LABEL: Record<string, MessageKey> = {
+  main: 'usage.bandMain',
+  planner: 'usage.bandPlanner',
+  worker: 'usage.bandWorker',
+  explorer: 'usage.bandExplorer',
+  reviewer: 'usage.bandReviewer',
+  midEscalation: 'usage.bandMidEscalation',
+  escalation: 'usage.bandEscalation',
+  fallback: 'usage.bandFallback',
+  other: 'usage.bandOther',
 };
 
 /**
@@ -22,6 +23,7 @@ const BAND_LABEL: Record<string, string> = {
  * アプリで実測した使用トークンと概算コストを表示し、正確な残高はダッシュボードへ誘導する
  */
 export function UsageSection(): JSX.Element {
+  const t = useT();
   const [summary, setSummary] = useState<UsageSummary | null>(null);
 
   const refresh = (): void => {
@@ -32,27 +34,27 @@ export function UsageSection(): JSX.Element {
   return (
     <div className="space-y-2 rounded-md border border-zinc-700 p-3">
       <div className="flex items-center justify-between">
-        <label className="text-xs font-semibold text-zinc-300">使用量と残高(概算)</label>
+        <label className="text-xs font-semibold text-zinc-300">{t('usage.heading')}</label>
         <button
           className="rounded border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-400 hover:bg-zinc-800"
           onClick={refresh}
         >
-          更新
+          {t('usage.refresh')}
         </button>
       </div>
 
       {summary === null || summary.models.length === 0 ? (
-        <p className="text-xs text-zinc-500">まだ使用記録が無い(このバージョン導入以降のLLM呼び出しを集計)</p>
+        <p className="text-xs text-zinc-500">{t('usage.empty')}</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-[11px]">
             <thead className="text-zinc-500">
               <tr>
-                <th className="pr-2">モデル</th>
-                <th className="pr-2">今日 in/out</th>
-                <th className="pr-2">今日$</th>
-                <th className="pr-2">累計 in/out</th>
-                <th>累計$</th>
+                <th className="pr-2">{t('usage.model')}</th>
+                <th className="pr-2">{t('usage.todayInOut')}</th>
+                <th className="pr-2">{t('usage.todayCost')}</th>
+                <th className="pr-2">{t('usage.totalInOut')}</th>
+                <th>{t('usage.totalCost')}</th>
               </tr>
             </thead>
             <tbody className="text-zinc-300">
@@ -70,7 +72,7 @@ export function UsageSection(): JSX.Element {
                 </tr>
               ))}
               <tr className="border-t border-zinc-700 font-semibold">
-                <td className="pr-2">合計</td>
+                <td className="pr-2">{t('usage.total')}</td>
                 <td />
                 <td className="pr-2 font-mono">{cost(summary.todayCostUsd)}</td>
                 <td />
@@ -83,21 +85,21 @@ export function UsageSection(): JSX.Element {
 
       {summary !== null && summary.bands.length > 0 && (
         <div className="overflow-x-auto">
-          <p className="mb-1 text-[11px] font-semibold text-zinc-400">帯別(役割別)の累積</p>
+          <p className="mb-1 text-[11px] font-semibold text-zinc-400">{t('usage.bandHeading')}</p>
           <table className="w-full text-left text-[11px]">
             <thead className="text-zinc-500">
               <tr>
-                <th className="pr-2">帯</th>
-                <th className="pr-2">今日 in/out</th>
-                <th className="pr-2">今日$</th>
-                <th className="pr-2">累計 in/out</th>
-                <th>累計$</th>
+                <th className="pr-2">{t('usage.band')}</th>
+                <th className="pr-2">{t('usage.todayInOut')}</th>
+                <th className="pr-2">{t('usage.todayCost')}</th>
+                <th className="pr-2">{t('usage.totalInOut')}</th>
+                <th>{t('usage.totalCost')}</th>
               </tr>
             </thead>
             <tbody className="text-zinc-300">
               {summary.bands.map((b) => (
                 <tr key={b.band} className="border-t border-zinc-800">
-                  <td className="pr-2">{BAND_LABEL[b.band] ?? b.band}</td>
+                  <td className="pr-2">{BAND_LABEL[b.band] !== undefined ? t(BAND_LABEL[b.band]!) : b.band}</td>
                   <td className="pr-2 font-mono">
                     {fmt(b.today.input)}/{fmt(b.today.output)}
                   </td>
@@ -113,28 +115,25 @@ export function UsageSection(): JSX.Element {
         </div>
       )}
 
-      <p className="text-[11px] text-zinc-500">
-        コストは既知単価からの概算(cache読み取りは0.1×入力単価で計上・未知モデルは「—」)。
-        プロバイダは残高取得APIを提供していないため、正確な残高は各ダッシュボードで:
-      </p>
+      <p className="text-[11px] text-zinc-500">{t('usage.note')}</p>
       <div className="flex gap-2">
         <button
           className="rounded border border-zinc-600 px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800"
           onClick={() => void window.api.openBillingPage('anthropic')}
         >
-          Anthropic残高を開く ↗
+          {t('usage.openAnthropic')}
         </button>
         <button
           className="rounded border border-zinc-600 px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800"
           onClick={() => void window.api.openBillingPage('openai')}
         >
-          OpenAI残高を開く ↗
+          {t('usage.openOpenai')}
         </button>
         <button
           className="rounded border border-zinc-600 px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800"
           onClick={() => void window.api.openBillingPage('moonshot')}
         >
-          Moonshot残高を開く ↗
+          {t('usage.openMoonshot')}
         </button>
       </div>
     </div>

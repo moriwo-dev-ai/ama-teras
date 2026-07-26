@@ -167,6 +167,33 @@ export const ja = {
   'settings.languageAuto': '自動(OSに合わせる)/ Auto',
   'settings.languageHint': '切替は即時反映。日本語/英語の対応は主要画面から段階的に拡大中',
 
+  // 使用量タブ(UsageSection.tsx)
+  'usage.heading': '使用量と残高(概算)',
+  'usage.refresh': '更新',
+  'usage.empty': 'まだ使用記録が無い(このバージョン導入以降のLLM呼び出しを集計)',
+  'usage.model': 'モデル',
+  'usage.todayInOut': '今日 in/out',
+  'usage.todayCost': '今日$',
+  'usage.totalInOut': '累計 in/out',
+  'usage.totalCost': '累計$',
+  'usage.total': '合計',
+  'usage.bandHeading': '帯別(役割別)の累積',
+  'usage.band': '帯',
+  'usage.bandMain': 'main(単一モデル)',
+  'usage.bandPlanner': 'planner(計画)',
+  'usage.bandWorker': 'worker(実行)',
+  'usage.bandExplorer': 'explorer(調査)',
+  'usage.bandReviewer': 'reviewer(レビュー)',
+  'usage.bandMidEscalation': 'midEscalation(中間格上げ)',
+  'usage.bandEscalation': 'escalation(格上げ)',
+  'usage.bandFallback': 'fallback(切替)',
+  'usage.bandOther': 'その他',
+  'usage.note':
+    'コストは既知単価からの概算(cache読み取りは0.1×入力単価で計上・未知モデルは「—」)。プロバイダは残高取得APIを提供していないため、正確な残高は各ダッシュボードで:',
+  'usage.openAnthropic': 'Anthropic残高を開く ↗',
+  'usage.openOpenai': 'OpenAI残高を開く ↗',
+  'usage.openMoonshot': 'Moonshot残高を開く ↗',
+
   // 共有文言(shared/models.tsから移設)
   'shared.freeApiNotice':
     '無料枠のAPIでは、入力したデータが提供元のモデル改善(学習)に使われる場合があります。機密情報・業務データを扱う作業には有料API(Anthropic/OpenAI)の利用を推奨します',

@@ -168,6 +168,33 @@ export const en: Record<MessageKey, string> = {
   'settings.languageAuto': 'Auto (follow OS) / 自動',
   'settings.languageHint': 'Applies immediately. Coverage is expanding screen by screen (main screens first).',
 
+  // Usage tab (UsageSection.tsx)
+  'usage.heading': 'Usage & balance (estimated)',
+  'usage.refresh': 'Refresh',
+  'usage.empty': 'No usage recorded yet (aggregates LLM calls since this version was installed)',
+  'usage.model': 'Model',
+  'usage.todayInOut': 'Today in/out',
+  'usage.todayCost': 'Today $',
+  'usage.totalInOut': 'Total in/out',
+  'usage.totalCost': 'Total $',
+  'usage.total': 'Total',
+  'usage.bandHeading': 'Per-band (per-role) totals',
+  'usage.band': 'Band',
+  'usage.bandMain': 'main (single model)',
+  'usage.bandPlanner': 'planner (planning)',
+  'usage.bandWorker': 'worker (execution)',
+  'usage.bandExplorer': 'explorer (research)',
+  'usage.bandReviewer': 'reviewer (review)',
+  'usage.bandMidEscalation': 'midEscalation (mid-tier escalation)',
+  'usage.bandEscalation': 'escalation',
+  'usage.bandFallback': 'fallback (switchover)',
+  'usage.bandOther': 'other',
+  'usage.note':
+    'Costs are estimates from known prices (cache reads billed at 0.1× input; unknown models show "—"). Providers offer no balance API, so check exact balances on their dashboards:',
+  'usage.openAnthropic': 'Open Anthropic balance ↗',
+  'usage.openOpenai': 'Open OpenAI balance ↗',
+  'usage.openMoonshot': 'Open Moonshot balance ↗',
+
   // Shared copy (moved from shared/models.ts)
   'shared.freeApiNotice':
     'Free-tier APIs may use your inputs to improve (train) the provider\'s models. For confidential or business data, paid APIs (Anthropic/OpenAI) are recommended.',
