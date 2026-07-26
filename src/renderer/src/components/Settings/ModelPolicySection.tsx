@@ -1,4 +1,5 @@
 import type { AppConfig, ModelBand, ModelPolicy, ProviderId, SecretsStatus } from '../../../../shared/types';
+import { useT, type MessageKey } from '../../i18n';
 import { DEFAULT_MODELS, KNOWN_MODELS } from '../../../../shared/models';
 
 /**
@@ -15,9 +16,9 @@ const DEFAULT_POLICY: ModelPolicy = {
   maxEscalationsPerTask: 1,
 };
 
-const PRESETS: { label: string; policy: Omit<ModelPolicy, 'enabled'> }[] = [
+const PRESETS: { labelKey: MessageKey; policy: Omit<ModelPolicy, 'enabled'> }[] = [
   {
-    label: '高品質重視(Fable/Sonnet/Fable)',
+    labelKey: 'mpolicy.presetQuality',
     policy: {
       planner: { provider: 'anthropic', model: 'claude-fable-5' },
       worker: { provider: 'anthropic', model: 'claude-sonnet-5' },
@@ -31,7 +32,7 @@ const PRESETS: { label: string; policy: Omit<ModelPolicy, 'enabled'> }[] = [
     },
   },
   {
-    label: 'コスパ重視(Sonnet/Haiku/Fable)',
+    labelKey: 'mpolicy.presetValue',
     policy: {
       planner: { provider: 'anthropic', model: 'claude-sonnet-5' },
       worker: { provider: 'anthropic', model: 'claude-haiku-4-5' },
@@ -48,7 +49,7 @@ const PRESETS: { label: string; policy: Omit<ModelPolicy, 'enabled'> }[] = [
     // M30-1: GPT-5.6 世代(Sol/Terra/Luna)のOpenAI構成。
     // 指示された4帯(planner/escalation=Sol・worker=Terra・explorer=Luna)のみ指定し、
     // reviewer は planner 代行・midEscalation は escalation フォールバックの既定規則に委ねる
-    label: 'OpenAI構成(Sol/Terra/Luna)',
+    labelKey: 'mpolicy.presetOpenai',
     policy: {
       planner: { provider: 'openai', model: 'gpt-5.6-sol' },
       worker: { provider: 'openai', model: 'gpt-5.6-terra' },
@@ -61,13 +62,13 @@ const PRESETS: { label: string; policy: Omit<ModelPolicy, 'enabled'> }[] = [
 
 type BandName = 'planner' | 'worker' | 'explorer' | 'reviewer' | 'midEscalation' | 'escalation';
 
-const BAND_LABEL: Record<BandName, string> = {
-  planner: 'planner(計画・重要レビュー・最終応答)',
-  worker: 'worker(実行サブエージェント)',
-  explorer: 'explorer(調査・ファイル探索)',
-  reviewer: 'reviewer(日常レビューの監査役)',
-  midEscalation: 'midEscalation(中間格上げ・fix 3回目)',
-  escalation: 'escalation(最終格上げ)',
+const BAND_LABEL: Record<BandName, MessageKey> = {
+  planner: 'mpolicy.bandPlanner',
+  worker: 'mpolicy.bandWorker',
+  explorer: 'mpolicy.bandExplorer',
+  reviewer: 'mpolicy.bandReviewer',
+  midEscalation: 'mpolicy.bandMidEscalation',
+  escalation: 'mpolicy.bandEscalation',
 };
 
 function BandRow({
@@ -81,10 +82,11 @@ function BandRow({
   keyMissing: boolean;
   onChange: (next: ModelBand) => void;
 }): JSX.Element {
+  const t = useT();
   return (
     <div className="space-y-0.5">
       <div className="flex items-center gap-2 text-xs">
-        <span className="w-56 shrink-0 text-zinc-400">{BAND_LABEL[name]}</span>
+        <span className="w-56 shrink-0 text-zinc-400">{t(BAND_LABEL[name])}</span>
         <select
           className="rounded border border-zinc-600 bg-zinc-800 px-1.5 py-1"
           value={band.provider}
@@ -102,7 +104,7 @@ function BandRow({
           value={band.model}
           onChange={(e) => onChange({ ...band, model: e.target.value })}
         >
-          <option value="">既定({DEFAULT_MODELS[band.provider]})</option>
+          <option value=''>{t('mpolicy.bandDefault', { model: DEFAULT_MODELS[band.provider] })}</option>
           {KNOWN_MODELS[band.provider].map((m) => (
             <option key={m.id} value={m.id}>
               {m.label}
@@ -112,7 +114,7 @@ function BandRow({
       </div>
       {keyMissing && (
         <p className="pl-56 text-[11px] text-amber-400">
-          ⚠ {band.provider} のAPIキーが未登録(この帯は動かない/planner代行になる)
+          {t('mpolicy.keyMissing', { provider: band.provider })}
         </p>
       )}
     </div>
@@ -138,6 +140,7 @@ export function ModelPolicySection({
     onSave(next);
   };
 
+  const t = useT();
   const keyMissing = (p: ProviderId): boolean => (secrets ? !secrets[p] : false);
   const effective = (band: ModelBand): string => band.model || DEFAULT_MODELS[band.provider];
 
@@ -152,18 +155,18 @@ export function ModelPolicySection({
             else if (policy) save({ ...policy, enabled: false });
           }}
         />
-        モデル自動切替(役割ごとにモデルを使い分け)
+        {t('mpolicy.heading')}
       </label>
       {enabled && policy && (
         <div className="space-y-2 rounded border border-zinc-700 bg-zinc-950/50 p-2">
           <div className="flex flex-wrap gap-2">
             {PRESETS.map((p) => (
               <button
-                key={p.label}
+                key={p.labelKey}
                 className="rounded border border-zinc-600 px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800"
                 onClick={() => save({ enabled: true, ...p.policy })}
               >
-                {p.label}
+                {t(p.labelKey)}
               </button>
             ))}
           </div>
@@ -204,7 +207,7 @@ export function ModelPolicySection({
             onChange={(b) => save({ ...policy, escalation: b })}
           />
           <div className="flex items-center gap-2 text-xs">
-            <span className="w-56 shrink-0 text-zinc-400">1タスクあたりの最大格上げ回数</span>
+            <span className="w-56 shrink-0 text-zinc-400">{t('mpolicy.maxEscalations')}</span>
             <select
               className="rounded border border-zinc-600 bg-zinc-800 px-1.5 py-1"
               value={policy.maxEscalationsPerTask ?? 1}
@@ -212,35 +215,31 @@ export function ModelPolicySection({
                 save({ ...policy, maxEscalationsPerTask: Number(e.target.value) })
               }
             >
-              <option value={0}>0(格上げしない)</option>
-              <option value={1}>1(既定)</option>
+              <option value={0}>{t('mpolicy.esc0')}</option>
+              <option value={1}>{t('mpolicy.esc1')}</option>
               <option value={2}>2</option>
               <option value={3}>3</option>
             </select>
           </div>
           {/* 現在の割り当て一覧 */}
           <p className="text-[11px] leading-relaxed text-zinc-500">
-            現在: メイン会話 = {policy.planner.provider}/{effective(policy.planner)} ・
-            実行サブ = {policy.worker.provider}/{effective(policy.worker)} ・
-            調査サブ = {(policy.explorer ?? policy.worker).provider}/
+            {t('mpolicy.currentPre')}
+            {t('mpolicy.sumMain')} = {policy.planner.provider}/{effective(policy.planner)} ・
+            {t('mpolicy.sumWorker')} = {policy.worker.provider}/{effective(policy.worker)} ・
+            {t('mpolicy.sumExplorer')} = {(policy.explorer ?? policy.worker).provider}/
             {effective(policy.explorer ?? policy.worker)} ・
-            日常レビュー = {(policy.reviewer ?? policy.planner).provider}/
+            {t('mpolicy.sumReviewer')} = {(policy.reviewer ?? policy.planner).provider}/
             {effective(policy.reviewer ?? policy.planner)} ・
-            格上げ = {(policy.midEscalation ?? policy.escalation ?? policy.planner).provider}/
+            {t('mpolicy.sumEscalation')} = {(policy.midEscalation ?? policy.escalation ?? policy.planner).provider}/
             {effective(policy.midEscalation ?? policy.escalation ?? policy.planner)} →{' '}
             {(policy.escalation ?? policy.planner).provider}/
-            {effective(policy.escalation ?? policy.planner)}(レビュー差し戻しfixは
-            1-2回目=worker、3回目=midEscalation、4回目以降=escalation の階段)。
-            最終マイルストーン完了時・コア領域に触れる変更のレビューは reviewer 指定が
-            あっても planner で実施。進化ジョブは本体設定のモデルを使う
+            {effective(policy.escalation ?? policy.planner)}
+            {t('mpolicy.currentSummary')}
           </p>
         </div>
       )}
       {!enabled && (
-        <p className="text-xs text-zinc-500">
-          ONにすると、メイン会話(計画・レビュー)は高性能モデル、実行サブエージェントは
-          安価なモデル、詰まった箇所だけ自動で上位モデルに格上げ — と役割別に使い分けてコスパを上げる
-        </p>
+        <p className="text-xs text-zinc-500">{t('mpolicy.offNote')}</p>
       )}
     </div>
   );

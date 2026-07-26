@@ -168,6 +168,33 @@ export const en: Record<MessageKey, string> = {
   'settings.languageAuto': 'Auto (follow OS) / 自動',
   'settings.languageHint': 'Applies immediately. Coverage is expanding screen by screen (main screens first).',
 
+  // Model policy (ModelPolicySection.tsx)
+  'mpolicy.presetQuality': 'Quality-first (Fable/Sonnet/Fable)',
+  'mpolicy.presetValue': 'Value-first (Sonnet/Haiku/Fable)',
+  'mpolicy.presetOpenai': 'OpenAI stack (Sol/Terra/Luna)',
+  'mpolicy.bandPlanner': 'planner (planning, key reviews, final replies)',
+  'mpolicy.bandWorker': 'worker (execution sub-agents)',
+  'mpolicy.bandExplorer': 'explorer (research, file exploration)',
+  'mpolicy.bandReviewer': 'reviewer (day-to-day review auditor)',
+  'mpolicy.bandMidEscalation': 'midEscalation (mid-tier escalation, 3rd fix)',
+  'mpolicy.bandEscalation': 'escalation (final escalation)',
+  'mpolicy.bandDefault': 'Default ({model})',
+  'mpolicy.keyMissing': "⚠ No API key registered for {provider} (this band won't run / planner substitutes)",
+  'mpolicy.heading': 'Model auto-switching (different models per role)',
+  'mpolicy.maxEscalations': 'Max escalations per task',
+  'mpolicy.esc0': '0 (never escalate)',
+  'mpolicy.esc1': '1 (default)',
+  'mpolicy.currentPre': 'Current: ',
+  'mpolicy.sumMain': 'main conversation',
+  'mpolicy.sumWorker': 'execution subs',
+  'mpolicy.sumExplorer': 'research subs',
+  'mpolicy.sumReviewer': 'daily review',
+  'mpolicy.sumEscalation': 'escalation',
+  'mpolicy.currentSummary':
+    ' (review-fix ladder: 1st-2nd = worker, 3rd = midEscalation, 4th+ = escalation). Final-milestone and core-area reviews always run on planner even when reviewer is set. Evolution jobs use the main model settings.',
+  'mpolicy.offNote':
+    'When ON, the main conversation (planning/review) uses a strong model, execution sub-agents use a cheap one, and only stuck spots auto-escalate — role-based routing for better cost/performance.',
+
   // Model ops tab (ModelOpsSection.tsx)
   'mops.fallbackHeading': 'Fallback (auto-switch when out of balance)',
   'mops.fallbackModelPh': 'Model (empty = fallback provider default)',

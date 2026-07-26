@@ -167,6 +167,33 @@ export const ja = {
   'settings.languageAuto': '自動(OSに合わせる)/ Auto',
   'settings.languageHint': '切替は即時反映。日本語/英語の対応は主要画面から段階的に拡大中',
 
+  // モデル自動切替(ModelPolicySection.tsx)
+  'mpolicy.presetQuality': '高品質重視(Fable/Sonnet/Fable)',
+  'mpolicy.presetValue': 'コスパ重視(Sonnet/Haiku/Fable)',
+  'mpolicy.presetOpenai': 'OpenAI構成(Sol/Terra/Luna)',
+  'mpolicy.bandPlanner': 'planner(計画・重要レビュー・最終応答)',
+  'mpolicy.bandWorker': 'worker(実行サブエージェント)',
+  'mpolicy.bandExplorer': 'explorer(調査・ファイル探索)',
+  'mpolicy.bandReviewer': 'reviewer(日常レビューの監査役)',
+  'mpolicy.bandMidEscalation': 'midEscalation(中間格上げ・fix 3回目)',
+  'mpolicy.bandEscalation': 'escalation(最終格上げ)',
+  'mpolicy.bandDefault': '既定({model})',
+  'mpolicy.keyMissing': '⚠ {provider} のAPIキーが未登録(この帯は動かない/planner代行になる)',
+  'mpolicy.heading': 'モデル自動切替(役割ごとにモデルを使い分け)',
+  'mpolicy.maxEscalations': '1タスクあたりの最大格上げ回数',
+  'mpolicy.esc0': '0(格上げしない)',
+  'mpolicy.esc1': '1(既定)',
+  'mpolicy.currentPre': '現在: ',
+  'mpolicy.sumMain': 'メイン会話',
+  'mpolicy.sumWorker': '実行サブ',
+  'mpolicy.sumExplorer': '調査サブ',
+  'mpolicy.sumReviewer': '日常レビュー',
+  'mpolicy.sumEscalation': '格上げ',
+  'mpolicy.currentSummary':
+    '(レビュー差し戻しfixは 1-2回目=worker、3回目=midEscalation、4回目以降=escalation の階段)。最終マイルストーン完了時・コア領域に触れる変更のレビューは reviewer 指定があっても planner で実施。進化ジョブは本体設定のモデルを使う',
+  'mpolicy.offNote':
+    'ONにすると、メイン会話(計画・レビュー)は高性能モデル、実行サブエージェントは安価なモデル、詰まった箇所だけ自動で上位モデルに格上げ — と役割別に使い分けてコスパを上げる',
+
   // モデル運用タブ(ModelOpsSection.tsx)
   'mops.fallbackHeading': 'フォールバック(残高切れ時の自動切替)',
   'mops.fallbackModelPh': 'モデル(空欄=切替先の既定)',
