@@ -91,6 +91,7 @@ import { appendStrategyEntry, readStrategy } from './strategy';
 import {
   createOwnerBrowserAdapter,
   hasOwnerBrowserKey,
+  loadOwnerBrowserDomains,
   OWNER_BROWSER_CHAT_SPECS,
   OwnerBrowser,
   type OwnerBrowserWindow,
@@ -442,7 +443,15 @@ export class OperationsManager {
     // M105: オーナー限定ブラウザ(月読方式)。鍵ファイル+ウィンドウ生成器の両方がある機体のみ。
     // 無い機体ではアダプタもチャットツールも登録されない=機能ごと存在しない
     if (hasOwnerBrowserKey(this.dir) && this.deps.createOwnerBrowserWindow !== undefined) {
-      this.ownerBrowser = new OwnerBrowser({ createWindow: this.deps.createOwnerBrowserWindow });
+      this.ownerBrowser = new OwnerBrowser({
+        createWindow: this.deps.createOwnerBrowserWindow,
+        // M109-C: 許可リストは毎回読み直す(オーナーのファイル編集を再起動なしで反映)
+        allowedDomains: () => loadOwnerBrowserDomains(this.dir),
+        // M109-C: 承認済み操作の一次記録を⛩運営スレッドに残す
+        notify: (body) => {
+          this.thread?.post({ role: 'system', kind: 'notice', body });
+        },
+      });
       gate.register(createOwnerBrowserAdapter(this.ownerBrowser));
     }
 
