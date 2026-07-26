@@ -69,10 +69,12 @@
   BasicSection全文 / ConnectionsSectionの一般ユーザー向け部分(レジストリ・GitHub接続・
   Bluesky/dev.toキー)/ RequestsSection。英語ユーザーの主要動線(初回起動→キー設定→
   自律モード→要望送信)が英語で完結する
-- **M100-4(残)**: PublishPlugin / ModelPolicySection / UsageSection / RemoteAccessSection /
-  shared/models.tsのUI表示文言(FREE_API_TRAINING_NOTICE・プリセットsteps等)。
-  オーナーモード(TAKAMA-gahara運営)・月読セクションは運営者向けのため意図的に日本語のまま
-  (優先度最低。英語化するならオーナー英語話者が現れてから)
+- **M100-4(2026-07-26 完了)**: PublishPlugin / MemorySection / UsageSection / ModelOpsSection /
+  ModelPolicySection / RemoteAccessSection(qrGuidanceはキー返却へ)/ QualitySection /
+  ReviewGateSection / InventoryCard / ReviewCard / UpdateBanner / RightPaneタブ /
+  FREE_API_TRAINING_NOTICE。**辞書は約460キー**(ja/en対・型検査で訳し忘れゼロ保証)。
+  意図的に日本語のまま: オーナーモード(TAKAMA-gahara運営)・月読・PROVIDER_PRESETSの
+  label/steps(shared/models.tsのデータ定義。UI表示頻度が低く費用対効果待ち)
 - **M100-3(以降)**: Operations系(オーナー向けのため優先度低)・remote-ui(スマホ)
 - 方針: 文言は必ず辞書経由(`t('key')`)。新規UI追加時も ja/en 両方に書く(enはtypecheckが落ちるので忘れない)
 
