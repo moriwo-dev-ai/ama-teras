@@ -86,6 +86,12 @@ export const ja = {
   'rvc.problem': '問題: ',
   'rvc.fix': '修正: ',
 
+  // 右ペイン(RightPane.tsx)
+  'rpane.plan': '計画',
+  'rpane.agents': 'エージェント',
+  'rpane.evolution': '進化',
+  'rpane.previewHint': 'チャット内のファイルパス(ツールカードの 📄 や本文中のパス)をクリックするとここにプレビューが表示される',
+
   // 更新バナー(UpdateBanner.tsx)
   'upd.newVersion': '✨ 新しい版があります: ',
   'upd.current': '(いま {version})— ',

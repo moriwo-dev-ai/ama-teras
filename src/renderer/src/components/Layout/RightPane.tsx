@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useT } from '../../i18n';
 import { SubAgentPanel } from '../Agents/SubAgentPanel';
 import { ToolDebugPanel } from '../Debug/ToolDebugPanel';
 import { EvolutionPanel } from '../Evolution/EvolutionPanel';
@@ -22,6 +23,7 @@ import { FilePreview } from './FilePreview';
 
 
 export function RightPane(): JSX.Element {
+  const t = useT();
   const { tab, setTab } = useRightPaneStore();
   const previewResult = usePreviewStore((s) => s.result);
   const runningAgents = useSubAgentStore((s) => s.agents.filter((a) => a.status === 'running').length);
@@ -57,9 +59,9 @@ export function RightPane(): JSX.Element {
 
   const tabs: { id: RightPaneTab; label: string; badge?: number }[] = [
     { id: 'preview', label: '📄' },
-    { id: 'plan', label: '計画' },
-    { id: 'agents', label: 'エージェント', ...(runningAgents > 0 ? { badge: runningAgents } : {}) },
-    { id: 'evolution', label: '進化', ...(activeJobs > 0 ? { badge: activeJobs } : {}) },
+    { id: 'plan', label: t('rpane.plan') },
+    { id: 'agents', label: t('rpane.agents'), ...(runningAgents > 0 ? { badge: runningAgents } : {}) },
+    { id: 'evolution', label: t('rpane.evolution'), ...(activeJobs > 0 ? { badge: activeJobs } : {}) },
     ...(operationsEnabled ? [{ id: 'operations' as const, label: '運営' }] : []),
     ...(tsukuyomiEnabled ? [{ id: 'tsukuyomi' as const, label: '月読' }] : []),
     { id: 'debug', label: 'Debug' },
@@ -94,8 +96,7 @@ export function RightPane(): JSX.Element {
             <FilePreview />
           ) : (
             <p className="p-3 text-xs text-zinc-500">
-              チャット内のファイルパス(ツールカードの 📄 や本文中のパス)をクリックすると
-              ここにプレビューが表示される
+              {t('rpane.previewHint')}
             </p>
           ))}
         {tab === 'plan' && <PlanPanel />}

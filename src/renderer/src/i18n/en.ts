@@ -87,6 +87,12 @@ export const en: Record<MessageKey, string> = {
   'rvc.problem': 'Problem: ',
   'rvc.fix': 'Fix: ',
 
+  // Right pane (RightPane.tsx)
+  'rpane.plan': 'Plan',
+  'rpane.agents': 'Agents',
+  'rpane.evolution': 'Evolution',
+  'rpane.previewHint': 'Click a file path in chat (📄 on tool cards or paths in text) to preview it here',
+
   // Update banner (UpdateBanner.tsx)
   'upd.newVersion': '✨ New version available: ',
   'upd.current': ' (current {version}) — ',
