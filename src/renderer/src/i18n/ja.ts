@@ -64,6 +64,34 @@ export const ja = {
   'chat.placeholder': '指示を入力(Enterで送信 / Shift+Enterで改行)',
   'chat.stop': '停止',
 
+  // 棚卸しカード(InventoryCard.tsx)
+  'inv.heading': '📦 仮導入の棚卸し — この作業で {n} 件のプラグインを仮導入しました',
+  'inv.originRegistry': 'コミュニティ(検証済み)',
+  'inv.originSelf': '自己生成',
+  'inv.keep': '残す',
+  'inv.removeTitle': '完全アンインストール(昇格をrevertする)',
+  'inv.remove': '削除',
+  'inv.note': '未応答の項目は仮導入のまま残り、進化タブの「仮導入の棚卸し」から後でも対応できます',
+
+  // 品質レビューカード(ReviewCard.tsx)
+  'rvc.axisCode': 'コード品質',
+  'rvc.axisUx': '見た目/UX',
+  'rvc.axisReq': '要件達成',
+  'rvc.axisTests': 'テストの質',
+  'rvc.unresolved': '🔴 残課題あり',
+  'rvc.pass': '✅ 合格',
+  'rvc.fail': '🔶 不合格 → 差し戻し',
+  'rvc.heading': '🧪 品質レビュー',
+  'rvc.rereview': '(再レビュー{n}回目)',
+  'rvc.problem': '問題: ',
+  'rvc.fix': '修正: ',
+
+  // 更新バナー(UpdateBanner.tsx)
+  'upd.newVersion': '✨ 新しい版があります: ',
+  'upd.current': '(いま {version})— ',
+  'upd.releaseNotes': 'リリースノートを見る',
+  'upd.dismissTitle': 'この版の通知を閉じる',
+
   // 承認ダイアログ(ApprovalDialog.tsx)
   'approval.riskSafe': '読み取り',
   'approval.riskWrite': '書き込み',

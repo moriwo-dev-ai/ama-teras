@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useT } from '../../i18n';
 import type { UpdateInfo } from '../../../../shared/types';
 
 const DISMISS_KEY = 'amateras-update-dismissed';
@@ -9,6 +10,7 @@ const DISMISS_KEY = 'amateras-update-dismissed';
  * 同じ版を閉じたら二度と出さない(localStorage にその版だけを記録する)
  */
 export function UpdateBanner(): JSX.Element | null {
+  const t = useT();
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [dismissed, setDismissed] = useState<string>(() => localStorage.getItem(DISMISS_KEY) ?? '');
 
@@ -28,7 +30,7 @@ export function UpdateBanner(): JSX.Element | null {
   return (
     <div className="flex items-center justify-center gap-3 border-b border-sky-800 bg-sky-950/70 px-4 py-1 text-xs text-sky-200">
       <span>
-        ✨ 新しい版があります: <strong>{info.latest}</strong>(いま {info.current})— {info.name}
+        {t('upd.newVersion')}<strong>{info.latest}</strong>{t('upd.current', { version: info.current })}{info.name}
       </span>
       {info.url !== '' && (
         <button
@@ -37,12 +39,12 @@ export function UpdateBanner(): JSX.Element | null {
             void window.api.openExternal(info.url);
           }}
         >
-          リリースノートを見る
+          {t('upd.releaseNotes')}
         </button>
       )}
       <button
         className="text-sky-300 hover:text-sky-100"
-        title="この版の通知を閉じる"
+        title={t('upd.dismissTitle')}
         onClick={() => {
           localStorage.setItem(DISMISS_KEY, info.latest);
           setDismissed(info.latest);

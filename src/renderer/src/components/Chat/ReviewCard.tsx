@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useT, type MessageKey } from '../../i18n';
 import type { ReviewCardPayload } from '../../../../shared/types';
 
 /**
@@ -6,11 +7,11 @@ import type { ReviewCardPayload } from '../../../../shared/types';
  * 合格=緑 / 不合格=琥珀 / 上限到達の未解決=赤。
  */
 
-const AXIS_LABEL: Record<string, string> = {
-  code: 'コード品質',
-  ux: '見た目/UX',
-  requirements: '要件達成',
-  tests: 'テストの質',
+const AXIS_LABEL: Record<string, MessageKey> = {
+  code: 'rvc.axisCode',
+  ux: 'rvc.axisUx',
+  requirements: 'rvc.axisReq',
+  tests: 'rvc.axisTests',
 };
 
 /** M26-1: severityバッジ(high=赤/medium=琥珀/low=グレー)。ライトテーマ上書き済みのクラスのみ使用 */
@@ -21,6 +22,7 @@ const SEVERITY_BADGE: Record<string, { label: string; cls: string }> = {
 };
 
 export function ReviewCard({ card }: { card: ReviewCardPayload }): JSX.Element {
+  const t = useT();
   const [open, setOpen] = useState(!card.pass);
   const tone = card.unresolved
     ? 'border-red-700 bg-red-950/60'
@@ -28,17 +30,17 @@ export function ReviewCard({ card }: { card: ReviewCardPayload }): JSX.Element {
       ? 'border-emerald-700 bg-emerald-950/40'
       : 'border-amber-700 bg-amber-950/40';
   const badge = card.unresolved
-    ? '🔴 残課題あり'
+    ? t('rvc.unresolved')
     : card.pass
-      ? '✅ 合格'
-      : '🔶 不合格 → 差し戻し';
+      ? t('rvc.pass')
+      : t('rvc.fail');
 
   return (
     <div className="anim-appear flex justify-center">
       <div className={`w-full max-w-[85%] rounded-md border px-3 py-2 text-xs ${tone}`}>
         <button className="flex w-full items-center gap-2 text-left" onClick={() => setOpen((v) => !v)}>
           <span className="font-semibold text-zinc-200">
-            🧪 品質レビュー{card.round > 0 ? `(再レビュー${card.round}回目)` : ''}
+            {t('rvc.heading')}{card.round > 0 ? t('rvc.rereview', { n: card.round }) : ''}
           </span>
           <span>{badge}</span>
           <span className="font-mono text-zinc-300">{card.average.toFixed(1)}/5</span>
@@ -54,7 +56,7 @@ export function ReviewCard({ card }: { card: ReviewCardPayload }): JSX.Element {
                 const v = card.scores[axis];
                 return (
                   <span key={axis} className="rounded bg-zinc-800/80 px-1.5 py-0.5 text-zinc-300">
-                    {AXIS_LABEL[axis]}: {v === null ? '—' : `${v}/5`}
+                    {AXIS_LABEL[axis] !== undefined ? t(AXIS_LABEL[axis]!) : axis}: {v === null ? '—' : `${v}/5`}
                   </span>
                 );
               })}
@@ -72,8 +74,8 @@ export function ReviewCard({ card }: { card: ReviewCardPayload }): JSX.Element {
                     </span>
                     <span className="font-mono text-blue-300">{f.file}</span>
                     <span className="text-zinc-500">({f.location})</span>
-                    <div className="text-zinc-300">問題: {f.problem}</div>
-                    <div className="text-emerald-300/90">修正: {f.fix}</div>
+                    <div className="text-zinc-300">{t('rvc.problem')}{f.problem}</div>
+                    <div className="text-emerald-300/90">{t('rvc.fix')}{f.fix}</div>
                   </li>
                   );
                 })}

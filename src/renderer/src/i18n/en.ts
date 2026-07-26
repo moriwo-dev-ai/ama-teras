@@ -65,6 +65,34 @@ export const en: Record<MessageKey, string> = {
   'chat.placeholder': 'Type an instruction (Enter to send / Shift+Enter for newline)',
   'chat.stop': 'Stop',
 
+  // Inventory card (InventoryCard.tsx)
+  'inv.heading': '📦 Provisional install review — {n} plugin(s) were provisionally installed during this run',
+  'inv.originRegistry': 'community (verified)',
+  'inv.originSelf': 'self-generated',
+  'inv.keep': 'Keep',
+  'inv.removeTitle': 'Uninstall completely (reverts the promotion)',
+  'inv.remove': 'Remove',
+  'inv.note': 'Unanswered items stay provisionally installed — you can handle them later from "Provisional installs" in the Evolution tab',
+
+  // Review card (ReviewCard.tsx)
+  'rvc.axisCode': 'Code quality',
+  'rvc.axisUx': 'Look & UX',
+  'rvc.axisReq': 'Requirements',
+  'rvc.axisTests': 'Test quality',
+  'rvc.unresolved': '🔴 Unresolved issues',
+  'rvc.pass': '✅ Passed',
+  'rvc.fail': '🔶 Failed → sent back',
+  'rvc.heading': '🧪 Quality review',
+  'rvc.rereview': ' (re-review #{n})',
+  'rvc.problem': 'Problem: ',
+  'rvc.fix': 'Fix: ',
+
+  // Update banner (UpdateBanner.tsx)
+  'upd.newVersion': '✨ New version available: ',
+  'upd.current': ' (current {version}) — ',
+  'upd.releaseNotes': 'View release notes',
+  'upd.dismissTitle': 'Dismiss this version notice',
+
   // Approval dialog (ApprovalDialog.tsx)
   'approval.riskSafe': 'read',
   'approval.riskWrite': 'write',
