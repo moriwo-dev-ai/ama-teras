@@ -167,6 +167,34 @@ export const ja = {
   'settings.languageAuto': '自動(OSに合わせる)/ Auto',
   'settings.languageHint': '切替は即時反映。日本語/英語の対応は主要画面から段階的に拡大中',
 
+  // 品質タブ(QualitySection.tsx / ReviewGateSection.tsx)
+  'quality.autoApprove': 'ツール自動承認',
+  'quality.postEditHook': '編集後フック(postEditHook)',
+  'quality.hookPlaceholder': '例: npx vitest run --changed',
+  'quality.hookNote':
+    'write_file / edit_file が成功するたびに作業ディレクトリで実行され、出力(末尾4KB)がツール結果に追記される。エラーをモデルが見て自走修正できる(タイムアウト60秒・空欄=無効)',
+  'quality.revocationUrl': 'プラグイン失効リストURL(キルスイッチ)',
+  'quality.revocationNote':
+    '起動時に一度フェッチし、リストに載っているプラグインを自動無効化する(理由はツール一覧のエラー欄に表示)。危険が判明した共有プラグインを止める安全装置。ネットワーク不達時は静かにスキップされる(次回起動で再チェック)',
+  'quality.presetStrict': 'しっかり(4.5 / 3周)',
+  'quality.presetStandard': '標準(4.0 / 2周)',
+  'quality.presetLight': '軽め(3.5 / 1周)',
+  'quality.axisCode': 'コード品質',
+  'quality.axisUx': '見た目/UX(screenshot)',
+  'quality.axisReq': '要件達成',
+  'quality.axisTests': 'テストの質',
+  'quality.gateHeading': '品質レビュー(マイルストーンごとにplannerが採点→差し戻し)',
+  'quality.passMode': '合格判定方式',
+  'quality.severityMode': 'severity方式(high指摘ゼロで合格・推奨)',
+  'quality.scoreMode': 'スコア方式(平均閾値・従来)',
+  'quality.threshold': '合格閾値(1〜5)',
+  'quality.thresholdDisplayOnly': '※表示用',
+  'quality.maxRounds': '差し戻し上限/件',
+  'quality.gateNote':
+    'severity方式では「high=要件を満たさない/壊れている」指摘がゼロなら合格(medium/lowはカードに記録するだけで差し戻さない)。スコア平均は参考表示。マイルストーン(AMATERAS_PLAN.mdの項目完了)単位に絞ってバランスを取っている。計画を使わない短いタスクでは完了時に1回だけ。UIが無いタスクでは「見た目/UX」軸は自動スキップ。上限到達で閾値未満のときは残課題を提示(自律モードOFFなら承認を求める)',
+  'quality.offNote':
+    'ONにすると、マイルストーンごとに「コード品質・見た目UX・要件達成・テストの質」を1〜5で辛口採点し、閾値未満なら具体指摘つきで自動差し戻し(worker帯が修正)する',
+
   // リモートアクセス(RemoteAccessSection.tsx / remoteUrl.ts)
   'remote.qrAlt': '接続QRコード',
   'remote.regenQr': '📱 トークン込みQRを出す(再生成)',

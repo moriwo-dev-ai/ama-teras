@@ -168,6 +168,34 @@ export const en: Record<MessageKey, string> = {
   'settings.languageAuto': 'Auto (follow OS) / 自動',
   'settings.languageHint': 'Applies immediately. Coverage is expanding screen by screen (main screens first).',
 
+  // Quality tab (QualitySection.tsx / ReviewGateSection.tsx)
+  'quality.autoApprove': 'Tool auto-approval',
+  'quality.postEditHook': 'Post-edit hook (postEditHook)',
+  'quality.hookPlaceholder': 'e.g. npx vitest run --changed',
+  'quality.hookNote':
+    'Runs in the workspace after every successful write_file / edit_file; output (last 4KB) is appended to the tool result so the model can self-fix errors (60s timeout; empty = disabled).',
+  'quality.revocationUrl': 'Plugin revocation list URL (kill switch)',
+  'quality.revocationNote':
+    'Fetched once at startup; listed plugins are auto-disabled (reason shown in the tool list error column). A safety brake for shared plugins found dangerous. Silently skipped when unreachable (re-checked next launch).',
+  'quality.presetStrict': 'Strict (4.5 / 3 rounds)',
+  'quality.presetStandard': 'Standard (4.0 / 2 rounds)',
+  'quality.presetLight': 'Light (3.5 / 1 round)',
+  'quality.axisCode': 'Code quality',
+  'quality.axisUx': 'Look & UX (screenshot)',
+  'quality.axisReq': 'Requirements met',
+  'quality.axisTests': 'Test quality',
+  'quality.gateHeading': 'Quality review (planner scores each milestone → send-back)',
+  'quality.passMode': 'Pass criterion',
+  'quality.severityMode': 'Severity mode (pass when zero high findings — recommended)',
+  'quality.scoreMode': 'Score mode (average threshold — legacy)',
+  'quality.threshold': 'Pass threshold (1-5)',
+  'quality.thresholdDisplayOnly': ' (display only)',
+  'quality.maxRounds': 'Max send-backs per item',
+  'quality.gateNote':
+    'In severity mode, passing means zero "high" findings (= requirements unmet / broken); medium/low are recorded on the card without send-back. Score averages are informational. Scoped to milestones (AMATERAS_PLAN.md item completion) for balance. Planless short tasks get one review at completion. The Look & UX axis auto-skips for UI-less tasks. If the cap is reached below threshold, remaining issues are presented (approval requested when autonomous mode is OFF).',
+  'quality.offNote':
+    'When ON, each milestone is harshly scored 1-5 on code quality, look & UX, requirements, and test quality; below-threshold work is auto-sent-back with concrete findings (fixed by the worker band).',
+
   // Remote access (RemoteAccessSection.tsx / remoteUrl.ts)
   'remote.qrAlt': 'Connection QR code',
   'remote.regenQr': '📱 Show QR with token (regenerate)',
