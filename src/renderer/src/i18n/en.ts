@@ -168,6 +168,32 @@ export const en: Record<MessageKey, string> = {
   'settings.languageAuto': 'Auto (follow OS) / 自動',
   'settings.languageHint': 'Applies immediately. Coverage is expanding screen by screen (main screens first).',
 
+  // Model ops tab (ModelOpsSection.tsx)
+  'mops.fallbackHeading': 'Fallback (auto-switch when out of balance)',
+  'mops.fallbackModelPh': 'Model (empty = fallback provider default)',
+  'mops.fallbackNote':
+    'On billing/balance errors, only the current conversation continues on the fallback (main provider settings are untouched; once per conversation; every trigger is audited in audit.jsonl). The fallback provider needs its API key registered. On safeguard refusals, retries up to twice on the same provider one tier down (M26-4).',
+  'mops.maxTurns': 'Max turns (maxTurns)',
+  'mops.default30': 'default: 30',
+  'mops.maxTurnsNote':
+    'How many turns the agent may run per instruction (1-200). Higher = longer tasks but more API cost. Empty = default (30).',
+  'mops.evoConcurrency': 'Parallel evolution generations (evolutionConcurrency)',
+  'mops.default2': 'default: 2',
+  'mops.evoConcurrencyNote':
+    'How many tools to generate concurrently (1-4; empty = 2). Generations run in isolated environments, but promotion merges are always serialized. Speeds up overnight batches; raises concurrent API cost.',
+  'mops.tokenCapHeading': 'Evolution token caps (runaway-cost brake)',
+  'mops.sessionCap': 'Session total (session)',
+  'mops.unlimited': 'unlimited',
+  'mops.perJobCap': 'Per-tool cap (perJob)',
+  'mops.tokenCapNote':
+    'Jobs whose cumulative generation tokens hit the cap are cut off before the next attempt (failed with reason). Empty = unlimited. A total-cost brake for overnight batch generation; counted as estimates (safe side). Takes effect after app restart.',
+  'mops.subTurns': 'Sub-agent max turns (subAgentMaxTurns)',
+  'mops.subTurnsNote': 'Per-child cap for dispatch_agent (mode:"work" / parallel) (1-100). Empty = default (30).',
+  'mops.subParallel': 'Sub-agent concurrency (subAgentMaxParallel)',
+  'mops.defaultMark': ' (default)',
+  'mops.subParallelNote':
+    'Concurrency for dispatch_agent parallel (1-8). The real limit is API rate/cost; 429s are absorbed by auto-retry (M16). Same-file write conflicts are still rejected.',
+
   // Usage tab (UsageSection.tsx)
   'usage.heading': 'Usage & balance (estimated)',
   'usage.refresh': 'Refresh',

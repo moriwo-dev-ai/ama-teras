@@ -167,6 +167,32 @@ export const ja = {
   'settings.languageAuto': '自動(OSに合わせる)/ Auto',
   'settings.languageHint': '切替は即時反映。日本語/英語の対応は主要画面から段階的に拡大中',
 
+  // モデル運用タブ(ModelOpsSection.tsx)
+  'mops.fallbackHeading': 'フォールバック(残高切れ時の自動切替)',
+  'mops.fallbackModelPh': 'モデル(空欄=切替先の既定)',
+  'mops.fallbackNote':
+    '課金/残高エラーを検知すると、その会話の実行だけ切替先で自動続行する(本体のプロバイダ設定は変更しない・1会話につき1回まで・発動は audit.jsonl に記録)。切替先のAPIキー登録が必要。セーフガード拒否(refusal)時は同一プロバイダの1段下モデルで最大2回やり直す(M26-4)',
+  'mops.maxTurns': '最大ターン数(maxTurns)',
+  'mops.default30': '既定: 30',
+  'mops.maxTurnsNote':
+    '1回の指示でエージェントが自走できる最大ターン数(1〜200)。大きいほど長いタスクを続けられるがAPIコストが増える。空欄=既定(30)',
+  'mops.evoConcurrency': '自己進化の並列生成数(evolutionConcurrency)',
+  'mops.default2': '既定: 2',
+  'mops.evoConcurrencyNote':
+    'ツールを同時に何個まで生成するか(1〜4・空欄=既定2)。各生成は独立環境で並走するが、本体への昇格マージは必ず1件ずつ直列。夜間の大量生成を速くするための設定。大きいほど同時APIコストが立つ',
+  'mops.tokenCapHeading': '自己進化のトークン上限(従量課金の暴走止め)',
+  'mops.sessionCap': 'セッション合計(session)',
+  'mops.unlimited': '無制限',
+  'mops.perJobCap': '1ツール上限(perJob)',
+  'mops.tokenCapNote':
+    '生成の累積トークンがこの上限に達したジョブは、次の試行に入る前に打ち切る(理由つきで失敗)。空欄=無制限。夜間に大量生成させるときの総額の歯止め。概算値で計上する(実測配線までの安全側)。変更はアプリ再起動で反映',
+  'mops.subTurns': 'サブエージェント最大ターン数(subAgentMaxTurns)',
+  'mops.subTurnsNote': 'dispatch_agent(mode:"work" / parallel)の子エージェント1体あたりの上限(1〜100)。空欄=既定(30)',
+  'mops.subParallel': 'サブエージェント同時実行数(subAgentMaxParallel)',
+  'mops.defaultMark': '(既定)',
+  'mops.subParallelNote':
+    'dispatch_agent parallel の同時数(1〜8)。実質の制限はAPIレート/コストで、429エラーは自動リトライ(M16)が吸収する。同一ファイルへの書き込み衝突は従来どおり拒否される',
+
   // 使用量タブ(UsageSection.tsx)
   'usage.heading': '使用量と残高(概算)',
   'usage.refresh': '更新',

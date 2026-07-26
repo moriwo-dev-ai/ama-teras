@@ -1,4 +1,5 @@
 import type { AppConfig, SecretsStatus } from '../../../../shared/types';
+import { useT } from '../../i18n';
 import { ModelPolicySection } from './ModelPolicySection';
 
 /**
@@ -14,6 +15,7 @@ export function ModelOpsSection({
   secrets: SecretsStatus | null;
   saveConfig: (next: AppConfig) => void;
 }): JSX.Element {
+  const t = useT();
   return (
     <div className="space-y-4">
       {/* M18: モデル自動切替(役割ベース割当) */}
@@ -37,7 +39,7 @@ export function ModelOpsSection({
               });
             }}
           />
-          フォールバック(残高切れ時の自動切替)
+          {t('mops.fallbackHeading')}
         </label>
         {config.fallback?.enabled === true && (
           <div className="flex items-center gap-2 text-xs">
@@ -61,7 +63,7 @@ export function ModelOpsSection({
             </select>
             <input
               className="flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono"
-              placeholder="モデル(空欄=切替先の既定)"
+              placeholder={t('mops.fallbackModelPh')}
               defaultValue={config.fallback.model}
               onBlur={(e) => {
                 saveConfig({
@@ -73,21 +75,19 @@ export function ModelOpsSection({
           </div>
         )}
         <p className="text-xs text-zinc-500">
-          課金/残高エラーを検知すると、その会話の実行だけ切替先で自動続行する(本体のプロバイダ設定は
-          変更しない・1会話につき1回まで・発動は audit.jsonl に記録)。切替先のAPIキー登録が必要。
-          セーフガード拒否(refusal)時は同一プロバイダの1段下モデルで最大2回やり直す(M26-4)
+          {t('mops.fallbackNote')}
         </p>
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs text-zinc-400">最大ターン数(maxTurns)</label>
+        <label className="text-xs text-zinc-400">{t('mops.maxTurns')}</label>
         <input
           type="number"
           min={1}
           max={200}
           className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5"
           defaultValue={config.maxTurns ?? ''}
-          placeholder="既定: 30"
+          placeholder={t('mops.default30')}
           onBlur={(e) => {
             const raw = e.target.value.trim();
             const next: AppConfig = { ...config };
@@ -100,21 +100,20 @@ export function ModelOpsSection({
           }}
         />
         <p className="text-xs text-zinc-500">
-          1回の指示でエージェントが自走できる最大ターン数(1〜200)。大きいほど長いタスクを
-          続けられるがAPIコストが増える。空欄=既定(30)
+          {t('mops.maxTurnsNote')}
         </p>
       </div>
 
       {/* M92-A6: 自己進化の並列生成数 */}
       <div className="space-y-1">
-        <label className="text-xs text-zinc-400">自己進化の並列生成数(evolutionConcurrency)</label>
+        <label className="text-xs text-zinc-400">{t('mops.evoConcurrency')}</label>
         <input
           type="number"
           min={1}
           max={4}
           className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5"
           defaultValue={config.evolutionConcurrency ?? ''}
-          placeholder="既定: 2"
+          placeholder={t('mops.default2')}
           onBlur={(e) => {
             const raw = e.target.value.trim();
             const next: AppConfig = { ...config };
@@ -127,24 +126,23 @@ export function ModelOpsSection({
           }}
         />
         <p className="text-xs text-zinc-500">
-          ツールを同時に何個まで生成するか(1〜4・空欄=既定2)。各生成は独立環境で並走するが、
-          本体への昇格マージは必ず1件ずつ直列。夜間の大量生成を速くするための設定。大きいほど同時APIコストが立つ
+          {t('mops.evoConcurrencyNote')}
         </p>
       </div>
 
       {/* M92-A6-3: 生成トークンの予算ガード(従量課金の暴走止め) */}
       <div className="space-y-1 rounded-md border border-zinc-700 p-3">
-        <div className="text-xs font-semibold text-zinc-300">自己進化のトークン上限(従量課金の暴走止め)</div>
+        <div className="text-xs font-semibold text-zinc-300">{t('mops.tokenCapHeading')}</div>
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
-            <label className="text-xs text-zinc-400">セッション合計(session)</label>
+            <label className="text-xs text-zinc-400">{t('mops.sessionCap')}</label>
             <input
               type="number"
               min={0}
               step={10000}
               className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5"
               defaultValue={config.evolutionSessionTokenCap ?? ''}
-              placeholder="無制限"
+              placeholder={t('mops.unlimited')}
               onBlur={(e) => {
                 const raw = e.target.value.trim();
                 const next: AppConfig = { ...config };
@@ -158,14 +156,14 @@ export function ModelOpsSection({
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs text-zinc-400">1ツール上限(perJob)</label>
+            <label className="text-xs text-zinc-400">{t('mops.perJobCap')}</label>
             <input
               type="number"
               min={0}
               step={10000}
               className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5"
               defaultValue={config.evolutionPerJobTokenCap ?? ''}
-              placeholder="無制限"
+              placeholder={t('mops.unlimited')}
               onBlur={(e) => {
                 const raw = e.target.value.trim();
                 const next: AppConfig = { ...config };
@@ -180,21 +178,19 @@ export function ModelOpsSection({
           </div>
         </div>
         <p className="text-xs text-zinc-500">
-          生成の累積トークンがこの上限に達したジョブは、次の試行に入る前に打ち切る(理由つきで失敗)。
-          空欄=無制限。夜間に大量生成させるときの総額の歯止め。概算値で計上する(実測配線までの安全側)。
-          変更はアプリ再起動で反映
+          {t('mops.tokenCapNote')}
         </p>
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs text-zinc-400">サブエージェント最大ターン数(subAgentMaxTurns)</label>
+        <label className="text-xs text-zinc-400">{t('mops.subTurns')}</label>
         <input
           type="number"
           min={1}
           max={100}
           className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5"
           defaultValue={config.subAgentMaxTurns ?? ''}
-          placeholder="既定: 30"
+          placeholder={t('mops.default30')}
           onBlur={(e) => {
             const raw = e.target.value.trim();
             const next: AppConfig = { ...config };
@@ -207,12 +203,12 @@ export function ModelOpsSection({
           }}
         />
         <p className="text-xs text-zinc-500">
-          dispatch_agent(mode:"work" / parallel)の子エージェント1体あたりの上限(1〜100)。空欄=既定(30)
+          {t('mops.subTurnsNote')}
         </p>
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs text-zinc-400">サブエージェント同時実行数(subAgentMaxParallel)</label>
+        <label className="text-xs text-zinc-400">{t('mops.subParallel')}</label>
         <select
           className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1.5"
           value={config.subAgentMaxParallel ?? 3}
@@ -227,13 +223,12 @@ export function ModelOpsSection({
           {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
             <option key={n} value={n}>
               {n}
-              {n === 3 ? '(既定)' : ''}
+              {n === 3 ? t('mops.defaultMark') : ''}
             </option>
           ))}
         </select>
         <p className="text-xs text-zinc-500">
-          dispatch_agent parallel の同時数(1〜8)。実質の制限はAPIレート/コストで、
-          429エラーは自動リトライ(M16)が吸収する。同一ファイルへの書き込み衝突は従来どおり拒否される
+          {t('mops.subParallelNote')}
         </p>
       </div>
     </div>
