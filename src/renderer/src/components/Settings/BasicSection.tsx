@@ -8,7 +8,6 @@ import type {
 } from '../../../../shared/types';
 import {
   DEFAULT_MODELS,
-  FREE_API_TRAINING_NOTICE,
   KNOWN_MODELS,
   PROVIDER_PRESETS,
   isKnownModel,
@@ -202,7 +201,7 @@ export function BasicSection({
                 {testResult.message}
               </p>
             )}
-            {preset.id !== 'custom' && <p className="text-xs text-amber-400">ℹ {FREE_API_TRAINING_NOTICE}</p>}
+            {preset.id !== 'custom' && <p className="text-xs text-amber-400">ℹ {t('shared.freeApiNotice')}</p>}
             <label className="flex items-center gap-2 text-xs text-zinc-300">
               <input
                 type="checkbox"

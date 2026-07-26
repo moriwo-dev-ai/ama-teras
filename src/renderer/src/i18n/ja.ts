@@ -167,6 +167,18 @@ export const ja = {
   'settings.languageAuto': '自動(OSに合わせる)/ Auto',
   'settings.languageHint': '切替は即時反映。日本語/英語の対応は主要画面から段階的に拡大中',
 
+  // 共有文言(shared/models.tsから移設)
+  'shared.freeApiNotice':
+    '無料枠のAPIでは、入力したデータが提供元のモデル改善(学習)に使われる場合があります。機密情報・業務データを扱う作業には有料API(Anthropic/OpenAI)の利用を推奨します',
+
+  // 記憶タブ(MemorySection.tsx)
+  'mem.userHeading': 'ユーザー方針(AMATERAS-USER.md・全プロジェクト共通で system プロンプトへ注入)',
+  'mem.userPlaceholder': '例:\n- ユーザーが体験する成果物は必ずツールで動作確認してから完了とする\n- 報告は結論から',
+  'mem.saveUser': '方針を保存',
+  'mem.projectHeading': 'プロジェクト記憶(AMATERAS.md・作業フォルダに保存され system プロンプトへ注入)',
+  'mem.projectPlaceholder': '例:\n- 返答は必ず日本語\n- このリポジトリのテストは vitest',
+  'mem.saveProject': '記憶を保存',
+
   // ツール公開(PublishPlugin.tsx)
   'pub.preparing': '… {name} の公開内容を用意しています',
   'pub.sending': '… 送信中(fork → ブランチ → PR)',

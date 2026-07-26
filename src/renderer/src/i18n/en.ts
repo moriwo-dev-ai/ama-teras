@@ -168,6 +168,18 @@ export const en: Record<MessageKey, string> = {
   'settings.languageAuto': 'Auto (follow OS) / 自動',
   'settings.languageHint': 'Applies immediately. Coverage is expanding screen by screen (main screens first).',
 
+  // Shared copy (moved from shared/models.ts)
+  'shared.freeApiNotice':
+    'Free-tier APIs may use your inputs to improve (train) the provider\'s models. For confidential or business data, paid APIs (Anthropic/OpenAI) are recommended.',
+
+  // Memory tab (MemorySection.tsx)
+  'mem.userHeading': 'User policy (AMATERAS-USER.md — injected into the system prompt across all projects)',
+  'mem.userPlaceholder': 'e.g.\n- Always verify user-facing deliverables with tools before calling them done\n- Lead reports with the conclusion',
+  'mem.saveUser': 'Save policy',
+  'mem.projectHeading': 'Project memory (AMATERAS.md — saved in the workspace, injected into the system prompt)',
+  'mem.projectPlaceholder': 'e.g.\n- Always reply in Japanese\n- Tests in this repo use vitest',
+  'mem.saveProject': 'Save memory',
+
   // Tool publishing (PublishPlugin.tsx)
   'pub.preparing': '… preparing the publication of {name}',
   'pub.sending': '… sending (fork → branch → PR)',
