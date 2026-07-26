@@ -168,6 +168,19 @@ export const en: Record<MessageKey, string> = {
   'settings.languageAuto': 'Auto (follow OS) / 自動',
   'settings.languageHint': 'Applies immediately. Coverage is expanding screen by screen (main screens first).',
 
+  // Tool publishing (PublishPlugin.tsx)
+  'pub.preparing': '… preparing the publication of {name}',
+  'pub.sending': '… sending (fork → branch → PR)',
+  'pub.cancelledMany': 'Bulk publish cancelled ({n} remain unpublished — restart anytime via "Publish all")',
+  'pub.cancelled': 'Publish cancelled (you can publish anytime from the tool list)',
+  'pub.skippedLast': 'Skipped (bulk publish finished; skipped tools can be published individually from the tool list)',
+  'pub.reverifying': '… re-verifying {name} (typecheck, tests, smoke)',
+  'pub.confirmHeading': '⛩ Publish confirmation — this goes to external GitHub. Read the full text before approving.',
+  'pub.leaks': '⚠ Machine check findings (cannot send as-is):',
+  'pub.draftPr': 'Submit as draft PR (no review request)',
+  'pub.approve': 'Approve & publish',
+  'pub.cancel': 'Cancel',
+
   // Core requests (RequestsSection.tsx)
   'req.heading': '📮 Requests to the core (core/UI)',
   'req.descDev':

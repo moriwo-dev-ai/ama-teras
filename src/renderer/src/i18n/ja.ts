@@ -167,6 +167,19 @@ export const ja = {
   'settings.languageAuto': '自動(OSに合わせる)/ Auto',
   'settings.languageHint': '切替は即時反映。日本語/英語の対応は主要画面から段階的に拡大中',
 
+  // ツール公開(PublishPlugin.tsx)
+  'pub.preparing': '… {name} の公開内容を用意しています',
+  'pub.sending': '… 送信中(fork → ブランチ → PR)',
+  'pub.cancelledMany': '一括公開を取りやめました(残り{n}件は未公開のまま。あとで「まとめて公開」からやり直せます)',
+  'pub.cancelled': '公開を取りやめました(あとでツール一覧からいつでも公開できます)',
+  'pub.skippedLast': '飛ばした(一括公開はこれで終わり。飛ばした分はあとでツール一覧から個別に公開できます)',
+  'pub.reverifying': '… {name} を検証し直しています(型検査・テスト・スモーク)',
+  'pub.confirmHeading': '⛩ 公開の確認 — これから外部(GitHub)へ送ります。全文を読んでから承認してください',
+  'pub.leaks': '⚠ 機械チェックの検出(このままでは送信できません):',
+  'pub.draftPr': '下書きPRとして出す(レビュー要求を出さない)',
+  'pub.approve': '承認して公開する',
+  'pub.cancel': 'やめる',
+
   // 本体への要望(RequestsSection.tsx)
   'req.heading': '📮 本体への要望(コア/UI)',
   'req.descDev':

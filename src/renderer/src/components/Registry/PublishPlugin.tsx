@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import type { PublishedPluginInfo } from '../../../../shared/types';
+import { t as tt, useT } from '../../i18n';
 
 /**
  * M91-2: 作ったツールをレジストリへ出す口。**下見 → 全文承認 → 送信**の3段を1か所にまとめる。
@@ -72,7 +73,7 @@ export function usePublishPlugin(): {
   };
 
   const open = (toolName: string): void => {
-    setMessage(`… ${toolName} の公開内容を用意しています`);
+    setMessage(tt('pub.preparing', { name: toolName }));
     setBusy(true);
     void window.api
       .pluginsUploadPlan(toolName)
@@ -113,7 +114,7 @@ export function usePublishPlugin(): {
   const submit = (draft: boolean): void => {
     if (plan === null) return;
     setBusy(true);
-    setMessage('… 送信中(fork → ブランチ → PR)');
+    setMessage(tt('pub.sending'));
     void window.api
       .pluginsUpload(plan.toolName, plan.preview, draft)
       .then((r) => {
@@ -134,11 +135,7 @@ export function usePublishPlugin(): {
     setQueueLen(0);
     setPlan(null);
     setNeedsReverify(null);
-    setMessage(
-      remaining > 0
-        ? `一括公開を取りやめました(残り${remaining}件は未公開のまま。あとで「まとめて公開」からやり直せます)`
-        : '公開を取りやめました(あとでツール一覧からいつでも公開できます)',
-    );
+    setMessage(remaining > 0 ? tt('pub.cancelledMany', { n: remaining }) : tt('pub.cancelled'));
   };
 
   /** M99-7: 止まっている1件(下見中・再検証待ち・不合格のいずれでも)を諦めて次へ */
@@ -146,7 +143,7 @@ export function usePublishPlugin(): {
     setPlan(null);
     setNeedsReverify(null);
     if (!advance()) {
-      setMessage('飛ばした(一括公開はこれで終わり。飛ばした分はあとでツール一覧から個別に公開できます)');
+      setMessage(tt('pub.skippedLast'));
     }
   };
 
@@ -157,7 +154,7 @@ export function usePublishPlugin(): {
    */
   const reverify = (toolName: string): void => {
     setBusy(true);
-    setMessage(`… ${toolName} を検証し直しています(型検査・テスト・スモーク)`);
+    setMessage(tt('pub.reverifying', { name: toolName }));
     void window.api
       .pluginsReverify(toolName)
       .then((r) => {
@@ -185,15 +182,14 @@ export function PublishPluginDialog({
   onSubmit: (draft: boolean) => void;
   onCancel: () => void;
 }): JSX.Element {
+  const t = useT();
   const [draft, setDraft] = useState(false);
   return (
     <div className="mt-2 rounded border border-amber-800 bg-amber-950/40 p-2">
-      <p className="text-[11px] font-semibold text-amber-200">
-        ⛩ 公開の確認 — これから外部(GitHub)へ送ります。全文を読んでから承認してください
-      </p>
+      <p className="text-[11px] font-semibold text-amber-200">{t('pub.confirmHeading')}</p>
       {plan.leaks.length > 0 && (
         <p className="mt-1 whitespace-pre-wrap text-[11px] text-red-300">
-          {`⚠ 機械チェックの検出(このままでは送信できません):\n${plan.leaks.join('\n')}`}
+          {`${t('pub.leaks')}\n${plan.leaks.join('\n')}`}
         </p>
       )}
       <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-zinc-950 p-2 text-[10px] text-zinc-300">
@@ -202,20 +198,20 @@ export function PublishPluginDialog({
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-1 text-[11px] text-zinc-400">
           <input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} />
-          下書きPRとして出す(レビュー要求を出さない)
+          {t('pub.draftPr')}
         </label>
         <button
           className="rounded bg-amber-700 px-3 py-1 text-[11px] hover:bg-amber-600 disabled:opacity-40"
           disabled={busy || plan.leaks.length > 0}
           onClick={() => onSubmit(draft)}
         >
-          承認して公開する
+          {t('pub.approve')}
         </button>
         <button
           className="rounded border border-zinc-700 px-3 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800"
           onClick={onCancel}
         >
-          やめる
+          {t('pub.cancel')}
         </button>
       </div>
     </div>
