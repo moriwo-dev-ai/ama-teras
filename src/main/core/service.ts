@@ -38,7 +38,15 @@ import type {
 import { ApprovalBroker } from '../agent/approval';
 import { compactHistory, DEFAULT_COMPACTION_THRESHOLD, estimateTokens } from '../agent/compaction';
 import { runAgentLoop } from '../agent/loop';
-import { contextLimitFor, DEFAULT_MODELS, isLocalBaseUrl, MOONSHOT_BASE_URL, PROVIDER_PRESETS } from '../../shared/models';
+import {
+  contextLimitFor,
+  DEFAULT_MODELS,
+  isLocalBaseUrl,
+  MOONSHOT_BASE_URL,
+  PROVIDER_LABELS,
+  PROVIDER_PRESETS,
+  providerOfKnownModel,
+} from '../../shared/models';
 // M27-1: freeMode の実効値制御(maxTurns/レビューゲート/ModelPolicy/進化無効)は config.ts の純関数が正本
 import {
   effectiveMaxTurns,
@@ -46,7 +54,14 @@ import {
   effectiveReviewGate,
   evolutionDisabledReason,
 } from '../config';
-import { causeChain, isModelUnavailableError, isRateLimitError, shortLLMError } from '../agent/llmErrors';
+import {
+  billingGuidance,
+  causeChain,
+  classifyLLMError,
+  isModelUnavailableError,
+  isRateLimitError,
+  shortLLMError,
+} from '../agent/llmErrors';
 import { fetchTransportName } from '../providers/systemFetch';
 import {
   MAX_PARALLEL_SUBAGENTS,
@@ -1237,6 +1252,28 @@ export class AgentService {
         settingsHint: policyOn ? 'models' : 'basic',
       };
     }
+    // M110: 課金/残高エラー(フォールバック未設定・不発でここへ来たケース)。
+    // 生のJSON 400だけでは復旧手順が読み取れない(2026-07-27の実機事故)
+    if (classifyLLMError(err) === 'billing') {
+      const llm = this.currentLLM();
+      const keyed = (['anthropic', 'openai', 'moonshot'] as const)
+        .filter((p) => p !== llm.provider && this.deps.secrets.get(p) !== null)
+        .map((p) => ({ id: p, label: PROVIDER_LABELS[p] }));
+      const mismatchProvider = providerOfKnownModel(llm.model);
+      const mismatch =
+        mismatchProvider !== null && mismatchProvider !== llm.provider
+          ? { provider: mismatchProvider, label: PROVIDER_LABELS[mismatchProvider] }
+          : null;
+      return {
+        message: billingGuidance(
+          { provider: PROVIDER_LABELS[llm.provider] ?? llm.provider, model: llm.model },
+          keyed,
+          mismatch,
+          shortLLMError(err),
+        ),
+        settingsHint: 'basic',
+      };
+    }
     const cfg = this.deps.config.get();
     if (cfg.freeMode !== true || cfg.provider !== 'openai' || cfg.providerPreset === undefined) return null;
     if (!isRateLimitError(err)) return null;
@@ -1707,6 +1744,22 @@ export class AgentService {
       emit({ kind: 'error', sessionId, message: provider });
       emit({ kind: 'status', sessionId, status: 'error' });
       return { sessionId, conversationId: conv.id };
+    }
+    // M110: Provider×Model の食い違いは実行前に警告(止めはしない=カスタムID運用を壊さない)。
+    // 実機事故: Provider=Anthropic のまま model=kimi-k3 が残り、失敗の原因が読めなかった
+    if (policy === null) {
+      const llm = this.currentLLM();
+      const home = providerOfKnownModel(llm.model);
+      if (home !== null && home !== llm.provider) {
+        emit({
+          kind: 'info',
+          sessionId,
+          message:
+            `⚠ モデル「${llm.model}」は ${PROVIDER_LABELS[home]} の既知モデルIDですが、` +
+            `Provider設定は ${PROVIDER_LABELS[llm.provider]} です。このまま送ると失敗する可能性が高いため、` +
+            `設定→基本タブでProviderを合わせることを推奨します`,
+        });
+      }
     }
     // M18: worker/escalation 帯のキー未登録は実行前に警告(横断構成の取りこぼし防止)。
     // worker はメイン(planner)のプロバイダで代行して続行する

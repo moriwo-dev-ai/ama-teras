@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contextLimitFor, DEFAULT_MODELS, FREE_API_TRAINING_NOTICE, isKnownModel, isLocalBaseUrl, KNOWN_MODELS, MODEL_PRICES, MOONSHOT_BASE_URL, PROVIDER_PRESETS } from './models';
+import { contextLimitFor, DEFAULT_MODELS, FREE_API_TRAINING_NOTICE, isKnownModel, isLocalBaseUrl, KNOWN_MODELS, MODEL_PRICES, MOONSHOT_BASE_URL, PROVIDER_LABELS, PROVIDER_PRESETS, providerOfKnownModel } from './models';
 
 describe('models', () => {
   it('既定モデルは各プロバイダの候補に含まれる', () => {
@@ -118,5 +118,22 @@ describe('M29-1: プリセットのbaseUrlとGemini現行モデル', () => {
     expect(PROVIDER_PRESETS.gemini.defaultModel).toBe('gemini-3.5-flash');
     expect(contextLimitFor('gemini-3.5-flash')).toBe(1_000_000);
     expect(contextLimitFor('gemini-3.1-flash-lite')).toBe(1_000_000);
+  });
+});
+
+describe('M110: providerOfKnownModel', () => {
+  it('既知IDは所属プロバイダを返す', () => {
+    expect(providerOfKnownModel('kimi-k3')).toBe('moonshot');
+    expect(providerOfKnownModel('claude-fable-5')).toBe('anthropic');
+    expect(providerOfKnownModel('gpt-5.6-sol')).toBe('openai');
+  });
+  it('未知ID(カスタム運用)は null = 警告を出さない', () => {
+    expect(providerOfKnownModel('my-local-model')).toBeNull();
+    expect(providerOfKnownModel('')).toBeNull();
+  });
+  it('PROVIDER_LABELS は ProviderId を網羅する(型で強制+実値確認)', () => {
+    expect(PROVIDER_LABELS.anthropic).toBeTruthy();
+    expect(PROVIDER_LABELS.openai).toBeTruthy();
+    expect(PROVIDER_LABELS.moonshot).toContain('Kimi');
   });
 });

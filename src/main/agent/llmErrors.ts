@@ -96,6 +96,36 @@ export function isModelUnavailableError(err: unknown): boolean {
 }
 
 /**
+ * M110: 課金/残高エラーの行動可能な案内文(純関数)。
+ * 実機事故: クレジット枯渇時に生のJSON 400がカードに出るだけで、
+ * 「何をすれば動くのか」が読み取れず復旧がオーナーの調査待ちになった。
+ * - keyedProviders: キー登録済みの代替プロバイダ(現在のを除く)
+ * - mismatchProvider: 現在のmodelが実は別プロバイダの既知IDだった場合そのID
+ */
+export function billingGuidance(
+  current: { provider: string; model: string },
+  keyedProviders: { id: string; label: string }[],
+  mismatch: { provider: string; label: string } | null,
+  rawError: string,
+): string {
+  const lines: string[] = [
+    `${current.provider} のAPI残高/課金エラーです(モデル: ${current.model})。このままでは実行できません。`,
+  ];
+  if (mismatch !== null) {
+    lines.push(
+      `※モデル「${current.model}」は ${mismatch.label} のモデルIDです。Provider設定(${current.provider})と食い違っています — 設定→基本タブでProviderを ${mismatch.label} に合わせるだけで直る可能性があります。`,
+    );
+  }
+  const alt =
+    keyedProviders.length > 0
+      ? `別プロバイダへ切替(キー登録済み: ${keyedProviders.map((p) => p.label).join(' / ')})、`
+      : '';
+  lines.push(`対処: 設定→基本タブで ${alt}残高の補充、または設定でフォールバック先を有効化(自動切替)。`);
+  lines.push(`(元エラー: ${rawError})`);
+  return lines.join('\n');
+}
+
+/**
  * M27-1: レート制限(429)か。無料APIモードのプリセット別の平易な文言に
  * 差し替える判定に使う(billing優先の分類とは独立に「429らしさ」だけを見る)
  */

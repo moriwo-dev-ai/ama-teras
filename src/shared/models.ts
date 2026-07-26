@@ -212,6 +212,25 @@ export function isKnownModel(provider: ProviderId, model: string): boolean {
 }
 
 /**
+ * M110: モデルIDがどのプロバイダの既知モデルかを引く(未知IDは null)。
+ * 実機事故: Provider=Anthropic のまま model=kimi-k3(Moonshotの既定)が残り、
+ * AnthropicへKimiのIDを送って課金エラーの陰に隠れた。設定の食い違い検出に使う
+ */
+export function providerOfKnownModel(model: string): ProviderId | null {
+  for (const p of Object.keys(KNOWN_MODELS) as ProviderId[]) {
+    if (KNOWN_MODELS[p].some((m) => m.id === model)) return p;
+  }
+  return null;
+}
+
+/** 設定画面・警告文で使うプロバイダの表示名 */
+export const PROVIDER_LABELS: Record<ProviderId, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  moonshot: 'Moonshot(Kimi)',
+};
+
+/**
  * M13-1: モデルのコンテキスト上限(トークン)。compaction の実測トリガーに使う。
  * 実上限が不明・変動しうるため保守的な値。未知モデルは DEFAULT_CONTEXT_LIMIT。
  * 前方一致で引く(バージョンサフィックス付きIDにも効かせる)。

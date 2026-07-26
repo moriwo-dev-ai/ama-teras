@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyLLMError, isModelUnavailableError, isRateLimitError, shortLLMError } from './llmErrors';
+import { billingGuidance, classifyLLMError, isModelUnavailableError, isRateLimitError, shortLLMError } from './llmErrors';
 
 describe('classifyLLMError(M16-2)', () => {
   it('課金系はステータスに関わらず billing(429より優先)', () => {
@@ -81,5 +81,38 @@ describe('M30-2: isModelUnavailableError / classify', () => {
     expect(isModelUnavailableError(Object.assign(new Error('404 page not found'), { status: 404 }))).toBe(false);
     expect(isModelUnavailableError(Object.assign(new Error('model overloaded'), { status: 503 }))).toBe(false);
     expect(classifyLLMError(Object.assign(new Error('overloaded'), { status: 503 }))).toBe('transient');
+  });
+});
+
+describe('M110: billingGuidance', () => {
+  it('不整合あり+代替キーあり: 直し方が全部入る', () => {
+    const msg = billingGuidance(
+      { provider: 'Anthropic', model: 'kimi-k3' },
+      [{ id: 'moonshot', label: 'Moonshot(Kimi)' }, { id: 'openai', label: 'OpenAI' }],
+      { provider: 'moonshot', label: 'Moonshot(Kimi)' },
+      '400 credit balance is too low',
+    );
+    expect(msg).toContain('残高/課金エラー');
+    expect(msg).toContain('kimi-k3');
+    expect(msg).toContain('食い違っています');
+    expect(msg).toContain('Moonshot(Kimi)');
+    expect(msg).toContain('キー登録済み');
+    expect(msg).toContain('400 credit balance is too low');
+  });
+
+  it('不整合なし+代替キーなし: 補充とフォールバックの案内に絞られる', () => {
+    const msg = billingGuidance({ provider: 'Anthropic', model: 'claude-fable-5' }, [], null, 'raw');
+    expect(msg).not.toContain('食い違っています');
+    expect(msg).not.toContain('キー登録済み');
+    expect(msg).toContain('残高の補充');
+    expect(msg).toContain('フォールバック');
+  });
+
+  it('実機事故のエラー文言は billing に分類される(案内が出る前提の固定)', () => {
+    const err = Object.assign(
+      new Error('400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."}}'),
+      { status: 400 },
+    );
+    expect(classifyLLMError(err)).toBe('billing');
   });
 });
