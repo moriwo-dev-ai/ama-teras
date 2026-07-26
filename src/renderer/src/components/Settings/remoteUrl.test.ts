@@ -30,22 +30,21 @@ describe('qrGuidance(M21-3: QR表示分岐の回帰テスト)', () => {
     const g = qrGuidance(true, true);
     expect(g.withToken).toBe(true);
     expect(g.offerRegenerate).toBe(false);
-    expect(g.message).toContain('トークン込み');
+    expect(g.messageKey).toBe('remote.guideWithToken'); // M100-4: 文言は辞書へ
   });
 
   it('トークン発行済みだが平文なし(再起動後)= トークン無しQR+再生成ボタンを出す', () => {
     const g = qrGuidance(true, false);
     expect(g.withToken).toBe(false);
     expect(g.offerRegenerate).toBe(true);
-    expect(g.message).toContain('トークン込みQRを出す');
-    expect(g.message).toContain('再設定');
+    expect(g.messageKey).toBe('remote.guideNoToken');
   });
 
   it('トークン未発行 = 有効化の案内・再生成ボタンなし', () => {
     const g = qrGuidance(false, false);
     expect(g.withToken).toBe(false);
     expect(g.offerRegenerate).toBe(false);
-    expect(g.message).toContain('未発行');
+    expect(g.messageKey).toBe('remote.guideNotIssued');
   });
 });
 

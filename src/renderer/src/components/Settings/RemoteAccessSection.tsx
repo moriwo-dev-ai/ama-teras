@@ -2,6 +2,7 @@ import { toDataURL } from 'qrcode';
 import { useEffect, useRef, useState } from 'react';
 import type { RemoteStatusPayload } from '../../../../shared/types';
 import { buildRemoteUrl, qrGuidance, resolveInitialHost } from './remoteUrl';
+import { useT } from '../../i18n';
 
 /** M13-0: 接続URLのQR表示。M21-3: 案内文とトークン再生成の導線は qrGuidance(純関数)で決定 */
 function RemoteQr({
@@ -15,6 +16,7 @@ function RemoteQr({
   hasPlainToken: boolean;
   onRegenerate: () => void;
 }): JSX.Element | null {
+  const t = useT();
   const [dataUrl, setDataUrl] = useState('');
 
   useEffect(() => {
@@ -35,15 +37,15 @@ function RemoteQr({
   const guide = qrGuidance(tokenSet, hasPlainToken);
   return (
     <div className="flex items-start gap-3">
-      <img src={dataUrl} alt="接続QRコード" className="h-40 w-40 rounded bg-white p-1" />
+      <img src={dataUrl} alt={t('remote.qrAlt')} className="h-40 w-40 rounded bg-white p-1" />
       <div className="max-w-[220px] space-y-2">
-        <p className="text-[11px] text-zinc-400">{guide.message}</p>
+        <p className="text-[11px] text-zinc-400">{t(guide.messageKey)}</p>
         {guide.offerRegenerate && (
           <button
             className="rounded border border-blue-600 px-2 py-1 text-[11px] text-blue-300 hover:bg-blue-900/40"
             onClick={onRegenerate}
           >
-            📱 トークン込みQRを出す(再生成)
+            {t('remote.regenQr')}
           </button>
         )}
       </div>
@@ -57,6 +59,7 @@ function RemoteQr({
  * ホスト名は Tailscale の MagicDNS 名等をユーザーが入力する(自動検出は初版では行わない)。
  */
 export function RemoteAccessSection(): JSX.Element {
+  const t = useT();
   const [status, setStatus] = useState<RemoteStatusPayload | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [port, setPort] = useState('8787');
@@ -84,17 +87,17 @@ export function RemoteAccessSection(): JSX.Element {
     // 1文字ごとのconfig書き込みを避ける(500msデバウンス)
     if (hostSaveTimer.current) clearTimeout(hostSaveTimer.current);
     hostSaveTimer.current = setTimeout(() => {
-      window.api.remoteSetHost(value).catch(() => setNotice('ホスト名の保存に失敗'));
+      window.api.remoteSetHost(value).catch(() => setNotice(t('remote.hostSaveFailed')));
     }, 500);
   };
 
-  if (!status) return <p className="text-xs text-zinc-400">リモート状態を読込中…</p>;
+  if (!status) return <p className='text-xs text-zinc-400'>{t('remote.loading')}</p>;
 
   const toggle = async (): Promise<void> => {
     setNotice('');
     const portNum = Number(port);
     if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
-      setNotice('ポート番号が不正(1〜65535)');
+      setNotice(t('remote.portInvalid'));
       return;
     }
     try {
@@ -102,10 +105,10 @@ export function RemoteAccessSection(): JSX.Element {
       setStatus(result.status);
       if (result.token) {
         setToken(result.token);
-        setNotice('トークンを発行した。この画面にしか表示されないので今すぐスマホに設定を。');
+        setNotice(t('remote.tokenIssued'));
       }
     } catch (err) {
-      setNotice(`失敗: ${err instanceof Error ? err.message : String(err)}`);
+      setNotice(t('remote.failed', { msg: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -115,39 +118,39 @@ export function RemoteAccessSection(): JSX.Element {
       const result = await window.api.remoteRegenerateToken();
       setStatus(result.status);
       setToken(result.token);
-      setNotice('トークンを再生成した(旧トークンは即失効)。');
+      setNotice(t('remote.tokenRegenerated'));
     } catch (err) {
-      setNotice(`失敗: ${err instanceof Error ? err.message : String(err)}`);
+      setNotice(t('remote.failed', { msg: err instanceof Error ? err.message : String(err) }));
     }
   };
 
   const url = buildRemoteUrl(host, status.port, token);
 
   const copy = (text: string, label: string): void => {
-    void navigator.clipboard.writeText(text).then(() => setNotice(`${label}をコピーした`));
+    void navigator.clipboard.writeText(text).then(() => setNotice(t('remote.copied', { label })));
   };
 
   return (
     <div className="space-y-2 rounded-md border border-zinc-700 p-3">
       <div className="flex items-center justify-between">
         <label className="text-xs font-semibold text-zinc-300">
-          リモートアクセス(スマホ・Tailscale経由)
+          {t('remote.heading')}
         </label>
         <span
           className={`rounded px-2 py-0.5 text-[10px] ${
             status.running ? 'bg-green-900 text-green-300' : 'bg-zinc-700 text-zinc-400'
           }`}
         >
-          {status.running ? `待受中 :${status.port}` : '停止中'}
+          {status.running ? t('remote.listening', { port: status.port }) : t('remote.stopped')}
         </span>
       </div>
 
       {status.lastError && (
-        <p className="text-xs text-red-400">起動失敗: {status.lastError}(ポート競合など)</p>
+        <p className="text-xs text-red-400">{t('remote.startFailed', { msg: status.lastError })}</p>
       )}
 
       <div className="flex items-center gap-2">
-        <label className="text-xs text-zinc-400">ポート</label>
+        <label className="text-xs text-zinc-400">{t('remote.port')}</label>
         <input
           className="w-20 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono text-xs"
           value={port}
@@ -160,14 +163,14 @@ export function RemoteAccessSection(): JSX.Element {
           }`}
           onClick={() => void toggle()}
         >
-          {status.enabled ? '無効にする' : '有効にする'}
+          {status.enabled ? t('remote.disable') : t('remote.enable')}
         </button>
         {status.tokenSet && (
           <button
             className="rounded bg-zinc-700 px-3 py-1 text-xs hover:bg-zinc-600"
             onClick={() => setConfirmRegen(true)}
           >
-            トークン再生成
+            {t('remote.regenToken')}
           </button>
         )}
       </div>
@@ -175,7 +178,7 @@ export function RemoteAccessSection(): JSX.Element {
       {status.enabled && (
         <div className="space-y-1">
           <label className="text-xs text-zinc-400">
-            接続ホスト名(Tailscale の MagicDNS 名。例: mypc.tailxxxx.ts.net)
+            {t('remote.hostLabel')}
           </label>
           <input
             className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1 font-mono text-xs"
@@ -192,9 +195,9 @@ export function RemoteAccessSection(): JSX.Element {
               />
               <button
                 className="rounded bg-zinc-700 px-2 py-1 text-xs hover:bg-zinc-600"
-                onClick={() => copy(url, '接続URL')}
+                onClick={() => copy(url, t('remote.urlLabel'))}
               >
-                コピー
+                {t('remote.copy')}
               </button>
             </div>
           )}
@@ -209,7 +212,7 @@ export function RemoteAccessSection(): JSX.Element {
           {/* M32-8: 黙って消さない — ホスト名が空でURL/QRを出せない理由を示す */}
           {!url && (
             <p className="text-[11px] text-zinc-500">
-              ホスト名を入力すると接続URLとQRが表示されます
+              {t('remote.hostHint')}
             </p>
           )}
         </div>
@@ -218,7 +221,7 @@ export function RemoteAccessSection(): JSX.Element {
       {token && (
         <div className="space-y-1">
           <label className="text-xs text-amber-300">
-            ペアリングトークン(この画面にのみ表示。保存されない)
+            {t('remote.tokenLabel')}
           </label>
           <div className="flex items-center gap-2">
             <input
@@ -228,9 +231,9 @@ export function RemoteAccessSection(): JSX.Element {
             />
             <button
               className="rounded bg-zinc-700 px-2 py-1 text-xs hover:bg-zinc-600"
-              onClick={() => copy(token, 'トークン')}
+              onClick={() => copy(token, t('remote.token'))}
             >
-              コピー
+              {t('remote.copy')}
             </button>
           </div>
         </div>
@@ -238,7 +241,7 @@ export function RemoteAccessSection(): JSX.Element {
 
       {status.tokenSet && !token && (
         <p className="text-[11px] text-zinc-500">
-          トークンは発行済み(平文は保存していないため再表示できない。忘れた場合は再生成)
+          {t('remote.tokenSetNote')}
         </p>
       )}
 
@@ -247,20 +250,20 @@ export function RemoteAccessSection(): JSX.Element {
       {confirmRegen && (
         <div className="space-y-2 rounded border border-amber-700 bg-zinc-950 p-2">
           <p className="text-xs text-amber-300">
-            トークンを再生成すると、接続済みのスマホは全て再設定が必要になる。続ける?
+            {t('remote.regenConfirm')}
           </p>
           <div className="flex justify-end gap-2">
             <button
               className="rounded border border-zinc-600 px-2 py-1 text-xs hover:bg-zinc-800"
               onClick={() => setConfirmRegen(false)}
             >
-              キャンセル
+              {t('remote.cancel')}
             </button>
             <button
               className="rounded bg-amber-600 px-3 py-1 text-xs hover:bg-amber-500"
               onClick={() => void regenerate()}
             >
-              再生成する
+              {t('remote.regenerate')}
             </button>
           </div>
         </div>
