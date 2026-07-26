@@ -1,5 +1,12 @@
 # PROGRESS
 
+## M110: 課金エラーの行動可能化+Provider×Model不整合警告(2026-07-27 朝)
+
+M109-Aの実機事故が動機。billingGuidance(純関数・llmErrors.ts)で「切替可能な登録済み
+プロバイダ/モデル所属の食い違い/残高補充/フォールバック有効化」を1枚の案内に。
+providerOfKnownModel/PROVIDER_LABELS(shared/models)。chatSendは実行前に不整合を
+infoカード警告(未知ID=カスタム運用は警告しない)。全1831テスト緑
+
 ## M109: 日中作業A〜D(2026-07-27)
 
 - **M109-A 多言語実証(ブロック・未完)**: workspace=C:/dev/polyglot-test で
