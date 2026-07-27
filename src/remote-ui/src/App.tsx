@@ -272,6 +272,10 @@ export function App(): JSX.Element {
       {store.tab === 'evolution' && <EvolutionView api={api} />}
       {store.tab === 'audit' && <AuditView api={api} />}
       {store.tab === 'settings' && <SettingsView api={api} />}
+      {/* M110-4: 見ているUIがいつのビルドかの刻印(「反映されてない?」の切り分け用) */}
+      <div className="muted" style={{ textAlign: 'center', fontSize: 10, padding: '8px 0 12px' }}>
+        UI build: {__BUILD_TS__}
+      </div>
     </div>
   );
 }

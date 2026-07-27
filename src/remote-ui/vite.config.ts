@@ -14,6 +14,12 @@ export default defineConfig({
   root: here,
   plugins: [react()],
   base: './',
+  // M110-4: 「スマホに反映されてない?」の切り分け用ビルド刻印。UIの隅に表示する
+  define: {
+    __BUILD_TS__: JSON.stringify(
+      new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
+    ),
+  },
   build: {
     outDir: resolve(here, '../../out/remote-ui'),
     emptyOutDir: true,
