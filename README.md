@@ -26,6 +26,15 @@ The UI is available in English — screenshots: [chat](docs/screenshots/chat-en.
 
 📝 開発の裏側: [Fable 5にアプリを自分自身ごと進化させたら、6夜でOSS公開まで走れた](https://zenn.dev/moriwo_dev_ai/articles/ama-teras-self-evolving-agent)
 
+## 正直な現在地
+
+小さな初期段階のOSSです。できること・まだ弱いことを隠さず書きます:
+
+- **今できる**: 自己進化の一巡(生成→隔離worktree→型検査/テスト/スモーク→承認→タグ付き昇格・ロールバック)、モデル切替(ローカルのOpenAI互換エンドポイント含む)、SKILL.mdの読み書き、スマホからの承認
+- **APIキーは持ち込み**: 推論は同梱しません。無料枠APIでも動きますが、生成品質は持ち込むモデルに依存します
+- **実機検証済みはWindowsのみ** — mac/linuxビルドはCIにありますが実験的で、実機未検証です
+- **ドキュメントは日本語中心**(英語READMEとアプリ内英語UIが現状の例外)
+
 ## 特徴
 
 ### 🛡 安全な自己進化

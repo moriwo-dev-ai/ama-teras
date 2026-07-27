@@ -25,7 +25,18 @@ AMA-teras points the other way.
 
 ![Demo: "I want a YAML-to-JSON tool" → approval → self-generation → verification gates → promotion approval → usable immediately](docs/demo.gif)
 
+The UI is available in English (Settings → UI language) — screenshots: [chat](docs/screenshots/chat-en.png) / [evolution panel](docs/screenshots/evolution-en.png).
+
 📝 Behind the scenes (Japanese article): [Fable 5にアプリを自分自身ごと進化させたら、6夜でOSS公開まで走れた](https://zenn.dev/moriwo_dev_ai/articles/ama-teras-self-evolving-agent)
+
+## Where it stands today — honestly
+
+This is a small, early OSS project. What you get, and what you don't yet:
+
+- **Works today**: the full self-evolution loop (generate → isolated worktree → typecheck/tests/smoke → your approval → promotion with rollback tags), model switching incl. OpenAI-compatible local endpoints, SKILL.md in/out, remote approval from your phone
+- **Bring your own keys**: no bundled inference. Free-tier APIs work, but generation quality tracks the model you bring
+- **Windows is the primary tested platform** — mac/linux builds exist (CI) but are experimental and not yet verified on real hardware
+- **Docs are Japanese-first** (this README and the in-app English UI are the current exceptions)
 
 ## Features
 
