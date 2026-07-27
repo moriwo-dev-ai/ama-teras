@@ -725,7 +725,9 @@ function DraftCard({
   const url = firstUrl(draft.body);
   // M110-2: タイトルが「r/xxx 」で始まる下書きはReddit行き。x-post種別を再利用しているため
   // 「[X投稿]」表示のままだと、Xの文字数制限を心配させたりX側ボタンで誤投稿させる(実機でユーザー混乱)
-  const redditSub = subredditFromTitle(draft.title);
+  // M110-5: subredditFromTitle は該当なしで undefined を返す。?? null で正規化しないと
+  // `!== null` 判定が全カード真になり、X用下書きに「r/undefined」ラベル+👽が出る(実機でユーザーが発見)
+  const redditSub = subredditFromTitle(draft.title) ?? null;
 
   const run = (label: string, p: Promise<{ ok: boolean; detail: string }>): void => {
     setBusy(true);
