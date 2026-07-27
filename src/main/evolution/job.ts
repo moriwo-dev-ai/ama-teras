@@ -475,6 +475,9 @@ export class LocalToolJobRunner implements EvolutionJobRunner {
     ];
 
     let lastText = '';
+    // M111: 実エラー文言を握りつぶさない。#55〜#57が全部「異常終了: error」だけで
+    // 原因調査不能だった(実際の400等は error イベントに乗っているのに捨てていた)
+    let lastError = '';
     const status = await runAgentLoop(
       {
         provider: this.createProvider(),
@@ -493,6 +496,10 @@ export class LocalToolJobRunner implements EvolutionJobRunner {
             lastText = '';
           }
           if (e.kind === 'tool_start') log(`[job] tool: ${e.name} ${e.inputPreview.slice(0, 120)}`);
+          if (e.kind === 'error') {
+            lastError = e.message;
+            log(`[job] エラー: ${e.message.slice(0, 300)}`);
+          }
         },
         systemPrompt: LOCAL_TOOL_JOB_SYSTEM_PROMPT,
         cwd: sandboxDir,
@@ -502,7 +509,10 @@ export class LocalToolJobRunner implements EvolutionJobRunner {
       history,
       signal,
     );
-    if (status !== 'done') throw new Error(`ツール生成のエージェントが異常終了: ${status}`);
+    if (status !== 'done')
+      throw new Error(
+        `ツール生成のエージェントが異常終了: ${status}${lastError !== '' ? `(${lastError.slice(0, 300)})` : ''}`,
+      );
 
     const finalText = history
       .filter((m) => m.role === 'assistant')
@@ -588,6 +598,8 @@ export class AgentJobRunner implements EvolutionJobRunner {
     ];
 
     let lastText = '';
+    // M111: 実エラー文言を握りつぶさない(local-tool側と同じ。#55〜#57の教訓)
+    let lastError = '';
     const status = await runAgentLoop(
       {
         provider: this.createProvider(),
@@ -610,6 +622,10 @@ export class AgentJobRunner implements EvolutionJobRunner {
             lastText = '';
           }
           if (e.kind === 'tool_start') log(`[job] tool: ${e.name} ${e.inputPreview.slice(0, 120)}`);
+          if (e.kind === 'error') {
+            lastError = e.message;
+            log(`[job] エラー: ${e.message.slice(0, 300)}`);
+          }
         },
         systemPrompt: scope === 'tool' ? JOB_SYSTEM_PROMPT : CORE_JOB_SYSTEM_PROMPT(scope, allowlist),
         cwd: worktreeDir,
@@ -623,7 +639,10 @@ export class AgentJobRunner implements EvolutionJobRunner {
       signal,
     );
 
-    if (status !== 'done') throw new Error(`進化ジョブのエージェントが異常終了: ${status}`);
+    if (status !== 'done')
+      throw new Error(
+        `進化ジョブのエージェントが異常終了: ${status}${lastError !== '' ? `(${lastError.slice(0, 300)})` : ''}`,
+      );
 
     // 最終応答から成果物メタデータ(toolName / smokeInput)を抽出
     const finalText = history
