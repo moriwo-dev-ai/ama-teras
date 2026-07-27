@@ -781,12 +781,14 @@ function DraftCard({
             𝕏 投稿画面(本文コピー付き)
           </button>
         )}
-        {(draft.kind === 'x-post' || draft.kind === 'article-body') && draft.status === 'draft' && (
+        {redditSub !== null && draft.status === 'draft' && (
           <button
             onClick={() => {
               // M102: Xと同じ流儀 — 開く前に本文コピー、投稿ボタンとCAPTCHAは人間。
-              // タイトルはドラフトのタイトル(先頭の「r/xxx 」はsubreddit指定として消費)
-              const sub = subredditFromTitle(draft.title);
+              // M110-3: 👽は「r/xxx 」プレフィックス付きの下書きだけに出す。
+              // X用下書きにまでRedditボタンが出て行き先が読めなかった(実機でユーザー混乱2件目)。
+              // ラベル=行き先=ボタンを一致させる
+              const sub = redditSub;
               const title = draft.title.replace(/^r\/[A-Za-z0-9_]+\s*/, '');
               const copied = copyText(draft.body);
               window.open(redditSubmitUrl(title, draft.body, sub), '_blank', 'noopener,noreferrer');
