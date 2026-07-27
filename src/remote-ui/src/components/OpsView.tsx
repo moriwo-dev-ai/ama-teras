@@ -723,6 +723,9 @@ function DraftCard({
   }, [draft.kind, repo, tag, api]);
   const [media, setMedia] = useState(draft.media ?? DEFAULT_MEDIA[draft.kind]);
   const url = firstUrl(draft.body);
+  // M110-2: タイトルが「r/xxx 」で始まる下書きはReddit行き。x-post種別を再利用しているため
+  // 「[X投稿]」表示のままだと、Xの文字数制限を心配させたりX側ボタンで誤投稿させる(実機でユーザー混乱)
+  const redditSub = subredditFromTitle(draft.title);
 
   const run = (label: string, p: Promise<{ ok: boolean; detail: string }>): void => {
     setBusy(true);
@@ -739,7 +742,7 @@ function DraftCard({
   return (
     <div style={{ borderTop: '1px solid #333', paddingTop: 8, marginTop: 8 }}>
       <div style={{ fontSize: 12 }}>
-        <span className="muted">[{DRAFT_KIND_LABEL[draft.kind]}]</span>{' '}
+        <span className="muted">[{redditSub !== null ? `👽 Reddit投稿(r/${redditSub})` : DRAFT_KIND_LABEL[draft.kind]}]</span>{' '}
         <span className="muted">{formatDraftTime(draft.createdAt)}</span> <b>{draft.title}</b>
       </div>
       <LongText text={draft.body} />
@@ -753,7 +756,7 @@ function DraftCard({
         >
           コピー
         </button>
-        {draft.kind === 'x-post' && draft.status === 'draft' && (
+        {draft.kind === 'x-post' && redditSub === null && draft.status === 'draft' && (
           <button
             onClick={() => {
               // M99-9: スマホでは x.com のインテントURLがXアプリに横取りされ、本文が
@@ -799,7 +802,7 @@ function DraftCard({
             👽 Reddit投稿画面(本文コピー付き)
           </button>
         )}
-        {draft.kind === 'x-post' && draft.status === 'draft' && (
+        {draft.kind === 'x-post' && redditSub === null && draft.status === 'draft' && (
           <button
             className="primary"
             disabled={busy}
@@ -821,7 +824,7 @@ function DraftCard({
             🦋 Bluesky投稿(承認へ)
           </button>
         )}
-        {draft.kind === 'x-post' && url !== null && (
+        {draft.kind === 'x-post' && redditSub === null && url !== null && (
           <button onClick={() => window.open(hatenaPanelUrl(url), '_blank', 'noopener,noreferrer')}>B! はてブ</button>
         )}
         {draft.status === 'posted' && (
