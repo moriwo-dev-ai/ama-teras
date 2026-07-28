@@ -22,9 +22,9 @@ async function writeJobs(jobs: unknown): Promise<string> {
 }
 
 const jobsFixture = [
-  { id: 55, status: 'done', phase: 'done' },
-  { id: 56, status: 'failed', phase: 'typecheck', error: 'TS2339: Property x does not exist' },
-  { id: 57, status: 'failed', phase: 'generation', error: 'モデル応答がJSONとして解析できません' },
+  { id: 55, status: 'done' },
+  { id: 56, status: 'failed', log: ['[typecheck]開始', '[typecheck]TS2339: Property x does not exist'], error: 'TS2339: Property x does not exist' },
+  { id: 57, status: 'failed', log: ['[generation]モデル応答を解析中', '[generation]JSONとして解析できません'], error: 'モデル応答がJSONとして解析できません' },
   { id: 58, status: 'running' },
 ];
 
@@ -68,7 +68,7 @@ describe('failure_report 純関数', () => {
     const reports = buildFailureReports(
       [
         { id: 1, status: 'failed' },
-        { id: 2, status: 'failed', failedPhase: 'smoke', message: 'smoke timeout' },
+        { id: 2, status: 'failed', log: ['[smoke]smoke timeout'], message: 'smoke timeout' },
       ],
       10,
     );

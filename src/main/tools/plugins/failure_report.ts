@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import type { ToolContext, ToolPlugin, ToolResult } from '../types';
 
 /**
@@ -34,6 +34,41 @@ const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 100;
 const ERROR_MAX_LEN = 200;
 
+/**
+ * jobs.json の実保存先は userData/evolution/jobs.json。
+ * プラグインの ctx.cwd はワークツリールート等なので、既定ではそこから相対的に
+ * よくある配置を順に探す。見つからなければ最初の候補のパスを返す。
+ */
+export function candidateJobsPaths(cwd: string): string[] {
+  const appData = process.env.APPDATA;
+  const userDataGuess =
+    typeof appData === 'string' && appData !== ''
+      ? join(appData, 'amateras', 'evolution', 'jobs.json')
+      : null;
+  const list = [
+    join(cwd, 'jobs.json'),
+    join(cwd, 'evolution', 'jobs.json'),
+    join(cwd, '..', '..', 'evolution', 'jobs.json'),
+    join(cwd, '..', 'evolution', 'jobs.json'),
+  ];
+  if (userDataGuess !== null) list.push(userDataGuess);
+  return list;
+}
+
+/** 最初に存在する候補パスを返す。無ければ先頭候補 */
+export async function findJobsPath(cwd: string): Promise<string> {
+  const candidates = candidateJobsPaths(cwd);
+  for (const p of candidates) {
+    try {
+      await stat(p);
+      return p;
+    } catch {
+      // 次の候補へ
+    }
+  }
+  return candidates[0] ?? join(cwd, 'jobs.json');
+}
+
 /** エラー文言を1行に畳み、長すぎる場合は末尾を切り詰める */
 export function summarizeError(raw: string, max: number = ERROR_MAX_LEN): string {
   const line = raw.replace(/\s+/g, ' ').trim();
@@ -52,22 +87,37 @@ export function parseJobsJson(text: string): unknown[] {
   throw new Error('jobs.json の形式が不正です(配列または {jobs: [...]} を期待)');
 }
 
-function toReport(job: unknown): FailureReport | null {
+/** ログ行からフェーズ名らしき文言を拾う */
+const PHASE_TOKEN = /generation|verifying|typecheck|smoke|test|promotion|queued|preparing|worktree/i;
+
+/** jobs.json には phase フィールドが無い。log の末尾(=結論側)からフェーズを推定する */
+function inferPhase(j: { [key: string]: unknown }): string {
+  const phaseRaw =
+    typeof j.phase === 'string' ? j.phase : typeof j.failedPhase === 'string' ? j.failedPhase : '';
+  if (phaseRaw.trim() !== '') return phaseRaw.trim();
+  if (!Array.isArray(j.log)) return 'unknown';
+  for (let i = j.log.length - 1; i >= 0; i--) {
+    const line = j.log[i];
+    if (typeof line !== 'string') continue;
+    const m = PHASE_TOKEN.exec(line);
+    if (m !== null && typeof m[0] === 'string') return m[0].toLowerCase();
+  }
+  return 'unknown';
+}
+
+function toReportFromJob(job: unknown): FailureReport | null {
   if (job === null || typeof job !== 'object') return null;
   const j = job as { [key: string]: unknown };
   if (j.status !== 'failed') return null;
   const id = typeof j.id === 'number' && Number.isFinite(j.id) ? j.id : null;
-  const phaseRaw =
-    typeof j.phase === 'string' ? j.phase : typeof j.failedPhase === 'string' ? j.failedPhase : '';
-  const phase = phaseRaw.trim() !== '' ? phaseRaw.trim() : 'unknown';
   const errorRaw =
     typeof j.error === 'string' ? j.error : typeof j.message === 'string' ? j.message : '';
-  return { id, phase, error: summarizeError(errorRaw) };
+  return { id, phase: inferPhase(j), error: summarizeError(errorRaw) };
 }
 
 /** status=failed のジョブを新しい順(id降順・ID無しは末尾)に limit 件まで要約する */
 export function buildFailureReports(jobs: unknown[], limit: number): FailureReport[] {
-  const failed = jobs.map(toReport).filter((r): r is FailureReport => r !== null);
+  const failed = jobs.map(toReportFromJob).filter((r): r is FailureReport => r !== null);
   failed.sort((a, b) => (b.id ?? -Infinity) - (a.id ?? -Infinity));
   return failed.slice(0, limit);
 }
@@ -75,7 +125,7 @@ export function buildFailureReports(jobs: unknown[], limit: number): FailureRepo
 const plugin = {
   name: 'failure_report',
   description:
-    '進化ジョブの永続ログ(jobs.json)から status=failed の失敗ジョブを拾い、失敗フェーズとエラー文言を要約して {"reports":[{"id","phase","error"}]} 形式の JSON で返す読み取り専用ツール。進化ジョブ失敗の調査(どのフェーズで・なぜ落ちたか)の入口に使う。limit(既定5・最大100)で新しい順に最大件数を指定できる。path で jobs.json の場所を指定できる(省略時はカレントディレクトリの jobs.json)。',
+    '進化ジョブの永続ログ(jobs.json)から status=failed の失敗ジョブを拾い、失敗フェーズとエラー文言を要約して {"reports":[{"id","phase","error"}]} 形式の JSON で返す読み取り専用ツール。進化ジョブ失敗の調査(どのフェーズで・なぜ落ちたか)の入口に使う。limit(既定5・最大100)で新しい順に最大件数を指定できる。path で jobs.json の場所を指定できる(省略時は cwd/jobs.json・cwd/evolution/jobs.json・userData/evolution/jobs.json の順に探す)。',
   risk: 'safe',
   tags: ['ファイル操作', '進化'],
   inputSchema: {
@@ -87,7 +137,8 @@ const plugin = {
       },
       path: {
         type: 'string',
-        description: 'jobs.json のパス。省略時はカレントディレクトリの jobs.json。',
+        description:
+          'jobs.json のパス。省略時は cwd/jobs.json → cwd/evolution/jobs.json → userData/evolution/jobs.json の順に探す。',
       },
     },
     required: [],
@@ -102,7 +153,10 @@ const plugin = {
       };
     }
     const limit = Math.min(input.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
-    const filePath = resolve(ctx.cwd, input.path ?? 'jobs.json');
+    const filePath =
+      typeof input.path === 'string' && input.path.trim() !== ''
+        ? resolve(ctx.cwd, input.path)
+        : await findJobsPath(ctx.cwd);
 
     let text: string;
     try {
