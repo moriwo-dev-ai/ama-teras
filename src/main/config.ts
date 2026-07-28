@@ -352,7 +352,10 @@ export class ConfigStore {
           if (typeof v === 'boolean') merged.autoApprove[key] = v;
         }
       }
-      if (rec['provider'] === 'anthropic' || rec['provider'] === 'openai') {
+      // M112: 'moonshot' の受理漏れ(M96の更新漏れ)。この漏れにより再起動のたびに
+      // provider が黙って既定 'anthropic' へ巻き戻り、「Anthropicにkimi-k3を送って
+      // クレジット枯渇400」という実害連鎖(#55〜#59進化ジョブ全滅・本体チャット停止)を起こした
+      if (rec['provider'] === 'anthropic' || rec['provider'] === 'openai' || rec['provider'] === 'moonshot') {
         merged.provider = rec['provider'];
       }
       if (typeof rec['model'] === 'string') merged.model = rec['model'];

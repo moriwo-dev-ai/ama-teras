@@ -534,3 +534,26 @@ describe('M100-1: uiLanguage(UI表示言語)の保存と正規化', () => {
     expect(new ConfigStore(file).get().uiLanguage).toBeUndefined();
   });
 });
+
+describe('M112: provider=moonshot が再読込で巻き戻らない(M96更新漏れの回帰)', () => {
+  const base: AppConfig = {
+    autoApprove: { safe: true, write: false, exec: false },
+    provider: 'anthropic',
+    model: '',
+    scopeMode: 'project',
+  };
+
+  it('moonshot は保存・再読込で保持される(実害: 再起動のたびanthropicへ黙って巻き戻っていた)', () => {
+    const store = new ConfigStore(file);
+    store.set({ ...base, provider: 'moonshot', model: 'kimi-k3' });
+    const reloaded = new ConfigStore(file).get();
+    expect(reloaded.provider).toBe('moonshot');
+    expect(reloaded.model).toBe('kimi-k3');
+  });
+
+  it('未知のproviderは既定(anthropic)へ落とす(従来挙動の維持)', () => {
+    const store = new ConfigStore(file);
+    store.set({ ...base, provider: 'grok' as unknown as 'anthropic' });
+    expect(new ConfigStore(file).get().provider).toBe('anthropic');
+  });
+});
