@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { billingGuidance, classifyLLMError, isModelUnavailableError, isRateLimitError, shortLLMError } from './llmErrors';
+import { billingGuidance, classifyLLMError, isModelUnavailableError, isRateLimitError, retryAfterMs, shortLLMError } from './llmErrors';
 
 describe('classifyLLMError(M16-2)', () => {
   it('課金系はステータスに関わらず billing(429より優先)', () => {
@@ -114,5 +114,24 @@ describe('M110: billingGuidance', () => {
       { status: 400 },
     );
     expect(classifyLLMError(err)).toBe('billing');
+  });
+});
+
+describe('M113-1: retryAfterMs', () => {
+  it('retry-after ヘッダ(秒数)を最優先で拾う', () => {
+    expect(retryAfterMs(Object.assign(new Error('429'), { headers: { 'retry-after': '2' } }))).toBe(2000);
+    expect(retryAfterMs(Object.assign(new Error('429'), { headers: { 'Retry-After': '0.5' } }))).toBe(500);
+  });
+
+  it('Groq/Gemini系のメッセージ形式を拾う("in 1.2s" / "in 250ms" / "in 2m30s")', () => {
+    expect(retryAfterMs(new Error('Rate limit reached. Please try again in 1.2s.'))).toBe(1200);
+    expect(retryAfterMs(new Error('Please try again in 250ms'))).toBe(250);
+    expect(retryAfterMs(new Error('Please try again in 2m30s'))).toBe(150000);
+  });
+
+  it('取れなければ null(段階スケジュールへフォールバックさせる)', () => {
+    expect(retryAfterMs(new Error('429 Too Many Requests'))).toBeNull();
+    expect(retryAfterMs(new Error('overloaded'))).toBeNull();
+    expect(retryAfterMs('not-an-object')).toBeNull();
   });
 });

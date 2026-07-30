@@ -2131,6 +2131,8 @@ export class AgentService {
           },
           // M16-2: 課金系エラー時のフォールバック(transientリトライはloop内蔵)
           acquireFallback,
+          // M113-1: 一晩モード — 無料枠の429で諦めず回復を待って完走する(関門1対策)
+          patience: { enabled: this.deps.config.get().overnightMode === true },
           // M27-1: 無料APIモードの429はプリセット別の平易な文言で表示する
           describeLLMError: (err) => this.friendlyLLMError(err),
           // M21-1: 実行中に積まれた追加指示をターン境界で注入する

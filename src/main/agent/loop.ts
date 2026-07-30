@@ -1,7 +1,12 @@
 import type { AgentEvent, AgentStatus } from '../../shared/types';
 import type { ChatMessage, ContentBlock, LLMProvider, ToolDefinition } from '../providers/types';
 import type { ToolContext, ToolPlugin, ToolResult } from '../tools/types';
-import { classifyLLMError, shortLLMError } from './llmErrors';
+import { classifyLLMError, retryAfterMs, shortLLMError } from './llmErrors';
+
+/** M113-1: 一晩モードの段階待機(retry-after が取れないときの既定)。30秒→…→15分上限 */
+export const PATIENCE_WAITS_MS = [30_000, 60_000, 120_000, 300_000, 600_000, 900_000];
+/** M113-1: 一晩モードの通算待機上限(これを超えたら諦めて error 停止)。既定12時間 */
+export const PATIENCE_MAX_TOTAL_MS = 12 * 60 * 60 * 1000;
 
 export interface AgentLoopDeps {
   provider: LLMProvider;
@@ -29,6 +34,15 @@ export interface AgentLoopDeps {
   onUsage?: (measuredPromptTokens: number) => void;
   /** M16-2: 一時エラーのリトライ設定(テスト用にbaseMsを注入可能。既定 3回・1秒起点) */
   retry?: { maxRetries?: number; baseMs?: number };
+  /**
+   * M113-1: 一晩モード(忍耐リトライ)。enabled のとき transient エラーは maxRetries を
+   * 使い切っても諦めず、待って再試行し続ける。待機時間は retry-after(取れれば)と
+   * 段階スケジュール(waitScheduleMs、テスト注入可)の大きい方。通算待機が
+   * maxTotalWaitMs(既定12時間)を超えたら従来どおり error 停止。
+   * 狙い: 無料枠APIの「分/日あたり制限」は速度制限であって総量制限ではない —
+   * ペースを落として完走する(関門1「APIキーと従量課金」対策の中核)
+   */
+  patience?: { enabled: boolean; maxTotalWaitMs?: number; waitScheduleMs?: number[] };
   /**
    * M16-2: 課金系エラー(残高枯渇等)時のフォールバック取得。新しいプロバイダを返せば
    * 同一ターンから続行、null なら従来どおり error 停止。1セッション1回の制限・
@@ -118,6 +132,12 @@ export async function runAgentLoop(
   let provider = deps.provider;
   const maxRetries = deps.retry?.maxRetries ?? 3;
   const retryBaseMs = deps.retry?.baseMs ?? 1000;
+  // M113-1: 一晩モードの通算待機(run全体で数える。ターンを跨いでも減らない)
+  const patient = deps.patience?.enabled === true;
+  const patienceWaits = deps.patience?.waitScheduleMs ?? PATIENCE_WAITS_MS;
+  const patienceMaxTotalMs = deps.patience?.maxTotalWaitMs ?? PATIENCE_MAX_TOTAL_MS;
+  let patientWaitedMs = 0;
+  let patientRetries = 0;
 
   // M92-B3: ループ検出。実行した (ツール名+引数) の回数を run 全体で数える。
   // 同一シグネチャが上限を超えたら実行せず nudge、進捗の無いブロックが続けば打ち切る
@@ -232,6 +252,26 @@ export async function runAgentLoop(
             kind: 'info',
             sessionId,
             message: `一時的なAPIエラーのため再試行します(${retriesUsed}/${maxRetries}、${Math.round(delay / 1000)}秒待機): ${shortLLMError(err)}`,
+          });
+          await sleepUnlessAborted(delay);
+          if (signal.aborted) return finish('cancelled');
+          continue;
+        }
+
+        // M113-1: 一晩モード — 通常リトライを使い切った transient は「失敗」ではなく「待機」。
+        // retry-after が取れればそれを尊重し、無ければ段階スケジュールで粘る
+        if (kind === 'transient' && patient && patientWaitedMs < patienceMaxTotalMs) {
+          patientRetries++;
+          const scheduled = patienceWaits[Math.min(patientRetries - 1, patienceWaits.length - 1)] ?? 0;
+          const delay = Math.max(retryAfterMs(err) ?? 0, scheduled);
+          patientWaitedMs += delay;
+          const eta = new Date(Date.now() + delay);
+          const hh = String(eta.getHours()).padStart(2, '0');
+          const mm = String(eta.getMinutes()).padStart(2, '0');
+          deps.emit({
+            kind: 'info',
+            sessionId,
+            message: `🌙 一晩モード: 無料枠の回復を待っています(次の再試行 ${hh}:${mm}・通算${patientRetries}回目・${shortLLMError(err)})`,
           });
           await sleepUnlessAborted(delay);
           if (signal.aborted) return finish('cancelled');

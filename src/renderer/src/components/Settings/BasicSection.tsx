@@ -329,6 +329,19 @@ export function BasicSection({
         <p className="text-[11px] text-zinc-500">{t('basic.generationModelHint')}</p>
       </div>
 
+      {/* M113-1: 一晩モード — 無料枠の429で諦めず回復を待って完走する */}
+      <div className="space-y-1">
+        <label className="flex items-center gap-2 text-xs text-zinc-300">
+          <input
+            type="checkbox"
+            checked={config.overnightMode === true}
+            onChange={(e) => void updateConfig({ overnightMode: e.target.checked })}
+          />
+          {t('basic.overnightMode')}
+        </label>
+        <p className="text-[11px] text-zinc-500">{t('basic.overnightModeHint')}</p>
+      </div>
+
       <div className="space-y-1">
         <label className="text-xs text-zinc-400">
           {t('basic.apiKey')}

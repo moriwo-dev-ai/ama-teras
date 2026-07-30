@@ -476,6 +476,9 @@ export const ja = {
   'basic.currentValue': '{value}(現在の指定)',
   'basic.generationModelHint':
     '難しいツールの生成成功率を上げたいとき、生成だけ強いモデルに寄せられる(同じ接続・キーのまま)。空欄=本体モデル。',
+  'basic.overnightMode': '🌙 一晩モード(無料枠で粘って完走)',
+  'basic.overnightModeHint':
+    '無料枠の上限(429)に当たっても諦めず、回復を待って自動で再開します(通算12時間まで)。時間はかかるがクレカ不要で大きなタスクを完走できる。',
   'basic.apiKey': 'APIキー',
   'basic.apiKeyFor': '({slot} 用)',
   'basic.keySet': '(設定済み。再入力で上書き)',

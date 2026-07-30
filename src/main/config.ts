@@ -360,6 +360,8 @@ export class ConfigStore {
       }
       if (typeof rec['model'] === 'string') merged.model = rec['model'];
       // M92-A5-a: 生成専用モデル(空文字・非文字列は未設定=本体と同じ)
+      // M113-1: 一晩モード(boolean以外は無視=OFF扱い)
+      if (typeof rec['overnightMode'] === 'boolean') merged.overnightMode = rec['overnightMode'];
       if (typeof rec['generationModel'] === 'string' && rec['generationModel'].trim() !== '') {
         merged.generationModel = rec['generationModel'].trim();
       }

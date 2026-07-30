@@ -126,6 +126,43 @@ export function billingGuidance(
 }
 
 /**
+ * M113-1: エラーから「何ミリ秒後に再試行すべきか」を取り出す(取れなければ null)。
+ * 優先順: ①retry-after ヘッダ(秒数 or HTTP-date) ②Groq/Gemini系がメッセージに埋める
+ * "Please try again in 1.234s" / "in 20ms" / "in 2m30s" 形式。
+ * 一晩モードの待機時間の一次情報源(無ければ段階スケジュールに落ちる)
+ */
+export function retryAfterMs(err: unknown): number | null {
+  const rec = typeof err === 'object' && err !== null ? (err as Record<string, unknown>) : {};
+  const headers = rec['headers'];
+  let raw: string | null = null;
+  if (headers instanceof Headers) raw = headers.get('retry-after');
+  else if (typeof headers === 'object' && headers !== null) {
+    const h = headers as Record<string, unknown>;
+    const v = h['retry-after'] ?? h['Retry-After'];
+    if (typeof v === 'string') raw = v;
+  }
+  if (raw !== null) {
+    const secs = Number(raw);
+    if (Number.isFinite(secs) && secs >= 0) return Math.round(secs * 1000);
+    const date = Date.parse(raw);
+    if (Number.isFinite(date)) return Math.max(0, date - Date.now());
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  // "try again in 1.2s" / "in 250ms" / "in 2m30.5s"(Groq実物は m+s 複合形式を使う)。
+  // 分の 'm' は 'ms' の m と衝突するため負の先読みで区別する
+  const m = /try again in\s+(?:(\d+)m(?!s))?([\d.]+)?(ms|s)?/i.exec(message);
+  if (m && (m[1] !== undefined || m[2] !== undefined)) {
+    const minutes = m[1] !== undefined ? Number(m[1]) : 0;
+    const rest = m[2] !== undefined ? Number(m[2]) : 0;
+    const unit = m[3]?.toLowerCase();
+    const restMs = unit === 'ms' ? rest : rest * 1000;
+    const total = minutes * 60_000 + restMs;
+    if (Number.isFinite(total) && total > 0) return Math.round(total);
+  }
+  return null;
+}
+
+/**
  * M27-1: レート制限(429)か。無料APIモードのプリセット別の平易な文言に
  * 差し替える判定に使う(billing優先の分類とは独立に「429らしさ」だけを見る)
  */

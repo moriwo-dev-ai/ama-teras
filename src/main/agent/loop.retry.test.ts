@@ -242,3 +242,59 @@ describe('M30-2: モデル未開放(404)フォールバック', () => {
     expect(errEvent?.kind === 'error' && errEvent.settingsHint).toBe('models');
   });
 });
+
+describe('M113-1: 一晩モード(忍耐リトライ)', () => {
+  const err429 = Object.assign(new Error('429 rate limited'), { status: 429 });
+
+  it('通常リトライを使い切っても諦めず、回復後に done する', async () => {
+    const provider = scripted([err429, err429, err429, err429, err429, err429, 'ok']);
+    const { d, events } = deps(provider, {
+      patience: { enabled: true, waitScheduleMs: [1, 1, 1] },
+    });
+    const status = await runAgentLoop(d, 's1', [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], new AbortController().signal);
+    expect(status).toBe('done');
+    expect(provider.calls).toBe(7); // 初回+通常3+忍耐3
+    const moon = events.filter((e) => e.kind === 'info' && e.message.includes('一晩モード'));
+    expect(moon).toHaveLength(3);
+    expect(moon[0]!.kind === 'info' && moon[0]!.message).toContain('通算1回目');
+  });
+
+  it('OFF(未指定)なら従来どおり3回で error(挙動不変)', async () => {
+    const provider = scripted([err429]);
+    const { d } = deps(provider);
+    const status = await runAgentLoop(d, 's1', [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], new AbortController().signal);
+    expect(status).toBe('error');
+    expect(provider.calls).toBe(4);
+  });
+
+  it('通算待機が上限を超えたら諦めて error(無限には粘らない)', async () => {
+    const provider = scripted([err429]);
+    const { d, events } = deps(provider, {
+      patience: { enabled: true, waitScheduleMs: [10], maxTotalWaitMs: 25 },
+    });
+    const status = await runAgentLoop(d, 's1', [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], new AbortController().signal);
+    expect(status).toBe('error');
+    // 上限チェックは待機前の通算値: 0<25→忍耐1, 10<25→忍耐2, 20<25→忍耐3, 30≧25→停止
+    expect(provider.calls).toBe(7); // 初回+通常3+忍耐3
+    expect(events.some((e) => e.kind === 'error')).toBe(true);
+  });
+
+  it('retry-after がスケジュールより長ければそちらを尊重する', async () => {
+    const errWithRetryAfter = Object.assign(new Error('429 Please try again in 0.03s'), { status: 429 });
+    const provider = scripted([errWithRetryAfter, errWithRetryAfter, errWithRetryAfter, errWithRetryAfter, 'ok']);
+    const { d } = deps(provider, { patience: { enabled: true, waitScheduleMs: [1] } });
+    const t0 = Date.now();
+    const status = await runAgentLoop(d, 's1', [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], new AbortController().signal);
+    expect(status).toBe('done');
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(25); // 30ms待機が効いている(忍耐1回分)
+  });
+
+  it('一晩モードの待機中も abort で即 cancelled', async () => {
+    const provider = scripted([err429]);
+    const ac = new AbortController();
+    const { d } = deps(provider, { patience: { enabled: true, waitScheduleMs: [60_000] } });
+    const p = runAgentLoop(d, 's1', [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], ac.signal);
+    setTimeout(() => ac.abort(), 50);
+    expect(await p).toBe('cancelled');
+  });
+});

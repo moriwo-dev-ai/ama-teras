@@ -477,6 +477,9 @@ export const en: Record<MessageKey, string> = {
   'basic.currentValue': '{value} (current)',
   'basic.generationModelHint':
     'To raise success rates on hard tool generations, point only generation at a stronger model (same connection & key). Empty = main model.',
+  'basic.overnightMode': '🌙 Overnight mode (finish the job on free tiers)',
+  'basic.overnightModeHint':
+    'When free-tier rate limits (429) hit, keep waiting and auto-resume instead of giving up (up to 12h total). Slower, but completes big tasks with no credit card.',
   'basic.apiKey': 'API key',
   'basic.apiKeyFor': ' (for {slot})',
   'basic.keySet': ' (set — enter again to overwrite)',
