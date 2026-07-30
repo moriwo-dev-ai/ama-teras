@@ -38,6 +38,7 @@ import type {
 import { ApprovalBroker } from '../agent/approval';
 import { compactHistory, DEFAULT_COMPACTION_THRESHOLD, estimateTokens } from '../agent/compaction';
 import { runAgentLoop } from '../agent/loop';
+import { loadOvernightPending, saveOvernightPending } from './overnight';
 import {
   contextLimitFor,
   DEFAULT_MODELS,
@@ -1466,6 +1467,65 @@ export class AgentService {
     };
   }
 
+  // ---- M113-2: 一晩モードの途中保存/再開 ----
+
+  private overnightPendingPath(): string {
+    return join(this.deps.denyPaths.userDataDir, 'overnight-pending.json');
+  }
+
+  /** M113-2: 待機に入るたびに再開予定時刻を上書き保存(軽量なので毎回書いてよい) */
+  private markOvernightPending(convId: string, resumeAtMs: number): void {
+    const map = loadOvernightPending(this.overnightPendingPath());
+    map[convId] = { resumeAt: new Date(resumeAtMs).toISOString() };
+    saveOvernightPending(this.overnightPendingPath(), map);
+  }
+
+  private clearOvernightPending(convId: string): void {
+    const map = loadOvernightPending(this.overnightPendingPath());
+    if (map[convId] === undefined) return;
+    delete map[convId];
+    saveOvernightPending(this.overnightPendingPath(), map);
+  }
+
+  /**
+   * M113-2: 起動時に「待機中に中断された会話」を読み戻し、再開時刻に自動再開する。
+   * ipc初期化の最後に1回呼ぶ。overnightModeがOFFに変わっていたら再開せず印だけ消す
+   * (勝手に走らない)。セッション読み込みは既存の sessionLoad(履歴復元)を使う
+   */
+  resumeOvernightPending(): void {
+    const map = loadOvernightPending(this.overnightPendingPath());
+    const ids = Object.keys(map);
+    if (ids.length === 0) return;
+    if (this.deps.config.get().overnightMode !== true) {
+      saveOvernightPending(this.overnightPendingPath(), {});
+      return;
+    }
+    for (const id of ids) {
+      const delayMs = Math.max(0, Date.parse(map[id]!.resumeAt) - Date.now());
+      const timer = setTimeout(() => {
+        this.wakeupTimers.delete(timer);
+        void (async () => {
+          try {
+            // 会話が未ロードならセッションから復元(currentに載る)
+            let conv = this.conversations.get(id);
+            if (conv === undefined) {
+              await this.sessionLoad(id);
+              conv = this.conversations.get(id) ?? this.current;
+            }
+            this.clearOvernightPending(id);
+            this.resumeConversation(
+              conv,
+              '[wakeup] 🌙 一晩モード: 待機中にアプリが再起動しました。直前の履歴を確認し、中断していたタスクの続きから再開してください。',
+            );
+          } catch (err) {
+            console.error('[overnight] 再開失敗:', err instanceof Error ? err.message : err);
+          }
+        })();
+      }, delayMs);
+      this.wakeupTimers.add(timer);
+    }
+  }
+
   /** M107: schedule_wakeup プラグインから注入される予約。セッション内のみ(再起動で消える) */
   private scheduleWakeup(conv: ConvState, delaySec: number, note: string): { id: number; fireAtIso: string } {
     const id = this.nextWakeupId++;
@@ -2133,6 +2193,8 @@ export class AgentService {
           acquireFallback,
           // M113-1: 一晩モード — 無料枠の429で諦めず回復を待って完走する(関門1対策)
           patience: { enabled: this.deps.config.get().overnightMode === true },
+          // M113-2: 待機に入ったら「再開の印」を永続化(待機中の再起動から復帰するため)
+          onPatientWait: (resumeAtMs) => this.markOvernightPending(conv.id, resumeAtMs),
           // M27-1: 無料APIモードの429はプリセット別の平易な文言で表示する
           describeLLMError: (err) => this.friendlyLLMError(err),
           // M21-1: 実行中に積まれた追加指示をターン境界で注入する
@@ -2142,6 +2204,8 @@ export class AgentService {
         conv.history,
         ac.signal,
       );
+      // M113-2: ランが終端に達した=待機中の中断ではないので、再開の印を消す
+      this.clearOvernightPending(conv.id);
       // M19: 計画を使わなかった短いタスクは完了時に1回だけレビュー(縮退モード)。
       // 成果物(write/exec成功)が無い会話は対象外
       if (

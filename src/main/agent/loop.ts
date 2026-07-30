@@ -44,6 +44,11 @@ export interface AgentLoopDeps {
    */
   patience?: { enabled: boolean; maxTotalWaitMs?: number; waitScheduleMs?: number[] };
   /**
+   * M113-2: 一晩モードの待機に入るたびに呼ばれる(再開予定時刻ms)。
+   * 呼び出し側が「待機中に落ちても再開できる印」を永続化するために使う
+   */
+  onPatientWait?: (resumeAtMs: number) => void;
+  /**
    * M16-2: 課金系エラー(残高枯渇等)時のフォールバック取得。新しいプロバイダを返せば
    * 同一ターンから続行、null なら従来どおり error 停止。1セッション1回の制限・
    * 事前compaction・監査記録は呼び出し側(AgentService)が担う。
@@ -265,9 +270,11 @@ export async function runAgentLoop(
           const scheduled = patienceWaits[Math.min(patientRetries - 1, patienceWaits.length - 1)] ?? 0;
           const delay = Math.max(retryAfterMs(err) ?? 0, scheduled);
           patientWaitedMs += delay;
-          const eta = new Date(Date.now() + delay);
+          const resumeAtMs = Date.now() + delay;
+          const eta = new Date(resumeAtMs);
           const hh = String(eta.getHours()).padStart(2, '0');
           const mm = String(eta.getMinutes()).padStart(2, '0');
+          deps.onPatientWait?.(resumeAtMs);
           deps.emit({
             kind: 'info',
             sessionId,

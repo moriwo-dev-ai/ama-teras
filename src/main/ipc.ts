@@ -2006,6 +2006,9 @@ export async function registerIpcHandlers(
   // 起動時: 設定が有効ならサーバを立てる(失敗しても起動は続行、状態はUIで見える)
   await applyRemoteState();
 
+  // M113-2: 一晩モードの待機中に落ちた会話があれば、再開時刻に自動再開する
+  service.resumeOvernightPending();
+
   // ---- MCPクライアント(M13-2。デスクトップ専用) ----
   const mcp = new McpManager({
     registry,

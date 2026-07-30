@@ -298,3 +298,21 @@ describe('M113-1: 一晩モード(忍耐リトライ)', () => {
     expect(await p).toBe('cancelled');
   });
 });
+
+describe('M113-2: onPatientWait(途中保存フック)', () => {
+  const err429 = Object.assign(new Error('429 rate limited'), { status: 429 });
+
+  it('忍耐待機のたびに未来の再開時刻で呼ばれる(通常リトライでは呼ばれない)', async () => {
+    const provider = scripted([err429, err429, err429, err429, err429, 'ok']);
+    const marks: number[] = [];
+    const { d } = deps(provider, {
+      patience: { enabled: true, waitScheduleMs: [5, 5] },
+      onPatientWait: (t) => marks.push(t),
+    });
+    const t0 = Date.now();
+    const status = await runAgentLoop(d, 's1', [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], new AbortController().signal);
+    expect(status).toBe('done');
+    expect(marks).toHaveLength(2); // 忍耐2回のみ(通常リトライ3回では呼ばれない)
+    for (const m of marks) expect(m).toBeGreaterThanOrEqual(t0);
+  });
+});
