@@ -98,6 +98,12 @@ export interface ConnectionTestResult {
   message: string;
 }
 
+/** M114: ローカルOllama検出の結果。models はインストール済みモデル名(検出時のみ) */
+export interface OllamaDetectResult {
+  available: boolean;
+  models: string[];
+}
+
 export type ToolRisk = 'safe' | 'write' | 'exec';
 
 /** M9: 操作スコープ。workspace = config.workspace 配下 / system = それ以外のPC全体 */

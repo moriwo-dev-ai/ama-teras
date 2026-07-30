@@ -44,6 +44,7 @@ const api: AmaterasApi = {
   secretsSet: (provider, apiKey) => ipcRenderer.invoke(IpcChannels.secretsSet, provider, apiKey),
   secretsStatus: () => ipcRenderer.invoke(IpcChannels.secretsStatus),
   connectionTest: () => ipcRenderer.invoke(IpcChannels.connectionTest),
+  ollamaDetect: () => ipcRenderer.invoke(IpcChannels.ollamaDetect),
 
   onEvolutionEvent: (listener) => subscribe<EvolutionEvent>(IpcChannels.evolutionEvent, listener),
   evolutionPromoteRespond: (jobId, approved) =>

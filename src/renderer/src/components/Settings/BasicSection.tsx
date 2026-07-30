@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type {
   AppConfig,
   ProviderId,
@@ -53,6 +53,21 @@ export function BasicSection({
   // M27-6: カスタムテーマ(JSON)の編集・結果表示
   const [themeJson, setThemeJson] = useState(() => storedCustomThemeJson() ?? '');
   const [themeMsg, setThemeMsg] = useState('');
+  // M114: ローカルOllamaの自動検出(設定を開いたとき1回だけ静かに探す)
+  const [ollama, setOllama] = useState<{ available: boolean; models: string[] } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void window.api.ollamaDetect().then((r) => {
+      if (alive) setOllama(r);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const usingOllama =
+    config.provider === 'openai' &&
+    config.providerPreset === 'custom' &&
+    (config.customBaseUrl ?? '').includes('11434');
 
   // M27-1: プリセット(無料APIモード)使用中はキーの保存先スロットもプリセット側
   const preset =
@@ -99,6 +114,38 @@ export function BasicSection({
 
   return (
     <div className="space-y-4">
+      {/* M114: ローカルOllamaを検出したらワンクリック接続を提案(接続済みなら出さない) */}
+      {ollama?.available === true && !usingOllama && (
+        <div className="space-y-1 rounded border border-emerald-800 bg-emerald-950/40 p-2">
+          <p className="text-xs text-emerald-300">
+            {t('basic.ollamaFound', { count: String(ollama.models.length) })}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              className="rounded bg-emerald-700 px-2 py-1 text-xs hover:bg-emerald-600"
+              onClick={() => {
+                const next: AppConfig = {
+                  ...config,
+                  provider: 'openai',
+                  providerPreset: 'custom',
+                  customBaseUrl: 'http://127.0.0.1:11434/v1',
+                  model: ollama.models[0] ?? '',
+                };
+                delete next.freeMode;
+                delete next.freeModeAllowEvolution;
+                saveConfig(next);
+              }}
+            >
+              {t('basic.ollamaConnect')}
+            </button>
+            <span className="text-[11px] text-zinc-400">
+              {ollama.models.slice(0, 3).join(' / ')}
+              {ollama.models.length > 3 ? ' …' : ''}
+            </span>
+          </div>
+          <p className="text-[11px] text-zinc-500">{t('basic.ollamaHint')}</p>
+        </div>
+      )}
       <div className="space-y-1">
         <label className="text-xs text-zinc-400">{t('basic.provider')}</label>
         <select

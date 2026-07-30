@@ -476,6 +476,9 @@ export const ja = {
   'basic.currentValue': '{value}(現在の指定)',
   'basic.generationModelHint':
     '難しいツールの生成成功率を上げたいとき、生成だけ強いモデルに寄せられる(同じ接続・キーのまま)。空欄=本体モデル。',
+  'basic.ollamaFound': '🦙 ローカルAI(Ollama)を検出しました — モデル{count}個。APIキー不要・完全無料で使えます',
+  'basic.ollamaConnect': 'ワンクリックで接続',
+  'basic.ollamaHint': 'このPCの中だけでAIが動きます(通信費・API料金ゼロ)。モデルはあとから設定で変更できます。',
   'basic.overnightMode': '🌙 一晩モード(無料枠で粘って完走)',
   'basic.overnightModeHint':
     '無料枠の上限(429)に当たっても諦めず、回復を待って自動で再開します(通算12時間まで)。時間はかかるがクレカ不要で大きなタスクを完走できる。',

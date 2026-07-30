@@ -18,6 +18,7 @@ import type {
 } from '../shared/types';
 import { AuditLog } from './audit';
 import { ConfigStore } from './config';
+import { detectOllama } from './ollama';
 import { validateChatImages } from './core/chatImages';
 import { workspaceGitStatus } from './core/gitStatus';
 import { McpManager } from './mcp/manager';
@@ -895,6 +896,8 @@ export async function registerIpcHandlers(
   });
   // M27-1: 接続テスト(現在の設定で最小1リクエスト)
   ipcMain.handle(IpcChannels.connectionTest, () => service.connectionTest());
+  // M114: ローカルOllamaの自動検出(設定画面がワンクリック接続を提案するための読み取り)
+  ipcMain.handle(IpcChannels.ollamaDetect, () => detectOllama());
 
   // ---- M32: 運営(Project TAKAMA-gahara)。operations.enabled=オーナーモード時のみ実働 ----
   // 岩戸ゲートの承認: renderer の共通ダイアログ(何を・どこへ・全文プレビュー)へ橋渡しし、

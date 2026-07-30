@@ -35,6 +35,7 @@ import type {
   McpProbeResult,
   PluginErrorInfo,
   ConnectionTestResult,
+  OllamaDetectResult,
   CoreRequest,
   CoreRequestKind,
   CoreRequestPlanResult,
@@ -90,6 +91,8 @@ export const IpcChannels = {
   secretsStatus: 'secrets:status',
   /** M27-1: 現在の設定で最小1リクエストを送る接続テスト(無料で始める導線用) */
   connectionTest: 'connection:test',
+  /** M114: ローカルOllamaの自動検出(一般人のローカルLLM導入摩擦をゼロへ) */
+  ollamaDetect: 'ollama:detect',
   evolutionEvent: 'evolution:event',
   evolutionPromoteRespond: 'evolution:promote-respond',
   evolutionEnqueue: 'evolution:enqueue',
@@ -298,6 +301,8 @@ export interface AmaterasApi {
   secretsStatus(): Promise<SecretsStatus>;
   /** M27-1: 現在の設定で1リクエスト送る接続テスト */
   connectionTest(): Promise<ConnectionTestResult>;
+  /** M114: ローカルOllamaの検出(available時はインストール済みモデル名も返す) */
+  ollamaDetect(): Promise<OllamaDetectResult>;
 
   onEvolutionEvent(listener: (event: EvolutionEvent) => void): () => void;
   evolutionPromoteRespond(jobId: number, approved: boolean): Promise<void>;
