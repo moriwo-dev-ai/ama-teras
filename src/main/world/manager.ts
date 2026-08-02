@@ -15,7 +15,12 @@ import type { EventBus } from '../core/events';
  */
 
 const CONNECT_TIMEOUT_MS = 30_000;
-const ACK_TIMEOUT_MS = 12_000;
+/**
+ * M115-6: ページ側はワンショット技の完了待ち・sayの読み待ち・move_toの歩行を
+ * 直列実行してからackする(=演出時間ぶん遅れる)。長い演出バッチでも失敗扱いに
+ * しないよう余裕を持たせる(30コマンド上限×歩行込みの現実的最大)
+ */
+const ACK_TIMEOUT_MS = 90_000;
 const CHAT_LOG_MAX = 30;
 
 export class WorldManager {

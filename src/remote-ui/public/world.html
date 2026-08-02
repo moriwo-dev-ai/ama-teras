@@ -60,6 +60,7 @@ addEventListener('unhandledrejection', (e) => window.__errs.push('rejection: ' +
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
 // ================= 認証(remote-ui と同じトークンを使う) =================
@@ -317,12 +318,28 @@ function snapshot() {
 
 // ================= コマンド実行(SSE受信・直列実行・ack) =================
 let moveTarget = null; // {x,z,resolve}
-let camMode = 'avatar'; // avatar | overview | object
-let camObjTarget = null;
+const ONESHOT_WAIT_MAX = 5000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** ワンショット技の完了を待つ(連続motionコマンドが技を上書きして「見えない」事故の対策) */
+function waitMotionEnd(name) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, ONESHOT_WAIT_MAX);
+    function done() { clearTimeout(timer); mixer?.removeEventListener('finished', onFin); resolve(); }
+    function onFin(e) { if (e.action === actions[name]) done(); }
+    mixer?.addEventListener('finished', onFin);
+  });
+}
 async function runCommand(c, quiet = false) {
   switch (c.type) {
-    case 'say': say(c.text ?? ''); return;
-    case 'motion': fadeTo(c.name); return;
+    case 'say':
+      say(c.text ?? '');
+      // 読み終わる間を取る(連続sayの上書き防止・演出のテンポ)
+      if (!quiet) await sleep(Math.min(2200, 500 + (c.text?.length ?? 0) * 35));
+      return;
+    case 'motion':
+      fadeTo(c.name);
+      if (ONESHOT.has(c.name)) await waitMotionEnd(c.name);
+      return;
     case 'move_to':
       if (!avatar) throw new Error('avatar未ロード');
       fadeTo('walk');
@@ -331,7 +348,7 @@ async function runCommand(c, quiet = false) {
       return;
     case 'spawn': {
       const id = spawnObject(c, quiet);
-      if (!quiet) camObjTarget = objects.get(id).mesh.position.clone();
+      if (!quiet) camFocusTo(objects.get(id).mesh.position.clone().add(new THREE.Vector3(0, 0.8, 0)));
       return;
     }
     case 'remove': {
@@ -341,7 +358,12 @@ async function runCommand(c, quiet = false) {
       objects.delete(c.id);
       return;
     }
-    case 'camera': camMode = c.target; return;
+    case 'camera': {
+      if (c.target === 'overview') camFocusTo(new THREE.Vector3(0, 0, 0), new THREE.Vector3(14, 13, 14));
+      else if (c.target === 'object') { /* 直近spawn時に設定済み。明示指定は最後のspawn位置のまま */ }
+      else if (avatar) camFocusTo(avatar.scene.position.clone().add(new THREE.Vector3(0, 1.1, 0)));
+      return;
+    }
     default: throw new Error(`未知のコマンド: ${c.type}`);
   }
 }
@@ -394,22 +416,21 @@ if (TOKEN || SPECTATE) {
   if (!SPECTATE) setInterval(() => { void post({ kind: 'state', state: snapshot() }); }, 10_000);
 }
 
-// ================= カメラ・メインループ =================
-let camA = 0.35, camH = 1.6, drag = null;
-addEventListener('pointerdown', (e) => {
-  if (e.target.closest('#chatbar') || e.target.closest('#chatlog')) return;
-  drag = { x: e.clientX, y: e.clientY };
-});
-addEventListener('pointermove', (e) => {
-  if (!drag) return;
-  camA -= (e.clientX - drag.x) * 0.006;
-  camH = Math.max(0.6, Math.min(3.2, camH + (e.clientY - drag.y) * 0.004));
-  drag.x = e.clientX; drag.y = e.clientY;
-});
-addEventListener('pointerup', () => { drag = null; });
+// ================= カメラ(OrbitControls: 1本指=回転/ピンチ=ズーム/2本指=パン) =================
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 1.2;
+controls.maxDistance = 45;
+controls.maxPolarAngle = Math.PI * 0.55; // 地面下へ潜り込みすぎない
+controls.target.set(0, 1.05, 0);
+camera.position.set(1.5, 2.4, 4.2);
+// エージェントのcamera演出: 目標へ滑らかに寄せる。ユーザーが触ったら即座に主導権を返す
+let camTween = null; // {target, pos?|null}
+function camFocusTo(target, pos = null) { camTween = { target, pos }; }
+controls.addEventListener('start', () => { camTween = null; });
+
 const clock = new THREE.Clock();
-const camPos = new THREE.Vector3(0, 2.5, 4.2);
-const camLook = new THREE.Vector3(0, 1.05, 0);
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
   if (mixer && avatar) {
@@ -444,14 +465,15 @@ renderer.setAnimationLoop(() => {
     if (t < 1) o.mesh.scale.setScalar(0.01 + 0.99 * (1 - Math.pow(1 - t, 3)));
     else o.mesh.scale.setScalar(1);
   }
-  // カメラ(モード別の目標へスムーズ移動)
-  const focus = camMode === 'object' && camObjTarget ? camObjTarget : (avatar?.scene.position ?? new THREE.Vector3());
-  const dist = camMode === 'overview' ? 14 : 4.2;
-  const height = camMode === 'overview' ? 10 : camH + 0.9;
-  camPos.lerp(new THREE.Vector3(focus.x + Math.sin(camA) * dist, height, focus.z + Math.cos(camA) * dist), 0.06);
-  camLook.lerp(new THREE.Vector3(focus.x, camMode === 'overview' ? 0 : 1.05, focus.z), 0.08);
-  camera.position.copy(camPos);
-  camera.lookAt(camLook);
+  // カメラ演出のトゥイーン(ユーザー操作で即中断)
+  if (camTween) {
+    controls.target.lerp(camTween.target, 0.08);
+    if (camTween.pos) camera.position.lerp(camTween.pos, 0.06);
+    const done = controls.target.distanceTo(camTween.target) < 0.05 &&
+      (!camTween.pos || camera.position.distanceTo(camTween.pos) < 0.2);
+    if (done) camTween = null;
+  }
+  controls.update();
   renderer.render(scene, camera);
 });
 addEventListener('resize', () => {
