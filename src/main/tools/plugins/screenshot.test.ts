@@ -46,7 +46,7 @@ describe('screenshot プラグイン(M14-2)', () => {
     expect(r.images).toEqual([
       { mediaType: 'image/png', data: 'aW1n', description: 'screenshot: http://localhost:3000/' },
     ]);
-    expect(capture).toHaveBeenCalledWith('http://localhost:3000/', 4096, 240); // クランプ
+    expect(capture).toHaveBeenCalledWith('http://localhost:3000/', 4096, 240, undefined); // クランプ(waitMs未指定)
   });
 
   it('execute: 未注入コンテキストと capture 失敗はエラー', async () => {

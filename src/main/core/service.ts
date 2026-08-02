@@ -224,7 +224,7 @@ export interface AgentServiceDeps {
    * M14-2: URLスクリーンショット(offscreen BrowserWindow)。electron 依存のため注入。
    * 未指定なら screenshot ツールは「未注入」エラーになる。進化ジョブへは渡らない
    */
-  captureUrl?: (url: string, width?: number, height?: number) => Promise<{ data: string; mediaType: string }>;
+  captureUrl?: (url: string, width?: number, height?: number, waitMs?: number) => Promise<{ data: string; mediaType: string }>;
   /** M16-2 テスト用: フォールバックプロバイダ生成の差し替え(未指定なら secrets から実プロバイダ) */
   fallbackProviderFactory?: (provider: ProviderId, model: string) => LLMProvider;
   /** M28-3: レジストリ検索のHTTP実体(テスト用注入。既定 globalThis.fetch) */

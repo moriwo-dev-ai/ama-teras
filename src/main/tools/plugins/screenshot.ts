@@ -44,6 +44,7 @@ export default {
       url: { type: 'string', description: '対象URL(http/https のみ)' },
       width: { type: 'integer', description: 'viewport幅(既定1280、最大4096)' },
       height: { type: 'integer', description: 'viewport高さ(既定800、最大4096)' },
+      waitMs: { type: 'integer', description: '読み込み後の追加待機ms(既定700・最大20000)。3Dページ等アセット読込が重い画面は12000程度を指定' },
     },
     required: ['url'],
   },
@@ -68,11 +69,12 @@ export default {
     if (!ctx.screenshot) {
       return { content: 'この実行コンテキストではスクリーンショットを撮れない(screenshot 未注入)', isError: true };
     }
-    const { width, height } = (input ?? {}) as { width?: unknown; height?: unknown };
+    const { width, height, waitMs } = (input ?? {}) as { width?: unknown; height?: unknown; waitMs?: unknown };
     const w = typeof width === 'number' ? Math.min(Math.max(Math.round(width), 320), MAX_DIMENSION) : undefined;
     const h = typeof height === 'number' ? Math.min(Math.max(Math.round(height), 240), MAX_DIMENSION) : undefined;
+    const wait = typeof waitMs === 'number' ? Math.min(Math.max(Math.round(waitMs), 0), 20_000) : undefined;
     try {
-      const shot = await ctx.screenshot.capture(target.url.href, w, h);
+      const shot = await ctx.screenshot.capture(target.url.href, w, h, wait);
       return {
         content: `スクリーンショットを撮影した: ${target.url.href}`,
         images: [{ mediaType: shot.mediaType, data: shot.data, description: `screenshot: ${target.url.href}` }],

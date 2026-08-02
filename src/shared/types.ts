@@ -1492,7 +1492,7 @@ export interface WorldCommand {
   z?: number;
   /** spawn: プリミティブ生成。id指定で後からremove/上書きできる */
   id?: string;
-  shape?: 'box' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'sign';
+  shape?: 'box' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'sign' | 'screen';
   color?: string;
   /** spawn: サイズ(m)と設置座標。signはlabelを看板文字として描く */
   sx?: number;
@@ -1500,6 +1500,10 @@ export interface WorldCommand {
   sz?: number;
   y?: number;
   label?: string;
+  /** spawn(screen): 背景色 */
+  bg?: string;
+  /** spawn(sign/screen): Y軸回転(ラジアン) */
+  ry?: number;
   /** camera: 注視先 */
   target?: 'avatar' | 'overview' | 'object';
 }

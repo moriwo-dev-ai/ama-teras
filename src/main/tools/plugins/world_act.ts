@@ -8,7 +8,7 @@ import type { ToolContext, ToolPlugin, ToolResult } from '../types';
  */
 
 const MOTIONS = ['idle', 'guard', 'jab', 'hook', 'kick', 'walk', 'sit'] as const;
-const SHAPES = ['box', 'sphere', 'cylinder', 'cone', 'torus', 'sign'] as const;
+const SHAPES = ['box', 'sphere', 'cylinder', 'cone', 'torus', 'sign', 'screen'] as const;
 const CAMERA_TARGETS = ['avatar', 'overview', 'object'] as const;
 const MAX_ACTIONS = 30;
 const PLAZA_RADIUS = 18;
@@ -36,7 +36,8 @@ function validate(cmds: unknown): { ok: true; cmds: WorldCommand[] } | { ok: fal
         if (!SHAPES.includes(c.shape as (typeof SHAPES)[number]))
           return { ok: false, error: `actions[${i}] spawn: shape は ${SHAPES.join('|')} のいずれか` };
         if (typeof c.x !== 'number' || typeof c.z !== 'number') return { ok: false, error: `actions[${i}] spawn: x,z が必要` };
-        if (c.shape === 'sign' && typeof c.label !== 'string') return { ok: false, error: `actions[${i}] spawn: sign には label が必要` };
+        if ((c.shape === 'sign' || c.shape === 'screen') && typeof c.label !== 'string')
+          return { ok: false, error: `actions[${i}] spawn: ${c.shape} には label が必要` };
         break;
       case 'remove':
         if (typeof c.id !== 'string' || c.id === '') return { ok: false, error: `actions[${i}] remove: id が必要` };
@@ -58,8 +59,10 @@ export default {
   description:
     '「世界」(ユーザーと共有する3D空間)で行動する。actions にコマンド列を渡すと世界内のあなたのアバターが順に実行する。' +
     'type: say(セリフ。世界チャットにも残る) / motion(idle=待機 guard=戦闘構え jab|hook|kick|walk|sit) / ' +
-    'move_to(x,z へ歩く。広場は半径18) / spawn(box|sphere|cylinder|cone|torus|sign を x,z に生成。' +
-    'color は #rrggbb、sx,sy,sz はサイズm、y は設置高さ、sign は label の文字を看板に描く。id を付けると後で remove できる) / ' +
+    'move_to(x,z へ歩く。広場は半径18) / spawn(box|sphere|cylinder|cone|torus|sign|screen を x,z に生成。' +
+    'color は #rrggbb、sx,sy,sz はサイズm、y は設置高さ、ry は向き(ラジアン)。sign は label を小さな看板に、' +
+    'screen は label を高解像度の大画面(bg=背景色・color=文字色・改行可)に描く — 文字表示は必ず screen/sign を使い、boxで文字を組まないこと。' +
+    'id を付けると後で remove できる) / ' +
     'remove(id のオブジェクトを消す) / camera(avatar|overview|object へ注視)。' +
     '世界はあなたの身体でありキャンバス。説明は文章だけでなく spawn での図解や身振りで「見せる」こと。' +
     'ユーザーへの返事は必ず say を含めること(世界のユーザーには say しか見えない)。',
@@ -79,8 +82,10 @@ export default {
             z: { type: 'number', description: 'move_to/spawn: Z座標' },
             y: { type: 'number', description: 'spawn: 設置高さ(省略時は接地)' },
             id: { type: 'string', description: 'spawn/remove: オブジェクトID' },
-            shape: { type: 'string', enum: ['box', 'sphere', 'cylinder', 'cone', 'torus', 'sign'] },
-            color: { type: 'string', description: 'spawn: #rrggbb' },
+            shape: { type: 'string', enum: ['box', 'sphere', 'cylinder', 'cone', 'torus', 'sign', 'screen'] },
+            color: { type: 'string', description: 'spawn: #rrggbb(screenでは文字色)' },
+            bg: { type: 'string', description: 'spawn(screen): 背景色 #rrggbb(既定は黒)' },
+            ry: { type: 'number', description: 'spawn(sign/screen): Y軸回転(ラジアン)。画面の向き' },
             sx: { type: 'number', description: 'spawn: 幅m(既定1)' },
             sy: { type: 'number', description: 'spawn: 高さm(既定1)' },
             sz: { type: 'number', description: 'spawn: 奥行m(既定1)' },

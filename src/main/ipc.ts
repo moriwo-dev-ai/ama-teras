@@ -203,6 +203,7 @@ async function captureUrl(
   url: string,
   width = 1280,
   height = 800,
+  waitMs = 700,
 ): Promise<{ data: string; mediaType: string }> {
   const parsed = new URL(url);
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
@@ -221,8 +222,8 @@ async function captureUrl(
         setTimeout(() => reject(new Error('ページ読み込みタイムアウト(20s)')), 20_000),
       ),
     ]);
-    // 描画完了を少し待つ(SPAの初期レンダリング)
-    await new Promise((r) => setTimeout(r, 700));
+    // 描画完了を待つ(SPAの初期レンダリング。3D世界などはwaitMs指定で延長できる)
+    await new Promise((r) => setTimeout(r, Math.min(Math.max(waitMs, 0), 20_000)));
     const image = await win.webContents.capturePage();
     return { data: image.toPNG().toString('base64'), mediaType: 'image/png' };
   } finally {
@@ -479,6 +480,11 @@ export async function registerIpcHandlers(
   const worldManager = new WorldManager(bus);
   // M115-4: 世界の正本はディスクに永続化(ページはビュー。再入場時に復元される)
   worldManager.loadPersisted(join(app.getPath('userData'), 'world-state.json'));
+  // M116-B: エージェントの目 — 観戦URL(ループバック限定・読み取り専用)を教える
+  {
+    const rcPort = (config.get().remote?.port as number | undefined) ?? 8787;
+    worldManager.setSpectateUrl(`http://127.0.0.1:${rcPort}/world.html?spectate=1`);
+  }
 
   const service: AgentService = new AgentService({
     bus,

@@ -41,6 +41,12 @@ export class WorldManager {
    */
   private readonly objects = new Map<string, WorldCommand>();
   private persistPath: string | null = null;
+  /** M116-B: エージェントが世界を「見る」ための観戦URL(ipc.tsがポートを知っているので注入) */
+  private spectateUrl: string | null = null;
+
+  setSpectateUrl(url: string): void {
+    this.spectateUrl = url;
+  }
 
   constructor(
     private readonly bus: EventBus,
@@ -138,8 +144,25 @@ export class WorldManager {
   }
 
   /** world_observe ツールが返す内容 */
-  observe(): { connected: boolean; state: WorldStateSnapshot | null; chat: { from: string; text: string }[] } {
-    return { connected: this.isConnected(), state: this.state, chat: [...this.chatLog] };
+  observe(): {
+    connected: boolean;
+    state: WorldStateSnapshot | null;
+    chat: { from: string; text: string }[];
+    howToSee?: string;
+  } {
+    return {
+      connected: this.isConnected(),
+      state: this.state,
+      chat: [...this.chatLog],
+      ...(this.spectateUrl !== null
+        ? {
+            howToSee:
+              `見た目の確認は screenshot ツールで ${this.spectateUrl} を撮る(waitMs:12000 を指定。読込が重い)。` +
+              'カメラは &cam=front(アバター正面) / &cam=pov(アバターの目線) / &cam=overview(俯瞰) を付けて選ぶ。' +
+              '何かを作ったら必ず一度見て、ズレや歪みを直すこと',
+          }
+        : {}),
+    };
   }
 
   /**

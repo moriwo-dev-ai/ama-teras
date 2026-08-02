@@ -161,7 +161,7 @@ export interface ToolContext {
    * 進化ジョブには注入されない
    */
   screenshot?: {
-    capture(url: string, width?: number, height?: number): Promise<{ data: string; mediaType: string }>;
+    capture(url: string, width?: number, height?: number, waitMs?: number): Promise<{ data: string; mediaType: string }>;
   };
   /**
    * M107: 自己ウェイクアップ(イベント駆動の自律)。schedule_wakeup プラグインだけが使う。
