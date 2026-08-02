@@ -358,6 +358,8 @@ function snapshot() {
       return {
         id, shape: o.shape, ...(o.label ? { label: o.label } : {}),
         x: o.x, z: o.z, w: +_size.x.toFixed(1), h: +_size.y.toFixed(1), d: +_size.z.toFixed(1),
+        // 高さ方向の計測: bottom=接地/浮きの判定、top=最上端(積み上げ計算に使う)
+        bottom: +_box.min.y.toFixed(1), top: +_box.max.y.toFixed(1),
       };
     }),
     note: `viewers:1 viewport:${innerWidth}x${innerHeight}`,
@@ -380,32 +382,63 @@ function makeTextSprite(text, color = '#5a6b9e', px = 48) {
   sp.scale.set(2.2, 0.82, 1);
   return sp;
 }
-let topCam = null;
+// 図面ビュー: top=平面図(x/z) / side=正面立面図(x/y・高さが測れる) / sidex=側面立面図(z/y)
+const ORTHO_MODE = ['top', 'side', 'sidex'].includes(CAM_PRESET) ? CAM_PRESET : null;
+let orthoCam = null;
 const idLabels = new THREE.Group();
-if (CAM_PRESET === 'top') {
-  topCam = new THREE.OrthographicCamera(-13, 13, 13, -13, 0.1, 100);
-  topCam.position.set(0, 40, 0);
-  topCam.up.set(0, 0, -1);
-  topCam.lookAt(0, 0, 0);
-  const grid = new THREE.GridHelper(40, 40, 0x7c9bff, 0xd5ddf5);
-  grid.position.y = 0.03;
-  scene.add(grid, idLabels);
-  // 座標軸ラベル(4mごと)
-  for (let v = -12; v <= 12; v += 4) {
-    const lx = makeTextSprite(`x${v}`, '#7c9bff', 40); lx.position.set(v, 0.2, -12.6); scene.add(lx);
-    const lz = makeTextSprite(`z${v}`, '#c98bd4', 40); lz.position.set(-12.6, 0.2, v); scene.add(lz);
+if (ORTHO_MODE) {
+  orthoCam = new THREE.OrthographicCamera(-13, 13, 13, -13, 0.1, 120);
+  const measureBox = new THREE.Box3();
+  if (ORTHO_MODE === 'top') {
+    orthoCam.position.set(0, 40, 0);
+    orthoCam.up.set(0, 0, -1);
+    orthoCam.lookAt(0, 0, 0);
+    const grid = new THREE.GridHelper(40, 40, 0x7c9bff, 0xd5ddf5);
+    grid.position.y = 0.03;
+    scene.add(grid);
+    for (let v = -12; v <= 12; v += 4) {
+      const lx = makeTextSprite(`x${v}`, '#7c9bff', 40); lx.position.set(v, 0.2, -12.6); scene.add(lx);
+      const lz = makeTextSprite(`z${v}`, '#c98bd4', 40); lz.position.set(-12.6, 0.2, v); scene.add(lz);
+    }
+  } else {
+    // 立面図: 垂直グリッド(1m方眼)を奥に立て、高さラベルを縁に置く
+    const fromX = ORTHO_MODE === 'sidex';
+    orthoCam.position.set(fromX ? 50 : 0, 5.5, fromX ? 0 : 50);
+    orthoCam.lookAt(0, 5.5, 0);
+    const grid = new THREE.GridHelper(40, 40, 0x7c9bff, 0xd5ddf5);
+    if (fromX) { grid.rotation.z = Math.PI / 2; grid.position.x = -14; }
+    else { grid.rotation.x = Math.PI / 2; grid.position.z = -14; }
+    grid.position.y = 20 - 1; // 方眼の中心を地面上(y=0..)に寄せる(40m盤面の半分-1)
+    scene.add(grid);
+    // 立面の画角は half=7(縦-1.5〜12.5)。ラベルは必ず入る位置(±9)に置く
+    for (let y = 0; y <= 10; y += 2) {
+      const ly = makeTextSprite(`y${y}`, '#e0508a', 40);
+      ly.position.set(fromX ? 0 : -9, y, fromX ? -9 : 0);
+      scene.add(ly);
+      const ly2 = makeTextSprite(`y${y}`, '#e0508a', 40);
+      ly2.position.set(fromX ? 0 : 9, y, fromX ? 9 : 0);
+      scene.add(ly2);
+    }
+    for (let v = -8; v <= 8; v += 4) {
+      const lh = makeTextSprite(fromX ? `z${v}` : `x${v}`, '#7c9bff', 40);
+      lh.position.set(fromX ? 0 : v, -0.9, fromX ? v : 0);
+      scene.add(lh);
+    }
   }
-  // オブジェクトID札(2秒ごとに現況へ同期)
+  scene.add(idLabels);
+  // オブジェクトID札(2秒ごとに現況へ同期)。立面では最上端の少し上に置く=高さも読める
   setInterval(() => {
     idLabels.clear();
     for (const [id, o] of objects) {
+      let topY = 4;
+      try { measureBox.setFromObject(o.mesh); topY = measureBox.max.y + 0.6; } catch { /* 空グループ等 */ }
       const sp = makeTextSprite(id, '#34406b', 44);
-      sp.position.set(o.x, 4, o.z);
+      sp.position.set(o.x, ORTHO_MODE === 'top' ? 4 : topY, o.z);
       idLabels.add(sp);
     }
     if (avatar) {
       const a = makeTextSprite('AVATAR', '#e0508a', 44);
-      a.position.set(avatar.scene.position.x, 4, avatar.scene.position.z);
+      a.position.set(avatar.scene.position.x, ORTHO_MODE === 'top' ? 4 : 2.1, avatar.scene.position.z);
       idLabels.add(a);
     }
   }, 2000);
@@ -561,12 +594,14 @@ renderer.setAnimationLoop(() => {
     if (t < 1) o.mesh.scale.setScalar(0.01 + 0.99 * (1 - Math.pow(1 - t, 3)));
     else o.mesh.scale.setScalar(1);
   }
-  // 方眼紙モード: 正射投影の真上ビュー(遠近の歪みゼロ=配置の計測ができる)
-  if (CAM_PRESET === 'top' && topCam) {
+  // 図面モード: 正射投影(遠近の歪みゼロ=計測ができる)。top=平面図 / side・sidex=立面図
+  if (ORTHO_MODE && orthoCam) {
     const aspect = innerWidth / innerHeight;
-    topCam.left = -13 * aspect; topCam.right = 13 * aspect;
-    topCam.updateProjectionMatrix();
-    renderer.render(scene, topCam);
+    const half = ORTHO_MODE === 'top' ? 13 : 7;
+    orthoCam.left = -half * aspect; orthoCam.right = half * aspect;
+    orthoCam.top = half; orthoCam.bottom = -half;
+    orthoCam.updateProjectionMatrix();
+    renderer.render(scene, orthoCam);
     return;
   }
   // 固定カメラプリセット(観戦スクショ用): pov=アバターの目 / front=正面 / overview=俯瞰

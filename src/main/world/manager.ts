@@ -159,8 +159,10 @@ export class WorldManager {
             howToSee:
               `見た目の確認は screenshot ツールで ${this.spectateUrl} を撮る(waitMs:12000 を指定。読込が重い)。` +
               'カメラは &cam=front(アバター正面) / &cam=pov(アバターの目線) / &cam=overview(俯瞰) / ' +
-              '&cam=top(方眼紙: 真上から正射投影+1mグリッド+ID札。配置のズレは必ずこれで測る) を付けて選ぶ。' +
-              'オブジェクトの実寸は state.objects の w/h/d(m)。作ったら必ず一度見て、ズレや歪みを直すこと',
+              '&cam=top(平面図: 真上・x/zのズレ計測) / &cam=side(正面立面図: x/y=高さの計測) / ' +
+              '&cam=sidex(側面立面図: z/y) を付けて選ぶ。図面系は1mグリッド+ID札付き。' +
+              '実寸は state.objects の w/h/d、高さ方向は bottom(接地なら0)と top(最上端)。' +
+              '水平のズレは top で、高さのズレは side/sidex で必ず測ってから直すこと',
           }
         : {}),
     };
