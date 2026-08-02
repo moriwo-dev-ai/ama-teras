@@ -485,6 +485,8 @@ export async function registerIpcHandlers(
     const rcPort = (config.get().remote?.port as number | undefined) ?? 8787;
     worldManager.setSpectateUrl(`http://127.0.0.1:${rcPort}/world.html?spectate=1`);
   }
+  // M117-B: 世界の常時実行キー(起動ごとに生成。隠しウィンドウのURLだけに載る)
+  const worldExecutorKey = generateToken().token;
 
   const service: AgentService = new AgentService({
     bus,
@@ -1863,6 +1865,11 @@ export async function registerIpcHandlers(
       await remoteServer.stop();
       remoteServer = null;
     }
+    // M117-B: サーバ再構成時は常時実行ページも作り直す(ポート変更・無効化に追従)
+    if (worldExecutorWin !== null && !worldExecutorWin.isDestroyed()) {
+      worldExecutorWin.destroy();
+      worldExecutorWin = null;
+    }
     remoteLastError = undefined;
     const rc = getRemoteConfig();
     if (!rc.enabled) return; // 無効時は一切 listen しない
@@ -1894,10 +1901,11 @@ export async function registerIpcHandlers(
       staticDir: getRemoteUiDir(),
       auditTail: (limit) => audit.tail(limit),
       usageSummary: () => usageMeter.summary(),
-      // M115: 世界ページ→main の入口(+観戦モード初期表示)
+      // M115: 世界ページ→main の入口(+観戦モード初期表示+常時実行キー)
       world: {
         onPageEvent: (ev) => worldManager.onPageEvent(ev),
         restorePayload: () => worldManager.restorePayload(),
+        executorKey: worldExecutorKey,
       },
       // M34-6: 運営のリモートフル対応(既存トークン認証配下。オーナーモードOFF時は空を返す)
       operations: {
@@ -1981,9 +1989,33 @@ export async function registerIpcHandlers(
     try {
       await server.start(rc.port);
       remoteServer = server;
+      ensureWorldExecutor(rc.port);
     } catch (err) {
       remoteLastError = err instanceof Error ? err.message : String(err);
     }
+  };
+
+  /**
+   * M117-B: 世界の常時実行ページ。アプリ自身が隠しウィンドウで world.html を開き続けることで、
+   * ユーザーのブラウザ/スマホが離脱・スリープしても世界(建設・モーション・ack)が止まらない。
+   * backgroundThrottling:false で非表示でも rAF が走る。認可は起動ごとの実行キー(ループバック限定)
+   */
+  let worldExecutorWin: BrowserWindow | null = null;
+  const ensureWorldExecutor = (port: number): void => {
+    if (worldExecutorWin !== null && !worldExecutorWin.isDestroyed()) return;
+    const win = new BrowserWindow({
+      show: false,
+      width: 960,
+      height: 720,
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+    });
+    win.on('closed', () => {
+      worldExecutorWin = null;
+    });
+    void win.loadURL(`http://127.0.0.1:${port}/world.html?executor=1&k=${worldExecutorKey}`).catch((err) => {
+      console.error('[world] 常時実行ページの起動に失敗:', err);
+    });
+    worldExecutorWin = win;
   };
 
   ipcMain.handle(IpcChannels.remoteStatus, () => remoteStatus());

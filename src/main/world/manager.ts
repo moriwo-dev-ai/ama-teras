@@ -158,8 +158,9 @@ export class WorldManager {
         ? {
             howToSee:
               `見た目の確認は screenshot ツールで ${this.spectateUrl} を撮る(waitMs:12000 を指定。読込が重い)。` +
-              'カメラは &cam=front(アバター正面) / &cam=pov(アバターの目線) / &cam=overview(俯瞰) を付けて選ぶ。' +
-              '何かを作ったら必ず一度見て、ズレや歪みを直すこと',
+              'カメラは &cam=front(アバター正面) / &cam=pov(アバターの目線) / &cam=overview(俯瞰) / ' +
+              '&cam=top(方眼紙: 真上から正射投影+1mグリッド+ID札。配置のズレは必ずこれで測る) を付けて選ぶ。' +
+              'オブジェクトの実寸は state.objects の w/h/d(m)。作ったら必ず一度見て、ズレや歪みを直すこと',
           }
         : {}),
     };

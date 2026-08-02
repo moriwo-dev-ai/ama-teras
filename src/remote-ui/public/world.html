@@ -68,25 +68,27 @@ import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 // &cam=pov|front|overview: M116-B 固定カメラ(エージェントがscreenshotで自分の作品を見るため)
 const QUERY = new URLSearchParams(location.search);
 const SPECTATE = QUERY.has('spectate');
+// ?executor=1&k=…: M117-B 常時実行モード(アプリ自身が開く隠しウィンドウ。世界の正実行体)
+const EXECUTOR = QUERY.has('executor');
+const EXEC_KEY = QUERY.get('k') ?? '';
 const CAM_PRESET = QUERY.get('cam');
 const TOKEN_KEY = 'amateras-remote-token';
 const hashTok = /[#?&]t=([0-9a-f]{64})(?:[&#]|$)/.exec(location.hash)?.[1];
 if (hashTok) localStorage.setItem(TOKEN_KEY, hashTok);
 const TOKEN = hashTok ?? localStorage.getItem(TOKEN_KEY);
-if (!TOKEN && !SPECTATE) document.getElementById('pair').style.display = 'flex';
-if (SPECTATE) {
+if (!TOKEN && !SPECTATE && !EXECUTOR) document.getElementById('pair').style.display = 'flex';
+if (SPECTATE || EXECUTOR) {
   document.getElementById('chatbar').style.display = 'none';
-  document.getElementById('bst').textContent = '観戦モード';
+  document.getElementById('bst').textContent = SPECTATE ? '観戦モード' : '実行係';
 }
 
 async function post(ev) {
   if (SPECTATE) return true; // 観戦モードは読み取り専用(ackも打たない=実行側ページに任せる)
   try {
-    const r = await fetch('/api/world/event', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
-      body: JSON.stringify(ev),
-    });
+    const url = EXECUTOR ? `/api/world/event?k=${EXEC_KEY}` : '/api/world/event';
+    const headers = { 'content-type': 'application/json' };
+    if (!EXECUTOR) headers.authorization = `Bearer ${TOKEN}`;
+    const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(ev) });
     return r.ok;
   } catch { return false; }
 }
@@ -344,12 +346,69 @@ document.getElementById('send').addEventListener('click', sendChat);
 input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
 
 // ================= 状態スナップショット =================
+const _box = new THREE.Box3();
+const _size = new THREE.Vector3();
 function snapshot() {
   return {
     avatar: avatar ? { x: +avatar.scene.position.x.toFixed(2), z: +avatar.scene.position.z.toFixed(2), motion: current } : undefined,
-    objects: [...objects.entries()].map(([id, o]) => ({ id, shape: o.shape, ...(o.label ? { label: o.label } : {}), x: o.x, z: o.z })),
+    objects: [...objects.entries()].map(([id, o]) => {
+      // 実寸(バウンディングボックス)。エージェントの「メジャー」— 配置計算の根拠になる
+      _box.setFromObject(o.mesh);
+      _box.getSize(_size);
+      return {
+        id, shape: o.shape, ...(o.label ? { label: o.label } : {}),
+        x: o.x, z: o.z, w: +_size.x.toFixed(1), h: +_size.y.toFixed(1), d: +_size.z.toFixed(1),
+      };
+    }),
     note: `viewers:1 viewport:${innerWidth}x${innerHeight}`,
   };
+}
+
+// ================= 方眼紙モード(cam=top: 正射投影の設計図ビュー) =================
+function makeTextSprite(text, color = '#5a6b9e', px = 48) {
+  const cv = document.createElement('canvas');
+  cv.width = 256; cv.height = 96;
+  const g = cv.getContext('2d');
+  g.font = `bold ${px}px 'Segoe UI',monospace`;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = '#ffffffcc';
+  const w = Math.min(250, g.measureText(text).width + 18);
+  g.fillRect(128 - w / 2, 10, w, 76);
+  g.fillStyle = color;
+  g.fillText(text, 128, 48);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), depthTest: false }));
+  sp.scale.set(2.2, 0.82, 1);
+  return sp;
+}
+let topCam = null;
+const idLabels = new THREE.Group();
+if (CAM_PRESET === 'top') {
+  topCam = new THREE.OrthographicCamera(-13, 13, 13, -13, 0.1, 100);
+  topCam.position.set(0, 40, 0);
+  topCam.up.set(0, 0, -1);
+  topCam.lookAt(0, 0, 0);
+  const grid = new THREE.GridHelper(40, 40, 0x7c9bff, 0xd5ddf5);
+  grid.position.y = 0.03;
+  scene.add(grid, idLabels);
+  // 座標軸ラベル(4mごと)
+  for (let v = -12; v <= 12; v += 4) {
+    const lx = makeTextSprite(`x${v}`, '#7c9bff', 40); lx.position.set(v, 0.2, -12.6); scene.add(lx);
+    const lz = makeTextSprite(`z${v}`, '#c98bd4', 40); lz.position.set(-12.6, 0.2, v); scene.add(lz);
+  }
+  // オブジェクトID札(2秒ごとに現況へ同期)
+  setInterval(() => {
+    idLabels.clear();
+    for (const [id, o] of objects) {
+      const sp = makeTextSprite(id, '#34406b', 44);
+      sp.position.set(o.x, 4, o.z);
+      idLabels.add(sp);
+    }
+    if (avatar) {
+      const a = makeTextSprite('AVATAR', '#e0508a', 44);
+      a.position.set(avatar.scene.position.x, 4, avatar.scene.position.z);
+      idLabels.add(a);
+    }
+  }, 2000);
 }
 
 // ================= コマンド実行(SSE受信・直列実行・ack) =================
@@ -423,7 +482,8 @@ async function pump() {
 const badge = document.getElementById('badge');
 const bst = document.getElementById('bst');
 function connect() {
-  const es = SPECTATE
+  // 実行係も受信は観戦SSE(ループバック・world:eventのみ)で足りる。送信側だけ実行キーを使う
+  const es = (SPECTATE || EXECUTOR)
     ? new EventSource('/api/world/spectate')
     : new EventSource(`/api/events?token=${encodeURIComponent(TOKEN ?? '')}`);
   es.addEventListener('world:event', (e) => {
@@ -442,12 +502,12 @@ function connect() {
   });
   es.onopen = () => {
     badge.classList.add('on');
-    bst.textContent = SPECTATE ? '観戦モード' : 'オンライン';
+    bst.textContent = SPECTATE ? '観戦モード' : EXECUTOR ? '実行係' : 'オンライン';
     void post({ kind: 'hello', state: snapshot() });
   };
   es.onerror = () => { badge.classList.remove('on'); bst.textContent = '再接続中…'; };
 }
-if (TOKEN || SPECTATE) {
+if (TOKEN || SPECTATE || EXECUTOR) {
   connect();
   if (!SPECTATE) setInterval(() => { void post({ kind: 'state', state: snapshot() }); }, 10_000);
 }
@@ -500,6 +560,14 @@ renderer.setAnimationLoop(() => {
     const t = (performance.now() - o.born) / 400;
     if (t < 1) o.mesh.scale.setScalar(0.01 + 0.99 * (1 - Math.pow(1 - t, 3)));
     else o.mesh.scale.setScalar(1);
+  }
+  // 方眼紙モード: 正射投影の真上ビュー(遠近の歪みゼロ=配置の計測ができる)
+  if (CAM_PRESET === 'top' && topCam) {
+    const aspect = innerWidth / innerHeight;
+    topCam.left = -13 * aspect; topCam.right = 13 * aspect;
+    topCam.updateProjectionMatrix();
+    renderer.render(scene, topCam);
+    return;
   }
   // 固定カメラプリセット(観戦スクショ用): pov=アバターの目 / front=正面 / overview=俯瞰
   if (CAM_PRESET && avatar) {

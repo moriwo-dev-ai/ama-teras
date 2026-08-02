@@ -95,6 +95,12 @@ export interface RemoteServerDeps {
     onPageEvent(ev: import('../../shared/types').WorldPageEvent): { ok: boolean };
     /** M115-5: 観戦モードの初期表示(現在の世界の復元バッチ)。未実装なら初期表示なし */
     restorePayload?(): import('../../shared/types').WorldPushPayload | null;
+    /**
+     * M117-B: 世界の常時実行ページ(アプリ自身が開く隠しウィンドウ)用の実行キー。
+     * ループバック+このキー一致なら POST /api/world/event をトークンなしで許可する。
+     * キーは起動ごとにランダム生成され、main→隠しウィンドウのURLでのみ受け渡される
+     */
+    executorKey?: string;
   };
 }
 
@@ -322,6 +328,13 @@ export class RemoteServer {
 
     if (path === '/api/events') return this.handleSse(req, res, url);
     if (path === '/api/world/spectate') return this.handleWorldSpectate(req, res);
+    // M117-B: 常時実行ページ(ループバック+実行キー)はトークンなしで世界イベントを送れる
+    if (path === '/api/world/event' && req.method === 'POST' && this.isWorldExecutor(req, url)) {
+      if (!this.deps.world) throw new HttpError(404, 'world ブリッジ未注入');
+      const body = await readJsonBody(req);
+      if (typeof body['kind'] !== 'string') throw new HttpError(400, 'kind が必要');
+      return sendJson(res, 200, this.deps.world.onPageEvent(body as unknown as import('../../shared/types').WorldPageEvent));
+    }
     if (path.startsWith('/api/')) return this.handleApi(req, res, url);
     if (req.method === 'GET') return this.handleStatic(path, res);
     throw new HttpError(405, 'method not allowed');
@@ -362,6 +375,15 @@ export class RemoteServer {
     };
     this.sseCleanups.add(cleanup);
     req.on('close', cleanup);
+  }
+
+  /** M117-B: 常時実行ページ判定(ループバック+起動ごとの実行キー一致) */
+  private isWorldExecutor(req: IncomingMessage, url: URL): boolean {
+    const key = this.deps.world?.executorKey;
+    if (key === undefined || key === '') return false;
+    const ip = req.socket.remoteAddress ?? '';
+    const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+    return isLoopback && url.searchParams.get('k') === key;
   }
 
   private authorize(req: IncomingMessage, url: URL): void {
