@@ -265,6 +265,16 @@ export function App(): JSX.Element {
             {t === 'approvals' && pendingCount > 0 && <span className="badge">{pendingCount}</span>}
           </button>
         ))}
+        {/* M115: 世界へ。PWAとSafariは保存領域が別のため、トークンをフラグメントで手渡しする */}
+        <button
+          title="AMA-teras WORLD(3D世界)を開く"
+          onClick={() => {
+            const t = loadToken();
+            window.location.href = t !== null ? `/world.html#t=${t}` : '/world.html';
+          }}
+        >
+          🌍 世界
+        </button>
       </nav>
       {store.tab === 'chat' && <ChatView api={api} />}
       {store.tab === 'approvals' && <ApprovalsView api={api} />}

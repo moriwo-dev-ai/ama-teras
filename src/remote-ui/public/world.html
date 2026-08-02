@@ -29,11 +29,14 @@
     z-index: 15; max-width: min(70vw, 300px); }
   #pair { position: fixed; inset: 0; background: #ffffffee; z-index: 40; display: none; align-items: center;
     justify-content: center; text-align: center; color: #5a6b9e; font-size: 14px; line-height: 2; padding: 20px; }
+  #home { position: fixed; top: 6px; left: 10px; z-index: 31; border: none; background: #fff; color: #5a6b9e;
+    font-size: 15px; padding: 5px 12px; border-radius: 999px; box-shadow: 0 2px 12px rgba(90,123,216,.25); }
 </style>
 </head>
 <body>
+<button id="home" onclick="location.href='./'">←</button>
 <div id="badge"><span class="dot"></span>AMA-teras WORLD <span id="bst">接続中…</span></div>
-<div id="pair"><div>🔑 ペアリングが必要です<br>AMA-terasのリモート画面(ホーム)を一度開いてから、<br>このページを開き直してください</div></div>
+<div id="pair"><div>🔑 ペアリングが必要です<br>リモート画面(ホーム)下部の「🌍 世界」ボタンから開くと<br>自動でペアリングされます</div></div>
 <div id="chatlog"></div>
 <div id="chatbar">
   <input id="chatin" placeholder="AMA-terasに話しかける…" autocomplete="off" />
