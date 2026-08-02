@@ -3686,3 +3686,28 @@ GitHubサポートへの依頼となるが、今回は個人名+構想メモの�
   Vite実ビルドは「Windows側で npm run build」に委ねた
 - **out/remote-ui はパッケージ版では asar 内から配信**(electron-builder files に out/**
   が既に含まれ、electronのfsはasarを透過的に読めるため extraResources 追加は不要と判断)
+
+## M115: 世界(WORLD)ブリッジ — P0頭脳層 (2026-08-02 夜・自律作業)
+
+**北極星の確定(ユーザーと合意)**: AMA-terasの「統合型OS」構想 —
+3D空間=エージェントの身体・キャンバス・実験室。質問への回答を「世界を建てて見せる」形で行い、
+エージェントが作ったアプリを世界のオブジェクトとして人・AI双方が使い、
+最終的に1つの共有世界で複数のAMA-terasが交流する。
+P0=頭脳層(完了) / P1=アプリのオブジェクト化 / P2=世界公開 / P3=マルチエージェント+世界プロトコル公開。
+
+- 実装: WorldManager(src/main/world/)+ world_observe / world_act プラグイン +
+  POST /api/world/event + SSEチャネル world:event + src/remote-ui/public/world.html
+- 輸送は既存インフラのみ(新規依存ゼロ)。認証はremote-uiと同一トークン(localStorage共有)
+- 世界内チャット→service.chatSend(実行中は追加指示キュー)→ world_act で say/motion/移動/spawn
+- テスト: 単体+HTTP統合 計23件。ページ実機はハーネス(既知トークンの模擬サーバ)でE2E済み
+  (チャット→say→移動→塔3本spawn→看板→俯瞰カメラ、ack往復確認)
+
+### 判断メモ
+- **リモートトークンは平文非保存設計のため、デスクトップブラウザQAは模擬サーバで実施**
+  (ユーザーのスマホは同一オリジンのlocalStorageで即動く。トークン再生成はスマホを壊すので却下)
+- Mixamo FBXは再配布リスクがあるため git 非収載(assets-lab/=gitignore、
+  src/remote-ui/public/assets-lab/ に置くとビルドで out へコピーされる)。
+  公開配布用にはCC0モーションか.vrmaへの差し替えが必要(P2までの宿題)
+- 世界ページのモジュールはトップレベルawaitが長い(VRM+FBX)。ロード時エラーは
+  window.__errs に貯めて可視化(コンソール追跡はナビゲーションでリセットされるため)
+- known bug候補: 多端末同時接続はackの先勝ち採用(P2の同期設計で正式対応)
