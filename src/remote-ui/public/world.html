@@ -365,6 +365,13 @@ function connect() {
       void pump();
     } catch (err) { console.error('[world] bad payload', err); }
   });
+  // エージェントのラン失敗を沈黙させない(「考えています…」のまま固まる事故の防止)
+  es.addEventListener('chat:event', (e) => {
+    try {
+      const ev = JSON.parse(e.data);
+      if (ev.kind === 'error' && typeof ev.message === 'string') addMsg('sys', '⚠ ' + ev.message);
+    } catch { /* 他会話のイベント形式差異は無視 */ }
+  });
   es.onopen = () => { badge.classList.add('on'); bst.textContent = 'オンライン'; void post({ kind: 'hello', state: snapshot() }); };
   es.onerror = () => { badge.classList.remove('on'); bst.textContent = '再接続中…'; };
 }
