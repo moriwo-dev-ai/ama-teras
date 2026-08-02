@@ -1473,3 +1473,57 @@ export type EvolutionEvent =
       /** M20: 承認後に再ビルド+再起動が走る */
       requiresRestart?: boolean;
     };
+
+// ---- M115: 世界(WORLD)ブリッジ ----
+
+/**
+ * M115: エージェントの「世界」(3D空間UI)への操作コマンド。
+ * main→ページはSSE(world:event)で押し出し、ページ→mainはPOST /api/world/event。
+ * 世界ページ(out/remote-ui/world.html)がこれを解釈して実行する。
+ */
+export interface WorldCommand {
+  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera';
+  /** say: セリフ(吹き出し+チャットログ) */
+  text?: string;
+  /** motion: idle | jab | hook | kick | walk | sit */
+  name?: string;
+  /** move_to: 世界座標(広場は半径約18) */
+  x?: number;
+  z?: number;
+  /** spawn: プリミティブ生成。id指定で後からremove/上書きできる */
+  id?: string;
+  shape?: 'box' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'sign';
+  color?: string;
+  /** spawn: サイズ(m)と設置座標。signはlabelを看板文字として描く */
+  sx?: number;
+  sy?: number;
+  sz?: number;
+  y?: number;
+  label?: string;
+  /** camera: 注視先 */
+  target?: 'avatar' | 'overview' | 'object';
+}
+
+/** main→世界ページ(SSE world:event)。seqはack照合用 */
+export interface WorldPushPayload {
+  seq: number;
+  cmds: WorldCommand[];
+}
+
+/** 世界ページが報告する状態スナップショット(world_observeがエージェントへ返す) */
+export interface WorldStateSnapshot {
+  avatar?: { x: number; z: number; motion: string };
+  /** 世界に置かれているオブジェクト(spawn由来) */
+  objects?: { id: string; shape: string; label?: string; x: number; z: number }[];
+  /** 直近の世界内チャット(新しい順ではなく古い順) */
+  chat?: { from: 'user' | 'agent'; text: string }[];
+  /** ページ側の自由記述(視点・接続端末数など) */
+  note?: string;
+}
+
+/** 世界ページ→main(POST /api/world/event) */
+export type WorldPageEvent =
+  | { kind: 'hello'; state?: WorldStateSnapshot }
+  | { kind: 'state'; state: WorldStateSnapshot }
+  | { kind: 'chat'; text: string }
+  | { kind: 'ack'; seq: number; ok: boolean; errors?: string[]; state?: WorldStateSnapshot };

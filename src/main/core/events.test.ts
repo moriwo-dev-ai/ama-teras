@@ -50,10 +50,12 @@ describe('EventBus', () => {
     bus.publish('agent:sub_update', { id: 1, task: 't', mode: 'work', status: 'running' });
     bus.publish('autonomous:changed', { on: true });
     bus.publish('runs:changed', []);
-    expect(seen).toHaveLength(7);
+    // M115: 世界ブリッジのコマンド押し出しもSSE中継対象
+    bus.publish('world:event', { seq: 1, cmds: [{ type: 'say', text: 'hi' }] });
+    expect(seen).toHaveLength(8);
     expect(new Set(seen)).toEqual(new Set(BUS_CHANNELS));
     unsub();
     bus.publish('chat:event', chatEvent);
-    expect(seen.length).toBe(7);
+    expect(seen.length).toBe(8);
   });
 });

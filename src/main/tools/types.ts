@@ -119,6 +119,18 @@ export interface ToolContext {
    */
   userMemoryDir?: string;
   /**
+   * M115: 世界(WORLD)ブリッジ。world_observe / world_act プラグインだけが使う。
+   * 未注入(進化ジョブ等)なら各ツールが明示エラーを返す
+   */
+  world?: {
+    observe(): {
+      connected: boolean;
+      state: import('../../shared/types').WorldStateSnapshot | null;
+      chat: { from: string; text: string }[];
+    };
+    act(cmds: import('../../shared/types').WorldCommand[]): Promise<{ ok: boolean; detail: string }>;
+  };
+  /**
    * サブエージェント委譲(M8-4 / M12-3)。dispatch_agent プラグインだけが使う。
    * run は従来の読み取り専用の単発委譲。runParallel は最大3並列で、
    * mode:'work' なら書き込み/実行込みの子(すべて executor=承認フロー経由)。

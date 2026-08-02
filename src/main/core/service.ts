@@ -209,6 +209,8 @@ export interface AgentServiceDeps {
    * ここでは送信しない。溜まった下書きを人間が読み、承認したものだけがIssueになる
    */
   requests?: { draft(kind: 'core' | 'ui', title: string, body: string): Promise<{ id: string }> };
+  /** M115: 世界(WORLD)ブリッジ。world_observe / world_act ツールへ注入する。未指定なら両ツールは明示エラー */
+  world?: ToolContext['world'];
   /** テスト用: プロバイダ生成の差し替え(未指定なら config/secrets から実プロバイダを作る) */
   providerFactory?: () => LLMProvider | string;
   /**
@@ -2080,6 +2082,8 @@ export class AgentService {
               processes: run.processes,
               userMemoryDir: this.deps.denyPaths.userDataDir,
               ...this.screenshotContext(),
+              // M115: 世界(WORLD)ブリッジ(world_observe / world_act 専用)
+              ...(this.deps.world !== undefined ? { world: this.deps.world } : {}),
               // M107: 自己ウェイクアップ(schedule_wakeup プラグイン専用)
               wakeups: {
                 schedule: (delaySec: number, note: string) => this.scheduleWakeup(conv, delaySec, note),
@@ -2602,6 +2606,7 @@ export class AgentService {
         processes: this.processes,
         userMemoryDir: this.deps.denyPaths.userDataDir,
         ...this.screenshotContext(),
+        ...(this.deps.world !== undefined ? { world: this.deps.world } : {}),
       },
     );
     return { content: result.content, isError: result.isError === true };

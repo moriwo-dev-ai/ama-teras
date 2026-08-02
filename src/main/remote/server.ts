@@ -90,6 +90,8 @@ export interface RemoteServerDeps {
   heartbeatMs?: number;
   /** M34-6: 運営(TAKAMA-gahara)のリモート対応。未注入なら /api/ops/* は404 */
   operations?: RemoteOperationsFacade;
+  /** M115: 世界(WORLD)ブリッジ。未注入なら /api/world/* は404 */
+  world?: { onPageEvent(ev: import('../../shared/types').WorldPageEvent): { ok: boolean } };
 }
 
 /** M34-6: 運営リモートAPIの窓口(実装は ipc.ts が OperationsManager を包んで注入) */
@@ -384,6 +386,16 @@ export class RemoteServer {
         if (typeof id !== 'string' || id === '') throw new HttpError(400, 'id が必要');
         // 実行中ガード・workspace追従は service 側(sessionOpen)で強制される
         return sendJson(res, 200, await facade.sessionOpen(id));
+      }
+
+      case 'POST /api/world/event': {
+        // M115: 世界ページ→main。state/chat/ack を WorldManager へ渡す(未注入なら404)
+        if (!this.deps.world) throw new HttpError(404, 'world ブリッジ未注入');
+        const body = await readJsonBody(req);
+        const kind = body['kind'];
+        if (typeof kind !== 'string') throw new HttpError(400, 'kind が必要');
+        const r = this.deps.world.onPageEvent(body as unknown as import('../../shared/types').WorldPageEvent);
+        return sendJson(res, 200, r);
       }
 
       case 'POST /api/chat/cancel': {

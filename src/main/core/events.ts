@@ -26,6 +26,8 @@ export interface BusEventMap {
   'autonomous:changed': AutonomousStatePayload;
   /** M22: 実行中ラン一覧の変化(開始/終了のたびに全量を配る) */
   'runs:changed': RunInfo[];
+  /** M115: 世界(WORLD)へのコマンド押し出し。世界ページがSSEで受けて実行する */
+  'world:event': import('../../shared/types').WorldPushPayload;
   /**
    * M42(TUKU-yomi): 月読の通知(発話・帳の変化・現況)。
    * **remote-ui(スマホ)へは中継しない**(鉄則4: 発話内容・帳がスマホへ漏れる経路を作らない)。
@@ -48,6 +50,7 @@ export const BUS_CHANNELS: readonly BusChannel[] = [
   'agent:sub_update',
   'autonomous:changed',
   'runs:changed',
+  'world:event',
 ] as const;
 
 /** ローカル(デスクトップ)のみに配るチャネル。SSE には絶対に載せない */

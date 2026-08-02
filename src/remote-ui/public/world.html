@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>AMA-teras WORLD</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #fff; touch-action: none;
+    font-family: 'Segoe UI', 'Hiragino Sans', sans-serif; }
+  #badge { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); background: #fff; color: #5a6b9e;
+    font-size: 12px; font-weight: 600; padding: 4px 16px; border-radius: 999px; z-index: 30;
+    box-shadow: 0 2px 12px rgba(90,123,216,.25); white-space: nowrap; }
+  #badge .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ccc; margin-right: 6px; }
+  #badge.on .dot { background: #4ade80; }
+  #chatlog { position: fixed; left: 10px; bottom: 74px; max-width: min(78vw, 420px); max-height: 38vh;
+    overflow-y: auto; z-index: 20; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+  .msg { padding: 7px 13px; border-radius: 16px; font-size: 13px; line-height: 1.5; width: fit-content;
+    max-width: 100%; box-shadow: 0 2px 10px rgba(90,123,216,.18); word-break: break-word; }
+  .msg.user { background: #eef3ff; color: #34406b; align-self: flex-end; }
+  .msg.agent { background: #fff; color: #445; }
+  .msg.sys { background: transparent; box-shadow: none; color: #99a; font-size: 11px; }
+  #chatbar { position: fixed; left: 10px; right: 10px; bottom: 12px; display: flex; gap: 8px; z-index: 20; }
+  #chatin { flex: 1; border: none; border-radius: 22px; padding: 12px 18px; font-size: 15px; background: #fff;
+    box-shadow: 0 4px 18px rgba(90,123,216,.25); outline: none; color: #334; }
+  #send { border: none; border-radius: 22px; padding: 0 20px; font-size: 15px; font-weight: 700; color: #fff;
+    background: linear-gradient(135deg, #7c9bff, #b18aff); box-shadow: 0 4px 18px rgba(120,190,255,.4); }
+  .bub { position: fixed; padding: 10px 16px; background: #fff; border-radius: 18px; color: #445; font-size: 14px;
+    box-shadow: 0 4px 18px rgba(90,123,216,.3); opacity: 0; transition: opacity .3s; pointer-events: none;
+    z-index: 15; max-width: min(70vw, 300px); }
+  #pair { position: fixed; inset: 0; background: #ffffffee; z-index: 40; display: none; align-items: center;
+    justify-content: center; text-align: center; color: #5a6b9e; font-size: 14px; line-height: 2; padding: 20px; }
+</style>
+</head>
+<body>
+<div id="badge"><span class="dot"></span>AMA-teras WORLD <span id="bst">接続中…</span></div>
+<div id="pair"><div>🔑 ペアリングが必要です<br>AMA-terasのリモート画面(ホーム)を一度開いてから、<br>このページを開き直してください</div></div>
+<div id="chatlog"></div>
+<div id="chatbar">
+  <input id="chatin" placeholder="AMA-terasに話しかける…" autocomplete="off" />
+  <button id="send">送る</button>
+</div>
+<div class="bub" id="bub"></div>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.1/lib/three-vrm.module.min.js"
+} }
+</script>
+<script>
+// QA: ロード時エラーの取りこぼし防止(コンソール追跡はナビゲーションでリセットされるため)
+window.__errs = [];
+addEventListener('error', (e) => window.__errs.push(String(e.error?.stack ?? e.message)));
+addEventListener('unhandledrejection', (e) => window.__errs.push('rejection: ' + String(e.reason?.stack ?? e.reason)));
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+// ================= 認証(remote-ui と同じトークンを使う) =================
+const TOKEN_KEY = 'amateras-remote-token';
+const hashTok = /[#?&]t=([0-9a-f]{64})(?:[&#]|$)/.exec(location.hash)?.[1];
+if (hashTok) localStorage.setItem(TOKEN_KEY, hashTok);
+const TOKEN = hashTok ?? localStorage.getItem(TOKEN_KEY);
+if (!TOKEN) document.getElementById('pair').style.display = 'flex';
+
+async function post(ev) {
+  try {
+    const r = await fetch('/api/world/event', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify(ev),
+    });
+    return r.ok;
+  } catch { return false; }
+}
+
+// ================= 3D世界(白い円盤広場) =================
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xffffff);
+scene.fog = new THREE.Fog(0xffffff, 30, 120);
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 400);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+document.body.appendChild(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff, 0xdde4ff, 2.2));
+const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+sun.position.set(10, 20, 10);
+scene.add(sun);
+const disc = new THREE.Mesh(new THREE.CylinderGeometry(20, 21, 0.6, 64), new THREE.MeshToonMaterial({ color: 0xffffff }));
+disc.position.y = -0.3;
+scene.add(disc);
+for (let r = 3; r <= 18; r += 3.75) {
+  const band = new THREE.Mesh(new THREE.TorusGeometry(r, 0.03, 6, 80), new THREE.MeshBasicMaterial({ color: 0xdfe6ff }));
+  band.rotation.x = Math.PI / 2; band.position.y = 0.02;
+  scene.add(band);
+}
+const PASTEL = [0xff5c8a, 0xffb35c, 0xffe95c, 0x7ce07c, 0x5cc8ff, 0xb18aff];
+for (let i = 0; i < 14; i++) {
+  const o = new THREE.Mesh(new THREE.TorusGeometry(0.9 + (i % 5) * 0.25, 0.25, 10, 24),
+    new THREE.MeshToonMaterial({ color: PASTEL[i % 6] }));
+  const a = (i / 14) * Math.PI * 2, d = 22 + (i % 4) * 7;
+  o.position.set(Math.cos(a) * d, 3 + (i % 6) * 2.2, Math.sin(a) * d);
+  o.rotation.set(i * 0.7, i * 1.3, 0);
+  scene.add(o);
+}
+
+// ================= アバター(AMA-teras)+モーション =================
+const mixamoVRMRigMap = {
+  mixamorigHips: 'hips', mixamorigSpine: 'spine', mixamorigSpine1: 'chest', mixamorigSpine2: 'upperChest',
+  mixamorigNeck: 'neck', mixamorigHead: 'head',
+  mixamorigLeftShoulder: 'leftShoulder', mixamorigLeftArm: 'leftUpperArm', mixamorigLeftForeArm: 'leftLowerArm', mixamorigLeftHand: 'leftHand',
+  mixamorigRightShoulder: 'rightShoulder', mixamorigRightArm: 'rightUpperArm', mixamorigRightForeArm: 'rightLowerArm', mixamorigRightHand: 'rightHand',
+  mixamorigLeftUpLeg: 'leftUpperLeg', mixamorigLeftLeg: 'leftLowerLeg', mixamorigLeftFoot: 'leftFoot', mixamorigLeftToeBase: 'leftToes',
+  mixamorigRightUpLeg: 'rightUpperLeg', mixamorigRightLeg: 'rightLowerLeg', mixamorigRightFoot: 'rightFoot', mixamorigRightToeBase: 'rightToes',
+};
+const fbxLoader = new FBXLoader();
+async function loadMixamo(url, vrm) {
+  const asset = await fbxLoader.loadAsync(url);
+  const clip = THREE.AnimationClip.findByName(asset.animations, 'mixamo.com') ?? asset.animations[0];
+  const tracks = [];
+  const restRotationInverse = new THREE.Quaternion();
+  const parentRestWorldRotation = new THREE.Quaternion();
+  const _quatA = new THREE.Quaternion();
+  const _vec3 = new THREE.Vector3();
+  const hipsNode = asset.getObjectByName('mixamorigHips');
+  const motionHipsHeight = hipsNode ? hipsNode.position.y : 100;
+  const vrmHipsY = vrm.humanoid.getNormalizedBoneNode('hips').getWorldPosition(_vec3).y;
+  const vrmRootY = vrm.scene.getWorldPosition(_vec3).y;
+  const hipsPositionScale = Math.abs(vrmHipsY - vrmRootY) / motionHipsHeight;
+  for (const track of clip.tracks) {
+    const [mixamoRigName, propertyName] = track.name.split('.');
+    const vrmBoneName = mixamoVRMRigMap[mixamoRigName];
+    const vrmNodeName = vrm.humanoid?.getNormalizedBoneNode(vrmBoneName)?.name;
+    const mixamoRigNode = asset.getObjectByName(mixamoRigName);
+    if (vrmNodeName == null || mixamoRigNode == null) continue;
+    mixamoRigNode.getWorldQuaternion(restRotationInverse).invert();
+    mixamoRigNode.parent.getWorldQuaternion(parentRestWorldRotation);
+    if (track instanceof THREE.QuaternionKeyframeTrack) {
+      const values = track.values.slice();
+      for (let i = 0; i < values.length; i += 4) {
+        _quatA.fromArray(values, i);
+        _quatA.premultiply(parentRestWorldRotation).multiply(restRotationInverse);
+        _quatA.toArray(values, i);
+      }
+      tracks.push(new THREE.QuaternionKeyframeTrack(`${vrmNodeName}.${propertyName}`, track.times, values));
+    } else if (track instanceof THREE.VectorKeyframeTrack && vrmBoneName === 'hips') {
+      tracks.push(new THREE.VectorKeyframeTrack(
+        `${vrmNodeName}.${propertyName}`, track.times,
+        track.values.map((v) => v * hipsPositionScale),
+      ));
+    }
+  }
+  return new THREE.AnimationClip(url, clip.duration, tracks);
+}
+
+let avatar = null, mixer = null;
+const actions = {};
+let current = 'idle';
+const ONESHOT = new Set(['jab', 'hook', 'kick']);
+function fadeTo(name) {
+  if (!mixer || !actions[name] || current === name) return;
+  actions[name].reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.18).play();
+  actions[current]?.fadeOut(0.18);
+  current = name;
+}
+try {
+  const loader = new GLTFLoader();
+  loader.register((p) => new VRMLoaderPlugin(p));
+  const gltf = await loader.loadAsync('https://raw.githubusercontent.com/pixiv/three-vrm/dev/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm');
+  avatar = gltf.userData.vrm;
+  VRMUtils.rotateVRM0(avatar);
+  scene.add(avatar.scene);
+  mixer = new THREE.AnimationMixer(avatar.scene);
+  // モーションはローカル資産(assets-lab)。無くても世界は動く(移動・spawn・sayは生きる)
+  const MOTIONS = { idle: 'Fighting Idle', jab: 'Lead Jab', hook: 'Hook Punch', kick: 'Roundhouse Kick', walk: 'Walking', sit: 'Sitting Idle' };
+  await Promise.all(Object.entries(MOTIONS).map(async ([k, f]) => {
+    try {
+      actions[k] = mixer.clipAction(await loadMixamo(`./assets-lab/${f}.fbx`, avatar));
+      if (ONESHOT.has(k)) { actions[k].setLoop(THREE.LoopOnce, 1); actions[k].clampWhenFinished = true; }
+    } catch (err) {
+      // モーション欠落でも世界は動かす(移動・say・spawnは生きる)。ただし原因は必ず見せる
+      console.warn(`[world] モーション ${f} を読み込めない:`, err);
+    }
+  }));
+  actions.idle?.play();
+  mixer.addEventListener('finished', () => { if (ONESHOT.has(current)) fadeTo('idle'); });
+} catch (e) { console.error('[world] avatar load failed', e); }
+// QA用フック(2026-08-02の教訓: 見えない状態はデバッグできない)。
+// 後方で宣言される変数もあるため全部getter(即時参照はTDZでモジュールごと死ぬ)
+window.__world = { get avatar() { return avatar; }, actions, get current() { return current; }, get objects() { return objects; } };
+
+// ================= 世界オブジェクト(spawn / remove) =================
+const objects = new Map(); // id -> {mesh, shape, label, x, z}
+let autoId = 0;
+function makeSign(label, color) {
+  const cv = document.createElement('canvas');
+  cv.width = 512; cv.height = 256;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, 512, 256);
+  g.strokeStyle = color ?? '#7c9bff'; g.lineWidth = 10; g.strokeRect(8, 8, 496, 240);
+  g.fillStyle = '#34406b'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  let size = 72;
+  g.font = `bold ${size}px 'Segoe UI','Hiragino Sans',sans-serif`;
+  while (g.measureText(label).width > 460 && size > 20) { size -= 4; g.font = `bold ${size}px 'Segoe UI','Hiragino Sans',sans-serif`; }
+  const lines = label.split('\n');
+  lines.forEach((ln, i) => g.fillText(ln, 256, 128 + (i - (lines.length - 1) / 2) * (size + 8)));
+  const tex = new THREE.CanvasTexture(cv);
+  const board = new THREE.Mesh(new THREE.BoxGeometry(2, 1, 0.08), [
+    ...Array(4).fill(new THREE.MeshToonMaterial({ color: 0xeef3ff })),
+    new THREE.MeshBasicMaterial({ map: tex }),
+    new THREE.MeshToonMaterial({ color: 0xeef3ff }),
+  ]);
+  const grp = new THREE.Group();
+  board.position.y = 1.5;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.0, 8), new THREE.MeshToonMaterial({ color: 0xb3c7ff }));
+  pole.position.y = 0.5;
+  grp.add(pole, board);
+  return grp;
+}
+function spawnObject(c) {
+  const id = c.id ?? `obj${++autoId}`;
+  if (objects.has(id)) { scene.remove(objects.get(id).mesh); objects.delete(id); }
+  const color = c.color ? new THREE.Color(c.color) : new THREE.Color(PASTEL[autoId % 6]);
+  const sx = c.sx ?? 1, sy = c.sy ?? 1, sz = c.sz ?? 1;
+  let mesh;
+  if (c.shape === 'sign') mesh = makeSign(c.label ?? '', c.color);
+  else {
+    const geo = c.shape === 'sphere' ? new THREE.SphereGeometry(0.5, 24, 16)
+      : c.shape === 'cylinder' ? new THREE.CylinderGeometry(0.5, 0.5, 1, 24)
+      : c.shape === 'cone' ? new THREE.ConeGeometry(0.5, 1, 24)
+      : c.shape === 'torus' ? new THREE.TorusGeometry(0.5, 0.16, 12, 32)
+      : new THREE.BoxGeometry(1, 1, 1);
+    mesh = new THREE.Mesh(geo, new THREE.MeshToonMaterial({ color }));
+    mesh.scale.set(sx, sy, sz);
+    mesh.position.y = c.y ?? (c.shape === 'sphere' || c.shape === 'torus' ? sy * 0.5 : sy * 0.5);
+  }
+  const grp = new THREE.Group();
+  grp.add(mesh);
+  grp.position.set(c.x, c.shape === 'sign' ? 0 : 0, c.z);
+  if (c.shape === 'sign' && typeof c.y === 'number') grp.position.y = c.y;
+  grp.scale.setScalar(0.01);
+  scene.add(grp);
+  objects.set(id, { mesh: grp, shape: c.shape, label: c.label, x: c.x, z: c.z, born: performance.now() });
+  chime([523, 784]);
+  return id;
+}
+
+// ================= チャットUI・吹き出し・効果音 =================
+const chatlog = document.getElementById('chatlog');
+const bub = document.getElementById('bub');
+let bubUntil = 0;
+function addMsg(cls, text) {
+  const d = document.createElement('div');
+  d.className = `msg ${cls}`;
+  d.textContent = text;
+  chatlog.appendChild(d);
+  while (chatlog.children.length > 40) chatlog.removeChild(chatlog.firstChild);
+  chatlog.scrollTop = chatlog.scrollHeight;
+}
+function say(text) {
+  addMsg('agent', text);
+  bub.textContent = text.length > 80 ? text.slice(0, 80) + '…' : text;
+  bub.style.opacity = '1';
+  bubUntil = performance.now() + Math.max(3000, Math.min(9000, text.length * 120));
+  chime([659, 880]);
+}
+let actx = null;
+function chime(fs) {
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; } }
+  const t0 = actx.currentTime;
+  fs.forEach((f) => {
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'triangle'; o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.1, t0 + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.25);
+    o.connect(g).connect(actx.destination);
+    o.start(t0); o.stop(t0 + 0.3);
+  });
+}
+const input = document.getElementById('chatin');
+async function sendChat() {
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  addMsg('user', text);
+  const ok = await post({ kind: 'chat', text });
+  if (!ok) addMsg('sys', '送信に失敗(アプリが起動しているか確認)');
+  else addMsg('sys', 'AMA-terasが考えています…');
+}
+document.getElementById('send').addEventListener('click', sendChat);
+input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
+
+// ================= 状態スナップショット =================
+function snapshot() {
+  return {
+    avatar: avatar ? { x: +avatar.scene.position.x.toFixed(2), z: +avatar.scene.position.z.toFixed(2), motion: current } : undefined,
+    objects: [...objects.entries()].map(([id, o]) => ({ id, shape: o.shape, ...(o.label ? { label: o.label } : {}), x: o.x, z: o.z })),
+    note: `viewers:1 viewport:${innerWidth}x${innerHeight}`,
+  };
+}
+
+// ================= コマンド実行(SSE受信・直列実行・ack) =================
+let moveTarget = null; // {x,z,resolve}
+let camMode = 'avatar'; // avatar | overview | object
+let camObjTarget = null;
+async function runCommand(c) {
+  switch (c.type) {
+    case 'say': say(c.text ?? ''); return;
+    case 'motion': fadeTo(c.name); return;
+    case 'move_to':
+      if (!avatar) throw new Error('avatar未ロード');
+      fadeTo('walk');
+      await new Promise((resolve) => { moveTarget = { x: c.x, z: c.z, resolve }; });
+      fadeTo('idle');
+      return;
+    case 'spawn': {
+      const id = spawnObject(c);
+      camObjTarget = objects.get(id).mesh.position.clone();
+      return;
+    }
+    case 'remove': {
+      const o = objects.get(c.id);
+      if (!o) throw new Error(`remove: id=${c.id} は存在しない`);
+      scene.remove(o.mesh);
+      objects.delete(c.id);
+      return;
+    }
+    case 'camera': camMode = c.target; return;
+    default: throw new Error(`未知のコマンド: ${c.type}`);
+  }
+}
+const cmdQueue = [];
+let running = false;
+async function pump() {
+  if (running) return;
+  running = true;
+  while (cmdQueue.length > 0) {
+    const { seq, cmds } = cmdQueue.shift();
+    const errors = [];
+    for (const c of cmds) {
+      try { await runCommand(c); } catch (e) { errors.push(`${c.type}: ${e?.message ?? e}`); }
+    }
+    await post({ kind: 'ack', seq, ok: errors.length === 0, ...(errors.length ? { errors } : {}), state: snapshot() });
+  }
+  running = false;
+}
+
+// ================= SSE接続 =================
+const badge = document.getElementById('badge');
+const bst = document.getElementById('bst');
+function connect() {
+  const es = new EventSource(`/api/events?token=${encodeURIComponent(TOKEN ?? '')}`);
+  es.addEventListener('world:event', (e) => {
+    try {
+      const payload = JSON.parse(e.data);
+      cmdQueue.push(payload);
+      void pump();
+    } catch (err) { console.error('[world] bad payload', err); }
+  });
+  es.onopen = () => { badge.classList.add('on'); bst.textContent = 'オンライン'; void post({ kind: 'hello', state: snapshot() }); };
+  es.onerror = () => { badge.classList.remove('on'); bst.textContent = '再接続中…'; };
+}
+if (TOKEN) {
+  connect();
+  setInterval(() => { void post({ kind: 'state', state: snapshot() }); }, 10_000);
+}
+
+// ================= カメラ・メインループ =================
+let camA = 0.35, camH = 1.6, drag = null;
+addEventListener('pointerdown', (e) => {
+  if (e.target.closest('#chatbar') || e.target.closest('#chatlog')) return;
+  drag = { x: e.clientX, y: e.clientY };
+});
+addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  camA -= (e.clientX - drag.x) * 0.006;
+  camH = Math.max(0.6, Math.min(3.2, camH + (e.clientY - drag.y) * 0.004));
+  drag.x = e.clientX; drag.y = e.clientY;
+});
+addEventListener('pointerup', () => { drag = null; });
+const clock = new THREE.Clock();
+const camPos = new THREE.Vector3(0, 2.5, 4.2);
+const camLook = new THREE.Vector3(0, 1.05, 0);
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (mixer && avatar) {
+    mixer.update(dt);
+    // move_to の移動(0.9m/s・向き追従)
+    if (moveTarget) {
+      const pos = avatar.scene.position;
+      const dir = new THREE.Vector3(moveTarget.x - pos.x, 0, moveTarget.z - pos.z);
+      if (dir.length() < 0.15) {
+        const r = moveTarget.resolve; moveTarget = null; r();
+      } else {
+        dir.normalize();
+        pos.add(dir.clone().multiplyScalar(dt * 0.9));
+        const yaw = Math.atan2(dir.x, dir.z);
+        let dy = yaw - avatar.scene.rotation.y;
+        while (dy > Math.PI) dy -= Math.PI * 2;
+        while (dy < -Math.PI) dy += Math.PI * 2;
+        avatar.scene.rotation.y += dy * Math.min(1, dt * 8);
+      }
+    }
+    avatar.update(dt);
+    // 吹き出し追従
+    if (performance.now() < bubUntil) {
+      const p = avatar.scene.position.clone().add(new THREE.Vector3(0, 1.85, 0)).project(camera);
+      bub.style.left = Math.max(6, Math.min(innerWidth - 200, (p.x + 1) / 2 * innerWidth - 60)) + 'px';
+      bub.style.top = Math.max(40, (1 - (p.y + 1) / 2) * innerHeight - 64) + 'px';
+    } else bub.style.opacity = '0';
+  }
+  // オブジェクトのポップイン
+  for (const o of objects.values()) {
+    const t = (performance.now() - o.born) / 400;
+    if (t < 1) o.mesh.scale.setScalar(0.01 + 0.99 * (1 - Math.pow(1 - t, 3)));
+    else o.mesh.scale.setScalar(1);
+  }
+  // カメラ(モード別の目標へスムーズ移動)
+  const focus = camMode === 'object' && camObjTarget ? camObjTarget : (avatar?.scene.position ?? new THREE.Vector3());
+  const dist = camMode === 'overview' ? 14 : 4.2;
+  const height = camMode === 'overview' ? 10 : camH + 0.9;
+  camPos.lerp(new THREE.Vector3(focus.x + Math.sin(camA) * dist, height, focus.z + Math.cos(camA) * dist), 0.06);
+  camLook.lerp(new THREE.Vector3(focus.x, camMode === 'overview' ? 0 : 1.05, focus.z), 0.08);
+  camera.position.copy(camPos);
+  camera.lookAt(camLook);
+  renderer.render(scene, camera);
+});
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>

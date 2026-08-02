@@ -26,6 +26,7 @@ import { MCP_CATALOG } from './mcp/catalog';
 import { detectReadiness } from './mcp/setup';
 import { CheckpointManager } from './core/checkpoints';
 import { EventBus } from './core/events';
+import { WorldManager } from './world/manager';
 import { AgentService } from './core/service';
 import { UsageMeter } from './core/usage';
 import { SessionStore } from './core/sessions';
@@ -474,12 +475,20 @@ export async function registerIpcHandlers(
   const bus = new EventBus();
   const repoDir = app.getAppPath();
 
+  // M115: 世界(WORLD)ブリッジ。ページ→main は /api/world/event、main→ページは SSE(world:event)
+  const worldManager = new WorldManager(bus);
+
   const service: AgentService = new AgentService({
     bus,
     registry,
     config,
     secrets,
     audit,
+    // M115: world_observe / world_act ツールへ世界ブリッジを注入
+    world: {
+      observe: () => worldManager.observe(),
+      act: (cmds) => worldManager.act(cmds),
+    },
     // M71: 配布版は進化パイプラインを持てないので、プラグイン導入は git 非依存の経路を使う
     packaged: app.isPackaged,
     userPluginsDir: getUserPluginsDir(),
@@ -658,6 +667,20 @@ export async function registerIpcHandlers(
       });
       return manager;
     },
+  });
+
+  // M115: 世界内チャット → エージェント起動。実行中なら追加指示としてキューされる(chatSend仕様)
+  worldManager.setChatHandler((text) => {
+    try {
+      service.chatSend(
+        `[世界チャット] ユーザーが世界(共有3D空間)であなたに話しかけた:「${text}」\n` +
+          'world_observe で状況を見てから world_act で応答すること。世界のユーザーには say しか見えないので、' +
+          '返事は必ず say に含める。身振り(motion)や spawn での図解など「世界で見せる」表現を優先する。',
+        'normal',
+      );
+    } catch (err) {
+      console.error('[world] チャット起動に失敗:', err);
+    }
   });
 
   // bus → renderer(webContents.send)。チャネル名はバスとIPCで同一
@@ -1863,6 +1886,8 @@ export async function registerIpcHandlers(
       staticDir: getRemoteUiDir(),
       auditTail: (limit) => audit.tail(limit),
       usageSummary: () => usageMeter.summary(),
+      // M115: 世界ページ→main の入口
+      world: { onPageEvent: (ev) => worldManager.onPageEvent(ev) },
       // M34-6: 運営のリモートフル対応(既存トークン認証配下。オーナーモードOFF時は空を返す)
       operations: {
         summary: async () => ({
