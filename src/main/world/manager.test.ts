@@ -98,4 +98,47 @@ describe('WorldManager', () => {
     expect(mgr.observe().state?.avatar?.x).toBe(1);
     expect(mgr.observe().connected).toBe(true);
   });
+
+  // ---- M115-4: 永続化と再入場復元 ----
+
+  it('spawn/remove が正本へ反映され、ディスクへ保存→別インスタンスで読み戻せる', async () => {
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'world-canon-'));
+    const path = join(dir, 'world-state.json');
+
+    const now = { t: 0 };
+    const { mgr, pushed } = setup(now);
+    mgr.loadPersisted(path);
+    mgr.onPageEvent({ kind: 'hello' });
+    const p1 = mgr.act([
+      { type: 'spawn', id: 'tv', shape: 'box', x: 1, z: 2, color: '#111111' },
+      { type: 'spawn', id: 'sign', shape: 'sign', x: 0, z: 0, label: 'ようこそ' },
+      { type: 'say', text: '設置しました' },
+    ]);
+    mgr.onPageEvent({ kind: 'ack', seq: pushed[0]!.seq, ok: true });
+    await p1;
+    const p2 = mgr.act([{ type: 'remove', id: 'sign' }]);
+    mgr.onPageEvent({ kind: 'ack', seq: pushed[1]!.seq, ok: true });
+    await p2;
+
+    // 別インスタンス(=アプリ再起動相当)で読み戻す
+    const bus2 = new EventBus();
+    const restored: WorldPushPayload[] = [];
+    bus2.subscribe('world:event', (p) => restored.push(p));
+    const mgr2 = new WorldManager(bus2, () => 0, 500);
+    mgr2.loadPersisted(path);
+    mgr2.onPageEvent({ kind: 'hello' });
+    expect(restored).toHaveLength(1);
+    expect(restored[0]!.quiet).toBe(true);
+    expect(restored[0]!.cmds).toEqual([{ type: 'spawn', id: 'tv', shape: 'box', x: 1, z: 2, color: '#111111' }]);
+  });
+
+  it('正本が空なら hello で復元バッチを流さない', () => {
+    const now = { t: 0 };
+    const { mgr, pushed } = setup(now);
+    mgr.onPageEvent({ kind: 'hello' });
+    expect(pushed).toHaveLength(0);
+  });
 });

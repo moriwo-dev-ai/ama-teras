@@ -477,6 +477,8 @@ export async function registerIpcHandlers(
 
   // M115: 世界(WORLD)ブリッジ。ページ→main は /api/world/event、main→ページは SSE(world:event)
   const worldManager = new WorldManager(bus);
+  // M115-4: 世界の正本はディスクに永続化(ページはビュー。再入場時に復元される)
+  worldManager.loadPersisted(join(app.getPath('userData'), 'world-state.json'));
 
   const service: AgentService = new AgentService({
     bus,
@@ -1886,8 +1888,11 @@ export async function registerIpcHandlers(
       staticDir: getRemoteUiDir(),
       auditTail: (limit) => audit.tail(limit),
       usageSummary: () => usageMeter.summary(),
-      // M115: 世界ページ→main の入口
-      world: { onPageEvent: (ev) => worldManager.onPageEvent(ev) },
+      // M115: 世界ページ→main の入口(+観戦モード初期表示)
+      world: {
+        onPageEvent: (ev) => worldManager.onPageEvent(ev),
+        restorePayload: () => worldManager.restorePayload(),
+      },
       // M34-6: 運営のリモートフル対応(既存トークン認証配下。オーナーモードOFF時は空を返す)
       operations: {
         summary: async () => ({

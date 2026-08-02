@@ -63,13 +63,20 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
 // ================= 認証(remote-ui と同じトークンを使う) =================
+// ?spectate=1: M115-5 観戦モード(同一PC限定・読み取り専用SSE・トークン不要・発言不可)
+const SPECTATE = new URLSearchParams(location.search).has('spectate');
 const TOKEN_KEY = 'amateras-remote-token';
 const hashTok = /[#?&]t=([0-9a-f]{64})(?:[&#]|$)/.exec(location.hash)?.[1];
 if (hashTok) localStorage.setItem(TOKEN_KEY, hashTok);
 const TOKEN = hashTok ?? localStorage.getItem(TOKEN_KEY);
-if (!TOKEN) document.getElementById('pair').style.display = 'flex';
+if (!TOKEN && !SPECTATE) document.getElementById('pair').style.display = 'flex';
+if (SPECTATE) {
+  document.getElementById('chatbar').style.display = 'none';
+  document.getElementById('bst').textContent = '観戦モード';
+}
 
 async function post(ev) {
+  if (SPECTATE) return true; // 観戦モードは読み取り専用(ackも打たない=実行側ページに任せる)
   try {
     const r = await fetch('/api/world/event', {
       method: 'POST',
@@ -179,7 +186,8 @@ try {
   scene.add(avatar.scene);
   mixer = new THREE.AnimationMixer(avatar.scene);
   // モーションはローカル資産(assets-lab)。無くても世界は動く(移動・spawn・sayは生きる)
-  const MOTIONS = { idle: 'Fighting Idle', jab: 'Lead Jab', hook: 'Hook Punch', kick: 'Roundhouse Kick', walk: 'Walking', sit: 'Sitting Idle' };
+  // idle は落ち着いた呼吸(2026-08-03 ユーザー要望)。旧Fighting Idleは guard として残す
+  const MOTIONS = { idle: 'Breathing Idle', guard: 'Fighting Idle', jab: 'Lead Jab', hook: 'Hook Punch', kick: 'Roundhouse Kick', walk: 'Walking', sit: 'Sitting Idle' };
   await Promise.all(Object.entries(MOTIONS).map(async ([k, f]) => {
     try {
       actions[k] = mixer.clipAction(await loadMixamo(`./assets-lab/${f}.fbx`, avatar));
@@ -224,7 +232,7 @@ function makeSign(label, color) {
   grp.add(pole, board);
   return grp;
 }
-function spawnObject(c) {
+function spawnObject(c, quiet = false) {
   const id = c.id ?? `obj${++autoId}`;
   if (objects.has(id)) { scene.remove(objects.get(id).mesh); objects.delete(id); }
   const color = c.color ? new THREE.Color(c.color) : new THREE.Color(PASTEL[autoId % 6]);
@@ -248,7 +256,7 @@ function spawnObject(c) {
   grp.scale.setScalar(0.01);
   scene.add(grp);
   objects.set(id, { mesh: grp, shape: c.shape, label: c.label, x: c.x, z: c.z, born: performance.now() });
-  chime([523, 784]);
+  if (!quiet) chime([523, 784]);
   return id;
 }
 
@@ -311,7 +319,7 @@ function snapshot() {
 let moveTarget = null; // {x,z,resolve}
 let camMode = 'avatar'; // avatar | overview | object
 let camObjTarget = null;
-async function runCommand(c) {
+async function runCommand(c, quiet = false) {
   switch (c.type) {
     case 'say': say(c.text ?? ''); return;
     case 'motion': fadeTo(c.name); return;
@@ -322,8 +330,8 @@ async function runCommand(c) {
       fadeTo('idle');
       return;
     case 'spawn': {
-      const id = spawnObject(c);
-      camObjTarget = objects.get(id).mesh.position.clone();
+      const id = spawnObject(c, quiet);
+      if (!quiet) camObjTarget = objects.get(id).mesh.position.clone();
       return;
     }
     case 'remove': {
@@ -343,10 +351,10 @@ async function pump() {
   if (running) return;
   running = true;
   while (cmdQueue.length > 0) {
-    const { seq, cmds } = cmdQueue.shift();
+    const { seq, cmds, quiet } = cmdQueue.shift();
     const errors = [];
     for (const c of cmds) {
-      try { await runCommand(c); } catch (e) { errors.push(`${c.type}: ${e?.message ?? e}`); }
+      try { await runCommand(c, quiet === true); } catch (e) { errors.push(`${c.type}: ${e?.message ?? e}`); }
     }
     await post({ kind: 'ack', seq, ok: errors.length === 0, ...(errors.length ? { errors } : {}), state: snapshot() });
   }
@@ -357,7 +365,9 @@ async function pump() {
 const badge = document.getElementById('badge');
 const bst = document.getElementById('bst');
 function connect() {
-  const es = new EventSource(`/api/events?token=${encodeURIComponent(TOKEN ?? '')}`);
+  const es = SPECTATE
+    ? new EventSource('/api/world/spectate')
+    : new EventSource(`/api/events?token=${encodeURIComponent(TOKEN ?? '')}`);
   es.addEventListener('world:event', (e) => {
     try {
       const payload = JSON.parse(e.data);
@@ -372,12 +382,16 @@ function connect() {
       if (ev.kind === 'error' && typeof ev.message === 'string') addMsg('sys', '⚠ ' + ev.message);
     } catch { /* 他会話のイベント形式差異は無視 */ }
   });
-  es.onopen = () => { badge.classList.add('on'); bst.textContent = 'オンライン'; void post({ kind: 'hello', state: snapshot() }); };
+  es.onopen = () => {
+    badge.classList.add('on');
+    bst.textContent = SPECTATE ? '観戦モード' : 'オンライン';
+    void post({ kind: 'hello', state: snapshot() });
+  };
   es.onerror = () => { badge.classList.remove('on'); bst.textContent = '再接続中…'; };
 }
-if (TOKEN) {
+if (TOKEN || SPECTATE) {
   connect();
-  setInterval(() => { void post({ kind: 'state', state: snapshot() }); }, 10_000);
+  if (!SPECTATE) setInterval(() => { void post({ kind: 'state', state: snapshot() }); }, 10_000);
 }
 
 // ================= カメラ・メインループ =================

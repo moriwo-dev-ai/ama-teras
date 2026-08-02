@@ -1508,6 +1508,8 @@ export interface WorldCommand {
 export interface WorldPushPayload {
   seq: number;
   cmds: WorldCommand[];
+  /** M115-4: 復元バッチ(再入場時)。ページは効果音・カメラ演出を抑制する */
+  quiet?: boolean;
 }
 
 /** 世界ページが報告する状態スナップショット(world_observeがエージェントへ返す) */

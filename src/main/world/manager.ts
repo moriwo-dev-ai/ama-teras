@@ -1,3 +1,4 @@
+import { readFileSync, writeFileSync } from 'node:fs';
 import type { WorldCommand, WorldPageEvent, WorldPushPayload, WorldStateSnapshot } from '../../shared/types';
 import type { EventBus } from '../core/events';
 
@@ -28,12 +29,58 @@ export class WorldManager {
   /** 世界内チャット(user/agent両方)。observe で最近分をエージェントへ見せる */
   private readonly chatLog: { from: 'user' | 'agent'; text: string }[] = [];
   private chatHandler: ((text: string) => void) | null = null;
+  /**
+   * M115-4: 世界の正本。spawn/remove の全パラメータを id 単位で保持し、ページは
+   * この写像(ビュー)にすぎない。ページ再入場時は hello を受けてここから復元する。
+   * 挿入順を保つ Map = 建てられた順に復元される
+   */
+  private readonly objects = new Map<string, WorldCommand>();
+  private persistPath: string | null = null;
 
   constructor(
     private readonly bus: EventBus,
     private readonly now: () => number = Date.now,
     private readonly ackTimeoutMs: number = ACK_TIMEOUT_MS,
   ) {}
+
+  /** 永続化先を設定し、あればディスクから正本を読み戻す(起動時に ipc.ts が呼ぶ) */
+  loadPersisted(path: string): void {
+    this.persistPath = path;
+    try {
+      // 実行時 import を避けるため require 相当は使わず、node:fs は静的 import(下)を使う
+      const raw = readFileSync(path, 'utf8');
+      const data = JSON.parse(raw) as { objects?: WorldCommand[] };
+      for (const c of data.objects ?? []) {
+        if (c.type === 'spawn' && typeof c.id === 'string') this.objects.set(c.id, c);
+      }
+    } catch {
+      // 初回起動(ファイルなし)や破損は空の世界から始める。破損は上書き保存で自然回復する
+    }
+  }
+
+  private persist(): void {
+    if (this.persistPath === null) return;
+    try {
+      writeFileSync(this.persistPath, JSON.stringify({ objects: [...this.objects.values()] }, null, 1));
+    } catch (err) {
+      console.error('[world] 正本の保存に失敗:', err);
+    }
+  }
+
+  /** act で通ったコマンドを正本へ反映する(検証済み前提の楽観適用) */
+  private applyToCanon(cmds: WorldCommand[]): void {
+    let changed = false;
+    for (const c of cmds) {
+      if (c.type === 'spawn') {
+        const id = c.id ?? `auto_${this.seq}_${this.objects.size}`;
+        this.objects.set(id, { ...c, id });
+        changed = true;
+      } else if (c.type === 'remove' && typeof c.id === 'string') {
+        if (this.objects.delete(c.id)) changed = true;
+      }
+    }
+    if (changed) this.persist();
+  }
 
   /** 世界内チャット到着時の処理(ipc.ts が service.chatSend へ橋渡しする)を注入 */
   setChatHandler(handler: (text: string) => void): void {
@@ -48,7 +95,13 @@ export class WorldManager {
   onPageEvent(ev: WorldPageEvent): { ok: boolean } {
     this.lastSeenMs = this.now();
     switch (ev.kind) {
-      case 'hello':
+      case 'hello': {
+        if (ev.state) this.state = ev.state;
+        // M115-4: 再入場したページへ世界の正本を復元(quiet=効果音・カメラ演出なし)
+        const restore = this.restorePayload();
+        if (restore !== null) this.bus.publish('world:event', restore);
+        return { ok: true };
+      }
       case 'state':
         if (ev.state) this.state = ev.state;
         return { ok: true };
@@ -73,6 +126,12 @@ export class WorldManager {
     }
   }
 
+  /** M115-4/5: 世界の正本を復元バッチとして払い出す(hello時と観戦モード初期表示に使う) */
+  restorePayload(): WorldPushPayload | null {
+    if (this.objects.size === 0) return null;
+    return { seq: ++this.seq, cmds: [...this.objects.values()], quiet: true };
+  }
+
   /** world_observe ツールが返す内容 */
   observe(): { connected: boolean; state: WorldStateSnapshot | null; chat: { from: string; text: string }[] } {
     return { connected: this.isConnected(), state: this.state, chat: [...this.chatLog] };
@@ -92,6 +151,7 @@ export class WorldManager {
     for (const c of cmds) {
       if (c.type === 'say' && typeof c.text === 'string') this.pushChat('agent', c.text);
     }
+    this.applyToCanon(cmds);
     const seq = ++this.seq;
     const payload: WorldPushPayload = { seq, cmds };
     return new Promise((resolve) => {

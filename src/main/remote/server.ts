@@ -91,7 +91,11 @@ export interface RemoteServerDeps {
   /** M34-6: 運営(TAKAMA-gahara)のリモート対応。未注入なら /api/ops/* は404 */
   operations?: RemoteOperationsFacade;
   /** M115: 世界(WORLD)ブリッジ。未注入なら /api/world/* は404 */
-  world?: { onPageEvent(ev: import('../../shared/types').WorldPageEvent): { ok: boolean } };
+  world?: {
+    onPageEvent(ev: import('../../shared/types').WorldPageEvent): { ok: boolean };
+    /** M115-5: 観戦モードの初期表示(現在の世界の復元バッチ)。未実装なら初期表示なし */
+    restorePayload?(): import('../../shared/types').WorldPushPayload | null;
+  };
 }
 
 /** M34-6: 運営リモートAPIの窓口(実装は ipc.ts が OperationsManager を包んで注入) */
@@ -317,9 +321,47 @@ export class RemoteServer {
     const path = url.pathname;
 
     if (path === '/api/events') return this.handleSse(req, res, url);
+    if (path === '/api/world/spectate') return this.handleWorldSpectate(req, res);
     if (path.startsWith('/api/')) return this.handleApi(req, res, url);
     if (req.method === 'GET') return this.handleStatic(path, res);
     throw new HttpError(405, 'method not allowed');
+  }
+
+  /**
+   * M115-5: 世界の観戦モード(読み取り専用SSE)。**ループバック(同一PC)限定・トークン不要**。
+   * 中継するのは world:event(世界コマンド)だけ — チャット本文・承認・設定など他チャネルは
+   * 一切流さない。書き込み経路もない(POST /api/world/event は従来どおり要トークン)。
+   * 用途: 開発/QAでデスクトップ側から世界の見た目を確認する
+   */
+  private handleWorldSpectate(req: IncomingMessage, res: ServerResponse): void {
+    const ip = req.socket.remoteAddress ?? '';
+    const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+    if (!isLoopback) throw new HttpError(403, '観戦モードは同一PC(ループバック)限定');
+    if (!this.deps.world) throw new HttpError(404, 'world ブリッジ未注入');
+    res.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-store',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    const write = (event: string, data: unknown): void => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    write('snapshot', {});
+    const restore = this.deps.world.restorePayload?.() ?? null;
+    if (restore !== null) write('world:event', restore);
+    const unsubscribe = this.deps.bus.subscribe('world:event', (payload) => write('world:event', payload));
+    const heartbeat = setInterval(() => {
+      res.write(': ping\n\n');
+    }, this.deps.heartbeatMs ?? 25_000);
+    const cleanup = (): void => {
+      clearInterval(heartbeat);
+      unsubscribe();
+      this.sseCleanups.delete(cleanup);
+      res.end();
+    };
+    this.sseCleanups.add(cleanup);
+    req.on('close', cleanup);
   }
 
   private authorize(req: IncomingMessage, url: URL): void {
