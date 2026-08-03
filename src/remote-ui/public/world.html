@@ -269,6 +269,17 @@ function makeScreen(c) {
   grp.add(pole, frame, panel);
   return grp;
 }
+/**
+ * M118(P1): build — エージェントが書いた three.js コードで自由造形する。
+ * code は「THREE を受け取り Object3D を返す関数の本体」。実行は new Function サンドボックス
+ * (ページ内・ネットワークやDOMへの参照は渡さない)。エラーは ack で本人へ返る=自分で直せる
+ */
+function buildObject(c) {
+  const fn = new Function('THREE', `'use strict';\n${c.code}`);
+  const obj = fn(THREE);
+  if (!(obj instanceof THREE.Object3D)) throw new Error('build: コードは THREE.Object3D を return すること');
+  return obj;
+}
 function spawnObject(c, quiet = false) {
   const id = c.id ?? `obj${++autoId}`;
   if (objects.has(id)) { scene.remove(objects.get(id).mesh); objects.delete(id); }
@@ -277,6 +288,7 @@ function spawnObject(c, quiet = false) {
   let mesh;
   if (c.shape === 'sign') mesh = makeSign(c.label ?? '', c.color);
   else if (c.shape === 'screen') mesh = makeScreen(c);
+  else if (c.shape === 'custom') mesh = buildObject(c);
   else {
     const geo = c.shape === 'sphere' ? new THREE.SphereGeometry(0.5, 24, 16)
       : c.shape === 'cylinder' ? new THREE.CylinderGeometry(0.5, 0.5, 1, 24)
@@ -290,8 +302,8 @@ function spawnObject(c, quiet = false) {
   const grp = new THREE.Group();
   grp.add(mesh);
   grp.position.set(c.x, 0, c.z);
-  if ((c.shape === 'sign' || c.shape === 'screen') && typeof c.y === 'number') grp.position.y = c.y;
-  if ((c.shape === 'sign' || c.shape === 'screen') && typeof c.ry === 'number') grp.rotation.y = c.ry;
+  if ((c.shape === 'sign' || c.shape === 'screen' || c.shape === 'custom') && typeof c.y === 'number') grp.position.y = c.y;
+  if ((c.shape === 'sign' || c.shape === 'screen' || c.shape === 'custom') && typeof c.ry === 'number') grp.rotation.y = c.ry;
   grp.scale.setScalar(0.01);
   scene.add(grp);
   objects.set(id, { mesh: grp, shape: c.shape, label: c.label, x: c.x, z: c.z, born: performance.now() });

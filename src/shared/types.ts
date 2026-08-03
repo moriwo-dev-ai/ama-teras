@@ -1492,7 +1492,7 @@ export interface WorldCommand {
   z?: number;
   /** spawn: プリミティブ生成。id指定で後からremove/上書きできる */
   id?: string;
-  shape?: 'box' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'sign' | 'screen';
+  shape?: 'box' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'sign' | 'screen' | 'custom';
   color?: string;
   /** spawn: サイズ(m)と設置座標。signはlabelを看板文字として描く */
   sx?: number;
@@ -1500,6 +1500,8 @@ export interface WorldCommand {
   sz?: number;
   y?: number;
   label?: string;
+  /** M118 spawn(custom): THREEを受けObject3Dをreturnする関数本体(自由造形) */
+  code?: string;
   /** spawn(screen): 背景色 */
   bg?: string;
   /** spawn(sign/screen): Y軸回転(ラジアン) */

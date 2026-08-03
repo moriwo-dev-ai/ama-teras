@@ -41,6 +41,10 @@ describe('world_act', () => {
           { type: 'motion', name: 'jab' },
           { type: 'move_to', x: 3, z: -2 },
           { type: 'spawn', shape: 'sign', x: 0, z: 4, label: 'ようこそ' },
+          {
+            type: 'spawn', shape: 'custom', x: 2, z: 2,
+            code: 'const g = new THREE.Group(); g.add(new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshToonMaterial())); return g;',
+          },
           { type: 'camera', target: 'avatar' },
         ],
       },
@@ -48,7 +52,7 @@ describe('world_act', () => {
     );
     expect(r.isError).toBeFalsy();
     expect(acted).toHaveLength(1);
-    expect(acted[0]).toHaveLength(5);
+    expect(acted[0]).toHaveLength(6);
   });
 
   it.each([
@@ -58,6 +62,10 @@ describe('world_act', () => {
     [{ actions: [{ type: 'move_to', x: 100, z: 0 }] }, '広場'],
     [{ actions: [{ type: 'spawn', shape: 'sign', x: 0, z: 0 }] }, 'label が必要'],
     [{ actions: [{ type: 'teleport' }] }, 'type が不正'],
+    // M118: custom(自由造形)の検証
+    [{ actions: [{ type: 'spawn', shape: 'custom', x: 0, z: 0 }] }, 'code'],
+    [{ actions: [{ type: 'spawn', shape: 'custom', x: 0, z: 0, code: 'fetch("http://x"); return new THREE.Group();' }] }, '禁止API(fetch)'],
+    [{ actions: [{ type: 'spawn', shape: 'custom', x: 0, z: 0, code: 'document.title; return g;' }] }, '禁止API(document)'],
   ])('不正入力を拒否する: %j', async (input, fragment) => {
     const acted: WorldCommand[][] = [];
     const r = await worldAct.execute(input, ctxWith(fakeWorld(acted)));
