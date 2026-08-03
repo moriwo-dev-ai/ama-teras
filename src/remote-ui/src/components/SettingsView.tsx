@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { RemoteApi } from '../api';
 import type { ModelPolicy, ProviderId, UsageSummary } from '../../../shared/types';
+import { KNOWN_MODELS } from '../../../shared/models';
 import { applyTheme, loadTheme, type Theme } from '../theme';
 
 /**
@@ -142,17 +143,28 @@ export function SettingsView({ api }: { api: RemoteApi }): JSX.Element {
             <option value="moonshot">Moonshot(Kimi)</option>
           </select>
         </label>
+        {/* M119: 手打ちは誤記事故のもと(実機: gpt5.6-sol と打って不一致)。既知モデルはリスト選択 */}
         <label className="row">
-          モデルID(空=既定)
-          <input
-            key={String(cfg['model'] ?? '')} // サーバ値が変わったら入力欄も作り直す
-            defaultValue={String(cfg['model'] ?? '')}
-            placeholder="例: claude-opus-4-8"
+          モデル
+          <select
+            value={String(cfg['model'] ?? '')}
             disabled={policyOn}
-            onBlur={(e) => {
-              if (e.target.value.trim() !== String(cfg['model'] ?? '')) patch({ model: e.target.value.trim() });
+            onChange={(e) => {
+              if (e.target.value !== String(cfg['model'] ?? '')) patch({ model: e.target.value });
             }}
-          />
+          >
+            <option value="">(プロバイダ既定)</option>
+            {(KNOWN_MODELS[provider as ProviderId] ?? []).map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+            {/* 既知リスト外の値が設定済みなら消さずに表示(PCで手動設定したカスタム等) */}
+            {String(cfg['model'] ?? '') !== '' &&
+              !(KNOWN_MODELS[provider as ProviderId] ?? []).some((m) => m.id === String(cfg['model'])) && (
+                <option value={String(cfg['model'])}>{String(cfg['model'])}(カスタム)</option>
+              )}
+          </select>
         </label>
         {policyOn && (
           <p className="muted">⚠ モデル自動切替がONの間、このモデル欄は使われない(帯ごとのモデルが優先される)</p>
