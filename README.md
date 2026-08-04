@@ -26,6 +26,8 @@ The UI is available in English — screenshots: [chat](docs/screenshots/chat-en.
 
 📝 開発の裏側: [Fable 5にアプリを自分自身ごと進化させたら、6夜でOSS公開まで走れた](https://zenn.dev/moriwo_dev_ai/articles/ama-teras-self-evolving-agent)
 
+🎬 AIが3D世界に住んで作る様子(実録ショート): [YouTube @AMA-teras-moriwo](https://www.youtube.com/@AMA-teras-moriwo)
+
 ## 正直な現在地
 
 小さな初期段階のOSSです。できること・まだ弱いことを隠さず書きます:

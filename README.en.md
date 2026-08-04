@@ -29,6 +29,8 @@ The UI is available in English (Settings → UI language) — screenshots: [chat
 
 📝 Behind the scenes (Japanese article): [Fable 5にアプリを自分自身ごと進化させたら、6夜でOSS公開まで走れた](https://zenn.dev/moriwo_dev_ai/articles/ama-teras-self-evolving-agent)
 
+🎬 Watch the agent live and build inside its 3D world (unedited shorts, Japanese): [YouTube @AMA-teras-moriwo](https://www.youtube.com/@AMA-teras-moriwo)
+
 ## Where it stands today — honestly
 
 This is a small, early OSS project. What you get, and what you don't yet:
