@@ -1,6 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { extname, resolve, sep } from 'node:path';
+import { extname, join, resolve, sep } from 'node:path';
 import type {
   AgentStatusView,
   ApprovalDecision,
@@ -87,6 +87,8 @@ export interface RemoteServerDeps {
   staticDir: string;
   /** M120: 世界アプリの配信ルート(userData/world-apps)。未指定なら /world-apps/* は404 */
   worldAppsDir?: string;
+  /** M121: 録画の保存先(userData/world-recordings)。未指定なら録画アップロードは404 */
+  worldRecordingsDir?: string;
   auditTail: (limit: number) => AuditEntry[];
   /** SSE keep-alive 間隔 ms(テスト用に注入可) */
   heartbeatMs?: number;
@@ -330,6 +332,21 @@ export class RemoteServer {
 
     if (path === '/api/events') return this.handleSse(req, res, url);
     if (path === '/api/world/spectate') return this.handleWorldSpectate(req, res);
+    // M121: 実行係ページからの録画アップロード(webm)。実行キー+ループバック限定
+    if (path === '/api/world/recording' && req.method === 'POST' && this.isWorldExecutor(req, url)) {
+      const dir = this.deps.worldRecordingsDir;
+      if (dir === undefined) throw new HttpError(404, 'recordings 未設定');
+      const chunks: Buffer[] = [];
+      let total = 0;
+      for await (const chunk of req) {
+        total += (chunk as Buffer).length;
+        if (total > 200 * 1024 * 1024) throw new HttpError(413, '録画が大きすぎる(200MB上限)');
+        chunks.push(chunk as Buffer);
+      }
+      const file = join(dir, `rec-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`);
+      await writeFile(file, Buffer.concat(chunks));
+      return sendJson(res, 200, { ok: true, file });
+    }
     // M117-B: 常時実行ページ(ループバック+実行キー)はトークンなしで世界イベントを送れる
     if (path === '/api/world/event' && req.method === 'POST' && this.isWorldExecutor(req, url)) {
       if (!this.deps.world) throw new HttpError(404, 'world ブリッジ未注入');

@@ -489,8 +489,10 @@ export async function registerIpcHandlers(
   const worldExecutorKey = generateToken().token;
   // M120: 世界アプリの実体置き場(エージェントがwrite_fileで書き、RemoteServerが配信する)
   const worldAppsDir = join(app.getPath('userData'), 'world-apps');
+  const worldRecordingsDir = join(app.getPath('userData'), 'world-recordings');
   try {
     mkdirSync(worldAppsDir, { recursive: true });
+    mkdirSync(worldRecordingsDir, { recursive: true });
   } catch { /* 既存ならOK */ }
   worldManager.setWorldAppsDir(worldAppsDir);
 
@@ -1906,6 +1908,7 @@ export async function registerIpcHandlers(
       auth: remoteAuth,
       staticDir: getRemoteUiDir(),
       worldAppsDir,
+      worldRecordingsDir,
       auditTail: (limit) => audit.tail(limit),
       usageSummary: () => usageMeter.summary(),
       // M115: 世界ページ→main の入口(+観戦モード初期表示+常時実行キー)

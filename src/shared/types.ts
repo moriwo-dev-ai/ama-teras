@@ -1482,7 +1482,7 @@ export type EvolutionEvent =
  * 世界ページ(out/remote-ui/world.html)がこれを解釈して実行する。
  */
 export interface WorldCommand {
-  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_point';
+  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_point' | 'record';
   /** say: セリフ(吹き出し+チャットログ) */
   text?: string;
   /** motion: idle | jab | hook | kick | walk | sit */
@@ -1512,6 +1512,8 @@ export interface WorldCommand {
   appId?: string;
   selector?: string;
   note?: string;
+  /** record: 'start'|'stop'(実行係ページだけが録画する。stopでwebmが保存される) */
+  op?: 'start' | 'stop';
   /** camera: 注視先 */
   target?: 'avatar' | 'overview' | 'object';
 }

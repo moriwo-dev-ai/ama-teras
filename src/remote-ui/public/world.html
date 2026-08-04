@@ -45,6 +45,16 @@
   #apppointer .pnote { background: #ff4d5e; color: #fff; font-size: 13px; font-weight: 700; padding: 5px 12px;
     border-radius: 999px; margin-bottom: 2px; }
   @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(10px); } }
+  /* M121(3-B): 稼働可視化 — AMA-terasが「いま何をしているか」の生中継 */
+  #work { position: fixed; top: 44px; left: 50%; transform: translateX(-50%); z-index: 25; background: #fff;
+    border-radius: 14px; box-shadow: 0 4px 18px rgba(90,123,216,.25); padding: 8px 14px; max-width: min(86vw, 560px);
+    display: none; }
+  #work.on { display: block; }
+  #workhead { font-size: 12px; font-weight: 700; color: #5a6b9e; display: flex; align-items: center; gap: 6px; }
+  #workhead .gear { display: inline-block; animation: spin 1.6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #worktail { font-size: 11px; color: #99a; font-family: Consolas, monospace; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; margin-top: 3px; max-width: 100%; }
 </style>
 </head>
 <body>
@@ -62,6 +72,7 @@
   <iframe id="appframe" src="about:blank"></iframe>
 </div>
 <div id="apppointer"><div class="pnote" id="appnote">ここ!</div><div class="arrow">👇</div></div>
+<div id="work"><div id="workhead"><span class="gear">⚙️</span><span id="worklabel"></span></div><div id="worktail"></div></div>
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -557,6 +568,29 @@ if (ORTHO_MODE) {
   }, 2000);
 }
 
+// ================= M121: 世界内レコーダー(実行係専用) =================
+let recorder = null, recChunks = [];
+function startRecording() {
+  if (recorder) throw new Error('record: すでに録画中');
+  const stream = renderer.domElement.captureStream(30);
+  recChunks = [];
+  recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9', videoBitsPerSecond: 8_000_000 });
+  recorder.ondataavailable = (e) => { if (e.data.size > 0) recChunks.push(e.data); };
+  recorder.start(1000);
+}
+async function stopRecording() {
+  if (!recorder) throw new Error('record: 録画していない');
+  const rec = recorder;
+  recorder = null;
+  await new Promise((resolve) => { rec.onstop = resolve; rec.stop(); });
+  const blob = new Blob(recChunks, { type: 'video/webm' });
+  recChunks = [];
+  const r = await fetch(`/api/world/recording?k=${EXEC_KEY}`, { method: 'POST', headers: { 'content-type': 'video/webm' }, body: blob });
+  if (!r.ok) throw new Error(`record: 保存に失敗(${r.status})`);
+  const j = await r.json();
+  console.log('[world] 録画保存:', j.file);
+}
+
 // ================= コマンド実行(SSE受信・直列実行・ack) =================
 let moveTarget = null; // {x,z,resolve}
 const ONESHOT_WAIT_MAX = 5000;
@@ -603,6 +637,13 @@ async function runCommand(c, quiet = false) {
       if (c.target === 'overview') camFocusTo(new THREE.Vector3(0, 0, 0), new THREE.Vector3(14, 13, 14));
       else if (c.target === 'object') { /* 直近spawn時に設定済み。明示指定は最後のspawn位置のまま */ }
       else if (avatar) camFocusTo(avatar.scene.position.clone().add(new THREE.Vector3(0, 1.1, 0)));
+      return;
+    }
+    case 'record': {
+      // M121: 録画は実行係だけが担う(他のページで多重録画しない)。閲覧ページは黙って成功扱い
+      if (!EXECUTOR) return;
+      if (c.op === 'start') startRecording();
+      else await stopRecording();
       return;
     }
     case 'app_add': upsertApp(c.app, quiet); if (!quiet) camFocusTo(new THREE.Vector3(c.app.x, 1.2, c.app.z)); return;
@@ -652,10 +693,36 @@ function connect() {
     } catch (err) { console.error('[world] bad payload', err); }
   });
   // エージェントのラン失敗を沈黙させない(「考えています…」のまま固まる事故の防止)
+  // M121(3-B): ついでにツール実行を生中継=「AMA-terasがいま働いてる」が世界で見える
+  const work = document.getElementById('work');
+  const worklabel = document.getElementById('worklabel');
+  const worktail = document.getElementById('worktail');
+  const TOOL_JP = { bash: 'コマンド実行', read_file: 'ファイルを読む', write_file: 'ファイルを書く', edit_file: 'ファイルを直す',
+    grep: '検索', list_dir: 'フォルダを見る', web_search: 'Web検索', web_fetch: 'Webを読む', screenshot: '画面を確認',
+    world_observe: '世界を観察', world_act: '世界で行動', memory: 'メモを取る' };
+  let workClearTimer = null;
+  function showWork(label, tail) {
+    if (workClearTimer) { clearTimeout(workClearTimer); workClearTimer = null; }
+    worklabel.textContent = label;
+    if (tail !== undefined) worktail.textContent = tail;
+    work.classList.add('on');
+  }
+  function clearWorkSoon(ms) {
+    if (workClearTimer) clearTimeout(workClearTimer);
+    workClearTimer = setTimeout(() => { work.classList.remove('on'); worktail.textContent = ''; }, ms);
+  }
   es.addEventListener('chat:event', (e) => {
     try {
       const ev = JSON.parse(e.data);
-      if (ev.kind === 'error' && typeof ev.message === 'string') addMsg('sys', '⚠ ' + ev.message);
+      if (ev.kind === 'error' && typeof ev.message === 'string') { addMsg('sys', '⚠ ' + ev.message); clearWorkSoon(100); return; }
+      if (ev.kind === 'status') {
+        if (ev.status === 'calling_llm') showWork('考え中…', '');
+        else if (ev.status === 'done' || ev.status === 'cancelled' || ev.status === 'error') clearWorkSoon(1200);
+        return;
+      }
+      if (ev.kind === 'tool_start') { showWork(`${TOOL_JP[ev.name] ?? ev.name} 中…`, ev.inputPreview?.slice(0, 90) ?? ''); return; }
+      if (ev.kind === 'tool_progress') { showWork(`${TOOL_JP[ev.name] ?? ev.name} 中…`); worktail.textContent = (ev.outputTail ?? '').split('\n').pop()?.slice(0, 90) ?? ''; return; }
+      if (ev.kind === 'tool_result') { showWork(`${TOOL_JP[ev.name] ?? ev.name} ✓`); clearWorkSoon(2500); return; }
     } catch { /* 他会話のイベント形式差異は無視 */ }
   });
   es.onopen = () => {

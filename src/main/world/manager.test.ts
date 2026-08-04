@@ -88,7 +88,8 @@ describe('WorldManager', () => {
     expect(mgr.onPageEvent({ kind: 'chat', text: '  ' }).ok).toBe(false);
     expect(seen).toHaveLength(1);
     const obs = mgr.observe();
-    expect(obs.chat).toEqual([{ from: 'user', text: 'こんにちは' }]);
+    // M122: 記憶にはタイムスタンプが付く
+    expect(obs.chat).toEqual([{ from: 'user', text: 'こんにちは', ts: expect.any(String) }]);
   });
 
   it('state/ack の state スナップショットが observe に反映される', () => {

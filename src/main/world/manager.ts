@@ -15,13 +15,14 @@ import type { EventBus } from '../core/events';
  */
 
 const CONNECT_TIMEOUT_MS = 30_000;
+/** M122(2): 世界の記憶。チャットと出来事を正本に永続化する上限(古いものから落ちる) */
+const WORLD_LOG_MAX = 200;
 /**
  * M115-6: ページ側はワンショット技の完了待ち・sayの読み待ち・move_toの歩行を
  * 直列実行してからackする(=演出時間ぶん遅れる)。長い演出バッチでも失敗扱いに
  * しないよう余裕を持たせる(30コマンド上限×歩行込みの現実的最大)
  */
 const ACK_TIMEOUT_MS = 90_000;
-const CHAT_LOG_MAX = 30;
 
 export class WorldManager {
   private seq = 0;
@@ -31,8 +32,11 @@ export class WorldManager {
     number,
     { resolve: (r: { ok: boolean; errors?: string[] }) => void; timer: NodeJS.Timeout }
   >();
-  /** 世界内チャット(user/agent両方)。observe で最近分をエージェントへ見せる */
-  private readonly chatLog: { from: 'user' | 'agent'; text: string }[] = [];
+  /**
+   * M122: 世界の記憶(チャット+出来事)。会話セッションを跨いで世界そのものが履歴を持つ
+   * — どの会話が世界チャットを担当しても、observe すれば過去の文脈が見える
+   */
+  private readonly chatLog: { from: 'user' | 'agent' | 'world'; text: string; ts?: string }[] = [];
   private chatHandler: ((text: string) => void) | null = null;
   /**
    * M115-4: 世界の正本。spawn/remove の全パラメータを id 単位で保持し、ページは
@@ -68,13 +72,19 @@ export class WorldManager {
     try {
       // 実行時 import を避けるため require 相当は使わず、node:fs は静的 import(下)を使う
       const raw = readFileSync(path, 'utf8');
-      const data = JSON.parse(raw) as { objects?: WorldCommand[]; apps?: WorldApp[] };
+      const data = JSON.parse(raw) as {
+        objects?: WorldCommand[];
+        apps?: WorldApp[];
+        log?: { from: 'user' | 'agent' | 'world'; text: string; ts?: string }[];
+      };
       for (const c of data.objects ?? []) {
         if (c.type === 'spawn' && typeof c.id === 'string') this.objects.set(c.id, c);
       }
       for (const a of data.apps ?? []) {
         if (typeof a.id === 'string') this.apps.set(a.id, a);
       }
+      // M122: 世界の記憶を読み戻す(再起動しても会話の文脈が続く)
+      this.chatLog.push(...(data.log ?? []).slice(-WORLD_LOG_MAX));
     } catch {
       // 初回起動(ファイルなし)や破損は空の世界から始める。破損は上書き保存で自然回復する
     }
@@ -85,7 +95,11 @@ export class WorldManager {
     try {
       writeFileSync(
         this.persistPath,
-        JSON.stringify({ objects: [...this.objects.values()], apps: [...this.apps.values()] }, null, 1),
+        JSON.stringify(
+          { objects: [...this.objects.values()], apps: [...this.apps.values()], log: this.chatLog },
+          null,
+          1,
+        ),
       );
     } catch (err) {
       console.error('[world] 正本の保存に失敗:', err);
@@ -104,6 +118,7 @@ export class WorldManager {
         if (this.objects.delete(c.id)) changed = true;
       } else if (c.type === 'app_add' && c.app !== undefined) {
         this.apps.set(c.app.id, c.app);
+        this.pushChat('world', '📥 アプリ設置: ' + c.app.name + ' (' + c.app.id + ')');
         changed = true;
       } else if (c.type === 'app_move' && typeof c.appId === 'string') {
         const app = this.apps.get(c.appId);
@@ -114,7 +129,7 @@ export class WorldManager {
           changed = true;
         }
       } else if (c.type === 'app_remove' && typeof c.appId === 'string') {
-        if (this.apps.delete(c.appId)) changed = true;
+        if (this.apps.delete(c.appId)) { this.pushChat('world', '🗑 アプリ撤去: ' + c.appId); changed = true; }
       }
     }
     if (changed) this.persist();
@@ -204,7 +219,7 @@ export class WorldManager {
     return {
       connected: this.isConnected(),
       state: this.state,
-      chat: [...this.chatLog],
+      chat: this.chatLog.slice(-40),
       apps: this.listApps(),
       ...(this.spectateUrl !== null
         ? {
@@ -255,8 +270,9 @@ export class WorldManager {
     });
   }
 
-  private pushChat(from: 'user' | 'agent', text: string): void {
-    this.chatLog.push({ from, text });
-    if (this.chatLog.length > CHAT_LOG_MAX) this.chatLog.splice(0, this.chatLog.length - CHAT_LOG_MAX);
+  private pushChat(from: 'user' | 'agent' | 'world', text: string): void {
+    this.chatLog.push({ from, text, ts: new Date(this.now()).toISOString() });
+    if (this.chatLog.length > WORLD_LOG_MAX) this.chatLog.splice(0, this.chatLog.length - WORLD_LOG_MAX);
+    this.persist();
   }
 }

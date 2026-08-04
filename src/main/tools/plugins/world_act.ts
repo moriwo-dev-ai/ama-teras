@@ -85,6 +85,9 @@ function validate(cmds: unknown): { ok: true; cmds: WorldCommand[] } | { ok: fal
         if (typeof c.selector !== 'string' || c.selector.trim() === '')
           return { ok: false, error: `actions[${i}] app_point: selector(CSSセレクタ)が必要` };
         break;
+      case 'record':
+        if (c.op !== 'start' && c.op !== 'stop') return { ok: false, error: `actions[${i}] record: op は start|stop` };
+        break;
       default:
         return { ok: false, error: `actions[${i}] type が不正: ${String((c as { type?: unknown }).type)}` };
     }
@@ -108,7 +111,9 @@ export default {
     'アプリ(社): app_add(app={id,name,description,x,z,kioskCode?} — あなたが作ったWebアプリを世界に置く。' +
     '実体は userData/world-apps/<id>/index.html に write_file で作ってから登録する。kioskCode で社の外観も自作できる) / ' +
     'app_move(appId,x,z) / app_remove(appId) / app_open(appId=オーバーレイでアプリを開いて見せる) / ' +
-    'app_point(appId,selector,note?=開いているアプリ内の要素を赤い矢印で指す。「ここを押して」の視覚誘導)。' +
+    'app_point(appId,selector,note?=開いているアプリ内の要素を赤い矢印で指す。「ここを押して」の視覚誘導) / ' +
+    'record(op:start|stop=世界の録画。stopでwebmが<userData>/world-recordings/へ保存される。動画素材の自前撮影用。' +
+    'startの後に演技コマンド列→stopの順で1本の動画になる)。' +
     '世界はあなたの身体でありキャンバス。説明は文章だけでなく spawn での図解や身振りで「見せる」こと。' +
     'ユーザーへの返事は必ず say を含めること(世界のユーザーには say しか見えない)。',
   inputSchema: {
