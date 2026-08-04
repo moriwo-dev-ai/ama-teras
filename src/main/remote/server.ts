@@ -85,6 +85,8 @@ export interface RemoteServerDeps {
   auth: RemoteAuth;
   /** remote-ui のビルド出力(out/remote-ui)。無ければ静的配信は404 */
   staticDir: string;
+  /** M120: 世界アプリの配信ルート(userData/world-apps)。未指定なら /world-apps/* は404 */
+  worldAppsDir?: string;
   auditTail: (limit: number) => AuditEntry[];
   /** SSE keep-alive 間隔 ms(テスト用に注入可) */
   heartbeatMs?: number;
@@ -922,9 +924,19 @@ export class RemoteServer {
       throw new HttpError(400, 'bad path');
     }
     if (decoded.includes('\0')) throw new HttpError(400, 'bad path');
-    const relative = decoded === '/' ? 'index.html' : decoded.replace(/^\/+/, '');
+    let relative = decoded === '/' ? 'index.html' : decoded.replace(/^\/+/, '');
 
-    const root = resolve(this.deps.staticDir);
+    // M120: 世界アプリ(userData/world-apps)の配信。ディレクトリ直指定は index.html へ
+    let root = resolve(this.deps.staticDir);
+    if (relative.startsWith('world-apps/')) {
+      const appsDir = this.deps.worldAppsDir;
+      if (appsDir === undefined) throw new HttpError(404, 'not found');
+      root = resolve(appsDir);
+      relative = relative.slice('world-apps/'.length);
+      if (relative === '' ) throw new HttpError(404, 'not found');
+      if (relative.endsWith('/')) relative += 'index.html';
+      if (!relative.includes('/')) relative += '/index.html';
+    }
     const target = resolve(root, relative);
     // 解決後のパスが root 配下でなければ拒否('../' や '..%2F'、バックスラッシュ迂回を含む)
     if (target !== root && !target.startsWith(root + sep)) throw new HttpError(404, 'not found');

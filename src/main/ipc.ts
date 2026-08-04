@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, type WebContents } from 'electron';
 import { execFile, spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { IpcChannels } from '../shared/ipc';
@@ -487,6 +487,12 @@ export async function registerIpcHandlers(
   }
   // M117-B: 世界の常時実行キー(起動ごとに生成。隠しウィンドウのURLだけに載る)
   const worldExecutorKey = generateToken().token;
+  // M120: 世界アプリの実体置き場(エージェントがwrite_fileで書き、RemoteServerが配信する)
+  const worldAppsDir = join(app.getPath('userData'), 'world-apps');
+  try {
+    mkdirSync(worldAppsDir, { recursive: true });
+  } catch { /* 既存ならOK */ }
+  worldManager.setWorldAppsDir(worldAppsDir);
 
   const service: AgentService = new AgentService({
     bus,
@@ -1899,6 +1905,7 @@ export async function registerIpcHandlers(
       bus,
       auth: remoteAuth,
       staticDir: getRemoteUiDir(),
+      worldAppsDir,
       auditTail: (limit) => audit.tail(limit),
       usageSummary: () => usageMeter.summary(),
       // M115: 世界ページ→main の入口(+観戦モード初期表示+常時実行キー)

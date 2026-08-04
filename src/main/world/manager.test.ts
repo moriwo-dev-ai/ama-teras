@@ -141,4 +141,27 @@ describe('WorldManager', () => {
     mgr.onPageEvent({ kind: 'hello' });
     expect(pushed).toHaveLength(0);
   });
+
+  // ---- M120: アプリ(社)の正本 ----
+
+  it('app_add/app_move/app_remove が正本へ反映され、helloで復元される', async () => {
+    const now = { t: 0 };
+    const { mgr, pushed } = setup(now);
+    mgr.onPageEvent({ kind: 'hello' });
+    const p1 = mgr.act([{ type: 'app_add', app: { id: 'calc', name: '電卓', x: 3, z: 4 } }]);
+    mgr.onPageEvent({ kind: 'ack', seq: pushed[0]!.seq, ok: true });
+    await p1;
+    expect(mgr.listApps()).toEqual([{ id: 'calc', name: '電卓', x: 3, z: 4 }]);
+    // 人間のドラッグ(app_moved)も正本へ
+    expect(mgr.onPageEvent({ kind: 'app_moved', appId: 'calc', x: -2, z: 5 }).ok).toBe(true);
+    expect(mgr.listApps()[0]).toMatchObject({ x: -2, z: 5 });
+    // 復元バッチにapp_addが含まれる
+    const restore = mgr.restorePayload();
+    expect(restore?.cmds).toContainEqual({ type: 'app_add', app: expect.objectContaining({ id: 'calc' }) });
+    // remove
+    const p2 = mgr.act([{ type: 'app_remove', appId: 'calc' }]);
+    mgr.onPageEvent({ kind: 'ack', seq: pushed[1]!.seq, ok: true });
+    await p2;
+    expect(mgr.listApps()).toHaveLength(0);
+  });
 });

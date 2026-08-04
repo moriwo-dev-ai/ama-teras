@@ -1482,7 +1482,7 @@ export type EvolutionEvent =
  * 世界ページ(out/remote-ui/world.html)がこれを解釈して実行する。
  */
 export interface WorldCommand {
-  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera';
+  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_point';
   /** say: セリフ(吹き出し+チャットログ) */
   text?: string;
   /** motion: idle | jab | hook | kick | walk | sit */
@@ -1506,8 +1506,34 @@ export interface WorldCommand {
   bg?: string;
   /** spawn(sign/screen): Y軸回転(ラジアン) */
   ry?: number;
+  /** app_add: アプリ定義(app_move/app_removeはidとx/z/ryのみ使用) */
+  app?: WorldApp;
+  /** app_open/app_point: 対象アプリid。app_pointはselector(CSSセレクタ)とnote(補足)も使う */
+  appId?: string;
+  selector?: string;
+  note?: string;
   /** camera: 注視先 */
   target?: 'avatar' | 'overview' | 'object';
+}
+
+
+/**
+ * M120(P1): 世界に置かれたアプリ(社)。実体はAMA-terasが作ったWebアプリ/HTMLツールで、
+ * userData/world-apps/<id>/index.html を RemoteServer が /world-apps/<id>/ で配信する。
+ * 世界ではキオスク(外観はエージェントのcustomコード or 既定の祠)として表示され、
+ * ダブルタップで2Dオーバーレイ(iframe)として開く。
+ */
+export interface WorldApp {
+  id: string;
+  /** 表示名(キオスクの札とオーバーレイのタイトル) */
+  name: string;
+  /** 一言説明(シングルタップでエージェントが読む/観戦者に出す) */
+  description?: string;
+  x: number;
+  z: number;
+  ry?: number;
+  /** キオスク外観(THREEを受けObject3Dをreturnする関数本体)。省略時は既定の祠 */
+  kioskCode?: string;
 }
 
 /** main→世界ページ(SSE world:event)。seqはack照合用 */
@@ -1523,6 +1549,8 @@ export interface WorldStateSnapshot {
   avatar?: { x: number; z: number; motion: string };
   /** 世界に置かれているオブジェクト(spawn由来) */
   objects?: { id: string; shape: string; label?: string; x: number; z: number }[];
+  /** 世界に置かれているアプリ(正本のビュー) */
+  apps?: { id: string; name: string; x: number; z: number; open?: boolean }[];
   /** 直近の世界内チャット(新しい順ではなく古い順) */
   chat?: { from: 'user' | 'agent'; text: string }[];
   /** ページ側の自由記述(視点・接続端末数など) */
@@ -1534,4 +1562,5 @@ export type WorldPageEvent =
   | { kind: 'hello'; state?: WorldStateSnapshot }
   | { kind: 'state'; state: WorldStateSnapshot }
   | { kind: 'chat'; text: string }
-  | { kind: 'ack'; seq: number; ok: boolean; errors?: string[]; state?: WorldStateSnapshot };
+  | { kind: 'ack'; seq: number; ok: boolean; errors?: string[]; state?: WorldStateSnapshot }
+  | { kind: 'app_moved'; appId: string; x: number; z: number };

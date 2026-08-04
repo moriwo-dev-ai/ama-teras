@@ -127,6 +127,9 @@ export interface ToolContext {
       connected: boolean;
       state: import('../../shared/types').WorldStateSnapshot | null;
       chat: { from: string; text: string }[];
+      apps?: import('../../shared/types').WorldApp[];
+      howToSee?: string;
+      howToApps?: string;
     };
     act(cmds: import('../../shared/types').WorldCommand[]): Promise<{ ok: boolean; detail: string }>;
   };

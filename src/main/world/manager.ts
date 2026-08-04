@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import type { WorldCommand, WorldPageEvent, WorldPushPayload, WorldStateSnapshot } from '../../shared/types';
+import type { WorldApp, WorldCommand, WorldPageEvent, WorldPushPayload, WorldStateSnapshot } from '../../shared/types';
 import type { EventBus } from '../core/events';
 
 /**
@@ -40,12 +40,20 @@ export class WorldManager {
    * 挿入順を保つ Map = 建てられた順に復元される
    */
   private readonly objects = new Map<string, WorldCommand>();
+  /** M120: 世界に置かれたアプリ(社)の正本 */
+  private readonly apps = new Map<string, WorldApp>();
   private persistPath: string | null = null;
   /** M116-B: エージェントが世界を「見る」ための観戦URL(ipc.tsがポートを知っているので注入) */
   private spectateUrl: string | null = null;
+  /** M120: 世界アプリの実体ディレクトリ(userData/world-apps)。howToAppsの案内に使う */
+  private worldAppsDir: string | null = null;
 
   setSpectateUrl(url: string): void {
     this.spectateUrl = url;
+  }
+
+  setWorldAppsDir(dir: string): void {
+    this.worldAppsDir = dir;
   }
 
   constructor(
@@ -60,9 +68,12 @@ export class WorldManager {
     try {
       // 実行時 import を避けるため require 相当は使わず、node:fs は静的 import(下)を使う
       const raw = readFileSync(path, 'utf8');
-      const data = JSON.parse(raw) as { objects?: WorldCommand[] };
+      const data = JSON.parse(raw) as { objects?: WorldCommand[]; apps?: WorldApp[] };
       for (const c of data.objects ?? []) {
         if (c.type === 'spawn' && typeof c.id === 'string') this.objects.set(c.id, c);
+      }
+      for (const a of data.apps ?? []) {
+        if (typeof a.id === 'string') this.apps.set(a.id, a);
       }
     } catch {
       // 初回起動(ファイルなし)や破損は空の世界から始める。破損は上書き保存で自然回復する
@@ -72,7 +83,10 @@ export class WorldManager {
   private persist(): void {
     if (this.persistPath === null) return;
     try {
-      writeFileSync(this.persistPath, JSON.stringify({ objects: [...this.objects.values()] }, null, 1));
+      writeFileSync(
+        this.persistPath,
+        JSON.stringify({ objects: [...this.objects.values()], apps: [...this.apps.values()] }, null, 1),
+      );
     } catch (err) {
       console.error('[world] 正本の保存に失敗:', err);
     }
@@ -88,9 +102,37 @@ export class WorldManager {
         changed = true;
       } else if (c.type === 'remove' && typeof c.id === 'string') {
         if (this.objects.delete(c.id)) changed = true;
+      } else if (c.type === 'app_add' && c.app !== undefined) {
+        this.apps.set(c.app.id, c.app);
+        changed = true;
+      } else if (c.type === 'app_move' && typeof c.appId === 'string') {
+        const app = this.apps.get(c.appId);
+        if (app !== undefined) {
+          if (typeof c.x === 'number') app.x = c.x;
+          if (typeof c.z === 'number') app.z = c.z;
+          if (typeof c.ry === 'number') app.ry = c.ry;
+          changed = true;
+        }
+      } else if (c.type === 'app_remove' && typeof c.appId === 'string') {
+        if (this.apps.delete(c.appId)) changed = true;
       }
     }
     if (changed) this.persist();
+  }
+
+  /** M120: 登録済みアプリ一覧(world_observe と RemoteServer 静的配信の妥当性チェックに使う) */
+  listApps(): WorldApp[] {
+    return [...this.apps.values()];
+  }
+
+  /** M120: ページからの app_move(人間のドラッグ)を正本に反映する */
+  moveApp(appId: string, x: number, z: number): boolean {
+    const app = this.apps.get(appId);
+    if (app === undefined) return false;
+    app.x = x;
+    app.z = z;
+    this.persist();
+    return true;
   }
 
   /** 世界内チャット到着時の処理(ipc.ts が service.chatSend へ橋渡しする)を注入 */
@@ -122,6 +164,11 @@ export class WorldManager {
         this.chatHandler?.(ev.text);
         return { ok: true };
       }
+      case 'app_moved': {
+        // M120: 人間がドラッグでアプリを動かした(ページ→正本)
+        if (typeof ev.appId !== 'string' || typeof ev.x !== 'number' || typeof ev.z !== 'number') return { ok: false };
+        return { ok: this.moveApp(ev.appId, ev.x, ev.z) };
+      }
       case 'ack': {
         if (ev.state) this.state = ev.state;
         const pending = this.pendingAcks.get(ev.seq);
@@ -139,8 +186,10 @@ export class WorldManager {
 
   /** M115-4/5: 世界の正本を復元バッチとして払い出す(hello時と観戦モード初期表示に使う) */
   restorePayload(): WorldPushPayload | null {
-    if (this.objects.size === 0) return null;
-    return { seq: ++this.seq, cmds: [...this.objects.values()], quiet: true };
+    const cmds: WorldCommand[] = [...this.objects.values()];
+    for (const app of this.apps.values()) cmds.push({ type: 'app_add', app });
+    if (cmds.length === 0) return null;
+    return { seq: ++this.seq, cmds, quiet: true };
   }
 
   /** world_observe ツールが返す内容 */
@@ -148,12 +197,15 @@ export class WorldManager {
     connected: boolean;
     state: WorldStateSnapshot | null;
     chat: { from: string; text: string }[];
+    apps?: WorldApp[];
     howToSee?: string;
+    howToApps?: string;
   } {
     return {
       connected: this.isConnected(),
       state: this.state,
       chat: [...this.chatLog],
+      apps: this.listApps(),
       ...(this.spectateUrl !== null
         ? {
             howToSee:
@@ -163,6 +215,11 @@ export class WorldManager {
               '&cam=sidex(側面立面図: z/y) を付けて選ぶ。図面系は1mグリッド+ID札付き。' +
               '実寸は state.objects の w/h/d、高さ方向は bottom(接地なら0)と top(最上端)。' +
               '水平のズレは top で、高さのズレは side/sidex で必ず測ってから直すこと',
+            howToApps:
+              `アプリを世界に置く手順: ①write_file で ${this.worldAppsDir ?? '<userData>/world-apps'}/<id>/index.html に` +
+              'Webアプリを書く(単一HTML推奨) ②world_act app_add で登録。' +
+              'ユーザーがダブルタップ(またはあなたが app_open)するとオーバーレイで開く。' +
+              'app_point(appId, selector)で開いた画面の要素を赤矢印で指せる=「ここを押して」の視覚誘導',
           }
         : {}),
     };

@@ -31,6 +31,20 @@
     justify-content: center; text-align: center; color: #5a6b9e; font-size: 14px; line-height: 2; padding: 20px; }
   #home { position: fixed; top: 6px; left: 10px; z-index: 31; border: none; background: #fff; color: #5a6b9e;
     font-size: 15px; padding: 5px 12px; border-radius: 999px; box-shadow: 0 2px 12px rgba(90,123,216,.25); }
+  /* M120: アプリオーバーレイ(2Dで使う。3Dは見つける場所) */
+  #appov { position: fixed; inset: 0; background: rgba(40,48,80,.45); z-index: 50; display: none; }
+  #appov.on { display: flex; flex-direction: column; }
+  #appbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
+  #apptitle { color: #fff; font-size: 16px; font-weight: 700; text-shadow: 0 1px 6px rgba(0,0,0,.4); flex: 1; }
+  #appclose { border: none; background: #fff; color: #5a6b9e; font-size: 15px; padding: 7px 16px; border-radius: 999px; }
+  #appframe { flex: 1; border: none; margin: 0 12px 12px; border-radius: 14px; background: #fff;
+    box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+  #apppointer { position: fixed; z-index: 60; display: none; pointer-events: none; transform: translate(-50%, -100%);
+    filter: drop-shadow(0 3px 8px rgba(0,0,0,.35)); text-align: center; }
+  #apppointer .arrow { font-size: 44px; animation: bounce 0.8s infinite alternate; }
+  #apppointer .pnote { background: #ff4d5e; color: #fff; font-size: 13px; font-weight: 700; padding: 5px 12px;
+    border-radius: 999px; margin-bottom: 2px; }
+  @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(10px); } }
 </style>
 </head>
 <body>
@@ -43,6 +57,11 @@
   <button id="send">送る</button>
 </div>
 <div class="bub" id="bub"></div>
+<div id="appov">
+  <div id="appbar"><span id="apptitle"></span><button id="appclose">× 閉じる</button></div>
+  <iframe id="appframe" src="about:blank"></iframe>
+</div>
+<div id="apppointer"><div class="pnote" id="appnote">ここ!</div><div class="arrow">👇</div></div>
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -311,6 +330,85 @@ function spawnObject(c, quiet = false) {
   return id;
 }
 
+// ================= M120: アプリ(社)=見つけるのは3D・使うのは2Dオーバーレイ =================
+const worldApps = new Map(); // id -> {def, mesh}
+const appov = document.getElementById('appov');
+const appframe = document.getElementById('appframe');
+const apptitle = document.getElementById('apptitle');
+const apppointer = document.getElementById('apppointer');
+let openAppId = null;
+function defaultKiosk(name) {
+  // 既定の社: 台座+鳥居風フレーム+名前札
+  const g = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.15, 0.25, 24), new THREE.MeshToonMaterial({ color: 0xe8e0d0 }));
+  base.position.y = 0.125; g.add(base);
+  for (const sx of [-0.62, 0.62]) {
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 1.7, 10), new THREE.MeshToonMaterial({ color: 0xb03a2e }));
+    pillar.position.set(sx, 1.1, 0); g.add(pillar);
+  }
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.14, 0.2), new THREE.MeshToonMaterial({ color: 0xb03a2e }));
+  beam.position.y = 2.0; g.add(beam);
+  const beam2 = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.1, 0.16), new THREE.MeshToonMaterial({ color: 0xb03a2e }));
+  beam2.position.y = 1.72; g.add(beam2);
+  const plate = makeSign(name, '#b03a2e');
+  plate.scale.setScalar(0.62);
+  plate.position.set(0, 0.45, 0.28);
+  g.add(plate);
+  return g;
+}
+function upsertApp(def, quiet) {
+  removeAppMesh(def.id);
+  let mesh;
+  try {
+    mesh = def.kioskCode ? buildObject({ code: def.kioskCode }) : defaultKiosk(def.name);
+  } catch (e) {
+    console.warn('[world] kioskCode失敗→既定の社で表示:', e);
+    mesh = defaultKiosk(def.name);
+  }
+  const grp = new THREE.Group();
+  grp.add(mesh);
+  grp.position.set(def.x, 0, def.z);
+  if (typeof def.ry === 'number') grp.rotation.y = def.ry;
+  grp.userData.appId = def.id;
+  scene.add(grp);
+  worldApps.set(def.id, { def, mesh: grp });
+  if (!quiet) chime([392, 523, 659]);
+}
+function removeAppMesh(id) {
+  const rec = worldApps.get(id);
+  if (rec) { scene.remove(rec.mesh); worldApps.delete(id); }
+}
+function openApp(id) {
+  const rec = worldApps.get(id);
+  if (!rec) throw new Error(`app_open: id=${id} は存在しない`);
+  apptitle.textContent = rec.def.name;
+  appframe.src = `/world-apps/${encodeURIComponent(id)}/`;
+  appov.classList.add('on');
+  openAppId = id;
+}
+function closeApp() {
+  appov.classList.remove('on');
+  appframe.src = 'about:blank';
+  apppointer.style.display = 'none';
+  openAppId = null;
+}
+document.getElementById('appclose').addEventListener('click', closeApp);
+/** app_point: 開いているアプリ内の要素を赤矢印で指す(同一オリジンなのでDOMに触れる) */
+function pointInApp(selector, noteText) {
+  if (openAppId === null) throw new Error('app_point: アプリが開いていない(先に app_open)');
+  const doc = appframe.contentDocument;
+  const el = doc?.querySelector(selector);
+  if (!el) throw new Error(`app_point: selector が見つからない: ${selector}`);
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  const r = el.getBoundingClientRect();
+  const fr = appframe.getBoundingClientRect();
+  document.getElementById('appnote').textContent = noteText ?? 'ここ!';
+  apppointer.style.left = (fr.left + r.left + r.width / 2) + 'px';
+  apppointer.style.top = (fr.top + r.top - 6) + 'px';
+  apppointer.style.display = 'block';
+  setTimeout(() => { apppointer.style.display = 'none'; }, 8000);
+}
+
 // ================= チャットUI・吹き出し・効果音 =================
 const chatlog = document.getElementById('chatlog');
 const bub = document.getElementById('bub');
@@ -374,6 +472,9 @@ function snapshot() {
         bottom: +_box.min.y.toFixed(1), top: +_box.max.y.toFixed(1),
       };
     }),
+    apps: [...worldApps.values()].map((r) => ({
+      id: r.def.id, name: r.def.name, x: r.def.x, z: r.def.z, ...(openAppId === r.def.id ? { open: true } : {}),
+    })),
     note: `viewers:1 viewport:${innerWidth}x${innerHeight}`,
   };
 }
@@ -504,6 +605,18 @@ async function runCommand(c, quiet = false) {
       else if (avatar) camFocusTo(avatar.scene.position.clone().add(new THREE.Vector3(0, 1.1, 0)));
       return;
     }
+    case 'app_add': upsertApp(c.app, quiet); if (!quiet) camFocusTo(new THREE.Vector3(c.app.x, 1.2, c.app.z)); return;
+    case 'app_move': {
+      const rec = worldApps.get(c.appId);
+      if (!rec) throw new Error(`app_move: id=${c.appId} は存在しない`);
+      rec.def.x = c.x; rec.def.z = c.z;
+      rec.mesh.position.set(c.x, 0, c.z);
+      if (typeof c.ry === 'number') { rec.def.ry = c.ry; rec.mesh.rotation.y = c.ry; }
+      return;
+    }
+    case 'app_remove': removeAppMesh(c.appId); if (openAppId === c.appId) closeApp(); return;
+    case 'app_open': openApp(c.appId); await sleep(600); return;
+    case 'app_point': pointInApp(c.selector, c.note); await sleep(800); return;
     default: throw new Error(`未知のコマンド: ${c.type}`);
   }
 }
@@ -556,6 +669,85 @@ if (TOKEN || SPECTATE || EXECUTOR) {
   connect();
   if (!SPECTATE) setInterval(() => { void post({ kind: 'state', state: snapshot() }); }, 10_000);
 }
+
+// ================= M120: 社のタップ/長押しドラッグ =================
+const _ray = new THREE.Raycaster();
+const _ndc = new THREE.Vector2();
+const _groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+function kioskAt(clientX, clientY) {
+  _ndc.set((clientX / innerWidth) * 2 - 1, -(clientY / innerHeight) * 2 + 1);
+  _ray.setFromCamera(_ndc, camera);
+  for (const rec of worldApps.values()) {
+    if (_ray.intersectObject(rec.mesh, true).length > 0) return rec;
+  }
+  return null;
+}
+let tapStart = null; // {x,y,t,kiosk}
+let pendingFocus = null;
+let lastTap = { t: 0, id: null };
+let dragging = null; // {rec}
+let holdTimer = null;
+addEventListener('pointerdown', (e) => {
+  if (e.target.closest('#chatbar') || e.target.closest('#chatlog') || e.target.closest('#appov')) return;
+  const rec = kioskAt(e.clientX, e.clientY);
+  tapStart = { x: e.clientX, y: e.clientY, t: performance.now(), kiosk: rec };
+  if (rec && !SPECTATE) {
+    holdTimer = setTimeout(() => {
+      // 長押し=移動モード(カメラを止めて地面に沿ってドラッグ)
+      dragging = { rec };
+      controls.enabled = false;
+      chime([330, 330]);
+    }, 450);
+  }
+});
+addEventListener('pointermove', (e) => {
+  if (tapStart && Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y) > 12 && holdTimer) {
+    clearTimeout(holdTimer); holdTimer = null; // 動いたら長押し取り消し(カメラ操作を優先)
+  }
+  if (dragging) {
+    _ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+    _ray.setFromCamera(_ndc, camera);
+    const hit = new THREE.Vector3();
+    if (_ray.ray.intersectPlane(_groundPlane, hit)) {
+      const r = Math.hypot(hit.x, hit.z);
+      if (r > 18) { hit.multiplyScalar(18 / r); }
+      dragging.rec.mesh.position.set(hit.x, 0, hit.z);
+    }
+  }
+});
+addEventListener('pointerup', (e) => {
+  if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+  if (dragging) {
+    const p = dragging.rec.mesh.position;
+    dragging.rec.def.x = +p.x.toFixed(2); dragging.rec.def.z = +p.z.toFixed(2);
+    void post({ kind: 'app_moved', appId: dragging.rec.def.id, x: dragging.rec.def.x, z: dragging.rec.def.z });
+    dragging = null;
+    controls.enabled = true;
+    tapStart = null;
+    return;
+  }
+  if (!tapStart) return;
+  const isTap = performance.now() - tapStart.t < 350 && Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y) < 12;
+  const rec = tapStart.kiosk;
+  tapStart = null;
+  if (!isTap || !rec) return;
+  const now = performance.now();
+  if (lastTap.id === rec.def.id && now - lastTap.t < 450) {
+    // ダブルタップ=起動(3Dで見つけて2Dで使う)
+    lastTap = { t: 0, id: null };
+    if (pendingFocus) { clearTimeout(pendingFocus); pendingFocus = null; }
+    try { openApp(rec.def.id); } catch (err) { addMsg('sys', String(err?.message ?? err)); }
+    return;
+  }
+  lastTap = { t: now, id: rec.def.id };
+  // シングルタップ=名札。カメラ寄せは2タップ目の照準を狂わせないよう遅延実行
+  addMsg('sys', `🏛 ${rec.def.name}${rec.def.description ? ' — ' + rec.def.description : ''}(ダブルタップで開く・長押しで移動)`);
+  if (pendingFocus) clearTimeout(pendingFocus);
+  pendingFocus = setTimeout(() => {
+    pendingFocus = null;
+    camFocusTo(rec.mesh.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
+  }, 500);
+});
 
 // ================= カメラ(OrbitControls: 1本指=回転/ピンチ=ズーム/2本指=パン) =================
 const controls = new OrbitControls(camera, renderer.domElement);
