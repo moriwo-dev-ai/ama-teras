@@ -54,7 +54,7 @@ describe('screenshot × 動的承認(M14-2)', () => {
     expect(r.images).toHaveLength(1);
     expect(requests).toHaveLength(0);
     expect(audits).toHaveLength(0);
-    expect(capture).toHaveBeenCalledWith('http://localhost:5173/', undefined, undefined);
+    expect(capture).toHaveBeenCalledWith('http://localhost:5173/', undefined, undefined, undefined);
   });
 
   it('外部URLは autoApprove 全ONでも毎回承認+audit記録(approval/result)', async () => {
