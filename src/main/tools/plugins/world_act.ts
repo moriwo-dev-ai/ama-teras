@@ -7,7 +7,7 @@ import type { ToolContext, ToolPlugin, ToolResult } from '../types';
  * 返答は文章だけでなく「世界で見せる」こと(say + spawn での図解など)。
  */
 
-const MOTIONS = ['idle', 'guard', 'jab', 'hook', 'kick', 'walk', 'sit'] as const;
+const MOTIONS = ['idle', 'guard', 'jab', 'hook', 'kick', 'walk', 'sit', 'backflip', 'flykick', 'run', 'wave', 'dance', 'cheer'] as const;
 const SHAPES = ['box', 'sphere', 'cylinder', 'cone', 'torus', 'sign', 'screen', 'custom'] as const;
 const MAX_CODE_CHARS = 20_000;
 const CAMERA_TARGETS = ['avatar', 'overview', 'object'] as const;
@@ -113,7 +113,8 @@ export default {
   name: 'world_act',
   description:
     '「世界」(ユーザーと共有する3D空間)で行動する。actions にコマンド列を渡すと世界内のあなたのアバターが順に実行する。' +
-    'type: say(セリフ。世界チャットにも残る) / motion(idle=待機 guard=戦闘構え jab|hook|kick|walk|sit) / ' +
+    'type: say(セリフ。世界チャットにも残る) / motion(idle=待機 guard=戦闘構え jab|hook|kick|walk|sit、' +
+    '派手枠=backflip|flykick|wave|dance|cheer|run — FBX未配置だとエラーになるので失敗したら普通の技で代替) / ' +
     'move_to(x,z へ歩く。広場は半径18) / spawn(box|sphere|cylinder|cone|torus|sign|screen|custom を x,z に生成。' +
     'custom は code に「THREE を受け取り THREE.Object3D を return する関数の本体」を書く自由造形 — ' +
     '家・木・乗り物など複合形状はプリミティブを並べず custom で作ること(Group に Mesh を組み合わせ、原点=接地面の中心、実寸m、MeshToonMaterial推奨。fetch/document等は禁止)。' +
@@ -164,7 +165,7 @@ export default {
             selector: { type: 'string', description: 'app_point/app_click/app_type/app_read: 対象要素のCSSセレクタ' },
             note: { type: 'string', description: 'app_point: 矢印に添える一言' },
             text: { type: 'string', description: 'say: セリフ / app_type: 入力する文字列' },
-            name: { type: 'string', description: 'motion: idle|guard|jab|hook|kick|walk|sit' },
+            name: { type: 'string', description: 'motion: idle|guard|jab|hook|kick|walk|sit|backflip|flykick|run|wave|dance|cheer' },
             x: { type: 'number', description: 'move_to/spawn: X座標' },
             z: { type: 'number', description: 'move_to/spawn: Z座標' },
             y: { type: 'number', description: 'spawn/app_move: 設置高さ(省略時は接地・0〜30m)' },

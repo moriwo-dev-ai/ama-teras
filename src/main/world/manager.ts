@@ -210,7 +210,7 @@ export class WorldManager {
       case 'app_moved': {
         // M120: 人間がドラッグでアプリを動かした(ページ→正本)
         if (typeof ev.appId !== 'string' || typeof ev.x !== 'number' || typeof ev.z !== 'number') return { ok: false };
-        return { ok: this.moveApp(ev.appId, ev.x, ev.z) };
+        return { ok: this.moveApp(ev.appId, ev.x, ev.z, ev.y, ev.ry) };
       }
       case 'app_state': {
         // M129b: アプリのpublish状態はmainを経由して全ページへ配る。

@@ -12,14 +12,27 @@
     box-shadow: 0 2px 12px rgba(90,123,216,.25); white-space: nowrap; }
   #badge .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ccc; margin-right: 6px; }
   #badge.on .dot { background: #4ade80; }
-  /* M126: チャットはアプリのオーバーレイ(z50)より手前=アプリを開いたままエージェントと話せる */
+  /* M126: チャットはアプリのオーバーレイ(z50)より手前=アプリを開いたままエージェントと話せる。
+     M130: 吹き出しは半透明・アプリ表示中は直近3件だけ薄く出す(スマホで画面が隠れる問題) */
   #chatlog { position: fixed; left: 10px; bottom: 74px; max-width: min(78vw, 420px); max-height: 38vh;
     overflow-y: auto; z-index: 55; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+  body.app-open #chatlog { max-height: 24vh; }
+  body.app-open #chatlog .msg { opacity: .6; }
+  body.app-open #chatlog .msg:not(:nth-last-child(-n+3)) { display: none; }
   .msg { padding: 7px 13px; border-radius: 16px; font-size: 13px; line-height: 1.5; width: fit-content;
     max-width: 100%; box-shadow: 0 2px 10px rgba(90,123,216,.18); word-break: break-word; }
-  .msg.user { background: #eef3ff; color: #34406b; align-self: flex-end; }
-  .msg.agent { background: #fff; color: #445; }
+  .msg.user { background: rgba(238,243,255,.85); color: #34406b; align-self: flex-end; }
+  .msg.agent { background: rgba(255,255,255,.85); color: #445; }
   .msg.sys { background: transparent; box-shadow: none; color: #99a; font-size: 11px; }
+  /* M130: 社の配置コントロール(シングルタップで表示。回転・高さを1タップずつ) */
+  #kioskctl { position: fixed; left: 50%; transform: translateX(-50%); bottom: 70px; z-index: 56;
+    display: none; gap: 6px; align-items: center; background: rgba(255,255,255,.94); border-radius: 999px;
+    padding: 6px 10px; box-shadow: 0 6px 24px rgba(60,80,160,.25); }
+  #kioskctl.on { display: flex; }
+  #kioskctl button { border: none; background: #f0f2fa; color: #34406b; font-size: 16px; padding: 8px 13px; border-radius: 999px; }
+  #kioskctl button:active { background: #dfe6ff; }
+  #kioskctl .kname { font-size: 12px; color: #5a6b9e; font-weight: 700; padding: 0 6px; max-width: 90px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #chatbar { position: fixed; left: 10px; right: 10px; bottom: 12px; display: flex; gap: 8px; z-index: 55; }
   #chatin { flex: 1; border: none; border-radius: 22px; padding: 12px 18px; font-size: 15px; background: #fff;
     box-shadow: 0 4px 18px rgba(90,123,216,.25); outline: none; color: #334; }
@@ -88,6 +101,7 @@
   <div id="appframes"></div>
 </div>
 <div id="apppointer"><div class="pnote" id="appnote">ここ!</div><div class="arrow">👇</div></div>
+<div id="kioskctl"><span class="kname"></span><button data-k="rotl">↺</button><button data-k="rotr">↻</button><button data-k="up">▲</button><button data-k="down">▼</button><button data-k="done">✓</button></div>
 <div id="work"><div id="workhead"><span class="gear">⚙️</span><span id="worklabel"></span></div><div id="worktail"></div></div>
 <div id="livehud">
   <span id="livebadge"><span class="reddot"></span>LIVE — コメントで世界が育ちます</span>
@@ -227,7 +241,7 @@ async function loadMixamo(url, vrm) {
 let avatar = null, mixer = null;
 const actions = {};
 let current = 'idle';
-const ONESHOT = new Set(['jab', 'hook', 'kick']);
+const ONESHOT = new Set(['jab', 'hook', 'kick', 'backflip', 'flykick', 'wave', 'cheer']);
 function fadeTo(name) {
   if (!mixer || !actions[name] || current === name) return;
   actions[name].reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.18).play();
@@ -244,7 +258,9 @@ try {
   mixer = new THREE.AnimationMixer(avatar.scene);
   // モーションはローカル資産(assets-lab)。無くても世界は動く(移動・spawn・sayは生きる)
   // idle は落ち着いた呼吸(2026-08-03 ユーザー要望)。旧Fighting Idleは guard として残す
-  const MOTIONS = { idle: 'Breathing Idle', guard: 'Fighting Idle', jab: 'Lead Jab', hook: 'Hook Punch', kick: 'Roundhouse Kick', walk: 'Walking', sit: 'Sitting Idle' };
+  // M130: 後半6本は派手モーション枠。assets-lab/ に同名FBXを置くだけで有効になる(未配置なら警告のみ)
+  const MOTIONS = { idle: 'Breathing Idle', guard: 'Fighting Idle', jab: 'Lead Jab', hook: 'Hook Punch', kick: 'Roundhouse Kick', walk: 'Walking', sit: 'Sitting Idle',
+    backflip: 'Back Flip', flykick: 'Flying Kick', run: 'Fast Run', wave: 'Waving', dance: 'Samba Dancing', cheer: 'Victory' };
   await Promise.all(Object.entries(MOTIONS).map(async ([k, f]) => {
     try {
       actions[k] = mixer.clipAction(await loadMixamo(`./assets-lab/${f}.fbx`, avatar));
@@ -462,12 +478,14 @@ function openApp(id, byUser = false) {
   for (const [fid, fr] of appFramePool) fr.classList.toggle('active', fid === id);
   apptitle.textContent = rec.def.name;
   appov.classList.add('on');
+  document.body.classList.add('app-open'); // M130: ログを直近3件・薄表示に
   openAppId = id;
   if (!SPECTATE) void post({ kind: 'app_view', appId: id, byUser });
 }
 /** 離れる: 表示だけ畳む。アプリは裏で生きたまま(入力・状態は保持) */
 function leaveApp() {
   appov.classList.remove('on');
+  document.body.classList.remove('app-open');
   apppointer.style.display = 'none';
   if (openAppId !== null && !SPECTATE) void post({ kind: 'app_view', appId: null });
   openAppId = null;
@@ -510,7 +528,8 @@ async function appOp(op, selector, text) {
   throw lastErr;
 }
 // E2E/デバッグ用フック(moduleスコープの関数をCDPから叩けるように)
-window.__world = { openApp, closeApp, leaveApp, appOp, appStates, worldApps };
+// 前半で定義済みのQAフック(avatar/actions等のgetter)を消さないようマージする
+Object.assign(window.__world ?? (window.__world = {}), { openApp, closeApp, leaveApp, appOp, appStates, worldApps });
 /** app_point: 開いているアプリ内の要素を赤矢印で指す */
 async function pointInApp(selector, noteText) {
   const res = await appOp('rect', selector);
@@ -752,15 +771,20 @@ async function runCommand(c, quiet = false) {
       if (!quiet) await sleep(Math.min(2200, 500 + (c.text?.length ?? 0) * 35));
       return;
     case 'motion':
+      if (!actions[c.name]) throw new Error(`motion: ${c.name} のFBXが未配置(assets-labに追加すると使える)`);
       fadeTo(c.name);
       if (ONESHOT.has(c.name)) await waitMotionEnd(c.name);
       return;
-    case 'move_to':
+    case 'move_to': {
       if (!avatar) throw new Error('avatar未ロード');
-      fadeTo('walk');
-      await new Promise((resolve) => { moveTarget = { x: c.x, z: c.z, resolve }; });
+      // M130: 遠距離はrunモーション(FBXがあれば)で駆ける=キビキビ
+      const distM = Math.hypot(c.x - avatar.scene.position.x, c.z - avatar.scene.position.z);
+      const useRun = distM > 5 && actions.run;
+      fadeTo(useRun ? 'run' : 'walk');
+      await new Promise((resolve) => { moveTarget = { x: c.x, z: c.z, resolve, speed: useRun ? 3.2 : 1.3 }; });
       fadeTo('idle');
       return;
+    }
     case 'spawn': {
       const id = spawnObject(c, quiet);
       if (!quiet) camFocusTo(objects.get(id).mesh.position.clone().add(new THREE.Vector3(0, 0.8, 0)));
@@ -952,7 +976,7 @@ let lastTap = { t: 0, id: null };
 let dragging = null; // {rec}
 let holdTimer = null;
 addEventListener('pointerdown', (e) => {
-  if (e.target.closest('#chatbar') || e.target.closest('#chatlog') || e.target.closest('#appov')) return;
+  if (e.target.closest('#chatbar') || e.target.closest('#chatlog') || e.target.closest('#appov') || e.target.closest('#kioskctl')) return;
   const rec = kioskAt(e.clientX, e.clientY);
   tapStart = { x: e.clientX, y: e.clientY, t: performance.now(), kiosk: rec };
   if (rec && !SPECTATE) {
@@ -1005,13 +1029,44 @@ addEventListener('pointerup', (e) => {
     return;
   }
   lastTap = { t: now, id: rec.def.id };
-  // シングルタップ=名札。カメラ寄せは2タップ目の照準を狂わせないよう遅延実行
+  // シングルタップ=名札+配置コントロール。カメラ寄せは2タップ目の照準を狂わせないよう遅延実行
   addMsg('sys', `🏛 ${rec.def.name}${rec.def.description ? ' — ' + rec.def.description : ''}(ダブルタップで開く・長押しで移動)`);
+  if (!SPECTATE) showKioskCtl(rec);
   if (pendingFocus) clearTimeout(pendingFocus);
   pendingFocus = setTimeout(() => {
     pendingFocus = null;
     camFocusTo(rec.mesh.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
   }, 500);
+});
+
+// ================= M130: 社の配置コントロール(向き・高さを1タップずつ) =================
+const kioskctl = document.getElementById('kioskctl');
+let ctlTarget = null;
+let ctlHideTimer = null;
+function showKioskCtl(rec) {
+  ctlTarget = rec;
+  kioskctl.querySelector('.kname').textContent = rec.def.name;
+  kioskctl.classList.add('on');
+  clearTimeout(ctlHideTimer);
+  ctlHideTimer = setTimeout(hideKioskCtl, 10_000);
+}
+function hideKioskCtl() {
+  kioskctl.classList.remove('on');
+  ctlTarget = null;
+}
+kioskctl.addEventListener('click', (e) => {
+  const k = e.target.closest('button')?.dataset.k;
+  if (!k || !ctlTarget) return;
+  if (k === 'done') { hideKioskCtl(); return; }
+  const d = ctlTarget.def;
+  if (k === 'rotl' || k === 'rotr') d.ry = (d.ry ?? 0) + (k === 'rotl' ? 1 : -1) * Math.PI / 8;
+  if (k === 'up') d.y = Math.min(30, (d.y ?? 0) + 0.5);
+  if (k === 'down') d.y = Math.max(0, (d.y ?? 0) - 0.5);
+  ctlTarget.mesh.position.y = d.y ?? 0;
+  ctlTarget.mesh.rotation.y = d.ry ?? 0;
+  clearTimeout(ctlHideTimer);
+  ctlHideTimer = setTimeout(hideKioskCtl, 10_000);
+  void post({ kind: 'app_moved', appId: d.id, x: d.x, z: d.z, y: d.y, ry: d.ry });
 });
 
 // ================= カメラ(OrbitControls: 1本指=回転/ピンチ=ズーム/2本指=パン) =================
@@ -1041,8 +1096,8 @@ renderer.setAnimationLoop(() => {
         const r = moveTarget.resolve; moveTarget = null; r();
       } else {
         dir.normalize();
-        // M127: 0.9→1.3m/s。キビキビ寄りに(これ以上は足が滑って見える)
-        pos.add(dir.clone().multiplyScalar(dt * 1.3));
+        // M127: 歩き1.3m/s(これ以上は足が滑る)。M130: runモーション時は3.2m/s
+        pos.add(dir.clone().multiplyScalar(dt * (moveTarget.speed ?? 1.3)));
         const yaw = Math.atan2(dir.x, dir.z);
         let dy = yaw - avatar.scene.rotation.y;
         while (dy > Math.PI) dy -= Math.PI * 2;
