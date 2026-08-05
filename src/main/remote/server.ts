@@ -975,10 +975,16 @@ export class RemoteServer {
   }
 }
 
-/** 世界アプリへ注入する操作ヘルパー。親(world.html)からの {amaWorldOp} を実行して結果を返す */
+/** 世界アプリへ注入する操作ヘルパー。親(world.html)からの {amaWorldOp} を実行して結果を返す。
+ * M129: window.amaWorld.publish(state) — アプリが自分の状態を世界へ発信し、社の3D(kioskCodeのtick第3引数)に反映できる */
 const WORLD_APP_HELPER = `
 <script>
 (function () {
+  window.amaWorld = {
+    publish: function (state) {
+      try { window.parent.postMessage({ amaWorldState: state }, '*'); } catch (e) {}
+    },
+  };
   window.addEventListener('message', function (ev) {
     var req = ev.data && ev.data.amaWorldOp;
     if (!req || typeof req.op !== 'string') return;

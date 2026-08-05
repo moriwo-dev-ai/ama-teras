@@ -435,6 +435,18 @@ function getAppFrame(id) {
 function activeAppFrame() {
   return openAppId !== null ? appFramePool.get(openAppId) ?? null : null;
 }
+// M129: アプリが amaWorld.publish(state) した内容。社のtick(dt,t,state)へ渡る=生きた社
+const appStates = new Map(); // id -> 最後に発信されたstate(アプリを閉じても保持・ページ再訪で消える)
+window.addEventListener('message', (ev) => {
+  const st = ev.data && ev.data.amaWorldState;
+  if (st === undefined) return;
+  for (const [id, f] of appFramePool) {
+    if (f.contentWindow === ev.source) {
+      try { if (JSON.stringify(st).length <= 8192) appStates.set(id, st); } catch {}
+      return;
+    }
+  }
+});
 function openApp(id, byUser = false) {
   const rec = worldApps.get(id);
   if (!rec) throw new Error(`app_open: id=${id} は存在しない`);
@@ -490,7 +502,7 @@ async function appOp(op, selector, text) {
   throw lastErr;
 }
 // E2E/デバッグ用フック(moduleスコープの関数をCDPから叩けるように)
-window.__world = { openApp, closeApp, leaveApp, appOp };
+window.__world = { openApp, closeApp, leaveApp, appOp, appStates };
 /** app_point: 開いているアプリ内の要素を赤矢印で指す */
 async function pointInApp(selector, noteText) {
   const res = await appOp('rect', selector);
@@ -1039,7 +1051,10 @@ renderer.setAnimationLoop(() => {
     if (o.tick) { try { o.tick(dt, tSec); } catch (e) { console.warn('[world] tick停止:', e); o.tick = null; } }
   }
   for (const rec of worldApps.values()) {
-    if (rec.tick) { try { rec.tick(dt, tSec); } catch (e) { console.warn('[world] kiosk tick停止:', e); rec.tick = null; } }
+    if (rec.tick) {
+      try { rec.tick(dt, tSec, appStates.get(rec.def.id)); }
+      catch (e) { console.warn('[world] kiosk tick停止:', e); rec.tick = null; }
+    }
   }
   // 図面モード: 正射投影(遠近の歪みゼロ=計測ができる)。top=平面図 / side・sidex=立面図
   if (ORTHO_MODE && orthoCam) {

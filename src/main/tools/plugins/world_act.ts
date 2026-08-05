@@ -126,6 +126,7 @@ export default {
     'アプリ(社): app_add(app={id,name,description,x,z,y?,ry?,kioskCode} — あなたが作ったWebアプリを世界に置く。' +
     '実体は userData/world-apps/<id>/index.html に write_file で作ってから登録する。' +
     'kioskCode は必ず書き、アプリの機能が一目で分かる3D造形にすること(電卓なら大きな電卓型・時計なら時計塔。名前看板は不要)。' +
+    'kioskCode の tick は (dt, t, state) — state はアプリJSが amaWorld.publish(state) で発信した最新値=アプリと連動する生きた社が作れる。' +
     'y で建物の2階などにも設置できる) / ' +
     'app_move(appId,x,z,y?,ry?) / app_remove(appId=社ごと撤去。HTMLファイルは残るのでapp_addで復元可) / ' +
     'app_open(appId=アバターが社まで歩いてからオーバーレイで開く。開いたまま別appIdをopenすると切替=前のアプリも裏で生きている) / ' +

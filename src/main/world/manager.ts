@@ -282,8 +282,11 @@ export class WorldManager {
               'app_click(selector)/app_type(selector,text)/app_read(selector)で開いたアプリを実際に操作・実演できる' +
               '(例: 電卓のボタンをclick→#dispをreadして答えをsayで報告)。' +
               'app_leave で表示だけ畳む(アプリは裏で生きたまま=入力や状態は保持)。app_open は別アプリへの切替' +
-              '(前のアプリも裏で生き続ける)。app_close(appId)で完全終了(状態destroy)。' +
-              'app_remove は社ごと世界から撤去(ただしHTMLファイルは残るので app_add で復元できる)',
+              '(前のアプリも生き続ける)。app_close(appId)で完全終了(状態destroy)。' +
+              'app_remove は社ごと世界から撤去(ただしHTMLファイルは残るので app_add で復元できる)。' +
+              '生きた社: アプリのJSから amaWorld.publish(state) を呼ぶと(注入済みAPI・引数は任意のJSON)、' +
+              '社の kioskCode の userData.tick = (dt, t, state) の第3引数に最新stateが届く。' +
+              '電卓の表示を社の3Dに映す等はこれで作る(文字はTHREEの7セグ風造形などで。documentは使えない)',
           }
         : {}),
     };
