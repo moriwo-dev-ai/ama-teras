@@ -1,5 +1,27 @@
 # PROGRESS
 
+## M125: 配信モード — YouTubeライブのコメントで世界が育つ(2026-08-06 未明)
+
+生配信戦略(コメント→建築お題→視聴者が「体験」→ローカル導線)の実装。**オーナー鍵
+(`userData/tsukuyomi/.owner`)必須の開発機専用**。ライブ有効化待ち24hを使いMVPを飛ばして
+危険予知1〜7フル実装:
+1. ライブ中はアプリiframeを `sandbox="allow-scripts"` 隔離(実行キー・localStorage到達不能)
+2. ツール許可リスト(world_observe/world_act/write_file/screenshot)+write_fileは
+   `userData/world-apps` 限定(writeAllowlistの絶対パス対応を追加)
+3. 配信用プロンプト枠(コメントは建築お題としてのみ解釈・著作権/不適切は拒否)+
+   機械フィルタ(URL/NGワード/120字超/1人90秒冷却/待ち10件/採用上限=予算既定30)
+4. liveGuard: remove/app_remove/record を WorldManager.act 冒頭で機械拒否+
+   配信開始時に world-state.json 自動バックアップ
+5. ライブ中は kioskCode(自作アプリのカスタム3D)無効=既定の祠のみ
+6. 稼働可視化のパスマスク(maskForLive)
+7. チャット取得=Innertube(キー不要)。LiveDirector が isIdle 時のみ1件ずつ dispatch
+
+UI: 運営タブ「🔴 配信モード」— URL/videoId貼って開始/停止のワンクリック。OBSにそのまま
+映る HUD(LIVEバッジ/いまのお題/募集中/待ち件数)は live_hud コマンドで world.html へ。
+副産物: userData書込ハード拒否が world-apps への howToApps 案内(M120)を無効化していた
+潜在バグを scope.ts 穴あけで修正。テスト15本(live 5 + 既存)緑・typecheck緑。
+残: 有効化後に限定公開テスト配信(Innertube実配信検証)→ルール文言→初回公開配信。
+
 ## M113: 一晩モード(設計 2026-07-30)
 
 **狙い(長期戦略・関門1)**: 無料枠APIの制限は「分/日あたりのトークン」であり総量ではない。
