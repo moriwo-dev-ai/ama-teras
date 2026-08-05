@@ -510,7 +510,7 @@ async function appOp(op, selector, text) {
   throw lastErr;
 }
 // E2E/デバッグ用フック(moduleスコープの関数をCDPから叩けるように)
-window.__world = { openApp, closeApp, leaveApp, appOp, appStates };
+window.__world = { openApp, closeApp, leaveApp, appOp, appStates, worldApps };
 /** app_point: 開いているアプリ内の要素を赤矢印で指す */
 async function pointInApp(selector, noteText) {
   const res = await appOp('rect', selector);
@@ -828,10 +828,14 @@ async function runCommand(c, quiet = false) {
     }
     case 'app_leave': leaveApp(); return;
     case 'app_close': closeApp(c.appId); return;
-    case 'app_state':
+    case 'app_state': {
       // M129b: main経由で配られたアプリ状態(自分発のエコーは同値上書きで無害)
       appStates.set(c.appId, c.appState);
+      // M129c: 新しいstateが来たらtickを蘇生(壊れたstateで止まっていた社が復帰できる)
+      const rec = worldApps.get(c.appId);
+      if (rec) rec.tickErrs = 0;
       return;
+    }
     case 'chat_restore':
       // M128: 再入場時に世界の記憶(直近チャット)を表示復元。restorePayload(quiet)専用。
       // helloは再接続のたびに走るので、二重表示しないよう洗い替えにする
@@ -1054,18 +1058,22 @@ renderer.setAnimationLoop(() => {
       bub.style.top = Math.max(40, (1 - (p.y + 1) / 2) * innerHeight - 64) + 'px';
     } else bub.style.opacity = '0';
   }
-  // オブジェクトのポップイン+M127: 動くオブジェクト(userData.tick)
+  // オブジェクトのポップイン+M127: 動くオブジェクト(userData.tick)。
+  // M129c: 例外1回で永久停止は厳しすぎた(不正なstate値1つで社の表示が凍結し、
+  // 正しい値が来ても直らない事故が実際に起きた)→10回まで許容+新stateで蘇生
   const tSec = performance.now() / 1000;
   for (const o of objects.values()) {
     const t = (performance.now() - o.born) / 400;
     if (t < 1) o.mesh.scale.setScalar(0.01 + 0.99 * (1 - Math.pow(1 - t, 3)));
     else o.mesh.scale.setScalar(1);
-    if (o.tick) { try { o.tick(dt, tSec); } catch (e) { console.warn('[world] tick停止:', e); o.tick = null; } }
+    if (o.tick && !(o.tickErrs >= 10)) {
+      try { o.tick(dt, tSec); } catch (e) { o.tickErrs = (o.tickErrs ?? 0) + 1; console.warn('[world] tickエラー:', e); }
+    }
   }
   for (const rec of worldApps.values()) {
-    if (rec.tick) {
+    if (rec.tick && !(rec.tickErrs >= 10)) {
       try { rec.tick(dt, tSec, appStates.get(rec.def.id)); }
-      catch (e) { console.warn('[world] kiosk tick停止:', e); rec.tick = null; }
+      catch (e) { rec.tickErrs = (rec.tickErrs ?? 0) + 1; console.warn('[world] kiosk tickエラー:', e); }
     }
   }
   // 図面モード: 正射投影(遠近の歪みゼロ=計測ができる)。top=平面図 / side・sidex=立面図
