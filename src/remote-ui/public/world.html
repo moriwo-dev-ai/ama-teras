@@ -808,6 +808,14 @@ async function runCommand(c, quiet = false) {
     }
     case 'app_leave': leaveApp(); return;
     case 'app_close': closeApp(c.appId); return;
+    case 'chat_restore':
+      // M128: 再入場時に世界の記憶(直近チャット)を表示復元。restorePayload(quiet)専用。
+      // helloは再接続のたびに走るので、二重表示しないよう洗い替えにする
+      chatlog.innerHTML = '';
+      for (const en of c.entries ?? []) {
+        addMsg(en.from === 'agent' ? 'agent' : en.from === 'user' ? 'user' : 'sys', en.text);
+      }
+      return;
     case 'app_point': await pointInApp(c.selector, c.note); await sleep(800); return;
     case 'app_click': await appOp('click', c.selector); await sleep(500); return;
     case 'app_type': await appOp('type', c.selector, c.text); await sleep(400); return;

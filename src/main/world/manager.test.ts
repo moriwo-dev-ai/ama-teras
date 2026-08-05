@@ -133,7 +133,11 @@ describe('WorldManager', () => {
     mgr2.onPageEvent({ kind: 'hello' });
     expect(restored).toHaveLength(1);
     expect(restored[0]!.quiet).toBe(true);
-    expect(restored[0]!.cmds).toEqual([{ type: 'spawn', id: 'tv', shape: 'box', x: 1, z: 2, color: '#111111' }]);
+    // M128: 復元バッチはオブジェクトに加えて直近チャット(chat_restore)を含む
+    const objCmds = restored[0]!.cmds.filter((c) => c.type !== 'chat_restore');
+    expect(objCmds).toEqual([{ type: 'spawn', id: 'tv', shape: 'box', x: 1, z: 2, color: '#111111' }]);
+    const chat = restored[0]!.cmds.find((c) => c.type === 'chat_restore');
+    expect(chat?.entries?.some((e) => e.from === 'agent' && e.text === '設置しました')).toBe(true);
   });
 
   it('正本が空なら hello で復元バッチを流さない', () => {

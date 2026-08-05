@@ -188,6 +188,8 @@ export class WorldManager {
     switch (ev.kind) {
       case 'hello': {
         if (ev.state) this.state = ev.state;
+        // M128: 新しいページでは何も開いていない=「開いてるアプリ」の記録を巻き戻す
+        this.openAppId = null;
         // M115-4: 再入場したページへ世界の正本を復元(quiet=効果音・カメラ演出なし)
         const restore = this.restorePayload();
         if (restore !== null) this.bus.publish('world:event', restore);
@@ -235,6 +237,10 @@ export class WorldManager {
   restorePayload(): WorldPushPayload | null {
     const cmds: WorldCommand[] = [...this.objects.values()];
     for (const app of this.apps.values()) cmds.push({ type: 'app_add', app });
+    // M128: チャットは世界の記憶=再入場でも直近分を見せる(会話の続きがすぐ分かる)
+    if (this.chatLog.length > 0) {
+      cmds.push({ type: 'chat_restore', entries: this.chatLog.slice(-12).map(({ from, text }) => ({ from, text })) });
+    }
     if (cmds.length === 0) return null;
     return { seq: ++this.seq, cmds, quiet: true };
   }

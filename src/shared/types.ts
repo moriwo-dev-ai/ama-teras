@@ -1482,7 +1482,7 @@ export type EvolutionEvent =
  * 世界ページ(out/remote-ui/world.html)がこれを解釈して実行する。
  */
 export interface WorldCommand {
-  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_leave' | 'app_close' | 'app_point' | 'app_click' | 'app_type' | 'app_read' | 'record' | 'live_hud';
+  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_leave' | 'app_close' | 'app_point' | 'chat_restore' | 'app_click' | 'app_type' | 'app_read' | 'record' | 'live_hud';
   /** say: セリフ(吹き出し+チャットログ) */
   text?: string;
   /** motion: idle | jab | hook | kick | walk | sit */
@@ -1515,6 +1515,8 @@ export interface WorldCommand {
   note?: string;
   /** record: 'start'|'stop'(実行係ページだけが録画する。stopでwebmが保存される) */
   op?: 'start' | 'stop';
+  /** M128 chat_restore: 再入場ページへの直近チャット復元(restorePayload専用・world_actからは使えない) */
+  entries?: { from: string; text: string }[];
   /** M125 live_hud: 配信オーバーレイの状態(ページは表示のみ・ackしない) */
   hud?: { live: boolean; topic: string | null; author: string | null; queued: number; adopted: number; budget: number; error: string | null };
   /** camera: 注視先 */
