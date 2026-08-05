@@ -51,6 +51,16 @@ export class WorldManager {
   private spectateUrl: string | null = null;
   /** M120: 世界アプリの実体ディレクトリ(userData/world-apps)。howToAppsの案内に使う */
   private worldAppsDir: string | null = null;
+  /** M125: 配信モードの機械ガード。ON中は削除系・録画コマンドを実行前に拒否する */
+  private liveGuard = false;
+
+  setLiveGuard(on: boolean): void {
+    this.liveGuard = on;
+  }
+
+  isLiveGuardOn(): boolean {
+    return this.liveGuard;
+  }
 
   setSpectateUrl(url: string): void {
     this.spectateUrl = url;
@@ -250,6 +260,16 @@ export class WorldManager {
         ok: false,
         detail: '世界ページが未接続(world.html が開かれていないか、しばらく応答がない)。ユーザーに世界を開いてもらうこと。',
       });
+    }
+    // M125(4): 配信モード中は破壊系を機械拒否(プロンプト指示だけに頼らない)
+    if (this.liveGuard) {
+      const banned = cmds.find((c) => c.type === 'remove' || c.type === 'app_remove' || c.type === 'record');
+      if (banned !== undefined) {
+        return Promise.resolve({
+          ok: false,
+          detail: `配信モード中は ${banned.type} は使えない(世界の破壊防止)。建築だけで応えること`,
+        });
+      }
     }
     for (const c of cmds) {
       if (c.type === 'say' && typeof c.text === 'string') this.pushChat('agent', c.text);

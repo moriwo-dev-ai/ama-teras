@@ -55,6 +55,18 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   #worktail { font-size: 11px; color: #99a; font-family: Consolas, monospace; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; margin-top: 3px; max-width: 100%; }
+  /* M125: 配信HUD(OBSに映る前提のオーバーレイ) */
+  #livehud { position: fixed; left: 12px; top: 12px; z-index: 26; display: none; max-width: min(70vw, 520px); }
+  #livehud.on { display: block; }
+  #livebadge { display: inline-flex; align-items: center; gap: 7px; background: #e5273e; color: #fff; font-weight: 800;
+    font-size: 13px; padding: 5px 14px; border-radius: 999px; box-shadow: 0 4px 16px rgba(229,39,62,.4); }
+  #livebadge .reddot { width: 9px; height: 9px; border-radius: 50%; background: #fff; animation: blink 1.2s infinite; }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+  #livetopic { margin-top: 8px; background: #fff; border-radius: 14px; padding: 10px 16px;
+    box-shadow: 0 4px 18px rgba(90,123,216,.28); }
+  #livetopic .tp { font-size: 15px; font-weight: 700; color: #34406b; }
+  #livetopic .by { font-size: 12px; color: #7c8fc9; margin-top: 2px; }
+  #livequeue { font-size: 11px; color: #99a; margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -73,6 +85,11 @@
 </div>
 <div id="apppointer"><div class="pnote" id="appnote">ここ!</div><div class="arrow">👇</div></div>
 <div id="work"><div id="workhead"><span class="gear">⚙️</span><span id="worklabel"></span></div><div id="worktail"></div></div>
+<div id="livehud">
+  <span id="livebadge"><span class="reddot"></span>LIVE — コメントで世界が育ちます</span>
+  <div id="livetopic" style="display:none"><div class="tp" id="livetp"></div><div class="by" id="liveby"></div></div>
+  <div id="livequeue"></div>
+</div>
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -371,7 +388,7 @@ function upsertApp(def, quiet) {
   removeAppMesh(def.id);
   let mesh;
   try {
-    mesh = def.kioskCode ? buildObject({ code: def.kioskCode }) : defaultKiosk(def.name);
+    mesh = (def.kioskCode && !LIVE) ? buildObject({ code: def.kioskCode }) : defaultKiosk(def.name);
   } catch (e) {
     console.warn('[world] kioskCode失敗→既定の社で表示:', e);
     mesh = defaultKiosk(def.name);
@@ -568,6 +585,38 @@ if (ORTHO_MODE) {
   }, 2000);
 }
 
+// ================= M125: 配信モード(HUD+防御) =================
+let LIVE = false;
+function applyLiveHud(hud) {
+  if (!hud) return;
+  LIVE = hud.live === true;
+  const el = document.getElementById('livehud');
+  el.classList.toggle('on', LIVE);
+  const tp = document.getElementById('livetopic');
+  if (hud.topic) {
+    tp.style.display = 'block';
+    document.getElementById('livetp').textContent = '🔨 いまのお題: ' + hud.topic;
+    document.getElementById('liveby').textContent = 'リクエスト: ' + (hud.author ?? '視聴者') + ' さん';
+  } else {
+    tp.style.display = LIVE ? 'block' : 'none';
+    if (LIVE) {
+      document.getElementById('livetp').textContent = '📢 お題募集中!コメントで「◯◯建てて」';
+      document.getElementById('liveby').textContent = '採用 ' + hud.adopted + '/' + hud.budget;
+    }
+  }
+  document.getElementById('livequeue').textContent =
+    LIVE ? `待ち ${hud.queued} 件` + (hud.error ? ` ⚠${hud.error}` : '') : '';
+  // (1) ライブ中はアプリiframeをsandbox隔離(トークン・APIへ到達不能にする)
+  const f = document.getElementById('appframe');
+  if (LIVE) f.setAttribute('sandbox', 'allow-scripts');
+  else f.removeAttribute('sandbox');
+}
+/** (6) 配信画面への個人情報映り込み防止: パス風文字列をマスク */
+function maskForLive(s) {
+  if (!LIVE) return s;
+  return s.replace(/[A-Za-z]:[\\/][^\s'"]+/g, '…\\(パス非表示)').replace(/\/(?:home|Users)\/[^\s'"]+/g, '…/(パス非表示)');
+}
+
 // ================= M121: 世界内レコーダー(実行係専用) =================
 let recorder = null, recChunks = [];
 function startRecording() {
@@ -646,6 +695,11 @@ async function runCommand(c, quiet = false) {
       else await stopRecording();
       return;
     }
+    case 'live_hud': {
+      // M125: 配信HUD+ライブ防御の切替(表示のみ・ackはしない扱いでよいが直列実行上は即完了)
+      applyLiveHud(c.hud);
+      return;
+    }
     case 'app_add': upsertApp(c.app, quiet); if (!quiet) camFocusTo(new THREE.Vector3(c.app.x, 1.2, c.app.z)); return;
     case 'app_move': {
       const rec = worldApps.get(c.appId);
@@ -720,8 +774,8 @@ function connect() {
         else if (ev.status === 'done' || ev.status === 'cancelled' || ev.status === 'error') clearWorkSoon(1200);
         return;
       }
-      if (ev.kind === 'tool_start') { showWork(`${TOOL_JP[ev.name] ?? ev.name} 中…`, ev.inputPreview?.slice(0, 90) ?? ''); return; }
-      if (ev.kind === 'tool_progress') { showWork(`${TOOL_JP[ev.name] ?? ev.name} 中…`); worktail.textContent = (ev.outputTail ?? '').split('\n').pop()?.slice(0, 90) ?? ''; return; }
+      if (ev.kind === 'tool_start') { showWork(`${TOOL_JP[ev.name] ?? ev.name} 中…`, maskForLive(ev.inputPreview?.slice(0, 90) ?? '')); return; }
+      if (ev.kind === 'tool_progress') { showWork(`${TOOL_JP[ev.name] ?? ev.name} 中…`); worktail.textContent = maskForLive((ev.outputTail ?? '').split('\n').pop()?.slice(0, 90) ?? ''); return; }
       if (ev.kind === 'tool_result') { showWork(`${TOOL_JP[ev.name] ?? ev.name} ✓`); clearWorkSoon(2500); return; }
     } catch { /* 他会話のイベント形式差異は無視 */ }
   });

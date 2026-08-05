@@ -190,6 +190,10 @@ const api: AmaterasApi = {
   updateCheck: () => ipcRenderer.invoke(IpcChannels.updateCheck),
 
   // M42(TUKU-yomi): 月読モード(デスクトップのみ。remote-ui には出さない)
+  // M125: 配信モード(オーナー専用)
+  worldLiveStart: (videoId, budget) => ipcRenderer.invoke('world:live-start', videoId, budget),
+  worldLiveStop: () => ipcRenderer.invoke('world:live-stop'),
+  worldLiveStatus: () => ipcRenderer.invoke('world:live-status'),
   tsukuyomiStatus: () => ipcRenderer.invoke(IpcChannels.tsukuyomiStatus),
   tsukuyomiList: () => ipcRenderer.invoke(IpcChannels.tsukuyomiList),
   tsukuyomiTalks: () => ipcRenderer.invoke(IpcChannels.tsukuyomiTalks),

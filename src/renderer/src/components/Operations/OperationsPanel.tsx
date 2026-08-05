@@ -1190,6 +1190,79 @@ function CandidateCard({ c, onUpdate }: { c: CommunityCandidate; onUpdate: () =>
   );
 }
 
+/**
+ * M125: 配信モードのワンクリック操作。videoId(またはURL)を貼って開始 → 停止も1クリック。
+ * ON中: ツール制限・世界の削除ブロック・sandbox・パスマスクが自動で効く
+ */
+function LiveModePanel(): JSX.Element {
+  const [st, setSt] = useState<import('../../../../shared/types').WorldLiveStatus | null>(null);
+  const [videoInput, setVideoInput] = useState('');
+  const [err, setErr] = useState('');
+  const reload = useCallback(() => {
+    void window.api.worldLiveStatus().then(setSt).catch(() => setSt(null));
+  }, []);
+  useEffect(() => {
+    reload();
+    const t = setInterval(reload, 5000);
+    return () => clearInterval(t);
+  }, [reload]);
+  const extractVideoId = (s: string): string => {
+    const m = /(?:v=|\/live\/|youtu\.be\/|\/shorts\/)([\w-]{6,20})/.exec(s);
+    return m?.[1] ?? s.trim();
+  };
+  if (st === null) return <p className="text-xs text-zinc-500">状態を取得中…(オーナー鍵が無い環境では使えません)</p>;
+  return (
+    <div className="space-y-2 text-xs">
+      {st.running ? (
+        <div className="space-y-1">
+          <p className="text-red-400 font-bold">● 配信モード稼働中(video: {st.videoId})</p>
+          <p className="text-zinc-400">
+            採用 {st.adopted}/{st.budget}・待ち {st.queued} 件
+            {st.current !== null && ` ・現在: ${st.current.text}(${st.current.author})`}
+          </p>
+          {st.lastError !== null && <p className="text-amber-400">⚠ {st.lastError}</p>}
+          <button
+            className="rounded bg-red-900 px-3 py-1.5 text-red-100 hover:bg-red-800"
+            onClick={() => {
+              void window.api.worldLiveStop().then(setSt);
+            }}
+          >
+            ⏹ 配信モードを終了
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-1">
+          <p className="text-zinc-400">
+            YouTubeライブのURL(または動画ID)を貼って開始。コメントが建築お題として世界へ流れます
+          </p>
+          <div className="flex gap-2">
+            <input
+              className="flex-1 rounded border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-zinc-200"
+              placeholder="https://www.youtube.com/live/XXXXXXXX"
+              value={videoInput}
+              onChange={(e) => setVideoInput(e.target.value)}
+            />
+            <button
+              className="rounded bg-red-700 px-3 py-1.5 font-bold text-white hover:bg-red-600 disabled:opacity-40"
+              disabled={videoInput.trim() === ''}
+              onClick={() => {
+                setErr('');
+                void window.api
+                  .worldLiveStart(extractVideoId(videoInput))
+                  .then(setSt)
+                  .catch((e: unknown) => setErr(e instanceof Error ? e.message : String(e)));
+              }}
+            >
+              🔴 開始
+            </button>
+          </div>
+          {err !== '' && <p className="text-red-400">{err}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function OperationsPanel(): JSX.Element {
   const { ghDetected, adapters, refresh } = useOperationsStore();
   const [history, setHistory] = useState<MetricsSnapshot[]>([]);
@@ -1278,6 +1351,10 @@ export function OperationsPanel(): JSX.Element {
       {error !== null && (
         <div className="rounded border border-red-800 bg-red-950 p-2 text-xs text-red-300">{error}</div>
       )}
+
+      <Section title="🔴 配信モード" kana="LIVE" role="YouTubeライブのコメントで世界が育つ(オーナー専用・M125)">
+        <LiveModePanel />
+      </Section>
 
       <Section title="AMENO-koyane" kana="アメノコヤネ" role="神々の時計 — 定刻ジョブと予算の司会進行">
         <GodClocks />

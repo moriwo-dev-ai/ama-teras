@@ -373,7 +373,17 @@ interface ConvState {
   run: RunState | null;
 }
 
+/** M125: 配信モード中に許可するツール(世界系+アプリ制作の最小セット) */
+const LIVE_ALLOWED_TOOLS = new Set(['world_observe', 'world_act', 'write_file', 'screenshot']);
+
 export class AgentService {
+  /** M125: 配信モード。non-null のとき新規ランはツール制限+world-apps限定書込になる */
+  private liveMode: { worldAppsDir: string } | null = null;
+
+  setLiveMode(mode: { worldAppsDir: string } | null): void {
+    this.liveMode = mode;
+  }
+
   readonly broker: ApprovalBroker;
   /** M11-2: バックグラウンドプロセス管理(手動ツール実行用。ラン中は run.processes を使う) */
   readonly processes = new ProcessManager();
@@ -2061,7 +2071,15 @@ export class AgentService {
           provider,
           // プランモードではツール定義を渡さない(モデルがtool_useを出せない)。
           // 併せて loop 側 planMode でも実行を機械的に禁止する(二重防御)。
-          tools: planMode ? { list: () => [] } : this.deps.registry,
+          tools: planMode
+            ? { list: () => [] }
+            : this.liveMode !== null
+              ? {
+                  // M125: 配信モード中は世界系+world-apps書込のみ(視聴者コメント由来の逸脱防止)
+                  list: () =>
+                    this.deps.registry.list().filter((p) => LIVE_ALLOWED_TOOLS.has(p.name)),
+                }
+              : this.deps.registry,
           executeTool: async (name, input, ctx) => {
             // M19: plan 書き込み前の計画内容(マイルストーン完了検出用)
             const planBefore =
@@ -2082,6 +2100,8 @@ export class AgentService {
               processes: run.processes,
               userMemoryDir: this.deps.denyPaths.userDataDir,
               ...this.screenshotContext(),
+              // M125: 配信モード中の書き込みは world-apps 限定(絶対パス許可エントリ)
+              ...(this.liveMode !== null ? { writeAllowlist: [this.liveMode.worldAppsDir] } : {}),
               // M115: 世界(WORLD)ブリッジ(world_observe / world_act 専用)
               ...(this.deps.world !== undefined ? { world: this.deps.world } : {}),
               // M107: 自己ウェイクアップ(schedule_wakeup プラグイン専用)

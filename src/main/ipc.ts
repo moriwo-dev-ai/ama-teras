@@ -27,6 +27,7 @@ import { detectReadiness } from './mcp/setup';
 import { CheckpointManager } from './core/checkpoints';
 import { EventBus } from './core/events';
 import { WorldManager } from './world/manager';
+import { LiveDirector } from './world/live';
 import { AgentService } from './core/service';
 import { UsageMeter } from './core/usage';
 import { SessionStore } from './core/sessions';
@@ -487,6 +488,45 @@ export async function registerIpcHandlers(
   }
   // M117-B: 世界の常時実行キー(起動ごとに生成。隠しウィンドウのURLだけに載る)
   const worldExecutorKey = generateToken().token;
+
+  // M125: 配信モード(オーナー専用・月読方式)。視聴者コメント→建築お題のライブ司会者
+  const liveDirector = new LiveDirector({
+    bus,
+    world: worldManager,
+    dispatch: (prompt) => {
+      try {
+        service.chatSend(prompt, 'normal');
+      } catch (err) {
+        console.error('[live] お題投入に失敗:', err);
+      }
+    },
+    isIdle: () => service.runsList().length === 0,
+    backup: () => {
+      try {
+        const src = join(app.getPath('userData'), 'world-state.json');
+        if (!existsSync(src)) return null;
+        const dst = join(app.getPath('userData'), `world-state.backup-${Date.now()}.json`);
+        writeFileSync(dst, readFileSync(src));
+        return dst;
+      } catch (err) {
+        console.error('[live] 世界バックアップに失敗:', err);
+        return null;
+      }
+    },
+  });
+  ipcMain.handle('world:live-start', async (_e, videoId: unknown, budget: unknown) => {
+    if (!hasOwnerKey()) throw new Error('配信モードはオーナー専用');
+    assertString(videoId, 'videoId');
+    await liveDirector.start(videoId, typeof budget === 'number' ? budget : undefined);
+    service.setLiveMode({ worldAppsDir });
+    return liveDirector.status();
+  });
+  ipcMain.handle('world:live-stop', () => {
+    liveDirector.stop();
+    service.setLiveMode(null);
+    return liveDirector.status();
+  });
+  ipcMain.handle('world:live-status', () => liveDirector.status());
   // M120: 世界アプリの実体置き場(エージェントがwrite_fileで書き、RemoteServerが配信する)
   const worldAppsDir = join(app.getPath('userData'), 'world-apps');
   const worldRecordingsDir = join(app.getPath('userData'), 'world-recordings');

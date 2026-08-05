@@ -1482,7 +1482,7 @@ export type EvolutionEvent =
  * 世界ページ(out/remote-ui/world.html)がこれを解釈して実行する。
  */
 export interface WorldCommand {
-  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_point' | 'record';
+  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_point' | 'record' | 'live_hud';
   /** say: セリフ(吹き出し+チャットログ) */
   text?: string;
   /** motion: idle | jab | hook | kick | walk | sit */
@@ -1514,6 +1514,8 @@ export interface WorldCommand {
   note?: string;
   /** record: 'start'|'stop'(実行係ページだけが録画する。stopでwebmが保存される) */
   op?: 'start' | 'stop';
+  /** M125 live_hud: 配信オーバーレイの状態(ページは表示のみ・ackしない) */
+  hud?: { live: boolean; topic: string | null; author: string | null; queued: number; adopted: number; budget: number; error: string | null };
   /** camera: 注視先 */
   target?: 'avatar' | 'overview' | 'object';
 }
@@ -1566,3 +1568,14 @@ export type WorldPageEvent =
   | { kind: 'chat'; text: string }
   | { kind: 'ack'; seq: number; ok: boolean; errors?: string[]; state?: WorldStateSnapshot }
   | { kind: 'app_moved'; appId: string; x: number; z: number };
+
+/** M125: 配信モードの状態(オーナー専用UI表示用) */
+export interface WorldLiveStatus {
+  running: boolean;
+  videoId: string | null;
+  adopted: number;
+  queued: number;
+  budget: number;
+  current: { author: string; text: string } | null;
+  lastError: string | null;
+}

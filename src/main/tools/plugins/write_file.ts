@@ -4,10 +4,17 @@ import type { ToolContext, ToolPlugin, ToolResult } from '../types';
 
 function writeAllowed(abs: string, ctx: ToolContext): boolean {
   if (!ctx.writeAllowlist) return true;
+  const absNorm = abs.replaceAll('\\', '/');
   const rel = relative(ctx.cwd, abs).replaceAll('\\', '/');
-  if (rel.startsWith('..')) return false;
   return ctx.writeAllowlist.some((p) => {
     const prefix = p.replaceAll('\\', '/').replace(/\/+$/, '');
+    // M125: 絶対パスの許可エントリ(配信モードの world-apps 限定などcwd外の作業場所)
+    if (isAbsolute(p)) {
+      const a = process.platform === 'win32' ? absNorm.toLowerCase() : absNorm;
+      const b = process.platform === 'win32' ? prefix.toLowerCase() : prefix;
+      return a === b || a.startsWith(`${b}/`);
+    }
+    if (rel.startsWith('..')) return false;
     return rel === prefix || rel.startsWith(`${prefix}/`);
   });
 }

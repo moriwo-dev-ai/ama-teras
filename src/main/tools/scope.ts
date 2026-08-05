@@ -102,6 +102,11 @@ export function isDenied(
   if (deny.userDataDir) {
     const userData = normalize(deny.userDataDir, ci);
     if (isUnder(p, userData)) {
+      // M125: 世界アプリ置き場(world-apps)だけは書き込み可。エージェントが自作アプリを
+      // 世界に置く正規の作業場所(M120)であり、config/secrets等の設定本体には届かない
+      if (isUnder(p, `${userData}/world-apps`) || p === `${userData}/world-apps`) {
+        return null;
+      }
       if (kind === 'write') return 'アプリ設定領域(userData)への書き込みは禁止';
       if (p === `${userData}/secrets.json`) return 'secrets.json の読み取りは禁止';
     }

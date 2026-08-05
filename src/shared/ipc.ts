@@ -66,6 +66,7 @@ import type {
   UsageSummary,
   WorkspaceGitStatus,
 } from './types';
+import type { WorldLiveStatus } from './types';
 import type { BulkRespondResult } from './operations';
 
 /** IPCチャネル名の一元定義。文字列リテラルを直接使わない */
@@ -578,6 +579,10 @@ export interface AmaterasApi {
   /** M42-1: 更新確認。newer=true のときだけUIに出す(nullは未確認・無効・不達) */
   updateCheck(): Promise<UpdateInfo | null>;
   /** M42(TUKU-yomi): 月読モード。鍵の無い機体では enabled:false が返り、タブもトグルも出ない */
+  // M125: 配信モード(オーナー専用・鍵なしでは main 側が拒否する)
+  worldLiveStart(videoId: string, budget?: number): Promise<WorldLiveStatus>;
+  worldLiveStop(): Promise<WorldLiveStatus>;
+  worldLiveStatus(): Promise<WorldLiveStatus>;
   tsukuyomiStatus(): Promise<TsukuyomiStatus>;
   tsukuyomiList(): Promise<ChoEntry[]>;
   /** M43-2: 会話ログ(生の発話が残る。スマホには流さない) */
