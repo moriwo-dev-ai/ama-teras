@@ -1,5 +1,13 @@
 # PROGRESS
 
+## M129: 生きた社 — アプリ状態→社の3D表示ブリッジ(2026-08-06 未明)
+
+ユーザー要望「電卓の社の表示を実際の計算結果に」。アプリ→社への通り道がなかったので新設:
+注入ヘルパーに amaWorld.publish(state)、world.html が appId 毎に最新state保持(8KB上限)、
+kioskCode の tick(dt, t, state) 第3引数へ毎フレーム供給。howToApps/world_act に作り方明記。
+E2E: calcから publish({disp:'42'}) 受信確認。以降は「結果を社に映して」とエージェントに
+頼むだけで実現できる(アプリにpublish仕込み+kioskCodeをtick連動に書き換え)。
+
 ## M128: 世界再入場の記憶復元(2026-08-06 未明)
 
 ページを離れて戻るとチャット表示が全消えする問題(ユーザー指摘)。hello時に直近12件を
