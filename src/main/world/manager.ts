@@ -30,7 +30,7 @@ export class WorldManager {
   private state: WorldStateSnapshot | null = null;
   private readonly pendingAcks = new Map<
     number,
-    { resolve: (r: { ok: boolean; errors?: string[] }) => void; timer: NodeJS.Timeout }
+    { resolve: (r: { ok: boolean; errors?: string[]; notes?: string[] }) => void; timer: NodeJS.Timeout }
   >();
   /**
    * M122: 世界の記憶(チャット+出来事)。会話セッションを跨いで世界そのものが履歴を持つ
@@ -200,7 +200,7 @@ export class WorldManager {
         if (pending) {
           this.pendingAcks.delete(ev.seq);
           clearTimeout(pending.timer);
-          pending.resolve({ ok: ev.ok, errors: ev.errors });
+          pending.resolve({ ok: ev.ok, errors: ev.errors, notes: ev.notes });
         }
         return { ok: true };
       }
@@ -244,7 +244,9 @@ export class WorldManager {
               `アプリを世界に置く手順: ①write_file で ${this.worldAppsDir ?? '<userData>/world-apps'}/<id>/index.html に` +
               'Webアプリを書く(単一HTML推奨) ②world_act app_add で登録。' +
               'ユーザーがダブルタップ(またはあなたが app_open)するとオーバーレイで開く。' +
-              'app_point(appId, selector)で開いた画面の要素を赤矢印で指せる=「ここを押して」の視覚誘導',
+              'app_point(selector)で開いた画面の要素を赤矢印で指せる=「ここを押して」の視覚誘導。' +
+              'app_click(selector)/app_type(selector,text)/app_read(selector)で開いたアプリを実際に操作・実演できる' +
+              '(例: 電卓のボタンをclick→#dispをreadして答えをsayで報告)',
           }
         : {}),
     };
@@ -283,7 +285,11 @@ export class WorldManager {
         resolve({ ok: false, detail: `世界ページからの応答なし(${this.ackTimeoutMs}ms)。ページが閉じられた可能性がある` });
       }, this.ackTimeoutMs);
       this.pendingAcks.set(seq, {
-        resolve: (r) => resolve({ ok: r.ok, detail: r.ok ? `実行完了(${cmds.length}コマンド)` : `一部失敗: ${(r.errors ?? []).join(' / ')}` }),
+        resolve: (r) => {
+          // M126: app_read の読み取り結果はackのnotesに乗って返る
+          const notes = (r.notes ?? []).length > 0 ? ` / ${(r.notes ?? []).join(' / ')}` : '';
+          resolve({ ok: r.ok, detail: r.ok ? `実行完了(${cmds.length}コマンド)${notes}` : `一部失敗: ${(r.errors ?? []).join(' / ')}${notes}` });
+        },
         timer,
       });
       this.bus.publish('world:event', payload);

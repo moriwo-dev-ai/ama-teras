@@ -169,7 +169,8 @@ export class LiveDirector {
       '- 手順: world_observe で現状と空き場所を確認 → say でリクエストに一言リアクション → 実行\n' +
       '  - 造形なら spawn/custom で建築\n' +
       '  - アプリ制作なら write_file でHTMLを書き app_add で社を建て app_open で開いて見せる\n' +
-      '  - 「〜を開いて」「〜を使って」なら world_observe の apps 一覧から探して app_open / app_point\n' +
+      '  - 「〜を開いて」「〜を使って」なら world_observe の apps 一覧から探して app_open。' +
+      'app_click/app_type/app_read で実際に操作して実演できる(例: 電卓で計算して答えを say で報告)\n' +
       '- 完成したら say で視聴者さんに報告。テンポ重視で1〜2分以内に完成させること'
     );
   }

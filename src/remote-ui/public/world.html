@@ -12,14 +12,15 @@
     box-shadow: 0 2px 12px rgba(90,123,216,.25); white-space: nowrap; }
   #badge .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ccc; margin-right: 6px; }
   #badge.on .dot { background: #4ade80; }
+  /* M126: チャットはアプリのオーバーレイ(z50)より手前=アプリを開いたままエージェントと話せる */
   #chatlog { position: fixed; left: 10px; bottom: 74px; max-width: min(78vw, 420px); max-height: 38vh;
-    overflow-y: auto; z-index: 20; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+    overflow-y: auto; z-index: 55; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
   .msg { padding: 7px 13px; border-radius: 16px; font-size: 13px; line-height: 1.5; width: fit-content;
     max-width: 100%; box-shadow: 0 2px 10px rgba(90,123,216,.18); word-break: break-word; }
   .msg.user { background: #eef3ff; color: #34406b; align-self: flex-end; }
   .msg.agent { background: #fff; color: #445; }
   .msg.sys { background: transparent; box-shadow: none; color: #99a; font-size: 11px; }
-  #chatbar { position: fixed; left: 10px; right: 10px; bottom: 12px; display: flex; gap: 8px; z-index: 20; }
+  #chatbar { position: fixed; left: 10px; right: 10px; bottom: 12px; display: flex; gap: 8px; z-index: 55; }
   #chatin { flex: 1; border: none; border-radius: 22px; padding: 12px 18px; font-size: 15px; background: #fff;
     box-shadow: 0 4px 18px rgba(90,123,216,.25); outline: none; color: #334; }
   #send { border: none; border-radius: 22px; padding: 0 20px; font-size: 15px; font-weight: 700; color: #fff;
@@ -421,14 +422,40 @@ function closeApp() {
   openAppId = null;
 }
 document.getElementById('appclose').addEventListener('click', closeApp);
-/** app_point: 開いているアプリ内の要素を赤矢印で指す(同一オリジンなのでDOMに触れる) */
-function pointInApp(selector, noteText) {
-  if (openAppId === null) throw new Error('app_point: アプリが開いていない(先に app_open)');
-  const doc = appframe.contentDocument;
-  const el = doc?.querySelector(selector);
-  if (!el) throw new Error(`app_point: selector が見つからない: ${selector}`);
-  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  const r = el.getBoundingClientRect();
+/** M126: アプリ操作はサーバー注入ヘルパーへの postMessage で行う(sandbox隔離中=別オリジンでも動く)。
+ * op: 'click'(押す) / 'type'(入力) / 'read'(値を読む) / 'rect'(位置取得=app_pointの矢印用) */
+let appOpSeq = 0;
+function appOpOnce(op, selector, text, timeoutMs) {
+  return new Promise((res, rej) => {
+    const reqId = 'op' + (++appOpSeq);
+    const tm = setTimeout(() => { window.removeEventListener('message', onMsg); rej(new Error('アプリが応答しない')); }, timeoutMs);
+    const onMsg = (ev) => {
+      const r = ev.data && ev.data.amaWorldOpResult;
+      if (!r || r.reqId !== reqId) return;
+      window.removeEventListener('message', onMsg);
+      clearTimeout(tm);
+      if (r.ok) res(r); else rej(new Error(r.error ?? '失敗'));
+    };
+    window.addEventListener('message', onMsg);
+    appframe.contentWindow.postMessage({ amaWorldOp: { op, selector, text, reqId } }, '*');
+  });
+}
+async function appOp(op, selector, text) {
+  if (openAppId === null) throw new Error(`${op}: アプリが開いていない(先に app_open)`);
+  // 読込直後はヘルパー未稼働のことがあるので短いタイムアウトで数回試す
+  let lastErr = null;
+  for (let i = 0; i < 3; i++) {
+    try { return await appOpOnce(op, selector, text, 1500); }
+    catch (e) { lastErr = e; if (!String(e.message).includes('応答しない')) break; await sleep(700); }
+  }
+  throw lastErr;
+}
+// E2E/デバッグ用フック(moduleスコープの関数をCDPから叩けるように)
+window.__world = { openApp, closeApp, appOp };
+/** app_point: 開いているアプリ内の要素を赤矢印で指す */
+async function pointInApp(selector, noteText) {
+  const res = await appOp('rect', selector);
+  const r = res.rect;
   const fr = appframe.getBoundingClientRect();
   document.getElementById('appnote').textContent = noteText ?? 'ここ!';
   apppointer.style.left = (fr.left + r.left + r.width / 2) + 'px';
@@ -711,11 +738,19 @@ async function runCommand(c, quiet = false) {
     }
     case 'app_remove': removeAppMesh(c.appId); if (openAppId === c.appId) closeApp(); return;
     case 'app_open': openApp(c.appId); await sleep(600); return;
-    case 'app_point': pointInApp(c.selector, c.note); await sleep(800); return;
+    case 'app_point': await pointInApp(c.selector, c.note); await sleep(800); return;
+    case 'app_click': await appOp('click', c.selector); await sleep(500); return;
+    case 'app_type': await appOp('type', c.selector, c.text); await sleep(400); return;
+    case 'app_read': {
+      const r = await appOp('read', c.selector);
+      pendingNotes.push(`app_read ${c.selector} = ${JSON.stringify(r.text ?? '')}`);
+      return;
+    }
     default: throw new Error(`未知のコマンド: ${c.type}`);
   }
 }
 const cmdQueue = [];
+const pendingNotes = []; // M126: app_read の読み取り結果を ack に載せてエージェントへ返す
 let running = false;
 async function pump() {
   if (running) return;
@@ -723,10 +758,12 @@ async function pump() {
   while (cmdQueue.length > 0) {
     const { seq, cmds, quiet } = cmdQueue.shift();
     const errors = [];
+    pendingNotes.length = 0;
     for (const c of cmds) {
       try { await runCommand(c, quiet === true); } catch (e) { errors.push(`${c.type}: ${e?.message ?? e}`); }
     }
-    await post({ kind: 'ack', seq, ok: errors.length === 0, ...(errors.length ? { errors } : {}), state: snapshot() });
+    await post({ kind: 'ack', seq, ok: errors.length === 0, ...(errors.length ? { errors } : {}),
+      ...(pendingNotes.length ? { notes: [...pendingNotes] } : {}), state: snapshot() });
   }
   running = false;
 }

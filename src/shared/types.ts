@@ -1482,7 +1482,7 @@ export type EvolutionEvent =
  * 世界ページ(out/remote-ui/world.html)がこれを解釈して実行する。
  */
 export interface WorldCommand {
-  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_point' | 'record' | 'live_hud';
+  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_point' | 'app_click' | 'app_type' | 'app_read' | 'record' | 'live_hud';
   /** say: セリフ(吹き出し+チャットログ) */
   text?: string;
   /** motion: idle | jab | hook | kick | walk | sit */
@@ -1508,7 +1508,8 @@ export interface WorldCommand {
   ry?: number;
   /** app_add: アプリ定義(app_move/app_removeはidとx/z/ryのみ使用) */
   app?: WorldApp;
-  /** app_open/app_point: 対象アプリid。app_pointはselector(CSSセレクタ)とnote(補足)も使う */
+  /** app_open/app_point/app_click/app_type/app_read: 対象アプリid。selector(CSSセレクタ)とnote(補足)も使う。
+   * app_click/app_type/app_readは開いているアプリを注入ヘルパー経由(postMessage)で操作する=sandbox隔離中も動く */
   appId?: string;
   selector?: string;
   note?: string;
@@ -1566,7 +1567,7 @@ export type WorldPageEvent =
   | { kind: 'hello'; state?: WorldStateSnapshot }
   | { kind: 'state'; state: WorldStateSnapshot }
   | { kind: 'chat'; text: string }
-  | { kind: 'ack'; seq: number; ok: boolean; errors?: string[]; state?: WorldStateSnapshot }
+  | { kind: 'ack'; seq: number; ok: boolean; errors?: string[]; notes?: string[]; state?: WorldStateSnapshot }
   | { kind: 'app_moved'; appId: string; x: number; z: number };
 
 /** M125: 配信モードの状態(オーナー専用UI表示用) */

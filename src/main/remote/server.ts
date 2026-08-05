@@ -965,7 +965,51 @@ export class RemoteServer {
       throw new HttpError(404, 'not found');
     }
     const type = CONTENT_TYPES[extname(target).toLowerCase()] ?? 'application/octet-stream';
+    // M126: 世界アプリのHTMLには操作ヘルパーを自動注入する。エージェントの app_click/app_type/
+    // app_read は親ページからの postMessage で届く=ライブ中の sandbox 隔離(別オリジン扱い)でも動く
+    if (root !== resolve(this.deps.staticDir) && type.startsWith('text/html')) {
+      data = Buffer.concat([data, Buffer.from(WORLD_APP_HELPER, 'utf8')]);
+    }
     res.writeHead(200, { 'content-type': type, 'cache-control': 'no-cache' });
     res.end(data);
   }
 }
+
+/** 世界アプリへ注入する操作ヘルパー。親(world.html)からの {amaWorldOp} を実行して結果を返す */
+const WORLD_APP_HELPER = `
+<script>
+(function () {
+  window.addEventListener('message', function (ev) {
+    var req = ev.data && ev.data.amaWorldOp;
+    if (!req || typeof req.op !== 'string') return;
+    var src = ev.source || window.parent;
+    function reply(payload) {
+      payload.reqId = req.reqId;
+      try { src.postMessage({ amaWorldOpResult: payload }, '*'); } catch (e) {}
+    }
+    try {
+      var el = document.querySelector(req.selector);
+      if (!el) { reply({ ok: false, error: 'selector が見つからない: ' + req.selector }); return; }
+      if (el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+      if (req.op === 'click') {
+        el.click();
+      } else if (req.op === 'type') {
+        if (el.focus) el.focus();
+        if ('value' in el) {
+          el.value = req.text == null ? '' : String(req.text);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+          el.textContent = req.text == null ? '' : String(req.text);
+        }
+      }
+      // op === 'rect'(app_pointの位置取得)/ 'read' は副作用なし
+      var r = el.getBoundingClientRect();
+      var text = ('value' in el && el.value !== '') ? el.value : (el.textContent || '');
+      reply({ ok: true, rect: { left: r.left, top: r.top, width: r.width, height: r.height }, text: String(text).slice(0, 500) });
+    } catch (err) {
+      reply({ ok: false, error: String((err && err.message) || err) });
+    }
+  });
+})();
+</script>`;

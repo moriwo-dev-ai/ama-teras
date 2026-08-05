@@ -81,9 +81,15 @@ function validate(cmds: unknown): { ok: true; cmds: WorldCommand[] } | { ok: fal
         if (typeof c.appId !== 'string') return { ok: false, error: `actions[${i}] ${c.type}: appId が必要` };
         break;
       case 'app_point':
-        if (typeof c.appId !== 'string') return { ok: false, error: `actions[${i}] app_point: appId が必要` };
+      case 'app_click':
+      case 'app_read':
         if (typeof c.selector !== 'string' || c.selector.trim() === '')
-          return { ok: false, error: `actions[${i}] app_point: selector(CSSセレクタ)が必要` };
+          return { ok: false, error: `actions[${i}] ${c.type}: selector(CSSセレクタ)が必要` };
+        break;
+      case 'app_type':
+        if (typeof c.selector !== 'string' || c.selector.trim() === '')
+          return { ok: false, error: `actions[${i}] app_type: selector(CSSセレクタ)が必要` };
+        if (typeof c.text !== 'string') return { ok: false, error: `actions[${i}] app_type: text(入力文字列)が必要` };
         break;
       case 'record':
         if (c.op !== 'start' && c.op !== 'stop') return { ok: false, error: `actions[${i}] record: op は start|stop` };
@@ -111,7 +117,11 @@ export default {
     'アプリ(社): app_add(app={id,name,description,x,z,kioskCode?} — あなたが作ったWebアプリを世界に置く。' +
     '実体は userData/world-apps/<id>/index.html に write_file で作ってから登録する。kioskCode で社の外観も自作できる) / ' +
     'app_move(appId,x,z) / app_remove(appId) / app_open(appId=オーバーレイでアプリを開いて見せる) / ' +
-    'app_point(appId,selector,note?=開いているアプリ内の要素を赤い矢印で指す。「ここを押して」の視覚誘導) / ' +
+    'app_point(selector,note?=開いているアプリ内の要素を赤い矢印で指す。「ここを押して」の視覚誘導) / ' +
+    'app_click(selector=開いているアプリのボタン等を実際に押す) / app_type(selector,text=入力欄に文字を入れる) / ' +
+    'app_read(selector=要素の値や文字を読み取り、結果が実行結果に返る) — ' +
+    'click/type/read で「アプリを実演して見せる」ことができる(例: 電卓で app_click を数回→app_read で答えを読む→say で報告)。' +
+    'いずれも先に app_open が必要。' +
     'record(op:start|stop=世界の録画。stopでwebmが<userData>/world-recordings/へ保存される。動画素材の自前撮影用。' +
     'startの後に演技コマンド列→stopの順で1本の動画になる)。' +
     '世界はあなたの身体でありキャンバス。説明は文章だけでなく spawn での図解や身振りで「見せる」こと。' +
@@ -125,7 +135,7 @@ export default {
         items: {
           type: 'object',
           properties: {
-            type: { type: 'string', enum: ['say', 'motion', 'move_to', 'spawn', 'remove', 'camera', 'app_add', 'app_move', 'app_remove', 'app_open', 'app_point'] },
+            type: { type: 'string', enum: ['say', 'motion', 'move_to', 'spawn', 'remove', 'camera', 'app_add', 'app_move', 'app_remove', 'app_open', 'app_point', 'app_click', 'app_type', 'app_read'] },
             app: {
               type: 'object',
               description: 'app_add: {id(小文字英数-), name, description?, x, z, ry?, kioskCode?}',
@@ -136,10 +146,10 @@ export default {
               },
               required: ['id', 'name', 'x', 'z'],
             },
-            appId: { type: 'string', description: 'app_move/app_remove/app_open/app_point: 対象アプリid' },
-            selector: { type: 'string', description: 'app_point: 指す要素のCSSセレクタ' },
+            appId: { type: 'string', description: 'app_move/app_remove/app_open: 対象アプリid' },
+            selector: { type: 'string', description: 'app_point/app_click/app_type/app_read: 対象要素のCSSセレクタ' },
             note: { type: 'string', description: 'app_point: 矢印に添える一言' },
-            text: { type: 'string', description: 'say: セリフ' },
+            text: { type: 'string', description: 'say: セリフ / app_type: 入力する文字列' },
             name: { type: 'string', description: 'motion: idle|guard|jab|hook|kick|walk|sit' },
             x: { type: 'number', description: 'move_to/spawn: X座標' },
             z: { type: 'number', description: 'move_to/spawn: Z座標' },
