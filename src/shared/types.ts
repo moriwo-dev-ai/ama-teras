@@ -1482,7 +1482,7 @@ export type EvolutionEvent =
  * 世界ページ(out/remote-ui/world.html)がこれを解釈して実行する。
  */
 export interface WorldCommand {
-  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_leave' | 'app_close' | 'app_point' | 'chat_restore' | 'app_click' | 'app_type' | 'app_read' | 'record' | 'live_hud';
+  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_leave' | 'app_close' | 'app_point' | 'chat_restore' | 'app_state' | 'app_click' | 'app_type' | 'app_read' | 'record' | 'live_hud';
   /** say: セリフ(吹き出し+チャットログ) */
   text?: string;
   /** motion: idle | jab | hook | kick | walk | sit */
@@ -1517,6 +1517,8 @@ export interface WorldCommand {
   op?: 'start' | 'stop';
   /** M128 chat_restore: 再入場ページへの直近チャット復元(restorePayload専用・world_actからは使えない) */
   entries?: { from: string; text: string }[];
+  /** M129b app_state: アプリのpublish状態を全ページへ配る(main発・world_actからは使えない) */
+  appState?: unknown;
   /** M125 live_hud: 配信オーバーレイの状態(ページは表示のみ・ackしない) */
   hud?: { live: boolean; topic: string | null; author: string | null; queued: number; adopted: number; budget: number; error: string | null };
   /** camera: 注視先 */
@@ -1574,7 +1576,9 @@ export type WorldPageEvent =
   | { kind: 'ack'; seq: number; ok: boolean; errors?: string[]; notes?: string[]; state?: WorldStateSnapshot }
   | { kind: 'app_moved'; appId: string; x: number; z: number }
   /** M127: いまオーバーレイで表示中のアプリ(null=閉じた/離れた)。byUser=ユーザーのタップ起動 */
-  | { kind: 'app_view'; appId: string | null; byUser?: boolean };
+  | { kind: 'app_view'; appId: string | null; byUser?: boolean }
+  /** M129b: アプリが amaWorld.publish した状態(ページ→main→全ページへ再配布) */
+  | { kind: 'app_state'; appId: string; state?: unknown };
 
 /** M125: 配信モードの状態(オーナー専用UI表示用) */
 export interface WorldLiveStatus {

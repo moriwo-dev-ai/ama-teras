@@ -435,14 +435,22 @@ function getAppFrame(id) {
 function activeAppFrame() {
   return openAppId !== null ? appFramePool.get(openAppId) ?? null : null;
 }
-// M129: アプリが amaWorld.publish(state) した内容。社のtick(dt,t,state)へ渡る=生きた社
-const appStates = new Map(); // id -> 最後に発信されたstate(アプリを閉じても保持・ページ再訪で消える)
+// M129: アプリが amaWorld.publish(state) した内容。社のtick(dt,t,state)へ渡る=生きた社。
+// M129b: 自ページ保持だけでは他ページ・観戦スクショに映らないので、mainへ送って全ページへ再配布する
+const appStates = new Map(); // id -> 最後に発信されたstate
+const statePostTimers = new Map();
 window.addEventListener('message', (ev) => {
   const st = ev.data && ev.data.amaWorldState;
   if (st === undefined) return;
   for (const [id, f] of appFramePool) {
     if (f.contentWindow === ev.source) {
-      try { if (JSON.stringify(st).length <= 8192) appStates.set(id, st); } catch {}
+      try { if (JSON.stringify(st).length > 8192) return; } catch { return; }
+      appStates.set(id, st);
+      if (!SPECTATE) {
+        // 連打をまとめる(150msトレーリング)
+        clearTimeout(statePostTimers.get(id));
+        statePostTimers.set(id, setTimeout(() => { void post({ kind: 'app_state', appId: id, state: appStates.get(id) }); }, 150));
+      }
       return;
     }
   }
@@ -820,6 +828,10 @@ async function runCommand(c, quiet = false) {
     }
     case 'app_leave': leaveApp(); return;
     case 'app_close': closeApp(c.appId); return;
+    case 'app_state':
+      // M129b: main経由で配られたアプリ状態(自分発のエコーは同値上書きで無害)
+      appStates.set(c.appId, c.appState);
+      return;
     case 'chat_restore':
       // M128: 再入場時に世界の記憶(直近チャット)を表示復元。restorePayload(quiet)専用。
       // helloは再接続のたびに走るので、二重表示しないよう洗い替えにする

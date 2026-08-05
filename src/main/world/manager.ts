@@ -165,6 +165,9 @@ export class WorldManager {
   /** M127: いまユーザーの画面で開いているアプリ(ページからの app_view で更新) */
   private openAppId: string | null = null;
 
+  /** M129b: アプリの最新publish状態(メモリのみ・再起動で消える) */
+  private readonly appStatesLive = new Map<string, unknown>();
+
   /** M127: システム側からの世界への告知(承認待ち等)。アバターの吹き出し+世界ログに残す */
   notify(text: string): void {
     this.pushChat('world', text);
@@ -209,6 +212,18 @@ export class WorldManager {
         if (typeof ev.appId !== 'string' || typeof ev.x !== 'number' || typeof ev.z !== 'number') return { ok: false };
         return { ok: this.moveApp(ev.appId, ev.x, ev.z) };
       }
+      case 'app_state': {
+        // M129b: アプリのpublish状態はmainを経由して全ページへ配る。
+        // スクショ用の観戦ページは毎回新規=ページ内だけの保持では「生きた社」が映らない
+        if (typeof ev.appId !== 'string') return { ok: false };
+        this.appStatesLive.set(ev.appId, ev.state);
+        this.bus.publish('world:event', {
+          seq: ++this.seq,
+          cmds: [{ type: 'app_state', appId: ev.appId, appState: ev.state }],
+          quiet: true,
+        });
+        return { ok: true };
+      }
       case 'app_view': {
         // M127: 表示中アプリの追跡。ユーザーのタップ起動は世界ログにも残す=エージェントの文脈になる
         this.openAppId = typeof ev.appId === 'string' ? ev.appId : null;
@@ -237,6 +252,8 @@ export class WorldManager {
   restorePayload(): WorldPushPayload | null {
     const cmds: WorldCommand[] = [...this.objects.values()];
     for (const app of this.apps.values()) cmds.push({ type: 'app_add', app });
+    // M129b: 生きた社の最新stateも復元(新規ページ・観戦スクショにも映る)
+    for (const [appId, appState] of this.appStatesLive) cmds.push({ type: 'app_state', appId, appState });
     // M128: チャットは世界の記憶=再入場でも直近分を見せる(会話の続きがすぐ分かる)
     if (this.chatLog.length > 0) {
       cmds.push({ type: 'chat_restore', entries: this.chatLog.slice(-12).map(({ from, text }) => ({ from, text })) });
