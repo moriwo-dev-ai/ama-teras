@@ -64,6 +64,8 @@ function validate(cmds: unknown): { ok: true; cmds: WorldCommand[] } | { ok: fal
           return { ok: false, error: `actions[${i}] app_add: app.name が必要` };
         if (typeof a.x !== 'number' || typeof a.z !== 'number' || Math.hypot(a.x, a.z) > PLAZA_RADIUS)
           return { ok: false, error: `actions[${i}] app_add: x,z が広場(半径${PLAZA_RADIUS})内に必要` };
+        if (a.y !== undefined && (typeof a.y !== 'number' || a.y < 0 || a.y > 30))
+          return { ok: false, error: `actions[${i}] app_add: y は 0〜30m` };
         if (a.kioskCode !== undefined) {
           if (a.kioskCode.length > MAX_CODE_CHARS) return { ok: false, error: `actions[${i}] app_add: kioskCode が長すぎる` };
           const banned = /\b(fetch|XMLHttpRequest|WebSocket|document|window|localStorage|eval|import)\b/.exec(a.kioskCode);
@@ -75,10 +77,15 @@ function validate(cmds: unknown): { ok: true; cmds: WorldCommand[] } | { ok: fal
         if (typeof c.appId !== 'string') return { ok: false, error: `actions[${i}] app_move: appId が必要` };
         if (typeof c.x !== 'number' || typeof c.z !== 'number' || Math.hypot(c.x, c.z) > PLAZA_RADIUS)
           return { ok: false, error: `actions[${i}] app_move: x,z が広場内に必要` };
+        if (c.y !== undefined && (typeof c.y !== 'number' || c.y < 0 || c.y > 30))
+          return { ok: false, error: `actions[${i}] app_move: y は 0〜30m` };
         break;
       case 'app_remove':
       case 'app_open':
+      case 'app_close':
         if (typeof c.appId !== 'string') return { ok: false, error: `actions[${i}] ${c.type}: appId が必要` };
+        break;
+      case 'app_leave':
         break;
       case 'app_point':
       case 'app_click':
@@ -110,13 +117,19 @@ export default {
     'move_to(x,z へ歩く。広場は半径18) / spawn(box|sphere|cylinder|cone|torus|sign|screen|custom を x,z に生成。' +
     'custom は code に「THREE を受け取り THREE.Object3D を return する関数の本体」を書く自由造形 — ' +
     '家・木・乗り物など複合形状はプリミティブを並べず custom で作ること(Group に Mesh を組み合わせ、原点=接地面の中心、実寸m、MeshToonMaterial推奨。fetch/document等は禁止)。' +
+    '動きが欲しければ返すオブジェクトに obj.userData.tick = (dt, t) => {...} を仕込む=毎フレーム呼ばれる(風車の羽・観覧車・回転灯など。tickの中も禁止APIは同じ)。' +
     'color は #rrggbb、sx,sy,sz はサイズm、y は設置高さ、ry は向き(ラジアン)。sign は label を小さな看板に、' +
     'screen は label を高解像度の大画面(bg=背景色・color=文字色・改行可)に描く — 文字表示は必ず screen/sign を使い、boxで文字を組まないこと。' +
+    'ただし sign(看板)の乱用は禁止=世界がダサくなる。名前や説明の看板は立てず、造形そのもので語り、言葉は say で伝えること。' +
     'id を付けると後で remove できる) / ' +
     'remove(id のオブジェクトを消す) / camera(avatar|overview|object へ注視)。' +
-    'アプリ(社): app_add(app={id,name,description,x,z,kioskCode?} — あなたが作ったWebアプリを世界に置く。' +
-    '実体は userData/world-apps/<id>/index.html に write_file で作ってから登録する。kioskCode で社の外観も自作できる) / ' +
-    'app_move(appId,x,z) / app_remove(appId) / app_open(appId=オーバーレイでアプリを開いて見せる) / ' +
+    'アプリ(社): app_add(app={id,name,description,x,z,y?,ry?,kioskCode} — あなたが作ったWebアプリを世界に置く。' +
+    '実体は userData/world-apps/<id>/index.html に write_file で作ってから登録する。' +
+    'kioskCode は必ず書き、アプリの機能が一目で分かる3D造形にすること(電卓なら大きな電卓型・時計なら時計塔。名前看板は不要)。' +
+    'y で建物の2階などにも設置できる) / ' +
+    'app_move(appId,x,z,y?,ry?) / app_remove(appId=社ごと撤去。HTMLファイルは残るのでapp_addで復元可) / ' +
+    'app_open(appId=アバターが社まで歩いてからオーバーレイで開く。開いたまま別appIdをopenすると切替=前のアプリも裏で生きている) / ' +
+    'app_leave(表示だけ畳む。アプリは裏で生きたまま=状態保持) / app_close(appId=完全終了) / ' +
     'app_point(selector,note?=開いているアプリ内の要素を赤い矢印で指す。「ここを押して」の視覚誘導) / ' +
     'app_click(selector=開いているアプリのボタン等を実際に押す) / app_type(selector,text=入力欄に文字を入れる) / ' +
     'app_read(selector=要素の値や文字を読み取り、結果が実行結果に返る) — ' +
@@ -135,25 +148,25 @@ export default {
         items: {
           type: 'object',
           properties: {
-            type: { type: 'string', enum: ['say', 'motion', 'move_to', 'spawn', 'remove', 'camera', 'app_add', 'app_move', 'app_remove', 'app_open', 'app_point', 'app_click', 'app_type', 'app_read'] },
+            type: { type: 'string', enum: ['say', 'motion', 'move_to', 'spawn', 'remove', 'camera', 'app_add', 'app_move', 'app_remove', 'app_open', 'app_leave', 'app_close', 'app_point', 'app_click', 'app_type', 'app_read'] },
             app: {
               type: 'object',
-              description: 'app_add: {id(小文字英数-), name, description?, x, z, ry?, kioskCode?}',
+              description: 'app_add: {id(小文字英数-), name, description?, x, z, y?, ry?, kioskCode}',
               properties: {
                 id: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' },
-                x: { type: 'number' }, z: { type: 'number' }, ry: { type: 'number' },
-                kioskCode: { type: 'string', description: '社の外観(THREEを受けObject3Dをreturn)' },
+                x: { type: 'number' }, z: { type: 'number' }, y: { type: 'number' }, ry: { type: 'number' },
+                kioskCode: { type: 'string', description: '社の外観(THREEを受けObject3Dをreturn)。機能が分かる造形に' },
               },
               required: ['id', 'name', 'x', 'z'],
             },
-            appId: { type: 'string', description: 'app_move/app_remove/app_open: 対象アプリid' },
+            appId: { type: 'string', description: 'app_move/app_remove/app_open/app_close: 対象アプリid' },
             selector: { type: 'string', description: 'app_point/app_click/app_type/app_read: 対象要素のCSSセレクタ' },
             note: { type: 'string', description: 'app_point: 矢印に添える一言' },
             text: { type: 'string', description: 'say: セリフ / app_type: 入力する文字列' },
             name: { type: 'string', description: 'motion: idle|guard|jab|hook|kick|walk|sit' },
             x: { type: 'number', description: 'move_to/spawn: X座標' },
             z: { type: 'number', description: 'move_to/spawn: Z座標' },
-            y: { type: 'number', description: 'spawn: 設置高さ(省略時は接地)' },
+            y: { type: 'number', description: 'spawn/app_move: 設置高さ(省略時は接地・0〜30m)' },
             id: { type: 'string', description: 'spawn/remove: オブジェクトID' },
             shape: { type: 'string', enum: ['box', 'sphere', 'cylinder', 'cone', 'torus', 'sign', 'screen'] },
             color: { type: 'string', description: 'spawn: #rrggbb(screenでは文字色)' },

@@ -745,6 +745,13 @@ export async function registerIpcHandlers(
   bus.subscribe('chat:event', (e) => push(IpcChannels.chatEvent, e));
   bus.subscribe('approval:request', (r) => push(IpcChannels.approvalRequest, r));
   bus.subscribe('approval:resolved', (r) => push(IpcChannels.approvalResolved, r));
+  // M127: 承認待ちを世界にも見せる(世界だけ見ていると無音停止に見える問題)
+  bus.subscribe('approval:request', (r) => {
+    const req = r as { toolName?: string };
+    worldManager.notify(
+      `⏳ ツール「${req.toolName ?? '?'}」の実行に承認が必要で止まってるよ。承認タブから許可してね(🔓連続作業モードなら自動で通る)`,
+    );
+  });
   bus.subscribe('evolution:event', (e) => push(IpcChannels.evolutionEvent, e));
   bus.subscribe('agent:sub_update', (u) => push(IpcChannels.subAgentUpdate, u));
   bus.subscribe('autonomous:changed', (p) => push(IpcChannels.autonomousChanged, p));

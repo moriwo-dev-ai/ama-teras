@@ -150,14 +150,27 @@ export class WorldManager {
     return [...this.apps.values()];
   }
 
-  /** M120: ページからの app_move(人間のドラッグ)を正本に反映する */
-  moveApp(appId: string, x: number, z: number): boolean {
+  /** M120: ページからの app_move(人間のドラッグ)を正本に反映する。M127: y/ryも受ける */
+  moveApp(appId: string, x: number, z: number, y?: number, ry?: number): boolean {
     const app = this.apps.get(appId);
     if (app === undefined) return false;
     app.x = x;
     app.z = z;
+    if (typeof y === 'number') app.y = y;
+    if (typeof ry === 'number') app.ry = ry;
     this.persist();
     return true;
+  }
+
+  /** M127: いまユーザーの画面で開いているアプリ(ページからの app_view で更新) */
+  private openAppId: string | null = null;
+
+  /** M127: システム側からの世界への告知(承認待ち等)。アバターの吹き出し+世界ログに残す */
+  notify(text: string): void {
+    this.pushChat('world', text);
+    if (this.isConnected()) {
+      this.bus.publish('world:event', { seq: ++this.seq, cmds: [{ type: 'say', text }], quiet: true });
+    }
   }
 
   /** 世界内チャット到着時の処理(ipc.ts が service.chatSend へ橋渡しする)を注入 */
@@ -194,6 +207,15 @@ export class WorldManager {
         if (typeof ev.appId !== 'string' || typeof ev.x !== 'number' || typeof ev.z !== 'number') return { ok: false };
         return { ok: this.moveApp(ev.appId, ev.x, ev.z) };
       }
+      case 'app_view': {
+        // M127: 表示中アプリの追跡。ユーザーのタップ起動は世界ログにも残す=エージェントの文脈になる
+        this.openAppId = typeof ev.appId === 'string' ? ev.appId : null;
+        if (ev.byUser === true && this.openAppId !== null) {
+          const app = this.apps.get(this.openAppId);
+          this.pushChat('world', `👆 ユーザーがアプリ「${app?.name ?? this.openAppId}」を開いた`);
+        }
+        return { ok: true };
+      }
       case 'ack': {
         if (ev.state) this.state = ev.state;
         const pending = this.pendingAcks.get(ev.seq);
@@ -223,6 +245,7 @@ export class WorldManager {
     state: WorldStateSnapshot | null;
     chat: { from: string; text: string }[];
     apps?: WorldApp[];
+    openApp?: string | null;
     howToSee?: string;
     howToApps?: string;
   } {
@@ -231,6 +254,8 @@ export class WorldManager {
       state: this.state,
       chat: this.chatLog.slice(-40),
       apps: this.listApps(),
+      // M127: 「〇〇してみて」の〇〇は開いているアプリのことが多い。文脈として常に返す
+      openApp: this.openAppId,
       ...(this.spectateUrl !== null
         ? {
             howToSee:
@@ -242,11 +267,17 @@ export class WorldManager {
               '水平のズレは top で、高さのズレは side/sidex で必ず測ってから直すこと',
             howToApps:
               `アプリを世界に置く手順: ①write_file で ${this.worldAppsDir ?? '<userData>/world-apps'}/<id>/index.html に` +
-              'Webアプリを書く(単一HTML推奨) ②world_act app_add で登録。' +
+              'Webアプリを書く(単一HTML推奨。操作したいボタン・表示にはidを振ること=後で自分がclick/readしやすい) ' +
+              '②world_act app_add で登録。kioskCode(社の3D外観)は必ずアプリの機能が一目で分かる造形にすること' +
+              '(電卓なら大きな電卓型、時計なら時計塔など)。名前の看板は不要=見た目で語る。' +
               'ユーザーがダブルタップ(またはあなたが app_open)するとオーバーレイで開く。' +
+              'openApp フィールドが「ユーザーがいま開いているアプリ」— 「これ」「〇〇してみて」はまずそのアプリを指すと考える。' +
               'app_point(selector)で開いた画面の要素を赤矢印で指せる=「ここを押して」の視覚誘導。' +
               'app_click(selector)/app_type(selector,text)/app_read(selector)で開いたアプリを実際に操作・実演できる' +
-              '(例: 電卓のボタンをclick→#dispをreadして答えをsayで報告)',
+              '(例: 電卓のボタンをclick→#dispをreadして答えをsayで報告)。' +
+              'app_leave で表示だけ畳む(アプリは裏で生きたまま=入力や状態は保持)。app_open は別アプリへの切替' +
+              '(前のアプリも裏で生き続ける)。app_close(appId)で完全終了(状態destroy)。' +
+              'app_remove は社ごと世界から撤去(ただしHTMLファイルは残るので app_add で復元できる)',
           }
         : {}),
     };

@@ -37,9 +37,12 @@
   #appov.on { display: flex; flex-direction: column; }
   #appbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
   #apptitle { color: #fff; font-size: 16px; font-weight: 700; text-shadow: 0 1px 6px rgba(0,0,0,.4); flex: 1; }
-  #appclose { border: none; background: #fff; color: #5a6b9e; font-size: 15px; padding: 7px 16px; border-radius: 999px; }
-  #appframe { flex: 1; border: none; margin: 0 12px 12px; border-radius: 14px; background: #fff;
-    box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+  #appclose, #appleave { border: none; background: #fff; color: #5a6b9e; font-size: 15px; padding: 7px 16px; border-radius: 999px; }
+  /* M127: 複数アプリを裏で生かしたまま切り替えるiframeプール */
+  #appframes { flex: 1; position: relative; margin: 0 12px 12px; }
+  #appframes iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: none; border-radius: 14px;
+    background: #fff; box-shadow: 0 12px 40px rgba(0,0,0,.35); display: none; }
+  #appframes iframe.active { display: block; }
   #apppointer { position: fixed; z-index: 60; display: none; pointer-events: none; transform: translate(-50%, -100%);
     filter: drop-shadow(0 3px 8px rgba(0,0,0,.35)); text-align: center; }
   #apppointer .arrow { font-size: 44px; animation: bounce 0.8s infinite alternate; }
@@ -81,8 +84,8 @@
 </div>
 <div class="bub" id="bub"></div>
 <div id="appov">
-  <div id="appbar"><span id="apptitle"></span><button id="appclose">× 閉じる</button></div>
-  <iframe id="appframe" src="about:blank"></iframe>
+  <div id="appbar"><span id="apptitle"></span><button id="appleave">⬅ 離れる</button><button id="appclose">× 閉じる</button></div>
+  <div id="appframes"></div>
 </div>
 <div id="apppointer"><div class="pnote" id="appnote">ここ!</div><div class="arrow">👇</div></div>
 <div id="work"><div id="workhead"><span class="gear">⚙️</span><span id="worklabel"></span></div><div id="worktail"></div></div>
@@ -328,6 +331,12 @@ function buildObject(c) {
   if (!(obj instanceof THREE.Object3D)) throw new Error('build: コードは THREE.Object3D を return すること');
   return obj;
 }
+/** M127: 造形コードが obj.userData.tick = (dt, t) => {...} を仕込むと毎フレーム呼ばれる(風車の羽など) */
+function findTick(root) {
+  let fn = null;
+  root.traverse((o) => { if (fn === null && typeof o.userData?.tick === 'function') fn = o.userData.tick; });
+  return fn;
+}
 function spawnObject(c, quiet = false) {
   const id = c.id ?? `obj${++autoId}`;
   if (objects.has(id)) { scene.remove(objects.get(id).mesh); objects.delete(id); }
@@ -354,7 +363,7 @@ function spawnObject(c, quiet = false) {
   if ((c.shape === 'sign' || c.shape === 'screen' || c.shape === 'custom') && typeof c.ry === 'number') grp.rotation.y = c.ry;
   grp.scale.setScalar(0.01);
   scene.add(grp);
-  objects.set(id, { mesh: grp, shape: c.shape, label: c.label, x: c.x, z: c.z, born: performance.now() });
+  objects.set(id, { mesh: grp, shape: c.shape, label: c.label, x: c.x, z: c.z, born: performance.now(), tick: findTick(grp) });
   if (!quiet) chime([523, 784]);
   return id;
 }
@@ -362,12 +371,12 @@ function spawnObject(c, quiet = false) {
 // ================= M120: アプリ(社)=見つけるのは3D・使うのは2Dオーバーレイ =================
 const worldApps = new Map(); // id -> {def, mesh}
 const appov = document.getElementById('appov');
-const appframe = document.getElementById('appframe');
+const appframes = document.getElementById('appframes');
 const apptitle = document.getElementById('apptitle');
 const apppointer = document.getElementById('apppointer');
 let openAppId = null;
-function defaultKiosk(name) {
-  // 既定の社: 台座+鳥居風フレーム+名前札
+function defaultKiosk() {
+  // 既定の社(kioskCode未設定/失敗時の後詰め): 台座+鳥居風フレーム。名前はタップの名札で分かる
   const g = new THREE.Group();
   const base = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.15, 0.25, 24), new THREE.MeshToonMaterial({ color: 0xe8e0d0 }));
   base.position.y = 0.125; g.add(base);
@@ -379,49 +388,79 @@ function defaultKiosk(name) {
   beam.position.y = 2.0; g.add(beam);
   const beam2 = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.1, 0.16), new THREE.MeshToonMaterial({ color: 0xb03a2e }));
   beam2.position.y = 1.72; g.add(beam2);
-  const plate = makeSign(name, '#b03a2e');
-  plate.scale.setScalar(0.62);
-  plate.position.set(0, 0.45, 0.28);
-  g.add(plate);
   return g;
 }
 function upsertApp(def, quiet) {
   removeAppMesh(def.id);
   let mesh;
   try {
-    mesh = (def.kioskCode && !LIVE) ? buildObject({ code: def.kioskCode }) : defaultKiosk(def.name);
+    mesh = (def.kioskCode && !LIVE) ? buildObject({ code: def.kioskCode }) : defaultKiosk();
   } catch (e) {
     console.warn('[world] kioskCode失敗→既定の社で表示:', e);
-    mesh = defaultKiosk(def.name);
+    mesh = defaultKiosk();
   }
   const grp = new THREE.Group();
   grp.add(mesh);
-  grp.position.set(def.x, 0, def.z);
+  grp.position.set(def.x, def.y ?? 0, def.z);
   if (typeof def.ry === 'number') grp.rotation.y = def.ry;
   grp.userData.appId = def.id;
   scene.add(grp);
-  worldApps.set(def.id, { def, mesh: grp });
+  // M127: 社にも userData.tick(毎フレーム)を許可=動く社
+  worldApps.set(def.id, { def, mesh: grp, tick: findTick(mesh) });
   if (!quiet) chime([392, 523, 659]);
 }
 function removeAppMesh(id) {
   const rec = worldApps.get(id);
   if (rec) { scene.remove(rec.mesh); worldApps.delete(id); }
 }
-function openApp(id) {
+// M127: iframeプール — 開いたアプリは「離れて」も裏で生きる(状態保持)。切替=別idをopen
+const appFramePool = new Map(); // id -> iframe
+const APP_POOL_MAX = 5;
+function getAppFrame(id) {
+  let f = appFramePool.get(id);
+  if (f) return f;
+  if (appFramePool.size >= APP_POOL_MAX) {
+    // 古いもの(非表示)から間引く
+    for (const [oldId, oldF] of appFramePool) {
+      if (oldId !== openAppId) { oldF.remove(); appFramePool.delete(oldId); break; }
+    }
+  }
+  f = document.createElement('iframe');
+  if (LIVE) f.setAttribute('sandbox', 'allow-scripts');
+  f.src = `/world-apps/${encodeURIComponent(id)}/`;
+  appframes.appendChild(f);
+  appFramePool.set(id, f);
+  return f;
+}
+function activeAppFrame() {
+  return openAppId !== null ? appFramePool.get(openAppId) ?? null : null;
+}
+function openApp(id, byUser = false) {
   const rec = worldApps.get(id);
   if (!rec) throw new Error(`app_open: id=${id} は存在しない`);
+  const f = getAppFrame(id);
+  for (const [fid, fr] of appFramePool) fr.classList.toggle('active', fid === id);
   apptitle.textContent = rec.def.name;
-  appframe.src = `/world-apps/${encodeURIComponent(id)}/`;
   appov.classList.add('on');
   openAppId = id;
+  if (!SPECTATE) void post({ kind: 'app_view', appId: id, byUser });
 }
-function closeApp() {
+/** 離れる: 表示だけ畳む。アプリは裏で生きたまま(入力・状態は保持) */
+function leaveApp() {
   appov.classList.remove('on');
-  appframe.src = 'about:blank';
   apppointer.style.display = 'none';
+  if (openAppId !== null && !SPECTATE) void post({ kind: 'app_view', appId: null });
   openAppId = null;
 }
-document.getElementById('appclose').addEventListener('click', closeApp);
+/** 閉じる: アプリを完全終了(状態destroy)。id省略時は表示中のもの */
+function closeApp(id) {
+  const target = id ?? openAppId;
+  const f = target !== null ? appFramePool.get(target) : null;
+  if (f) { f.remove(); appFramePool.delete(target); }
+  if (target === openAppId || id === undefined) leaveApp();
+}
+document.getElementById('appclose').addEventListener('click', () => closeApp());
+document.getElementById('appleave').addEventListener('click', leaveApp);
 /** M126: アプリ操作はサーバー注入ヘルパーへの postMessage で行う(sandbox隔離中=別オリジンでも動く)。
  * op: 'click'(押す) / 'type'(入力) / 'read'(値を読む) / 'rect'(位置取得=app_pointの矢印用) */
 let appOpSeq = 0;
@@ -437,7 +476,7 @@ function appOpOnce(op, selector, text, timeoutMs) {
       if (r.ok) res(r); else rej(new Error(r.error ?? '失敗'));
     };
     window.addEventListener('message', onMsg);
-    appframe.contentWindow.postMessage({ amaWorldOp: { op, selector, text, reqId } }, '*');
+    activeAppFrame().contentWindow.postMessage({ amaWorldOp: { op, selector, text, reqId } }, '*');
   });
 }
 async function appOp(op, selector, text) {
@@ -451,12 +490,12 @@ async function appOp(op, selector, text) {
   throw lastErr;
 }
 // E2E/デバッグ用フック(moduleスコープの関数をCDPから叩けるように)
-window.__world = { openApp, closeApp, appOp };
+window.__world = { openApp, closeApp, leaveApp, appOp };
 /** app_point: 開いているアプリ内の要素を赤矢印で指す */
 async function pointInApp(selector, noteText) {
   const res = await appOp('rect', selector);
   const r = res.rect;
-  const fr = appframe.getBoundingClientRect();
+  const fr = activeAppFrame().getBoundingClientRect();
   document.getElementById('appnote').textContent = noteText ?? 'ここ!';
   apppointer.style.left = (fr.left + r.left + r.width / 2) + 'px';
   apppointer.style.top = (fr.top + r.top - 6) + 'px';
@@ -633,11 +672,16 @@ function applyLiveHud(hud) {
   }
   document.getElementById('livequeue').textContent =
     LIVE ? `待ち ${hud.queued} 件` + (hud.error ? ` ⚠${hud.error}` : '') : '';
-  // (1) ライブ中はアプリiframeをsandbox隔離(トークン・APIへ到達不能にする)
-  const f = document.getElementById('appframe');
-  if (LIVE) f.setAttribute('sandbox', 'allow-scripts');
-  else f.removeAttribute('sandbox');
+  // (1) ライブ中はアプリiframeをsandbox隔離(トークン・APIへ到達不能にする)。
+  // 状態が変わったら既存プールを作り直す=隔離なしで生まれたiframeをライブへ持ち込まない
+  if (applyLiveHud._sandboxed !== LIVE) {
+    applyLiveHud._sandboxed = LIVE;
+    const wasOpen = openAppId;
+    for (const id of [...appFramePool.keys()]) closeApp(id);
+    if (wasOpen !== null && worldApps.has(wasOpen)) { try { openApp(wasOpen); } catch {} }
+  }
 }
+applyLiveHud._sandboxed = false;
 /** (6) 配信画面への個人情報映り込み防止: パス風文字列をマスク */
 function maskForLive(s) {
   if (!LIVE) return s;
@@ -732,12 +776,38 @@ async function runCommand(c, quiet = false) {
       const rec = worldApps.get(c.appId);
       if (!rec) throw new Error(`app_move: id=${c.appId} は存在しない`);
       rec.def.x = c.x; rec.def.z = c.z;
-      rec.mesh.position.set(c.x, 0, c.z);
+      if (typeof c.y === 'number') rec.def.y = c.y;
+      rec.mesh.position.set(c.x, rec.def.y ?? 0, c.z);
       if (typeof c.ry === 'number') { rec.def.ry = c.ry; rec.mesh.rotation.y = c.ry; }
       return;
     }
-    case 'app_remove': removeAppMesh(c.appId); if (openAppId === c.appId) closeApp(); return;
-    case 'app_open': openApp(c.appId); await sleep(600); return;
+    case 'app_remove': removeAppMesh(c.appId); closeApp(c.appId); return;
+    case 'app_open': {
+      // M127: どの社を使うか見て分かるように、アバターが社の前まで歩いてから開く
+      const rec = worldApps.get(c.appId);
+      if (!rec) throw new Error(`app_open: id=${c.appId} は存在しない`);
+      if (avatar && !quiet) {
+        const p = rec.mesh.position;
+        const a = avatar.scene.position;
+        const dx = a.x - p.x, dz = a.z - p.z;
+        const d = Math.hypot(dx, dz);
+        if (d > 1.6) {
+          const tx = p.x + (dx / d) * 1.3, tz = p.z + (dz / d) * 1.3;
+          camFocusTo(p.clone().add(new THREE.Vector3(0, 1.2, 0)));
+          fadeTo('walk');
+          await new Promise((resolve) => { moveTarget = { x: tx, z: tz, resolve }; });
+          fadeTo('idle');
+        }
+        // 社の方を向く
+        avatar.scene.rotation.y = Math.atan2(p.x - a.x, p.z - a.z);
+        await sleep(350);
+      }
+      openApp(c.appId);
+      await sleep(600);
+      return;
+    }
+    case 'app_leave': leaveApp(); return;
+    case 'app_close': closeApp(c.appId); return;
     case 'app_point': await pointInApp(c.selector, c.note); await sleep(800); return;
     case 'app_click': await appOp('click', c.selector); await sleep(500); return;
     case 'app_type': await appOp('type', c.selector, c.text); await sleep(400); return;
@@ -869,7 +939,8 @@ addEventListener('pointermove', (e) => {
     if (_ray.ray.intersectPlane(_groundPlane, hit)) {
       const r = Math.hypot(hit.x, hit.z);
       if (r > 18) { hit.multiplyScalar(18 / r); }
-      dragging.rec.mesh.position.set(hit.x, 0, hit.z);
+      // M127: 高所(y)設置はエージェント経由で行い、ドラッグは水平移動のみ=高さは保つ
+      dragging.rec.mesh.position.set(hit.x, dragging.rec.mesh.position.y, hit.z);
     }
   }
 });
@@ -934,7 +1005,8 @@ renderer.setAnimationLoop(() => {
         const r = moveTarget.resolve; moveTarget = null; r();
       } else {
         dir.normalize();
-        pos.add(dir.clone().multiplyScalar(dt * 0.9));
+        // M127: 0.9→1.3m/s。キビキビ寄りに(これ以上は足が滑って見える)
+        pos.add(dir.clone().multiplyScalar(dt * 1.3));
         const yaw = Math.atan2(dir.x, dir.z);
         let dy = yaw - avatar.scene.rotation.y;
         while (dy > Math.PI) dy -= Math.PI * 2;
@@ -950,11 +1022,16 @@ renderer.setAnimationLoop(() => {
       bub.style.top = Math.max(40, (1 - (p.y + 1) / 2) * innerHeight - 64) + 'px';
     } else bub.style.opacity = '0';
   }
-  // オブジェクトのポップイン
+  // オブジェクトのポップイン+M127: 動くオブジェクト(userData.tick)
+  const tSec = performance.now() / 1000;
   for (const o of objects.values()) {
     const t = (performance.now() - o.born) / 400;
     if (t < 1) o.mesh.scale.setScalar(0.01 + 0.99 * (1 - Math.pow(1 - t, 3)));
     else o.mesh.scale.setScalar(1);
+    if (o.tick) { try { o.tick(dt, tSec); } catch (e) { console.warn('[world] tick停止:', e); o.tick = null; } }
+  }
+  for (const rec of worldApps.values()) {
+    if (rec.tick) { try { rec.tick(dt, tSec); } catch (e) { console.warn('[world] kiosk tick停止:', e); rec.tick = null; } }
   }
   // 図面モード: 正射投影(遠近の歪みゼロ=計測ができる)。top=平面図 / side・sidex=立面図
   if (ORTHO_MODE && orthoCam) {

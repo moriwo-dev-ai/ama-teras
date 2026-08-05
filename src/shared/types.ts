@@ -1482,7 +1482,7 @@ export type EvolutionEvent =
  * 世界ページ(out/remote-ui/world.html)がこれを解釈して実行する。
  */
 export interface WorldCommand {
-  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_point' | 'app_click' | 'app_type' | 'app_read' | 'record' | 'live_hud';
+  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_leave' | 'app_close' | 'app_point' | 'app_click' | 'app_type' | 'app_read' | 'record' | 'live_hud';
   /** say: セリフ(吹き出し+チャットログ) */
   text?: string;
   /** motion: idle | jab | hook | kick | walk | sit */
@@ -1536,6 +1536,8 @@ export interface WorldApp {
   description?: string;
   x: number;
   z: number;
+  /** M127: 設置高さ(2階などに置ける)。省略時は接地 */
+  y?: number;
   ry?: number;
   /** キオスク外観(THREEを受けObject3Dをreturnする関数本体)。省略時は既定の祠 */
   kioskCode?: string;
@@ -1568,7 +1570,9 @@ export type WorldPageEvent =
   | { kind: 'state'; state: WorldStateSnapshot }
   | { kind: 'chat'; text: string }
   | { kind: 'ack'; seq: number; ok: boolean; errors?: string[]; notes?: string[]; state?: WorldStateSnapshot }
-  | { kind: 'app_moved'; appId: string; x: number; z: number };
+  | { kind: 'app_moved'; appId: string; x: number; z: number }
+  /** M127: いまオーバーレイで表示中のアプリ(null=閉じた/離れた)。byUser=ユーザーのタップ起動 */
+  | { kind: 'app_view'; appId: string | null; byUser?: boolean };
 
 /** M125: 配信モードの状態(オーナー専用UI表示用) */
 export interface WorldLiveStatus {
