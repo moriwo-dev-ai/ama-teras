@@ -299,6 +299,27 @@ describe('M113-1: 一晩モード(忍耐リトライ)', () => {
   });
 });
 
+describe('M124: 忍耐待機中の割り込みチャット', () => {
+  const err429 = Object.assign(new Error('429 rate limited'), { status: 429 });
+
+  it('長い待機中に割り込みが届いたら待機を切り上げ、注入して即再試行する', async () => {
+    const provider = scripted([err429, err429, err429, err429, 'ok']);
+    const queued: { text: string }[] = [];
+    const { d, events } = deps(provider, {
+      // 忍耐待機は60秒 — 割り込みで切り上げなければテストはタイムアウトする
+      patience: { enabled: true, waitScheduleMs: [60_000] },
+      drainInstructions: () => queued.splice(0),
+      peekInstructionCount: () => queued.length,
+    });
+    const p = runAgentLoop(d, 's1', [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], new AbortController().signal);
+    // 忍耐待機に入った頃に割り込む
+    setTimeout(() => queued.push({ text: '状況どう?' }), 1200);
+    const status = await p;
+    expect(status).toBe('done');
+    expect(events.some((e) => e.kind === 'info' && e.message.includes('割り込みを受けた'))).toBe(true);
+  }, 15_000);
+});
+
 describe('M113-2: onPatientWait(途中保存フック)', () => {
   const err429 = Object.assign(new Error('429 rate limited'), { status: 429 });
 

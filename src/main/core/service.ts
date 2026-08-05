@@ -2203,6 +2203,8 @@ export class AgentService {
           describeLLMError: (err) => this.friendlyLLMError(err),
           // M21-1: 実行中に積まれた追加指示をターン境界で注入する
           drainInstructions: () => run.pendingInstructions.splice(0),
+          // M124: 一晩モードの待機中でも割り込みチャットで即応する(覗き見のみ・消費しない)
+          peekInstructionCount: () => run.pendingInstructions.length,
         },
         sessionId,
         conv.history,

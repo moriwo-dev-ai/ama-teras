@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildOpenAIParams, normalizeOpenAIStream, OpenAIProvider } from './openai';
-import type { CompletionRequest, ProviderEvent } from './types';
+import type { CompletionRequest, ContentBlock, ProviderEvent } from './types';
 
 function req(overrides: Partial<CompletionRequest> = {}): CompletionRequest {
   return {
@@ -68,7 +68,7 @@ describe('buildOpenAIParams(形式変換)', () => {
     expect(params.messages[3]).toEqual({ role: 'tool', tool_call_id: 'call_1', content: '中身' });
   });
 
-  it('テキストなしのtool_useのみのassistantは content:null', () => {
+  it('M123-2: テキストなしのtool_useのみのassistantは content を省略する(Gemini互換がnullを400拒否)', () => {
     const params = buildOpenAIParams(
       req({
         messages: [
@@ -78,7 +78,10 @@ describe('buildOpenAIParams(形式変換)', () => {
       }),
       'gpt-5.1',
     );
-    expect(params.messages[2]).toMatchObject({ role: 'assistant', content: null });
+    const m = params.messages[2] as unknown as Record<string, unknown>;
+    expect(m['role']).toBe('assistant');
+    expect('content' in m).toBe(false);
+    expect(Array.isArray(m['tool_calls'])).toBe(true);
   });
 });
 
@@ -98,6 +101,74 @@ describe('normalizeOpenAIStream', () => {
     expect(done.stopReason).toBe('end_turn');
     expect(done.message.content).toEqual([{ type: 'text', text: 'こんにちは' }]);
     expect(done.usage).toEqual({ inputTokens: 10, outputTokens: 5, cacheReadTokens: 3 });
+  });
+
+  it("M123: GeminiのOpenAI互換(tool_callsありでもfinish_reason='stop')を tool_use に正規化する", async () => {
+    const events = await collect(
+      normalizeOpenAIStream(
+        fromArray([
+          {
+            choices: [
+              { delta: { tool_calls: [{ index: 0, id: 'g1', function: { name: 'list_dir', arguments: '{"path":"src"}' } }] } },
+            ],
+          },
+          // Gemini互換APIの実挙動: ツール呼び出しでも finish_reason は 'stop'
+          { choices: [{ delta: {}, finish_reason: 'stop' }] },
+        ]),
+      ),
+    );
+    const done = events.at(-1) as Extract<ProviderEvent, { type: 'message_done' }>;
+    expect(done.stopReason).toBe('tool_use');
+    expect(done.message.content).toEqual([{ type: 'tool_use', id: 'g1', name: 'list_dir', input: { path: 'src' } }]);
+  });
+
+  it('M123: tool_callsなしの finish_reason=stop は end_turn のまま(誤正規化しない)', async () => {
+    const events = await collect(
+      normalizeOpenAIStream(
+        fromArray([
+          { choices: [{ delta: { content: 'こんにちは' } }] },
+          { choices: [{ delta: {}, finish_reason: 'stop' }] },
+        ]),
+      ),
+    );
+    const done = events.at(-1) as Extract<ProviderEvent, { type: 'message_done' }>;
+    expect(done.stopReason).toBe('end_turn');
+  });
+
+  it('M123-3: Geminiのthought_signature(extra_content)を保持し、返送時にtool_callへ復元する', async () => {
+    const events = await collect(
+      normalizeOpenAIStream(
+        fromArray([
+          {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0, id: 'g2',
+                      function: { name: 'list_dir', arguments: '{}' },
+                      extra_content: { google: { thought_signature: 'SIG_ABC' } },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          { choices: [{ delta: {}, finish_reason: 'stop' }] },
+        ]),
+      ),
+    );
+    const done = events.at(-1) as Extract<ProviderEvent, { type: 'message_done' }>;
+    const tu = done.message.content[0] as Extract<ContentBlock, { type: 'tool_use' }>;
+    expect(tu.providerExtra).toEqual({ extra_content: { google: { thought_signature: 'SIG_ABC' } } });
+    // 履歴の返送時に tool_call オブジェクトへ復元される
+    const params = buildOpenAIParams(
+      req({ messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }, done.message] }),
+      'gemini-3.5-flash',
+    );
+    const asst = params.messages[2] as unknown as Record<string, unknown>;
+    const calls = asst['tool_calls'] as Record<string, unknown>[];
+    expect(calls[0]!['extra_content']).toEqual({ google: { thought_signature: 'SIG_ABC' } });
   });
 
   it('tool_callsの分割argumentsを組み立てる', async () => {

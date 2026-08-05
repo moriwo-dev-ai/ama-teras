@@ -51,12 +51,16 @@ export function buildOpenAIParams(
           id: b.id,
           type: 'function' as const,
           function: { name: b.name, arguments: JSON.stringify(b.input ?? {}) },
+          // M123-3: Geminiのthought_signature等を往復させる(欠けると400)
+          ...(b.providerExtra ?? {}),
         }));
+      // M123-2: GeminiのOpenAI互換は content:null を400で拒否することがある(実測)。
+      // tool_callsがあるassistantメッセージは content を省略する(OpenAI本家も許容)
       messages.push({
         role: 'assistant',
-        content: text === '' ? null : text,
+        ...(text === '' ? (toolCalls.length > 0 ? {} : { content: '' }) : { content: text }),
         ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
-      });
+      } as OpenAI.Chat.Completions.ChatCompletionMessageParam);
     } else {
       // M14-1: ツール結果の画像は role:'tool' に載せられない(テキストのみ)ため、
       // 直後に user メッセージとして注入する互換レイヤで吸収する
@@ -137,7 +141,7 @@ export async function* normalizeOpenAIStream(
   chunks: AsyncIterable<unknown>,
 ): AsyncIterable<ProviderEvent> {
   let text = '';
-  const toolCalls = new Map<number, { id: string; name: string; args: string }>();
+  const toolCalls = new Map<number, { id: string; name: string; args: string; extra: Record<string, unknown> }>();
   const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
   let stopReason: StopReason = 'other';
 
@@ -196,9 +200,15 @@ export async function* normalizeOpenAIStream(
             id: typeof rc['id'] === 'string' ? rc['id'] : `call_${index}`,
             name: typeof fn['name'] === 'string' ? fn['name'] : '',
             args: '',
+            extra: {},
           };
           toolCalls.set(index, entry);
           yield { type: 'tool_use_start', id: entry.id, name: entry.name };
+        }
+        // M123-3: 既知フィールド以外(Geminiの extra_content=thought_signature 等)を保持する。
+        // 捨てると履歴返送時に Gemini が 400 INVALID_ARGUMENT を返す
+        for (const [k, v] of Object.entries(rc)) {
+          if (k !== 'index' && k !== 'id' && k !== 'type' && k !== 'function' && v !== undefined) entry.extra[k] = v;
         }
         if (typeof fn['name'] === 'string' && entry.name === '') entry.name = fn['name'];
         if (typeof fn['arguments'] === 'string' && fn['arguments'] !== '') {
@@ -213,7 +223,22 @@ export async function* normalizeOpenAIStream(
   if (text !== '') content.push({ type: 'text', text });
   for (const [, tc] of [...toolCalls.entries()].sort((a, b) => a[0] - b[0])) {
     const { input, error } = parseToolArguments(tc.args);
-    content.push({ type: 'tool_use', id: tc.id, name: tc.name, input, ...(error ? { inputError: error } : {}) });
+    content.push({
+      type: 'tool_use',
+      id: tc.id,
+      name: tc.name,
+      input,
+      ...(error ? { inputError: error } : {}),
+      ...(Object.keys(tc.extra).length > 0 ? { providerExtra: tc.extra } : {}),
+    });
+  }
+
+  // M123: GeminiのOpenAI互換APIは tool_calls を返すときも finish_reason='stop' を返す。
+  // tool_use ブロックが実在するのに 'end_turn' のままだとループが実行を拒否し
+  // 「無料API(Gemini)でツールが一切動かない」事故になる(2026-08-05 会社PCで実害)。
+  // max_tokens(引数が途切れている恐れ)以外は tool_use へ正規化する
+  if (toolCalls.size > 0 && (stopReason === 'end_turn' || stopReason === 'other')) {
+    stopReason = 'tool_use';
   }
 
   const message: ChatMessage = { role: 'assistant', content };
@@ -246,10 +271,42 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   async *complete(req: CompletionRequest): AsyncIterable<ProviderEvent> {
-    const stream = await this.client.chat.completions.create(
-      buildOpenAIParams(req, this.model, this.compat ? { maxTokensParam: 'max_tokens' } : undefined),
-      { signal: req.signal },
-    );
-    yield* normalizeOpenAIStream(stream);
+    const params = buildOpenAIParams(req, this.model, this.compat ? { maxTokensParam: 'max_tokens' } : undefined);
+    try {
+      const stream = await this.client.chat.completions.create(params, { signal: req.signal });
+      yield* normalizeOpenAIStream(stream);
+    } catch (err) {
+      // M123-3: 互換エンドポイント(Gemini等)の400は本文が空になりがちで原因追跡不能になる。
+      // エラー詳細と送信メッセージ形状(本文は先頭のみ)をログへ残す
+      const e = err as { status?: number; error?: unknown; message?: string };
+      if (e?.status === 400 && this.compat) {
+        console.error('[openai-compat] 400 detail:', JSON.stringify(e.error ?? e.message ?? e).slice(0, 2000));
+        // ストリーミングの400は本文が空になりがち。非ストリームで同一リクエストを再送して
+        // 実エラー本文を回収する(デバッグ用・回収後は元エラーを投げ直す)
+        try {
+          const base = String(this.client.baseURL).replace(/\/$/, '');
+          const raw = await fetch(`${base}/chat/completions`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', authorization: `Bearer ${this.client.apiKey}` },
+            body: JSON.stringify({ ...params, stream: false }),
+          });
+          const bodyText = await raw.text();
+          console.error(`[openai-compat] raw replay status=${raw.status} body:`, bodyText.slice(0, 3000));
+        } catch (err2) {
+          console.error('[openai-compat] raw replay failed:', String(err2).slice(0, 500));
+        }
+        console.error(
+          '[openai-compat] messages shape:',
+          JSON.stringify(
+            params.messages.map((m) => ({
+              role: m.role,
+              keys: Object.keys(m),
+              preview: JSON.stringify(m).slice(0, 200),
+            })),
+          ).slice(0, 4000),
+        );
+      }
+      throw err;
+    }
   }
 }

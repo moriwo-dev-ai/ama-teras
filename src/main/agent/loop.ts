@@ -74,6 +74,11 @@ export interface AgentLoopDeps {
    */
   drainInstructions?: () => { text: string; images?: { mediaType: string; data: string; description?: string }[] }[];
   /**
+   * M124: 待機中断用の覗き見(残数のみ・消費しない)。一晩モードの忍耐待機中に
+   * ユーザーが割り込んだら、待機を切り上げて即座にターン境界へ戻るために使う
+   */
+  peekInstructionCount?: () => number;
+  /**
    * M92-B3: ループ検出(道具に関係なく暴走を止める汎用ネット)。同一ツール+同一引数の
    * 呼び出しが maxIdenticalCalls 回を超えたら、それ以上は実行せず「手を変えるか完了せよ」と
    * 促す(nudge=tool_result)。進捗の無いブロックが hardStopAfterBlocked 回続いたらターンを
@@ -183,7 +188,22 @@ export async function runAgentLoop(
       signal.addEventListener('abort', onAbort, { once: true });
     });
 
-  for (let turn = 0; turn < maxTurns; turn++) {
+  /**
+   * M124: 忍耐待機用スリープ。1秒刻みで待ち、ユーザーの割り込みチャットが届いたら
+   * 'interrupted' で早期復帰する(2026-08-05 実害: 429待機が15分に伸びると、割り込みが
+   * キューに溜まったまま「戻ってこない=再起動が必要」に見えた)
+   */
+  const sleepPatiently = async (ms: number): Promise<'slept' | 'interrupted'> => {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      if (signal.aborted) return 'slept';
+      if ((deps.peekInstructionCount?.() ?? 0) > 0) return 'interrupted';
+      await sleepUnlessAborted(Math.min(1000, until - Date.now()));
+    }
+    return 'slept';
+  };
+
+  turns: for (let turn = 0; turn < maxTurns; turn++) {
     if (signal.aborted) return finish('cancelled');
     // M13-1: 前ターンの実測トークンでループ内compaction(閾値判定は呼び出し側)
     if (turn > 0 && deps.compact && lastPromptTokens > 0) {
@@ -280,8 +300,12 @@ export async function runAgentLoop(
             sessionId,
             message: `🌙 一晩モード: 無料枠の回復を待っています(次の再試行 ${hh}:${mm}・通算${patientRetries}回目・${shortLLMError(err)})`,
           });
-          await sleepUnlessAborted(delay);
+          const how = await sleepPatiently(delay);
           if (signal.aborted) return finish('cancelled');
+          if (how === 'interrupted') {
+            deps.emit({ kind: 'info', sessionId, message: '💬 割り込みを受けたため待機を中断して応答します' });
+            continue turns; // ターン境界へ(そこで割り込みが履歴に注入され、即座にLLMを呼び直す)
+          }
           continue;
         }
 

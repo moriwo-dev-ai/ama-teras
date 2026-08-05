@@ -16,7 +16,19 @@ export interface ImageAttachment {
 export type ContentBlock =
   | { type: 'text'; text: string }
   | ({ type: 'image' } & ImageAttachment)
-  | { type: 'tool_use'; id: string; name: string; input: unknown; inputError?: string }
+  | {
+      type: 'tool_use';
+      id: string;
+      name: string;
+      input: unknown;
+      inputError?: string;
+      /**
+       * M123-3: プロバイダ固有の付帯データのパススルー。Gemini(OpenAI互換)は
+       * tool_calls に thought_signature 等(extra_content)を付けて返し、履歴の返送時に
+       * 同じものを要求する(欠けると400 INVALID_ARGUMENT)。中身は解釈せず往復させる
+       */
+      providerExtra?: Record<string, unknown>;
+    }
   | {
       type: 'tool_result';
       toolUseId: string;
