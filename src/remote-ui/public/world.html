@@ -241,7 +241,7 @@ async function loadMixamo(url, vrm) {
 let avatar = null, mixer = null;
 const actions = {};
 let current = 'idle';
-const ONESHOT = new Set(['jab', 'hook', 'kick', 'backflip', 'flykick', 'wave', 'cheer']);
+const ONESHOT = new Set(['jab', 'hook', 'kick', 'backflip', 'flykick', 'wave', 'cheer', 'punch', 'spinkick', 'jump', 'climb']);
 function fadeTo(name) {
   if (!mixer || !actions[name] || current === name) return;
   actions[name].reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.18).play();
@@ -260,7 +260,8 @@ try {
   // idle は落ち着いた呼吸(2026-08-03 ユーザー要望)。旧Fighting Idleは guard として残す
   // M130: 後半6本は派手モーション枠。assets-lab/ に同名FBXを置くだけで有効になる(未配置なら警告のみ)
   const MOTIONS = { idle: 'Breathing Idle', guard: 'Fighting Idle', jab: 'Lead Jab', hook: 'Hook Punch', kick: 'Roundhouse Kick', walk: 'Walking', sit: 'Sitting Idle',
-    backflip: 'Backflip', flykick: 'Flying Kick', run: 'Fast Run', wave: 'Waving', dance: 'Samba Dancing', cheer: 'Victory' };
+    backflip: 'Backflip', flykick: 'Flying Kick', run: 'Fast Run', wave: 'Waving', dance: 'Samba Dancing', cheer: 'Victory',
+    punch: 'Cross Punch', spinkick: 'Mma Kick', jump: 'Jump', climb: 'Climbing Up Wall' };
   await Promise.all(Object.entries(MOTIONS).map(async ([k, f]) => {
     try {
       actions[k] = mixer.clipAction(await loadMixamo(`./assets-lab/${f}.fbx`, avatar));
