@@ -214,9 +214,11 @@ export class WorldManager {
       }
       case 'app_state': {
         // M129b: アプリのpublish状態はmainを経由して全ページへ配る。
-        // スクショ用の観戦ページは毎回新規=ページ内だけの保持では「生きた社」が映らない
+        // スクショ用の観戦ページは毎回新規=ページ内だけの保持では「生きた社」が映らない。
+        // M132: state未指定=アプリ終了によるクリア(全ページの社が初期表示へ戻る)
         if (typeof ev.appId !== 'string') return { ok: false };
-        this.appStatesLive.set(ev.appId, ev.state);
+        if (ev.state === undefined) this.appStatesLive.delete(ev.appId);
+        else this.appStatesLive.set(ev.appId, ev.state);
         this.bus.publish('world:event', {
           seq: ++this.seq,
           cmds: [{ type: 'app_state', appId: ev.appId, appState: ev.state }],
@@ -303,7 +305,9 @@ export class WorldManager {
               'app_remove は社ごと世界から撤去(ただしHTMLファイルは残るので app_add で復元できる)。' +
               '生きた社: アプリのJSから amaWorld.publish(state) を呼ぶと(注入済みAPI・引数は任意のJSON)、' +
               '社の kioskCode の userData.tick = (dt, t, state) の第3引数に最新stateが届く。' +
-              '電卓の表示を社の3Dに映す等はこれで作る(文字はTHREEの7セグ風造形などで。documentは使えない)',
+              '電卓の表示を社の3Dに映す等はこれで作る(文字はTHREEの7セグ風造形などで。documentは使えない)。' +
+              'アプリが完全終了(app_close/×ボタン)するとstateはクリアされ、tickの第3引数はundefinedに戻る' +
+              '=tickは「state===undefinedなら初期表示」を必ず実装すること',
           }
         : {}),
     };

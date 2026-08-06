@@ -490,11 +490,16 @@ function leaveApp() {
   if (openAppId !== null && !SPECTATE) void post({ kind: 'app_view', appId: null });
   openAppId = null;
 }
-/** 閉じる: アプリを完全終了(状態destroy)。id省略時は表示中のもの */
+/** 閉じる: アプリを完全終了(状態destroy)。id省略時は表示中のもの。
+ * M132: 終了時はpublish状態もクリアして全ページへ配布=社のtickにundefinedが渡り初期表示へ戻る */
 function closeApp(id) {
   const target = id ?? openAppId;
   const f = target !== null ? appFramePool.get(target) : null;
   if (f) { f.remove(); appFramePool.delete(target); }
+  if (target !== null && appStates.has(target)) {
+    appStates.delete(target);
+    if (!SPECTATE) void post({ kind: 'app_state', appId: target }); // state省略=クリア通知
+  }
   if (target === openAppId || id === undefined) leaveApp();
 }
 document.getElementById('appclose').addEventListener('click', () => closeApp());
@@ -853,8 +858,10 @@ async function runCommand(c, quiet = false) {
     case 'app_leave': leaveApp(); return;
     case 'app_close': closeApp(c.appId); return;
     case 'app_state': {
-      // M129b: main経由で配られたアプリ状態(自分発のエコーは同値上書きで無害)
-      appStates.set(c.appId, c.appState);
+      // M129b: main経由で配られたアプリ状態(自分発のエコーは同値上書きで無害)。
+      // M132: appState未指定=アプリ終了によるクリア(社のtickはundefinedを受けて初期表示へ)
+      if (c.appState === undefined) appStates.delete(c.appId);
+      else appStates.set(c.appId, c.appState);
       // M129c: 新しいstateが来たらtickを蘇生(壊れたstateで止まっていた社が復帰できる)
       const rec = worldApps.get(c.appId);
       if (rec) rec.tickErrs = 0;
