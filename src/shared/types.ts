@@ -1543,6 +1543,8 @@ export interface WorldApp {
   /** M127: 設置高さ(2階などに置ける)。省略時は接地 */
   y?: number;
   ry?: number;
+  /** M136: 固定(誤タップでの長押しドラッグ・回転・高さ変更を無効化) */
+  locked?: boolean;
   /** キオスク外観(THREEを受けObject3Dをreturnする関数本体)。省略時は既定の祠 */
   kioskCode?: string;
 }
@@ -1574,7 +1576,7 @@ export type WorldPageEvent =
   | { kind: 'state'; state: WorldStateSnapshot }
   | { kind: 'chat'; text: string }
   | { kind: 'ack'; seq: number; ok: boolean; errors?: string[]; notes?: string[]; state?: WorldStateSnapshot }
-  | { kind: 'app_moved'; appId: string; x: number; z: number; y?: number; ry?: number }
+  | { kind: 'app_moved'; appId: string; x: number; z: number; y?: number; ry?: number; locked?: boolean }
   /** M127: いまオーバーレイで表示中のアプリ(null=閉じた/離れた)。byUser=ユーザーのタップ起動 */
   | { kind: 'app_view'; appId: string | null; byUser?: boolean }
   /** M129b: アプリが amaWorld.publish した状態(ページ→main→全ページへ再配布) */

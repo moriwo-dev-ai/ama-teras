@@ -151,13 +151,14 @@ export class WorldManager {
   }
 
   /** M120: ページからの app_move(人間のドラッグ)を正本に反映する。M127: y/ryも受ける */
-  moveApp(appId: string, x: number, z: number, y?: number, ry?: number): boolean {
+  moveApp(appId: string, x: number, z: number, y?: number, ry?: number, locked?: boolean): boolean {
     const app = this.apps.get(appId);
     if (app === undefined) return false;
     app.x = x;
     app.z = z;
     if (typeof y === 'number') app.y = y;
     if (typeof ry === 'number') app.ry = ry;
+    if (typeof locked === 'boolean') app.locked = locked;
     this.persist();
     return true;
   }
@@ -210,7 +211,7 @@ export class WorldManager {
       case 'app_moved': {
         // M120: 人間がドラッグでアプリを動かした(ページ→正本)
         if (typeof ev.appId !== 'string' || typeof ev.x !== 'number' || typeof ev.z !== 'number') return { ok: false };
-        return { ok: this.moveApp(ev.appId, ev.x, ev.z, ev.y, ev.ry) };
+        return { ok: this.moveApp(ev.appId, ev.x, ev.z, ev.y, ev.ry, ev.locked) };
       }
       case 'app_state': {
         // M129b: アプリのpublish状態はmainを経由して全ページへ配る。

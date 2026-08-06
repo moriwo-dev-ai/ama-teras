@@ -101,7 +101,7 @@
   <div id="appframes"></div>
 </div>
 <div id="apppointer"><div class="pnote" id="appnote">ここ!</div><div class="arrow">👇</div></div>
-<div id="kioskctl"><span class="kname"></span><button data-k="rotl">↺</button><button data-k="rotr">↻</button><button data-k="up">▲</button><button data-k="down">▼</button><button data-k="done">✓</button></div>
+<div id="kioskctl"><span class="kname"></span><button data-k="rotl">↺</button><button data-k="rotr">↻</button><button data-k="up">▲</button><button data-k="down">▼</button><button data-k="lock">🔓</button><button data-k="done">✓</button></div>
 <div id="work"><div id="workhead"><span class="gear">⚙️</span><span id="worklabel"></span></div><div id="worktail"></div></div>
 <div id="livehud">
   <span id="livebadge"><span class="reddot"></span>LIVE — コメントで世界が育ちます</span>
@@ -1031,7 +1031,8 @@ addEventListener('pointerdown', (e) => {
   if (e.target.closest('#chatbar') || e.target.closest('#chatlog') || e.target.closest('#appov') || e.target.closest('#kioskctl')) return;
   const rec = kioskAt(e.clientX, e.clientY);
   tapStart = { x: e.clientX, y: e.clientY, t: performance.now(), kiosk: rec };
-  if (rec && !SPECTATE) {
+  // M136: 固定中の社は長押しドラッグを発動しない(スマホの誤移動防止)
+  if (rec && !SPECTATE && rec.def.locked !== true) {
     holdTimer = setTimeout(() => {
       // 長押し=移動モード(カメラを止めて地面に沿ってドラッグ)
       dragging = { rec };
@@ -1105,6 +1106,8 @@ let ctlHideTimer = null;
 function showKioskCtl(rec) {
   ctlTarget = rec;
   kioskctl.querySelector('.kname').textContent = rec.def.name;
+  // M136: 固定状態を表示(🔒=固定中は移動・回転・高さ変更が効かない)
+  kioskctl.querySelector('[data-k="lock"]').textContent = rec.def.locked ? '🔒' : '🔓';
   kioskctl.classList.add('on');
   clearTimeout(ctlHideTimer);
   ctlHideTimer = setTimeout(hideKioskCtl, 10_000);
@@ -1118,14 +1121,21 @@ kioskctl.addEventListener('click', (e) => {
   if (!k || !ctlTarget) return;
   if (k === 'done') { hideKioskCtl(); return; }
   const d = ctlTarget.def;
-  if (k === 'rotl' || k === 'rotr') d.ry = (d.ry ?? 0) + (k === 'rotl' ? 1 : -1) * Math.PI / 8;
-  if (k === 'up') d.y = Math.min(30, (d.y ?? 0) + 0.5);
-  if (k === 'down') d.y = Math.max(0, (d.y ?? 0) - 0.5);
-  ctlTarget.mesh.position.y = d.y ?? 0;
-  ctlTarget.mesh.rotation.y = d.ry ?? 0;
+  if (k === 'lock') {
+    d.locked = !d.locked;
+    kioskctl.querySelector('[data-k="lock"]').textContent = d.locked ? '🔒' : '🔓';
+    addMsg('sys', d.locked ? `🔒 ${d.name} を固定した(移動・回転・高さ変更が無効)` : `🔓 ${d.name} の固定を解除した`);
+  } else {
+    if (d.locked) { addMsg('sys', `🔒 ${d.name} は固定中(🔓で解除してから)`); return; }
+    if (k === 'rotl' || k === 'rotr') d.ry = (d.ry ?? 0) + (k === 'rotl' ? 1 : -1) * Math.PI / 8;
+    if (k === 'up') d.y = Math.min(30, (d.y ?? 0) + 0.5);
+    if (k === 'down') d.y = Math.max(0, (d.y ?? 0) - 0.5);
+    ctlTarget.mesh.position.y = d.y ?? 0;
+    ctlTarget.mesh.rotation.y = d.ry ?? 0;
+  }
   clearTimeout(ctlHideTimer);
   ctlHideTimer = setTimeout(hideKioskCtl, 10_000);
-  void post({ kind: 'app_moved', appId: d.id, x: d.x, z: d.z, y: d.y, ry: d.ry });
+  void post({ kind: 'app_moved', appId: d.id, x: d.x, z: d.z, y: d.y, ry: d.ry, locked: d.locked === true });
 });
 
 // ================= カメラ(OrbitControls: 1本指=回転/ピンチ=ズーム/2本指=パン) =================
