@@ -15,6 +15,7 @@ import type {
   RemoteConfig,
   RemoteStatusPayload,
   SecretsStatus,
+  WorldCommand,
 } from '../shared/types';
 import { AuditLog } from './audit';
 import { ConfigStore } from './config';
@@ -405,6 +406,8 @@ export interface MainServices {
   bus: EventBus;
   /** M13-2: MCPクライアント(will-quit で closeAll を呼ぶこと) */
   mcp: McpManager;
+  /** M134: ページスモークゲート(--world-smoke 専用。world.htmlを実際に動かして機械判定) */
+  worldSmokeGate: () => Promise<{ ok: boolean; detail: string }>;
 }
 
 /** M20: 起動時フラグ(センチネル由来)。renderer のバナー表示用 */
@@ -2052,7 +2055,8 @@ export async function registerIpcHandlers(
     try {
       await server.start(rc.port);
       remoteServer = server;
-      ensureWorldExecutor(rc.port);
+      // M134: port 0(スモークゲート)でも実ポートで実行係を起動できるように
+      ensureWorldExecutor(server.port() ?? rc.port);
     } catch (err) {
       remoteLastError = err instanceof Error ? err.message : String(err);
     }
@@ -2064,6 +2068,8 @@ export async function registerIpcHandlers(
    * backgroundThrottling:false で非表示でも rAF が走る。認可は起動ごとの実行キー(ループバック限定)
    */
   let worldExecutorWin: BrowserWindow | null = null;
+  // M134: 実行係ページのconsoleエラー(スモークゲートの合否材料)
+  const worldPageConsoleErrors: string[] = [];
   const ensureWorldExecutor = (port: number): void => {
     if (worldExecutorWin !== null && !worldExecutorWin.isDestroyed()) return;
     const win = new BrowserWindow({
@@ -2072,6 +2078,13 @@ export async function registerIpcHandlers(
       height: 720,
       webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
     });
+    // console-message はElectronの版でシグネチャが違う(引数列 or 詳細オブジェクト)ため両対応
+    win.webContents.on('console-message' as never, ((...args: unknown[]) => {
+      const a = args[0] as { level?: unknown; message?: unknown } | undefined;
+      const level = a !== undefined && 'level' in (a as object) ? a.level : args[1];
+      const message = a !== undefined && 'message' in (a as object) ? a.message : args[2];
+      if (level === 3 || level === 'error') worldPageConsoleErrors.push(String(message ?? ''));
+    }) as never);
     win.on('closed', () => {
       worldExecutorWin = null;
     });
@@ -2163,5 +2176,101 @@ export async function registerIpcHandlers(
   // 起動をブロックしない(接続失敗は状態表示のみ)
   void mcp.syncAll();
 
-  return { registry, broker: service.broker, config, secrets, service, bus, mcp };
+  /**
+   * M134: ページスモークゲート(`AMATERAS_SMOKE=1 electron . --world-smoke` 経由)。
+   * ビルド済み world.html を隠し実行係で実際に動かし、hello/ack往復・全コマンド系統・
+   * アプリ操作(M126ヘルパー)・ページconsoleエラー0 を機械判定する。
+   * ②(world.html自己修正の解放)と③(コア機械ゲート)の昇格ゲート部品+配信前の回帰チェック。
+   * 前提: userData は --world-smoke で一時ディレクトリに隔離済み(実世界の正本を汚さない)。
+   * 注意: アバターVRMは network 取得のためオフラインでは motion/move_to 系が落ちる。
+   */
+  const worldSmokeGate = async (): Promise<{ ok: boolean; detail: string }> => {
+    const fail = (detail: string): { ok: boolean; detail: string } => ({ ok: false, detail });
+    const gateAppDir = join(worldAppsDir, 'gate-app');
+    mkdirSync(gateAppDir, { recursive: true });
+    writeFileSync(
+      join(gateAppDir, 'index.html'),
+      '<!doctype html><meta charset="utf-8"><button id="t" onclick="document.getElementById(\'out\').textContent=\'clicked\'">t</button><div id="out">idle</div>',
+    );
+    setRemoteConfig({ enabled: true, port: 0 });
+    await applyRemoteState();
+    if (remoteServer === null) return fail(`サーバ起動失敗: ${remoteLastError ?? '不明'}`);
+    const deadline = Date.now() + 45_000;
+    while (!worldManager.isConnected()) {
+      if (Date.now() > deadline) return fail('実行係ページが接続しない(hello未着45s)');
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    // アバターVRM+モーションFBXの読込待ち(motion/move_toが依存)
+    await new Promise((r) => setTimeout(r, 8_000));
+    const steps: { name: string; cmds: WorldCommand[]; expect?: string }[] = [
+      {
+        name: 'basic',
+        cmds: [
+          { type: 'say', text: 'スモークゲート実行中' },
+          { type: 'motion', name: 'idle' },
+          { type: 'spawn', id: 'gate_box', shape: 'box', x: 2, z: 2, color: '#88aaff' },
+          { type: 'spawn', id: 'gate_sign', shape: 'sign', x: 3, z: 2, label: 'ゲート' },
+          { type: 'spawn', id: 'gate_screen', shape: 'screen', x: 4, z: 2, label: 'OK' },
+          { type: 'camera', target: 'overview' },
+        ],
+      },
+      {
+        name: 'custom+tick',
+        cmds: [
+          {
+            type: 'spawn',
+            id: 'gate_spin',
+            shape: 'custom',
+            x: -2,
+            z: 2,
+            code:
+              'const g=new THREE.Group();const m=new THREE.Mesh(new THREE.BoxGeometry(0.3,2,0.1),' +
+              'new THREE.MeshToonMaterial({color:0xffaa66}));m.position.y=1;g.add(m);' +
+              'g.userData.tick=(dt,t)=>{g.rotation.y=t;};return g;',
+          },
+        ],
+      },
+      {
+        name: 'move+remove',
+        cmds: [
+          { type: 'move_to', x: 1, z: 1 },
+          { type: 'remove', id: 'gate_box' },
+        ],
+      },
+      {
+        name: 'app',
+        cmds: [
+          { type: 'app_add', app: { id: 'gate-app', name: 'ゲート', x: -3, z: 3 } },
+          { type: 'app_open', appId: 'gate-app' },
+          { type: 'app_click', selector: '#t' },
+          { type: 'app_read', selector: '#out' },
+          { type: 'app_leave' },
+          { type: 'app_close', appId: 'gate-app' },
+          { type: 'app_remove', appId: 'gate-app' },
+        ],
+        expect: 'clicked',
+      },
+    ];
+    for (const step of steps) {
+      // アバター読込等のタイミング揺れに備え、各ステップ最大3回まで再試行
+      let last: { ok: boolean; detail: string } = { ok: false, detail: '未実行' };
+      for (let attempt = 0; attempt < 3; attempt++) {
+        last = await worldManager.act(step.cmds);
+        if (last.ok) break;
+        await new Promise((r) => setTimeout(r, 4_000));
+      }
+      if (!last.ok) return fail(`${step.name}: ${last.detail}`);
+      if (step.expect !== undefined && !last.detail.includes(step.expect)) {
+        return fail(`${step.name}: 期待値「${step.expect}」が結果にない: ${last.detail}`);
+      }
+    }
+    if (worldPageConsoleErrors.length > 0) {
+      return fail(
+        `ページconsoleエラー${worldPageConsoleErrors.length}件: ${worldPageConsoleErrors.slice(0, 3).join(' / ')}`,
+      );
+    }
+    return { ok: true, detail: `全${steps.length}ステップ合格(ack往復・造形/tick・アプリ操作・consoleエラー0)` };
+  };
+
+  return { registry, broker: service.broker, config, secrets, service, bus, mcp, worldSmokeGate };
 }

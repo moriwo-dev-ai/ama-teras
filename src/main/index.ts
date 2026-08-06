@@ -171,6 +171,40 @@ async function runSmokeBoot(): Promise<void> {
   }
 }
 
+/**
+ * M134: ページスモークゲート(`AMATERAS_SMOKE=1 electron . --world-smoke`)。
+ * smokeBootと同じ隔離(一時userData・ロック非取得)で main配線→world.html実行係→
+ * コマンド一巡の機械判定を行い、JSON1行を出して exit 0/1。
+ * world.html を変更する昇格(将来の②)と配信前の回帰チェックが使う。
+ */
+async function runWorldSmoke(): Promise<void> {
+  const finish = (ok: boolean, detail: string): void => {
+    console.log(JSON.stringify({ worldSmoke: true, ok, detail }));
+    app.exit(ok ? 0 : 1);
+  };
+  const watchdog = setTimeout(() => finish(false, 'タイムアウト(180s)'), 180_000);
+  try {
+    const win = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        preload: join(dirname, '../preload/index.cjs'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    const services = await registerIpcHandlers(() => win.webContents);
+    const result = await services.worldSmokeGate();
+    services.service.shutdown();
+    await services.mcp.closeAll().catch(() => {});
+    clearTimeout(watchdog);
+    finish(result.ok, result.detail);
+  } catch (err) {
+    clearTimeout(watchdog);
+    finish(false, err instanceof Error ? err.message : String(err));
+  }
+}
+
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): void {
@@ -232,10 +266,12 @@ function createWindow(): void {
 const smokeMode = process.env['AMATERAS_SMOKE'] === '1';
 // M20: フルアプリ・スモーク起動。AMATERAS_SMOKE 配下なので単一インスタンスロックは取得しない
 const smokeBoot = smokeMode && process.argv.includes('--smoke-boot');
+// M134: ページスモークゲート(world.htmlを実際に動かして機械判定)。userData隔離はsmokeBootと同じ
+const worldSmoke = smokeMode && process.argv.includes('--world-smoke');
 
 // M20: --smoke-boot は userData を一時ディレクトリへ隔離する(config/secrets/lock/ポート非干渉)。
 // あらゆる読み書きより前(whenReady前)に setPath する必要がある
-if (smokeBoot) {
+if (smokeBoot || worldSmoke) {
   app.setPath('userData', mkdtempSync(join(tmpdir(), 'amateras-smokeboot-')));
 }
 
@@ -279,6 +315,7 @@ if (!gotSingleInstanceLock) {
   void app.whenReady().then(async () => {
     if (smokeMode) {
       if (smokeBoot) await runSmokeBoot();
+      else if (worldSmoke) await runWorldSmoke();
       else await runSmokeMode();
       return;
     }

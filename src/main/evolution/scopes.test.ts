@@ -62,7 +62,8 @@ describe('【不変条件2】--smoke-boot のロック非取得+userData隔離(�
 
   it('--smoke-boot は userData を mkdtemp で隔離してから起動する', () => {
     const src = indexSource();
-    const smokeBootIdx = src.indexOf('if (smokeBoot) {');
+    // M134: --world-smoke(ページスモークゲート)も同じ隔離に乗る
+    const smokeBootIdx = src.indexOf('if (smokeBoot || worldSmoke) {');
     const setPathIdx = src.indexOf("app.setPath('userData', mkdtempSync(");
     expect(smokeBootIdx).toBeGreaterThanOrEqual(0);
     expect(setPathIdx).toBeGreaterThan(smokeBootIdx);
