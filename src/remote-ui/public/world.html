@@ -1035,7 +1035,14 @@ addEventListener('pointerup', (e) => {
   if (pendingFocus) clearTimeout(pendingFocus);
   pendingFocus = setTimeout(() => {
     pendingFocus = null;
-    camFocusTo(rec.mesh.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
+    // M131: 社の「正面」(ryの向き)へカメラごと回り込む=どの向きに置かれていても表示が読める
+    const p = rec.mesh.position;
+    const ry = rec.def.ry ?? 0;
+    const front = new THREE.Vector3(Math.sin(ry), 0, Math.cos(ry));
+    camFocusTo(
+      p.clone().add(new THREE.Vector3(0, 1.4, 0)),
+      p.clone().add(front.multiplyScalar(4.2)).add(new THREE.Vector3(0, 1.8, 0)),
+    );
   }, 500);
 });
 
