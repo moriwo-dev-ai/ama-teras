@@ -122,7 +122,9 @@ export default {
     'custom は code に「THREE を受け取り THREE.Object3D を return する関数の本体」を書く自由造形 — ' +
     '家・木・乗り物など複合形状はプリミティブを並べず custom で作ること(Group に Mesh を組み合わせ、原点=接地面の中心、実寸m、MeshToonMaterial推奨。fetch/document等は禁止。' +
     '向きの規約: +Zが正面(見る側)・+Xが「正面から見て右」。7セグ等の文字造形は右の縦バー(b/c)を+X側に置く=鏡文字防止。検証は2や4など左右非対称の字で行う)。' +
-    '動きが欲しければ返すオブジェクトに obj.userData.tick = (dt, t) => {...} を仕込む=毎フレーム呼ばれる(風車の羽・観覧車・回転灯など。tickの中も禁止APIは同じ)。' +
+    '動きが欲しければ返すオブジェクトに obj.userData.tick = (dt, t) => {...} を仕込む=毎フレーム呼ばれる(風車の羽・観覧車・回転灯など。tickの中も禁止APIは同じ。Dateは使える=時計が作れる)。' +
+    'code の第2引数 helpers で文字が描ける: const p = helpers.textPanel({w,h,text,size,color,bg}) → 板Mesh。' +
+    'p.userData.setText(新文字) で更新可(tick内から呼べばstate連動の黒板・掲示板になる。日本語・改行・自動折返し対応)。' +
     'color は #rrggbb、sx,sy,sz はサイズm、y は設置高さ、ry は向き(ラジアン)。sign は label を小さな看板に、' +
     'screen は label を高解像度の大画面(bg=背景色・color=文字色・改行可)に描く — 文字表示は必ず screen/sign を使い、boxで文字を組まないこと。' +
     'ただし sign(看板)の乱用は禁止=世界がダサくなる。名前や説明の看板は立てず、造形そのもので語り、言葉は say で伝えること。' +

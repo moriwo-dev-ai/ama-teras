@@ -342,9 +342,53 @@ function makeScreen(c) {
  * code は「THREE を受け取り Object3D を返す関数の本体」。実行は new Function サンドボックス
  * (ページ内・ネットワークやDOMへの参照は渡さない)。エラーは ack で本人へ返る=自分で直せる
  */
+/** M135: 造形コードへ渡す安全ヘルパー。document禁止のkioskCode/customでも文字が描ける */
+const BUILD_HELPERS = {
+  /**
+   * 文字パネル(黒板・掲示板・銘板用)。mesh.userData.setText(text) で後から更新できる
+   * (tick内から呼べば state連動の生きた文字盤になる)。日本語・改行対応・自動折返し
+   */
+  textPanel(opts = {}) {
+    const w = opts.w ?? 2, h = opts.h ?? 1;
+    const pw = 1024, ph = Math.max(64, Math.round((1024 * h) / w));
+    const canvas = document.createElement('canvas');
+    canvas.width = pw; canvas.height = ph;
+    const ctx = canvas.getContext('2d');
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.anisotropy = 4;
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }),
+    );
+    const size = opts.size ?? 72;
+    const draw = (text) => {
+      ctx.fillStyle = opts.bg ?? '#204a36';
+      ctx.fillRect(0, 0, pw, ph);
+      ctx.fillStyle = opts.color ?? '#f5f1e8';
+      ctx.font = `bold ${size}px 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif`;
+      ctx.textBaseline = 'top';
+      const pad = 40, maxW = pw - pad * 2;
+      const lines = [];
+      for (const raw of String(text ?? '').split('\n')) {
+        let line = '';
+        for (const ch of raw) {
+          if (ctx.measureText(line + ch).width > maxW) { lines.push(line); line = ch; }
+          else line += ch;
+        }
+        lines.push(line);
+      }
+      const lh = size * 1.3;
+      lines.slice(0, Math.floor((ph - pad * 2) / lh)).forEach((l, i) => ctx.fillText(l, pad, pad + i * lh));
+      tex.needsUpdate = true;
+    };
+    draw(opts.text ?? '');
+    mesh.userData.setText = draw;
+    return mesh;
+  },
+};
 function buildObject(c) {
-  const fn = new Function('THREE', `'use strict';\n${c.code}`);
-  const obj = fn(THREE);
+  const fn = new Function('THREE', 'helpers', `'use strict';\n${c.code}`);
+  const obj = fn(THREE, BUILD_HELPERS);
   if (!(obj instanceof THREE.Object3D)) throw new Error('build: コードは THREE.Object3D を return すること');
   return obj;
 }

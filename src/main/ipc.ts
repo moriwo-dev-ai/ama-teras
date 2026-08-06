@@ -2231,6 +2231,23 @@ export async function registerIpcHandlers(
         ],
       },
       {
+        name: 'text-helper',
+        cmds: [
+          {
+            type: 'spawn',
+            id: 'gate_text',
+            shape: 'custom',
+            x: -4,
+            z: 2,
+            code:
+              'const p = helpers.textPanel({ w: 2, h: 1, text: "ゲート検証", size: 80 });' +
+              'p.position.y = 1;' +
+              'p.userData.tick = (dt, t) => { if (!p.userData.__done && t > 0) { p.userData.__done = 1; p.userData.setText("更新OK"); } };' +
+              'return p;',
+          },
+        ],
+      },
+      {
         name: 'move+remove',
         cmds: [
           { type: 'move_to', x: 1, z: 1 },
