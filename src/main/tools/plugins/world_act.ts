@@ -36,6 +36,9 @@ function validate(cmds: unknown): { ok: true; cmds: WorldCommand[] } | { ok: fal
       case 'spawn':
         if (!SHAPES.includes(c.shape as (typeof SHAPES)[number]))
           return { ok: false, error: `actions[${i}] spawn: shape は ${SHAPES.join('|')} のいずれか` };
+        // code付きなのにshapeがcustom以外=codeが黙って捨てられる事故(2026-08-06実害)を明示エラーに
+        if (typeof c.code === 'string' && c.shape !== 'custom')
+          return { ok: false, error: `actions[${i}] spawn: code を使うなら shape='custom' にすること(${String(c.shape)}ではcodeは無視される)` };
         if (typeof c.x !== 'number' || typeof c.z !== 'number') return { ok: false, error: `actions[${i}] spawn: x,z が必要` };
         if ((c.shape === 'sign' || c.shape === 'screen') && typeof c.label !== 'string')
           return { ok: false, error: `actions[${i}] spawn: ${c.shape} には label が必要` };
@@ -171,7 +174,7 @@ export default {
             z: { type: 'number', description: 'move_to/spawn: Z座標' },
             y: { type: 'number', description: 'spawn/app_move: 設置高さ(省略時は接地・0〜30m)' },
             id: { type: 'string', description: 'spawn/remove: オブジェクトID' },
-            shape: { type: 'string', enum: ['box', 'sphere', 'cylinder', 'cone', 'torus', 'sign', 'screen'] },
+            shape: { type: 'string', enum: ['box', 'sphere', 'cylinder', 'cone', 'torus', 'sign', 'screen', 'custom'] },
             color: { type: 'string', description: 'spawn: #rrggbb(screenでは文字色)' },
             bg: { type: 'string', description: 'spawn(screen): 背景色 #rrggbb(既定は黒)' },
             ry: { type: 'number', description: 'spawn(sign/screen): Y軸回転(ラジアン)。画面の向き' },
