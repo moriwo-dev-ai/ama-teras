@@ -260,7 +260,7 @@ try {
   // idle は落ち着いた呼吸(2026-08-03 ユーザー要望)。旧Fighting Idleは guard として残す
   // M130: 後半6本は派手モーション枠。assets-lab/ に同名FBXを置くだけで有効になる(未配置なら警告のみ)
   const MOTIONS = { idle: 'Breathing Idle', guard: 'Fighting Idle', jab: 'Lead Jab', hook: 'Hook Punch', kick: 'Roundhouse Kick', walk: 'Walking', sit: 'Sitting Idle',
-    backflip: 'Back Flip', flykick: 'Flying Kick', run: 'Fast Run', wave: 'Waving', dance: 'Samba Dancing', cheer: 'Victory' };
+    backflip: 'Backflip', flykick: 'Flying Kick', run: 'Fast Run', wave: 'Waving', dance: 'Samba Dancing', cheer: 'Victory' };
   await Promise.all(Object.entries(MOTIONS).map(async ([k, f]) => {
     try {
       actions[k] = mixer.clipAction(await loadMixamo(`./assets-lab/${f}.fbx`, avatar));
