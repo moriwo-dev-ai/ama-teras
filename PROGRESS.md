@@ -1,5 +1,15 @@
 # PROGRESS
 
+## M134: ページスモークゲート(2026-08-06 夕)
+
+`AMATERAS_SMOKE=1 npx electron . --world-smoke` — world.htmlを隔離環境(一時userData・
+port 0・ロック非取得)で実際に動かし、hello/ack→4ステップ実弾(造形/tick/移動/アプリの
+add→open→click→read→leave→close→remove)→consoleエラー0 をJSON+exit codeで機械判定。
+負性テスト済み(spawnObject破壊→実エラー付き不合格→復旧で合格)。稼働中Aと並走可。
+位置づけ: ②world.html自己修正解放の昇格ゲート/③コア機械ゲートの先行部品/配信前回帰チェック。
+ロードマップ(ユーザー合意): ①プラグイン層解放→②world.html解放(ゲート合格前提・初回配信後)
+→③mainコア機械ゲート→④監督役の二重化(Claude置換可能化)。growth-loop.md長期テーマ参照。
+
 ## M130: 世界UX第2弾(2026-08-06 朝・ユーザー要望4件)
 
 ①スマホレイアウト: 吹き出し半透明+アプリ表示中は直近3件のみ薄く(body.app-open)
