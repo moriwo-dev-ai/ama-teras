@@ -2255,6 +2255,15 @@ export async function registerIpcHandlers(
         ],
       },
       {
+        name: 'camera',
+        cmds: [
+          { type: 'face', x: -2, z: 2 },
+          { type: 'camera', target: 'shoulder' },
+          { type: 'camera_to', x: 5, y: 6, z: 5, lx: 0, lz: 0, ms: 800 },
+          { type: 'camera', target: 'overview' },
+        ],
+      },
+      {
         name: 'app',
         cmds: [
           { type: 'app_add', app: { id: 'gate-app', name: 'ゲート', x: -3, z: 3 } },

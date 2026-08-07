@@ -10,7 +10,7 @@ import type { ToolContext, ToolPlugin, ToolResult } from '../types';
 const MOTIONS = ['idle', 'guard', 'jab', 'hook', 'kick', 'walk', 'sit', 'backflip', 'flykick', 'run', 'wave', 'dance', 'cheer', 'punch', 'spinkick', 'jump', 'climb'] as const;
 const SHAPES = ['box', 'sphere', 'cylinder', 'cone', 'torus', 'sign', 'screen', 'custom'] as const;
 const MAX_CODE_CHARS = 20_000;
-const CAMERA_TARGETS = ['avatar', 'overview', 'object'] as const;
+const CAMERA_TARGETS = ['avatar', 'overview', 'object', 'shoulder'] as const;
 const MAX_ACTIONS = 30;
 const PLAZA_RADIUS = 18;
 
@@ -58,6 +58,15 @@ function validate(cmds: unknown): { ok: true; cmds: WorldCommand[] } | { ok: fal
       case 'camera':
         if (!CAMERA_TARGETS.includes(c.target as (typeof CAMERA_TARGETS)[number]))
           return { ok: false, error: `actions[${i}] camera: target は ${CAMERA_TARGETS.join('|')} のいずれか` };
+        break;
+      case 'camera_to':
+        if (typeof c.x !== 'number' || typeof c.y !== 'number' || typeof c.z !== 'number')
+          return { ok: false, error: `actions[${i}] camera_to: x,y,z(カメラ位置)が必要` };
+        if (typeof c.lx !== 'number' || typeof c.lz !== 'number')
+          return { ok: false, error: `actions[${i}] camera_to: lx,lz(注視点)が必要` };
+        break;
+      case 'face':
+        if (typeof c.x !== 'number' || typeof c.z !== 'number') return { ok: false, error: `actions[${i}] face: x,z が必要` };
         break;
       case 'app_add': {
         const a = c.app;
@@ -123,13 +132,18 @@ export default {
     '家・木・乗り物など複合形状はプリミティブを並べず custom で作ること(Group に Mesh を組み合わせ、原点=接地面の中心、実寸m、MeshToonMaterial推奨。fetch/document等は禁止。' +
     '向きの規約: +Zが正面(見る側)・+Xが「正面から見て右」。7セグ等の文字造形は右の縦バー(b/c)を+X側に置く=鏡文字防止。検証は2や4など左右非対称の字で行う)。' +
     '動きが欲しければ返すオブジェクトに obj.userData.tick = (dt, t) => {...} を仕込む=毎フレーム呼ばれる(風車の羽・観覧車・回転灯など。tickの中も禁止APIは同じ。Dateは使える=時計が作れる)。' +
+    '見せ場では obj.userData.cameraFocus = { active: true, priority: 1 } を立てる(tickからON/OFF可)と、' +
+    '配信カメラ(自動監督モード)がその対象を自動追尾する=落下する月・打ち上がる花火などの主役演出。見せ場が終わったら必ず active: false に戻すこと。' +
     'code の第2引数 helpers で文字が描ける: const p = helpers.textPanel({w,h,text,size,color,bg}) → 板Mesh。' +
     'p.userData.setText(新文字) で更新可(tick内から呼べばstate連動の黒板・掲示板になる。日本語・改行・自動折返し対応)。' +
     'color は #rrggbb、sx,sy,sz はサイズm、y は設置高さ、ry は向き(ラジアン)。sign は label を小さな看板に、' +
     'screen は label を高解像度の大画面(bg=背景色・color=文字色・改行可)に描く — 文字表示は必ず screen/sign を使い、boxで文字を組まないこと。' +
     'ただし sign(看板)の乱用は禁止=世界がダサくなる。名前や説明の看板は立てず、造形そのもので語り、言葉は say で伝えること。' +
     'id を付けると後で remove できる) / ' +
-    'remove(id のオブジェクトを消す) / camera(avatar|overview|object へ注視)。' +
+    'remove(id のオブジェクトを消す) / camera(avatar|overview|object|shoulder へ注視。shoulder=肩越し追従モード:' +
+    'アバターの真後ろ頭の高さから見続ける。face と組めば「一緒に何かを見る」画になる) / ' +
+    'camera_to(x,y,z=カメラ位置, lx,ly,lz=注視点, ms=移動時間。自由なカメラワーク=空の月のアップ・見下ろし・回り込み等の絵コンテが切れる) / ' +
+    'face(x,z=アバターがその方向を向く) / ' +
     'アプリ(社): app_add(app={id,name,description,x,z,y?,ry?,kioskCode} — あなたが作ったWebアプリを世界に置く。' +
     '実体は userData/world-apps/<id>/index.html に write_file で作ってから登録する。' +
     'kioskCode は必ず書き、アプリの機能が一目で分かる3D造形にすること(電卓なら大きな電卓型・時計なら時計塔。名前看板は不要)。' +
@@ -156,7 +170,7 @@ export default {
         items: {
           type: 'object',
           properties: {
-            type: { type: 'string', enum: ['say', 'motion', 'move_to', 'spawn', 'remove', 'camera', 'app_add', 'app_move', 'app_remove', 'app_open', 'app_leave', 'app_close', 'app_point', 'app_click', 'app_type', 'app_read'] },
+            type: { type: 'string', enum: ['say', 'motion', 'move_to', 'spawn', 'remove', 'camera', 'camera_to', 'face', 'app_add', 'app_move', 'app_remove', 'app_open', 'app_leave', 'app_close', 'app_point', 'app_click', 'app_type', 'app_read'] },
             app: {
               type: 'object',
               description: 'app_add: {id(小文字英数-), name, description?, x, z, y?, ry?, kioskCode}',
@@ -185,7 +199,11 @@ export default {
             sz: { type: 'number', description: 'spawn: 奥行m(既定1)' },
             label: { type: 'string', description: 'spawn(sign): 看板に描く文字' },
             code: { type: 'string', description: 'spawn(custom): THREEを受けObject3Dをreturnする関数本体(自由造形)' },
-            target: { type: 'string', enum: ['avatar', 'overview', 'object'] },
+            target: { type: 'string', enum: ['avatar', 'overview', 'object', 'shoulder'] },
+            lx: { type: 'number', description: 'camera_to: 注視点X' },
+            ly: { type: 'number', description: 'camera_to: 注視点Y(省略時1.2)' },
+            lz: { type: 'number', description: 'camera_to: 注視点Z' },
+            ms: { type: 'number', description: 'camera_to: 移動時間ミリ秒(既定1500)' },
           },
           required: ['type'],
         },

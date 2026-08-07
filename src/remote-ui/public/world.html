@@ -804,6 +804,7 @@ async function stopRecording() {
 
 // ================= コマンド実行(SSE受信・直列実行・ack) =================
 let moveTarget = null; // {x,z,resolve}
+let faceTarget = null; // M139 {yaw, resolve}
 const ONESHOT_WAIT_MAX = 5000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** ワンショット技の完了を待つ(連続motionコマンドが技を上書きして「見えない」事故の対策) */
@@ -850,9 +851,28 @@ async function runCommand(c, quiet = false) {
       return;
     }
     case 'camera': {
+      if (c.target === 'shoulder') { camMode = 'shoulder'; return; } // M139: 肩越し追従(次のcamera系まで維持)
+      camMode = null;
       if (c.target === 'overview') camFocusTo(new THREE.Vector3(0, 0, 0), new THREE.Vector3(14, 13, 14));
       else if (c.target === 'object') { /* 直近spawn時に設定済み。明示指定は最後のspawn位置のまま */ }
       else if (avatar) camFocusTo(avatar.scene.position.clone().add(new THREE.Vector3(0, 1.1, 0)));
+      return;
+    }
+    case 'camera_to': {
+      // M139: 自由カメラ。位置(x,y,z)と注視点(lx,ly,lz)へ滑らかに移動
+      camMode = null;
+      camTween = {
+        target: new THREE.Vector3(c.lx ?? 0, c.ly ?? 1.2, c.lz ?? 0),
+        pos: new THREE.Vector3(c.x ?? 6, c.y ?? 4, c.z ?? 6),
+        until: performance.now() + (typeof c.ms === 'number' ? c.ms : 4_000),
+      };
+      await sleep(Math.min(typeof c.ms === 'number' ? c.ms : 1_500, 4_000));
+      return;
+    }
+    case 'face': {
+      // M139: アバターを指定座標の方へ向ける(肩越しカメラと組で「一緒に見る」が成立)
+      if (!avatar) throw new Error('avatar未ロード');
+      await new Promise((resolve) => { faceTarget = { yaw: Math.atan2(c.x - avatar.scene.position.x, c.z - avatar.scene.position.z), resolve }; });
       return;
     }
     case 'record': {
@@ -1159,9 +1179,30 @@ controls.maxPolarAngle = Math.PI * 0.55; // 地面下へ潜り込みすぎない
 controls.target.set(0, 1.05, 0);
 camera.position.set(1.5, 2.4, 4.2);
 // エージェントのcamera演出: 目標へ滑らかに寄せる。ユーザーが触ったら即座に主導権を返す
-let camTween = null; // {target, pos?|null}
-function camFocusTo(target, pos = null) { camTween = { target, pos }; }
-controls.addEventListener('start', () => { camTween = null; });
+let camTween = null; // {target, pos?|null, until?: ms}
+function camFocusTo(target, pos = null) { camTween = { target, pos, until: performance.now() + 4_000 }; }
+// M139: カメラモード。'shoulder'=アバターの肩越し(頭の高さ・水平・頭大きめ)を追従し続ける
+let camMode = null;
+// M139: 自動監督(配信用 cam=auto): 平常=ゆっくり周回 / イベント=寄り / cameraFocusフラグ=自動追尾
+const CAM_AUTO = CAM_PRESET === 'auto';
+let focusHunt = { at: 0, mesh: null };
+function findCameraFocus() {
+  // 毎フレームtraverseは重いので500ms毎に走査
+  if (performance.now() - focusHunt.at < 500) return focusHunt.mesh;
+  focusHunt.at = performance.now();
+  let best = null, bestPri = -1;
+  const scan = (root) => {
+    root.traverse((o) => {
+      const cf = o.userData?.cameraFocus;
+      if (cf && cf.active === true && (cf.priority ?? 0) > bestPri) { best = o; bestPri = cf.priority ?? 0; }
+    });
+  };
+  for (const o of objects.values()) scan(o.mesh);
+  for (const r of worldApps.values()) scan(r.mesh);
+  focusHunt.mesh = best;
+  return best;
+}
+controls.addEventListener('start', () => { camTween = null; camMode = null; });
 
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
@@ -1183,6 +1224,18 @@ renderer.setAnimationLoop(() => {
         while (dy > Math.PI) dy -= Math.PI * 2;
         while (dy < -Math.PI) dy += Math.PI * 2;
         avatar.scene.rotation.y += dy * Math.min(1, dt * 8);
+      }
+    }
+    // M139: face(指定方向へ向く)
+    if (faceTarget) {
+      let dy = faceTarget.yaw - avatar.scene.rotation.y;
+      while (dy > Math.PI) dy -= Math.PI * 2;
+      while (dy < -Math.PI) dy += Math.PI * 2;
+      if (Math.abs(dy) < 0.05) {
+        avatar.scene.rotation.y = faceTarget.yaw;
+        const r = faceTarget.resolve; faceTarget = null; r();
+      } else {
+        avatar.scene.rotation.y += dy * Math.min(1, dt * 5);
       }
     }
     avatar.update(dt);
@@ -1239,13 +1292,36 @@ renderer.setAnimationLoop(() => {
     renderer.render(scene, camera);
     return;
   }
-  // カメラ演出のトゥイーン(ユーザー操作で即中断)
-  if (camTween) {
-    controls.target.lerp(camTween.target, 0.08);
-    if (camTween.pos) camera.position.lerp(camTween.pos, 0.06);
-    const done = controls.target.distanceTo(camTween.target) < 0.05 &&
-      (!camTween.pos || camera.position.distanceTo(camTween.pos) < 0.2);
-    if (done) camTween = null;
+  // M139: カメラ制御の優先順位: 肩越しモード > cameraFocus自動追尾(auto) > 演出トゥイーン > 自動周回(auto)
+  if (camMode === 'shoulder' && avatar) {
+    const p = avatar.scene.position, yaw = avatar.scene.rotation.y;
+    const fwd = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    camera.position.lerp(new THREE.Vector3(p.x - fwd.x * 1.4, 1.62, p.z - fwd.z * 1.4), 0.12);
+    controls.target.lerp(new THREE.Vector3(p.x + fwd.x * 6, 1.35, p.z + fwd.z * 6), 0.12);
+  } else {
+    const focusMesh = CAM_AUTO ? findCameraFocus() : null;
+    if (focusMesh) {
+      // 見せ場の自動追尾(例: 落下中の月)。対象を見上げる位置へ回り込む
+      const wp = new THREE.Vector3();
+      focusMesh.getWorldPosition(wp);
+      const dir = new THREE.Vector3(wp.x, 0, wp.z);
+      if (dir.length() < 1) dir.set(0, 0, 1); else dir.normalize();
+      camera.position.lerp(new THREE.Vector3(-dir.x * 13, 3.2, -dir.z * 13), 0.03);
+      controls.target.lerp(wp, 0.06);
+    } else if (camTween) {
+      controls.target.lerp(camTween.target, 0.08);
+      if (camTween.pos) camera.position.lerp(camTween.pos, 0.06);
+      const done = (controls.target.distanceTo(camTween.target) < 0.05 &&
+        (!camTween.pos || camera.position.distanceTo(camTween.pos) < 0.2)) ||
+        (camTween.until !== undefined && performance.now() > camTween.until);
+      if (done) camTween = null;
+    } else if (CAM_AUTO) {
+      // 平常時: 広場をゆっくり周回(現在位置から連続的に)
+      const ang = Math.atan2(camera.position.x, camera.position.z) + dt * 0.04;
+      const r = 11.5, h = 5.2;
+      camera.position.lerp(new THREE.Vector3(Math.sin(ang) * r, h, Math.cos(ang) * r), 0.05);
+      controls.target.lerp(new THREE.Vector3(0, 1.4, 0), 0.04);
+    }
   }
   controls.update();
   renderer.render(scene, camera);
