@@ -202,7 +202,12 @@ export class LiveDirector {
   private async initChat(): Promise<void> {
     const f = this.deps.fetchImpl ?? fetch;
     const page = await f(`https://www.youtube.com/live_chat?is_popout=1&v=${this.videoId}`, {
-      headers: { 'accept-language': 'ja', 'user-agent': 'Mozilla/5.0' },
+      // 素の'Mozilla/5.0'だとYouTubeがスタブページを返す(2026-08-07実測)。完全なUAが必要
+      headers: {
+        'accept-language': 'ja,en;q=0.8',
+        'user-agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+      },
     }).then((r) => r.text());
     const key = /"INNERTUBE_API_KEY":"([^"]+)"/.exec(page)?.[1];
     const cont = /"continuation":"([^"]+)"/.exec(page)?.[1];
