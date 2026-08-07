@@ -1186,6 +1186,7 @@ let camMode = null;
 // M139: 自動監督(配信用 cam=auto): 平常=ゆっくり周回 / イベント=寄り / cameraFocusフラグ=自動追尾
 const CAM_AUTO = CAM_PRESET === 'auto';
 let focusHunt = { at: 0, mesh: null };
+let autoOrbitAng = null; // M139: 自動周回の現在角(null=非周回中)
 function findCameraFocus() {
   // 毎フレームtraverseは重いので500ms毎に走査
   if (performance.now() - focusHunt.at < 500) return focusHunt.mesh;
@@ -1276,7 +1277,7 @@ renderer.setAnimationLoop(() => {
     return;
   }
   // 固定カメラプリセット(観戦スクショ用): pov=アバターの目 / front=正面 / overview=俯瞰
-  if (CAM_PRESET && avatar) {
+  if (CAM_PRESET && CAM_PRESET !== 'auto' && avatar) {
     const p = avatar.scene.position, yaw = avatar.scene.rotation.y;
     const fwd = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
     if (CAM_PRESET === 'pov') {
@@ -1294,6 +1295,7 @@ renderer.setAnimationLoop(() => {
   }
   // M139: カメラ制御の優先順位: 肩越しモード > cameraFocus自動追尾(auto) > 演出トゥイーン > 自動周回(auto)
   if (camMode === 'shoulder' && avatar) {
+    autoOrbitAng = null;
     const p = avatar.scene.position, yaw = avatar.scene.rotation.y;
     const fwd = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
     camera.position.lerp(new THREE.Vector3(p.x - fwd.x * 1.4, 1.62, p.z - fwd.z * 1.4), 0.12);
@@ -1316,12 +1318,14 @@ renderer.setAnimationLoop(() => {
         (camTween.until !== undefined && performance.now() > camTween.until);
       if (done) camTween = null;
     } else if (CAM_AUTO) {
-      // 平常時: 広場をゆっくり周回(現在位置から連続的に)
-      const ang = Math.atan2(camera.position.x, camera.position.z) + dt * 0.04;
+      // 平常時: 広場をゆっくり周回。角度は明示的に前進させる(lerp頼みだと進みが食われて止まって見える)
+      if (autoOrbitAng === null) autoOrbitAng = Math.atan2(camera.position.x, camera.position.z);
+      autoOrbitAng += dt * 0.06;
       const r = 11.5, h = 5.2;
-      camera.position.lerp(new THREE.Vector3(Math.sin(ang) * r, h, Math.cos(ang) * r), 0.05);
+      camera.position.lerp(new THREE.Vector3(Math.sin(autoOrbitAng) * r, h, Math.cos(autoOrbitAng) * r), 0.08);
       controls.target.lerp(new THREE.Vector3(0, 1.4, 0), 0.04);
     }
+    if (!(CAM_AUTO && !focusMesh && !camTween && camMode === null)) autoOrbitAng = null;
   }
   controls.update();
   renderer.render(scene, camera);
