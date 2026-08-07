@@ -455,7 +455,9 @@ function upsertApp(def, quiet) {
   removeAppMesh(def.id);
   let mesh;
   try {
-    mesh = (def.kioskCode && !LIVE) ? buildObject({ code: def.kioskCode }) : defaultKiosk();
+    // M138: ライブ中もkioskCodeを有効化(M125の無効化は撤廃)。kioskCodeはエージェント専用+
+    // custom造形と同じ禁止API検閲+tickエラー耐性(M129c)があり、配信の見た目こそが番組の顔
+    mesh = def.kioskCode ? buildObject({ code: def.kioskCode }) : defaultKiosk();
   } catch (e) {
     console.warn('[world] kioskCode失敗→既定の社で表示:', e);
     mesh = defaultKiosk();
