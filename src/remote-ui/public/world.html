@@ -398,7 +398,10 @@ const BUILD_HELPERS = {
       new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }),
     );
     const size = opts.size ?? 72;
+    // M142: bgに透過色(rgba末尾0)を渡すと背景なし文字盤になる。clearRectは再描画ゴースト防止
+    if (/rgba\([^)]*,\s*0(?:\.0+)?\s*\)/.test(opts.bg ?? '')) mesh.material.transparent = true;
     const draw = (text) => {
+      ctx.clearRect(0, 0, pw, ph);
       ctx.fillStyle = opts.bg ?? '#204a36';
       ctx.fillRect(0, 0, pw, ph);
       ctx.fillStyle = opts.color ?? '#f5f1e8';
