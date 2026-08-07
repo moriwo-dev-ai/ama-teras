@@ -1018,7 +1018,16 @@ function kioskAt(clientX, clientY) {
   _ndc.set((clientX / innerWidth) * 2 - 1, -(clientY / innerHeight) * 2 + 1);
   _ray.setFromCamera(_ndc, camera);
   for (const rec of worldApps.values()) {
-    if (_ray.intersectObject(rec.mesh, true).length > 0) return rec;
+    // M137: userData.noTap = true の部品(演出ドーム等)はタップ判定から除外する
+    const hits = _ray.intersectObject(rec.mesh, true);
+    for (const h of hits) {
+      let o = h.object, tappable = true;
+      while (o && o !== rec.mesh.parent) {
+        if (o.userData?.noTap === true) { tappable = false; break; }
+        o = o.parent;
+      }
+      if (tappable) return rec;
+    }
   }
   return null;
 }
@@ -1196,7 +1205,8 @@ renderer.setAnimationLoop(() => {
   }
   for (const rec of worldApps.values()) {
     if (rec.tick && !(rec.tickErrs >= 10)) {
-      try { rec.tick(dt, tSec, appStates.get(rec.def.id)); }
+      // M137: 第4引数=全アプリのstate(他アプリ連動用。例: 月アプリが時計アプリのアラームを読む)
+      try { rec.tick(dt, tSec, appStates.get(rec.def.id), appStates); }
       catch (e) { rec.tickErrs = (rec.tickErrs ?? 0) + 1; console.warn('[world] kiosk tickエラー:', e); }
     }
   }

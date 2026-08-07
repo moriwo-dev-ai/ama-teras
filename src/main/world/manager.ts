@@ -312,7 +312,10 @@ export class WorldManager {
               'アプリが完全終了(app_close/×ボタン)するとstateはクリアされ、tickの第3引数はundefinedに戻る' +
               '=tickは「state===undefinedなら初期表示」を必ず実装すること。' +
               '文字表示は kioskCode の第2引数 helpers.textPanel({w,h,text,...}) を使う' +
-              '(返りmeshのuserData.setText(文字)をtickから呼べば黒板・掲示板が作れる)',
+              '(返りmeshのuserData.setText(文字)をtickから呼べば黒板・掲示板が作れる)。' +
+              '巨大な演出部品(ドーム・空エフェクト等)には userData.noTap = true を付けること=タップ判定から除外される。' +
+              'kioskのtickは第4引数で全アプリのstate(Map)を受け取れる=他アプリ連動' +
+              '(例: 月アプリのtickが states.get("clock") でアラーム時刻を読む)',
           }
         : {}),
     };
