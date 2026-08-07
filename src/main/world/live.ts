@@ -147,6 +147,8 @@ export class LiveDirector {
       if (topic === undefined) return;
       this.current = topic;
       this.adopted++;
+      // M141: 採用の瞬間を画面中央で祝う(コメントした人への最大の報酬)
+      this.publishComment(topic.author, topic.text, true);
       this.deps.dispatch(this.framePrompt(topic));
       this.publishHud();
     } else if (this.deps.isIdle() && this.current !== null) {
@@ -172,8 +174,21 @@ export class LiveDirector {
       '  - 「〜を開いて」「〜を使って」なら world_observe の apps 一覧から探して app_open。' +
       'app_click/app_type/app_read で実際に操作して実演できる(例: 電卓で計算して答えを say で報告)\n' +
       '- カメラワークも演出: 建築開始時に camera(object/overview) で見せ場を作り、完成時は camera で寄せて披露する\n' +
+      '- あなたの say は音声で読み上げられる(VOICEVOX)。話し言葉で短く・テンポよく。記号の羅列や長文は禁止\n' +
+      '- 黙って作業しない: まず建設予定地へ move_to してから作業し、節目ごと(着工・骨組み・完成)に say で実況する\n' +
+      '- アプリを開いて見せたら、用が済んだら必ず app_leave で画面を畳むこと(開きっぱなしは配信事故。' +
+      '設定操作など見せる価値のない画面はそもそも開かない)\n' +
       '- 完成したら say で視聴者さんに報告。テンポ重視で1〜2分以内に完成させること'
     );
+  }
+
+  /** M141: 視聴者コメントを世界ページへ流す(表示のみ・ackなし) */
+  private publishComment(author: string, text: string, adopted: boolean): void {
+    this.deps.bus.publish('world:event', {
+      seq: -1,
+      cmds: [{ type: 'live_comment', author: author.slice(0, 30), text, adopted } as never],
+      quiet: true,
+    });
   }
 
   private publishHud(): void {
@@ -235,6 +250,11 @@ export class LiveDirector {
     for (const m of parsed.messages) {
       if (this.seenMsgIds.has(m.id)) continue;
       this.seenMsgIds.add(m.id);
+      // M141: 全コメントを配信画面に流す(ニコニコ風)。採用可否と無関係=参加の見える化。
+      // NGパターン(URL・暴言・秘密系)だけは画面にも出さない
+      if (!NG_PATTERNS.some((re) => re.test(m.text))) {
+        this.publishComment(m.author, m.text.slice(0, MAX_TOPIC_CHARS), false);
+      }
       this.enqueue({ author: m.author, text: m.text });
     }
     // メモリ節約(配信は長丁場)

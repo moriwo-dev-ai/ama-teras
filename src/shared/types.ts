@@ -1482,7 +1482,7 @@ export type EvolutionEvent =
  * 世界ページ(out/remote-ui/world.html)がこれを解釈して実行する。
  */
 export interface WorldCommand {
-  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'camera_to' | 'face' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_leave' | 'app_close' | 'app_point' | 'chat_restore' | 'app_state' | 'app_click' | 'app_type' | 'app_read' | 'record' | 'live_hud';
+  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'camera_to' | 'face' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_leave' | 'app_close' | 'app_point' | 'chat_restore' | 'app_state' | 'app_click' | 'app_type' | 'app_read' | 'record' | 'live_hud' | 'live_comment';
   /** say: セリフ(吹き出し+チャットログ) */
   text?: string;
   /** motion: idle | jab | hook | kick | walk | sit */
@@ -1521,6 +1521,9 @@ export interface WorldCommand {
   appState?: unknown;
   /** M125 live_hud: 配信オーバーレイの状態(ページは表示のみ・ackしない) */
   hud?: { live: boolean; topic: string | null; author: string | null; queued: number; adopted: number; budget: number; error: string | null };
+  /** M141 live_comment: 視聴者コメントの画面流し(main発・world_actからは使えない)。adopted=採用演出 */
+  author?: string;
+  adopted?: boolean;
   /** camera: 注視先。M139: shoulder=肩越し追従 */
   target?: 'avatar' | 'overview' | 'object' | 'shoulder';
   /** M139 camera_to: 注視点(lx,ly,lz)と移動時間ms。カメラ位置はx,y,zを使う */

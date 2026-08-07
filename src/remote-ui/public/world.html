@@ -84,6 +84,36 @@
   #livetopic .tp { font-size: 15px; font-weight: 700; color: #34406b; }
   #livetopic .by { font-size: 12px; color: #7c8fc9; margin-top: 2px; }
   #livequeue { font-size: 11px; color: #99a; margin-top: 6px; }
+  /* M141: 字幕(TTS読み上げと連動。スマホの小さいチャットが読めない問題の対策) */
+  #subtitle { position: fixed; left: 50%; bottom: 88px; transform: translateX(-50%); z-index: 58;
+    max-width: 88vw; background: rgba(22,26,44,.66); color: #fff; font-size: 27px; font-weight: 700;
+    line-height: 1.5; padding: 10px 24px; border-radius: 14px; display: none; text-align: center;
+    text-shadow: 0 1px 3px rgba(0,0,0,.5); }
+  /* M141: 視聴者コメントの弾幕(右→左)と採用ポップ */
+  .dan { position: fixed; z-index: 57; white-space: nowrap; font-weight: 800; font-size: 26px; color: #fff;
+    text-shadow: 0 0 6px rgba(0,0,0,.75), 0 2px 4px rgba(0,0,0,.5); pointer-events: none; will-change: transform; }
+  .dan .who { font-size: 15px; opacity: .9; margin-right: 8px; color: #ffe95c; }
+  .adoptpop { position: fixed; left: 50%; top: 32%; transform: translate(-50%,-50%); z-index: 59;
+    background: linear-gradient(135deg, #ff5c8a, #ffb35c); color: #fff; border-radius: 20px;
+    padding: 18px 34px; text-align: center; box-shadow: 0 10px 40px rgba(229,39,62,.45);
+    animation: adoptin .45s cubic-bezier(.2,1.6,.4,1); pointer-events: none; }
+  .adoptpop .abig { font-size: 30px; font-weight: 900; }
+  .adoptpop .atxt { font-size: 20px; font-weight: 700; margin-top: 6px; max-width: 60vw;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .adoptpop .aby { font-size: 14px; margin-top: 4px; opacity: .95; }
+  @keyframes adoptin { from { transform: translate(-50%,-50%) scale(.4); opacity: 0; }
+    to { transform: translate(-50%,-50%) scale(1); opacity: 1; } }
+  /* M141: 配信(観戦)ページの強化 — 実況ボード大型化・アプリは右6割+世界は左に見え続ける */
+  body.spectate #work { top: 48px; padding: 10px 18px; border-radius: 16px; }
+  body.spectate #workhead { font-size: 17px; }
+  body.spectate #worktail { font-size: 13px; max-width: 60vw; }
+  body.spectate #appov { background: transparent; }
+  body.spectate #appov.on { left: auto; right: 12px; top: 56px; bottom: 96px; width: 60vw; }
+  body.spectate #appbar { display: none; }
+  body.spectate #appframes { margin: 0; }
+  /* 小さめの仮想画面(74%)を1.35倍に拡大表示=アプリのUIが大きく映る */
+  body.spectate #appframes iframe { width: 74%; height: 74%; transform: scale(1.351); transform-origin: 0 0; }
+  body.spectate #chatlog { display: none; }
 </style>
 </head>
 <body>
@@ -108,6 +138,7 @@
   <div id="livetopic" style="display:none"><div class="tp" id="livetp"></div><div class="by" id="liveby"></div></div>
   <div id="livequeue"></div>
 </div>
+<div id="subtitle"></div>
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -146,6 +177,11 @@ if (SPECTATE || EXECUTOR) {
   document.getElementById('chatbar').style.display = 'none';
   document.getElementById('bst').textContent = SPECTATE ? '観戦モード' : '実行係';
 }
+// M141: 観戦(=OBS配信画面)は専用レイアウト(実況ボード大・アプリ右6割・字幕)
+if (SPECTATE) document.body.classList.add('spectate');
+// M141: 音声読み上げ(VOICEVOX)。&tts=1 で有効化・&spk=N で話者切替(既定2=四国めたんノーマル)
+const TTS = QUERY.get('tts') === '1';
+const TTS_SPK = /^\d{1,3}$/.test(QUERY.get('spk') ?? '') ? QUERY.get('spk') : '2';
 
 async function post(ev) {
   if (SPECTATE) return true; // 観戦モードは読み取り専用(ackも打たない=実行側ページに任せる)
@@ -343,6 +379,7 @@ function makeScreen(c) {
  * (ページ内・ネットワークやDOMへの参照は渡さない)。エラーは ack で本人へ返る=自分で直せる
  */
 /** M135: 造形コードへ渡す安全ヘルパー。document禁止のkioskCode/customでも文字が描ける */
+const billboardPanels = []; // M140: billboard:true の文字盤(毎フレームカメラへ正対)
 const BUILD_HELPERS = {
   /**
    * 文字パネル(黒板・掲示板・銘板用)。mesh.userData.setText(text) で後から更新できる
@@ -378,11 +415,14 @@ const BUILD_HELPERS = {
         lines.push(line);
       }
       const lh = size * 1.3;
-      lines.slice(0, Math.floor((ph - pad * 2) / lh)).forEach((l, i) => ctx.fillText(l, pad, pad + i * lh));
+      // 最低1行は必ず描く(フォントが大きすぎてfloorが0になると無文字盤になる事故の防止)
+      lines.slice(0, Math.max(1, Math.floor((ph - pad * 2) / lh))).forEach((l, i) => ctx.fillText(l, pad, pad + i * lh));
       tex.needsUpdate = true;
     };
     draw(opts.text ?? '');
     mesh.userData.setText = draw;
+    // M140: billboard:true で常にカメラへ正対(配信終了盤など「どの画角でも読める」文字盤)
+    if (opts.billboard === true) billboardPanels.push(mesh);
     return mesh;
   },
 };
@@ -518,6 +558,14 @@ window.addEventListener('message', (ev) => {
     }
   }
 });
+/** M141: 観戦(配信)ページ専用の自動退出 — 操作が25秒止まったアプリ画面は自動で畳む。
+ * 初回配信で「設定画面が映りっぱなし」事故が2回起きた恒久対策。操作・say・状態更新で延命する */
+let appIdleTimer = null;
+function touchAppIdle() {
+  if (!SPECTATE) return;
+  clearTimeout(appIdleTimer);
+  if (openAppId !== null) appIdleTimer = setTimeout(() => leaveApp(), 25_000);
+}
 function openApp(id, byUser = false) {
   const rec = worldApps.get(id);
   if (!rec) throw new Error(`app_open: id=${id} は存在しない`);
@@ -527,10 +575,12 @@ function openApp(id, byUser = false) {
   appov.classList.add('on');
   document.body.classList.add('app-open'); // M130: ログを直近3件・薄表示に
   openAppId = id;
+  touchAppIdle();
   if (!SPECTATE) void post({ kind: 'app_view', appId: id, byUser });
 }
 /** 離れる: 表示だけ畳む。アプリは裏で生きたまま(入力・状態は保持) */
 function leaveApp() {
+  clearTimeout(appIdleTimer);
   appov.classList.remove('on');
   document.body.classList.remove('app-open');
   apppointer.style.display = 'none';
@@ -581,7 +631,9 @@ async function appOp(op, selector, text) {
 }
 // E2E/デバッグ用フック(moduleスコープの関数をCDPから叩けるように)
 // 前半で定義済みのQAフック(avatar/actions等のgetter)を消さないようマージする
-Object.assign(window.__world ?? (window.__world = {}), { openApp, closeApp, leaveApp, appOp, appStates, worldApps });
+Object.assign(window.__world ?? (window.__world = {}), { openApp, closeApp, leaveApp, appOp, appStates, worldApps,
+  // M141: 配信演出のQA用(字幕・読み上げ・弾幕を単体で叩ける)
+  showSubtitle, speak, renderLiveComment });
 /** app_point: 開いているアプリ内の要素を赤矢印で指す */
 async function pointInApp(selector, noteText) {
   const res = await appOp('rect', selector);
@@ -612,6 +664,63 @@ function say(text) {
   bub.style.opacity = '1';
   bubUntil = performance.now() + Math.max(3000, Math.min(9000, text.length * 120));
   chime([659, 880]);
+}
+// M141: 字幕(観戦=配信画面ではチャット欄の代わりに大きく出す)
+const subtitle = document.getElementById('subtitle');
+let subTimer = null;
+function showSubtitle(text, ms) {
+  subtitle.textContent = text;
+  subtitle.style.display = 'block';
+  clearTimeout(subTimer);
+  subTimer = setTimeout(() => { subtitle.style.display = 'none'; }, ms);
+}
+/** M141: VOICEVOX読み上げ。エンジン停止・失敗時は false(呼び元が従来の間で代替) */
+async function speak(text) {
+  if (!TTS || !text) return false;
+  try {
+    const r = await fetch(`/api/world/tts?spk=${TTS_SPK}&text=${encodeURIComponent(text.slice(0, 280))}`);
+    if (!r.ok) return false;
+    const url = URL.createObjectURL(await r.blob());
+    await new Promise((res) => {
+      const a = new Audio(url);
+      let done = false;
+      const fin = () => { if (!done) { done = true; URL.revokeObjectURL(url); res(); } };
+      a.onended = fin; a.onerror = fin;
+      setTimeout(fin, 30_000);
+      a.play().catch(fin);
+    });
+    return true;
+  } catch { return false; }
+}
+/** M141: 視聴者コメントの弾幕・採用ポップ */
+function renderLiveComment(c) {
+  if (c.adopted === true) {
+    const pop = document.createElement('div');
+    pop.className = 'adoptpop';
+    pop.innerHTML = '<div class="abig">🎯 採用!</div><div class="atxt"></div><div class="aby"></div>';
+    pop.querySelector('.atxt').textContent = c.text ?? '';
+    pop.querySelector('.aby').textContent = (c.author ?? '視聴者') + ' さん、ありがとう!';
+    document.body.appendChild(pop);
+    chime([523, 659, 784, 1047]);
+    setTimeout(() => pop.remove(), 4000);
+    return;
+  }
+  const d = document.createElement('div');
+  d.className = 'dan';
+  const who = document.createElement('span');
+  who.className = 'who';
+  who.textContent = c.author ?? '';
+  d.appendChild(who);
+  d.appendChild(document.createTextNode(c.text ?? ''));
+  d.style.top = (8 + Math.random() * 46) + 'vh';
+  d.style.left = '100vw';
+  document.body.appendChild(d);
+  requestAnimationFrame(() => {
+    const dist = innerWidth + d.offsetWidth + 40;
+    d.style.transition = 'transform 9s linear';
+    d.style.transform = `translateX(${-dist}px)`;
+  });
+  setTimeout(() => d.remove(), 9500);
 }
 let actx = null;
 function chime(fs) {
@@ -818,10 +927,22 @@ function waitMotionEnd(name) {
 }
 async function runCommand(c, quiet = false) {
   switch (c.type) {
-    case 'say':
-      say(c.text ?? '');
-      // 読み終わる間を取る(連続sayの上書き防止・演出のテンポ)
-      if (!quiet) await sleep(Math.min(2200, 500 + (c.text?.length ?? 0) * 35));
+    case 'say': {
+      const text = c.text ?? '';
+      say(text);
+      touchAppIdle();
+      // M141: 配信画面では大きな字幕+音声読み上げ(スマホでチャットが読めない問題の対策)
+      if (SPECTATE) showSubtitle(text, Math.max(3500, Math.min(20_000, text.length * 160)));
+      if (!quiet) {
+        const spoken = await speak(text);
+        if (SPECTATE) { clearTimeout(subTimer); subTimer = setTimeout(() => { subtitle.style.display = 'none'; }, 1200); }
+        // 読み終わる間を取る(連続sayの上書き防止・演出のテンポ)。読み上げ済みなら追加の間は不要
+        if (!spoken) await sleep(Math.min(2200, 500 + text.length * 35));
+      }
+      return;
+    }
+    case 'live_comment':
+      renderLiveComment(c);
       return;
     case 'motion':
       if (!actions[c.name]) throw new Error(`motion: ${c.name} のFBXが未配置(assets-labに追加すると使える)`);
@@ -929,6 +1050,8 @@ async function runCommand(c, quiet = false) {
       // M132: appState未指定=アプリ終了によるクリア(社のtickはundefinedを受けて初期表示へ)
       if (c.appState === undefined) appStates.delete(c.appId);
       else appStates.set(c.appId, c.appState);
+      // M141: 表示中アプリが動いている間は自動退出させない(実演の途中で畳まない)
+      if (c.appId === openAppId) touchAppIdle();
       // M129c: 新しいstateが来たらtickを蘇生(壊れたstateで止まっていた社が復帰できる)
       const rec = worldApps.get(c.appId);
       if (rec) rec.tickErrs = 0;
@@ -942,11 +1065,12 @@ async function runCommand(c, quiet = false) {
         addMsg(en.from === 'agent' ? 'agent' : en.from === 'user' ? 'user' : 'sys', en.text);
       }
       return;
-    case 'app_point': await pointInApp(c.selector, c.note); await sleep(800); return;
-    case 'app_click': await appOp('click', c.selector); await sleep(500); return;
-    case 'app_type': await appOp('type', c.selector, c.text); await sleep(400); return;
+    case 'app_point': await pointInApp(c.selector, c.note); touchAppIdle(); await sleep(800); return;
+    case 'app_click': await appOp('click', c.selector); touchAppIdle(); await sleep(500); return;
+    case 'app_type': await appOp('type', c.selector, c.text); touchAppIdle(); await sleep(400); return;
     case 'app_read': {
       const r = await appOp('read', c.selector);
+      touchAppIdle();
       pendingNotes.push(`app_read ${c.selector} = ${JSON.stringify(r.text ?? '')}`);
       return;
     }
@@ -1180,7 +1304,27 @@ controls.target.set(0, 1.05, 0);
 camera.position.set(1.5, 2.4, 4.2);
 // エージェントのcamera演出: 目標へ滑らかに寄せる。ユーザーが触ったら即座に主導権を返す
 let camTween = null; // {target, pos?|null, until?: ms}
-function camFocusTo(target, pos = null) { camTween = { target, pos, until: performance.now() + 4_000 }; }
+function camFocusTo(target, pos = null) {
+  // M141: 配信の自動監督(cam=auto)は「ゆっくり移動」ではなく「カット切替→ゆっくり寄る」。
+  // テレビのスイッチング的なテンポになり、見せ場が明確になる(初回配信の「引きすぎ」反省)
+  if (CAM_AUTO) {
+    let from = pos;
+    if (from === null) {
+      const dir = new THREE.Vector3().subVectors(camera.position, target);
+      dir.y = 0;
+      if (dir.length() < 0.5) dir.set(1, 0, 1);
+      dir.normalize();
+      from = target.clone().add(dir.multiplyScalar(8)).add(new THREE.Vector3(0, 2.4, 0));
+    }
+    camera.position.copy(from);
+    controls.target.copy(target);
+    const push = from.clone().lerp(target, 0.3);
+    push.y = Math.max(1.3, from.y * 0.85);
+    camTween = { target: target.clone(), pos: push, until: performance.now() + 3_500 };
+    return;
+  }
+  camTween = { target, pos, until: performance.now() + 4_000 };
+}
 // M139: カメラモード。'shoulder'=アバターの肩越し(頭の高さ・水平・頭大きめ)を追従し続ける
 let camMode = null;
 // M139: 自動監督(配信用 cam=auto): 平常=ゆっくり周回 / イベント=寄り / cameraFocusフラグ=自動追尾
@@ -1201,6 +1345,14 @@ function findCameraFocus() {
   for (const o of objects.values()) scan(o.mesh);
   for (const r of worldApps.values()) scan(r.mesh);
   focusHunt.mesh = best;
+  // M141: 対象の実寸(バウンディング半径)も測る=追尾距離をサイズに合わせる(巨大月で画面が埋まる対策)
+  if (best) {
+    try {
+      const bb = new THREE.Box3().setFromObject(best);
+      const sz = bb.getSize(new THREE.Vector3());
+      focusHunt.radius = Math.max(sz.x, sz.y, sz.z) / 2;
+    } catch { focusHunt.radius = 4; }
+  } else focusHunt.radius = null;
   return best;
 }
 controls.addEventListener('start', () => { camTween = null; camMode = null; });
@@ -1303,12 +1455,16 @@ renderer.setAnimationLoop(() => {
   } else {
     const focusMesh = CAM_AUTO ? findCameraFocus() : null;
     if (focusMesh) {
-      // 見せ場の自動追尾(例: 落下中の月)。対象を見上げる位置へ回り込む
+      // 見せ場の自動追尾(例: 落下中の月)。M141: カメラはアバター(広場)側に留まり対象を見上げる
+      // =「みんなで見上げる」構図。アバターが前景に入り、社に埋まる事故も避ける。
+      // 引き距離は対象の実寸に比例(巨大化した月が画面を埋め尽くさない)
       const wp = new THREE.Vector3();
       focusMesh.getWorldPosition(wp);
-      const dir = new THREE.Vector3(wp.x, 0, wp.z);
-      if (dir.length() < 1) dir.set(0, 0, 1); else dir.normalize();
-      camera.position.lerp(new THREE.Vector3(-dir.x * 13, 3.2, -dir.z * 13), 0.03);
+      const anchor = avatar ? avatar.scene.position : new THREE.Vector3();
+      const away = new THREE.Vector3(anchor.x - wp.x, 0, anchor.z - wp.z);
+      if (away.length() < 1) away.set(0, 0, 1); else away.normalize();
+      const dCam = Math.min(16, Math.max(7, (focusHunt.radius ?? 4) * 1.1));
+      camera.position.lerp(new THREE.Vector3(anchor.x + away.x * dCam, 2.6, anchor.z + away.z * dCam), 0.04);
       controls.target.lerp(wp, 0.06);
     } else if (camTween) {
       controls.target.lerp(camTween.target, 0.08);
@@ -1317,15 +1473,30 @@ renderer.setAnimationLoop(() => {
         (!camTween.pos || camera.position.distanceTo(camTween.pos) < 0.2)) ||
         (camTween.until !== undefined && performance.now() > camTween.until);
       if (done) camTween = null;
+    } else if (CAM_AUTO && moveTarget && avatar) {
+      // M141: 移動中は後方追従=主役(アバター)を見失わない。「何を見ればいいか分からない」対策
+      autoOrbitAng = null;
+      const p = avatar.scene.position, yaw = avatar.scene.rotation.y;
+      const fwd = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+      camera.position.lerp(new THREE.Vector3(p.x - fwd.x * 3.4, 2.15, p.z - fwd.z * 3.4), 0.07);
+      controls.target.lerp(new THREE.Vector3(p.x + fwd.x * 2.5, 1.3, p.z + fwd.z * 2.5), 0.1);
     } else if (CAM_AUTO) {
-      // 平常時: 広場をゆっくり周回。角度は明示的に前進させる(lerp頼みだと進みが食われて止まって見える)
-      if (autoOrbitAng === null) autoOrbitAng = Math.atan2(camera.position.x, camera.position.z);
-      autoOrbitAng += dt * 0.06;
-      const r = 11.5, h = 5.2;
-      camera.position.lerp(new THREE.Vector3(Math.sin(autoOrbitAng) * r, h, Math.cos(autoOrbitAng) * r), 0.08);
-      controls.target.lerp(new THREE.Vector3(0, 1.4, 0), 0.04);
+      // M141: 平常時はアバターを主役に近距離でゆっくり周回(初回配信の「引きすぎて小さい」反省)。
+      // 角度は明示的に前進させる(lerp頼みだと進みが食われて止まって見える)
+      const cpos = avatar ? avatar.scene.position : new THREE.Vector3();
+      if (autoOrbitAng === null) autoOrbitAng = Math.atan2(camera.position.x - cpos.x, camera.position.z - cpos.z);
+      autoOrbitAng += dt * 0.05;
+      const r = 5.2, h = 2.5;
+      camera.position.lerp(new THREE.Vector3(cpos.x + Math.sin(autoOrbitAng) * r, h, cpos.z + Math.cos(autoOrbitAng) * r), 0.06);
+      controls.target.lerp(new THREE.Vector3(cpos.x, 1.25, cpos.z), 0.06);
     }
     if (!(CAM_AUTO && !focusMesh && !camTween && camMode === null)) autoOrbitAng = null;
+  }
+  // M140: billboard文字盤はカメラへ正対(撤去済みメッシュは掃除)
+  for (let i = billboardPanels.length - 1; i >= 0; i--) {
+    const m = billboardPanels[i];
+    if (!m.parent) { billboardPanels.splice(i, 1); continue; }
+    if (m.visible) m.lookAt(camera.position);
   }
   controls.update();
   renderer.render(scene, camera);

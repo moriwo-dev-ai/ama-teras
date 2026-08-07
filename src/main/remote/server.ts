@@ -332,6 +332,9 @@ export class RemoteServer {
 
     if (path === '/api/events') return this.handleSse(req, res, url);
     if (path === '/api/world/spectate') return this.handleWorldSpectate(req, res);
+    // M141: 音声合成プロキシ(ループバック限定)。VOICEVOXエンジン(127.0.0.1:50021)へ中継する。
+    // 配信ページ(観戦=トークンなし)が使うため、観戦SSEと同じ境界(同一PC限定)で守る
+    if (path === '/api/world/tts' && req.method === 'GET') return this.handleWorldTts(req, res, url);
     // M121: 実行係ページからの録画アップロード(webm)。実行キー+ループバック限定
     if (path === '/api/world/recording' && req.method === 'POST' && this.isWorldExecutor(req, url)) {
       const dir = this.deps.worldRecordingsDir;
@@ -383,17 +386,73 @@ export class RemoteServer {
     const restore = this.deps.world.restorePayload?.() ?? null;
     if (restore !== null) write('world:event', restore);
     const unsubscribe = this.deps.bus.subscribe('world:event', (payload) => write('world:event', payload));
+    // M141: 稼働可視化を観戦(=OBS配信画面)にも流す。「作ってる間、何をしてるか分からない」対策。
+    // 中継するのは進捗系のみ・許可フィールドだけを写経し、パス風文字列はサーバ側で必ずマスクする
+    const unsubscribeWork = this.deps.bus.subscribe('chat:event', (raw) => {
+      const ev = raw as Record<string, unknown>;
+      const kind = ev['kind'];
+      if (kind !== 'status' && kind !== 'tool_start' && kind !== 'tool_progress' && kind !== 'tool_result') return;
+      const mask = (s: unknown): string | undefined =>
+        typeof s === 'string'
+          ? s.replace(/[A-Za-z]:[\\/][^\s'"]+/g, '…(パス非表示)').replace(/\/(?:home|Users)\/[^\s'"]+/g, '…(パス非表示)')
+          : undefined;
+      write('chat:event', {
+        kind,
+        ...(typeof ev['status'] === 'string' ? { status: ev['status'] } : {}),
+        ...(typeof ev['name'] === 'string' ? { name: ev['name'] } : {}),
+        ...(mask(ev['inputPreview']) !== undefined ? { inputPreview: mask(ev['inputPreview']) } : {}),
+        ...(mask(ev['outputTail']) !== undefined ? { outputTail: mask(ev['outputTail']) } : {}),
+      });
+    });
     const heartbeat = setInterval(() => {
       res.write(': ping\n\n');
     }, this.deps.heartbeatMs ?? 25_000);
     const cleanup = (): void => {
       clearInterval(heartbeat);
       unsubscribe();
+      unsubscribeWork();
       this.sseCleanups.delete(cleanup);
       res.end();
     };
     this.sseCleanups.add(cleanup);
     req.on('close', cleanup);
+  }
+
+  /**
+   * M141: VOICEVOX中継。/api/world/tts?text=…&spk=2 → audio/wav。
+   * エンジン未起動なら503(ページ側は黙って字幕のみにフォールバック)。
+   * クレジット表記義務(VOICEVOX:キャラ名)は配信概要欄で果たす運用
+   */
+  private async handleWorldTts(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    const ip = req.socket.remoteAddress ?? '';
+    const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+    if (!isLoopback) throw new HttpError(403, 'ttsは同一PC(ループバック)限定');
+    const text = (url.searchParams.get('text') ?? '').slice(0, 300);
+    if (text.trim() === '') throw new HttpError(400, 'text が必要');
+    const spk = /^\d{1,3}$/.test(url.searchParams.get('spk') ?? '') ? url.searchParams.get('spk') : '2';
+    const base = 'http://127.0.0.1:50021';
+    try {
+      const q = await fetch(`${base}/audio_query?speaker=${spk}&text=${encodeURIComponent(text)}`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!q.ok) throw new Error(`audio_query ${q.status}`);
+      const query = (await q.json()) as Record<string, unknown>;
+      query['speedScale'] = 1.1; // 配信のテンポ優先(素の1.0はややゆっくり)
+      const syn = await fetch(`${base}/synthesis?speaker=${spk}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(query),
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!syn.ok) throw new Error(`synthesis ${syn.status}`);
+      const wav = Buffer.from(await syn.arrayBuffer());
+      res.writeHead(200, { 'content-type': 'audio/wav', 'cache-control': 'no-store' });
+      res.end(wav);
+    } catch (err) {
+      // エンジン停止中は「声なし配信」に静かに戻る(致命ではない)
+      throw new HttpError(503, `VOICEVOXエンジンに接続できない: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /** M117-B: 常時実行ページ判定(ループバック+起動ごとの実行キー一致) */
