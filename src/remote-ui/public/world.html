@@ -163,7 +163,10 @@ import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 // ?spectate=1: M115-5 観戦モード(同一PC限定・読み取り専用SSE・トークン不要・発言不可)
 // &cam=pov|front|overview: M116-B 固定カメラ(エージェントがscreenshotで自分の作品を見るため)
 const QUERY = new URLSearchParams(location.search);
-const SPECTATE = QUERY.has('spectate');
+// ?viewer=1: c案の神視点ビューア(公開想定)。観戦の読み取り専用に加え、ユーザー操作での
+// アプリ起動も封じる=できるのは視点操作(回転/ズーム/パン)だけ。世界に対して完全に無害
+const VIEWER = QUERY.has('viewer');
+const SPECTATE = QUERY.has('spectate') || VIEWER;
 // ?executor=1&k=…: M117-B 常時実行モード(アプリ自身が開く隠しウィンドウ。世界の正実行体)
 const EXECUTOR = QUERY.has('executor');
 const EXEC_KEY = QUERY.get('k') ?? '';
@@ -175,10 +178,11 @@ const TOKEN = hashTok ?? localStorage.getItem(TOKEN_KEY);
 if (!TOKEN && !SPECTATE && !EXECUTOR) document.getElementById('pair').style.display = 'flex';
 if (SPECTATE || EXECUTOR) {
   document.getElementById('chatbar').style.display = 'none';
-  document.getElementById('bst').textContent = SPECTATE ? '観戦モード' : '実行係';
+  document.getElementById('bst').textContent = VIEWER ? '見学モード' : SPECTATE ? '観戦モード' : '実行係';
 }
-// M141: 観戦(=OBS配信画面)は専用レイアウト(実況ボード大・アプリ右6割・字幕)
-if (SPECTATE) document.body.classList.add('spectate');
+// M141: 観戦(=OBS配信画面)は専用レイアウト(実況ボード大・アプリ右6割・字幕)。
+// 見学(viewer)は素の世界ビュー(配信オーバーレイなし=覗き窓に徹する)
+if (SPECTATE && !VIEWER) document.body.classList.add('spectate');
 // M141: 音声読み上げ(VOICEVOX)。&tts=1 で有効化・&spk=N で話者切替(既定2=四国めたんノーマル)
 const TTS = QUERY.get('tts') === '1';
 const TTS_SPK = /^\d{1,3}$/.test(QUERY.get('spk') ?? '') ? QUERY.get('spk') : '2';
@@ -1321,15 +1325,16 @@ addEventListener('pointerup', (e) => {
   if (!isTap || !rec) return;
   const now = performance.now();
   if (lastTap.id === rec.def.id && now - lastTap.t < 450) {
-    // ダブルタップ=起動(3Dで見つけて2Dで使う)
+    // ダブルタップ=起動(3Dで見つけて2Dで使う)。見学モードは封鎖(視点操作だけの覗き窓)
     lastTap = { t: 0, id: null };
+    if (VIEWER) { addMsg('sys', '(見学モードではアプリは開けません)'); return; }
     if (pendingFocus) { clearTimeout(pendingFocus); pendingFocus = null; }
     try { openApp(rec.def.id); } catch (err) { addMsg('sys', String(err?.message ?? err)); }
     return;
   }
   lastTap = { t: now, id: rec.def.id };
   // シングルタップ=名札+配置コントロール。カメラ寄せは2タップ目の照準を狂わせないよう遅延実行
-  addMsg('sys', `🏛 ${rec.def.name}${rec.def.description ? ' — ' + rec.def.description : ''}(ダブルタップで開く・長押しで移動)`);
+  addMsg('sys', `🏛 ${rec.def.name}${rec.def.description ? ' — ' + rec.def.description : ''}${VIEWER ? '' : '(ダブルタップで開く・長押しで移動)'}`);
   if (!SPECTATE) showKioskCtl(rec);
   if (pendingFocus) clearTimeout(pendingFocus);
   pendingFocus = setTimeout(() => {
