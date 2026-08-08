@@ -14,6 +14,20 @@ import type { EventBus } from '../core/events';
  * - 「接続中か」は最終受信からの経過時間で判定(ページは定期的に state を報告する)
  */
 
+/**
+ * b案P2: 世界チャットの振り分け。呼びかけ(ヒナタ/テラ)が最優先、次に指示語、既定は雑談=ヒナタ。
+ * 「作って」「開いて」等の作業依頼は思考層(エージェント)へ、それ以外の話しかけは会話層へ。
+ * ヒナタのデーモンが落ちている時は呼びかけ「テラちゃん」で必ず思考層に届く(逃げ道を残す)
+ */
+export function routeWorldChat(text: string): 'hinata' | 'agent' {
+  const t = text.trim();
+  if (/^(ヒナタ|ひなた)/.test(t)) return 'hinata';
+  if (/^(テラ|てら|アマテラス|AMA)/i.test(t)) return 'agent';
+  const directive =
+    /(作って|つくって|建てて|たてて|直して|なおして|修正|実装|追加して|消して|削除|撤去|動かして|移動して|開いて|ひらいて|閉じて|とじて|起動|実行|やって|して(ほしい|欲しい)|お願い|おねがい|タイマー|セットして|見せて|みせて|見よう|みよう)/;
+  return directive.test(t) ? 'agent' : 'hinata';
+}
+
 const CONNECT_TIMEOUT_MS = 30_000;
 /** M122(2): 世界の記憶。チャットと出来事を正本に永続化する上限(古いものから落ちる) */
 const WORLD_LOG_MAX = 200;
@@ -205,9 +219,13 @@ export class WorldManager {
       case 'chat': {
         if (typeof ev.text !== 'string' || ev.text.trim() === '') return { ok: false };
         this.pushChat('user', ev.text);
-        // b案P2: 生命体デーモン(観戦SSE購読)にもユーザー発話を知覚させる(ループバック限定で中継される)
-        this.bus.publish('world:chat', { from: 'user', text: ev.text });
-        this.chatHandler?.(ev.text);
+        // b案P2: 振り分け — 雑談は生命体(world:chat経由・観戦SSEで知覚)、作業指示は思考層へ。
+        // 両方に届けると二重返事になるため排他(2026-08-09 未明の実測フィードバック)
+        if (routeWorldChat(ev.text) === 'hinata') {
+          this.bus.publish('world:chat', { from: 'user', text: ev.text });
+        } else {
+          this.chatHandler?.(ev.text);
+        }
         return { ok: true };
       }
       case 'app_moved': {

@@ -78,7 +78,10 @@ function tickDrives(dtSec) {
   drives.curiosity = clamp(drives.curiosity - 0.0008 * dtSec);
 }
 
+let sleeping = false; // 就寝状態(深夜に元気が尽きると寝る。話しかけられたら寝ぼけて答える)
+
 function drivesNote() {
+  if (sleeping) return 'ぐっすり寝ていたところを起こされた。寝ぼけていて、とてもねむい';
   const parts = [];
   if (drives.energy < 0.3) parts.push('ねむい');
   else if (drives.energy > 0.7) parts.push('元気いっぱい');
@@ -275,7 +278,22 @@ async function main() {
     const now = Date.now();
     const agentQuiet = now - lastAgentBusyAt > 90_000; // 思考層が90秒静かなら身体は空いている
     const worldQuiet = now - lastWorldCmdAt > 20_000;
-    if (agentQuiet && worldQuiet && !thinking) {
+    // 就寝/起床: 深夜(0〜6時)に元気が尽きたら寝る=行動が止まる(静けさそのものが睡眠の演出)。
+    // 現アバターに寝転びモーションが無いため座り姿勢で眠る。専用モーション+目を閉じるはVRM後
+    const h = new Date().getHours();
+    const wantSleep = h < 6 && drives.energy < 0.22;
+    if (!sleeping && wantSleep && agentQuiet && worldQuiet) {
+      sleeping = true;
+      remember('sleep', {});
+      act([{ type: 'say', text: 'ふぁ…もうねむい…おやすみなさい…' }, { type: 'motion', name: 'sit' }], '就寝');
+      lastLoopMotion = 'sit';
+    } else if (sleeping && (h >= 6 || drives.energy > 0.5)) {
+      sleeping = false;
+      remember('wake_up', {});
+      act([{ type: 'motion', name: 'idle' }, { type: 'say', text: 'ん…ふぁ…おはよう…' }], '起床');
+      lastLoopMotion = '';
+    }
+    if (!sleeping && agentQuiet && worldQuiet && !thinking) {
       const cmds = chooseBehavior();
       if (cmds !== null) {
         const isSay = cmds.some((c) => c.type === 'say');

@@ -1157,12 +1157,21 @@ async function pump() {
 // ================= SSE接続 =================
 const badge = document.getElementById('badge');
 const bst = document.getElementById('bst');
+// M145: スマホのスリープ/バックグラウンドでSSEが静かに死ぬ(自動再接続も発火しない)対策。
+// サーバの実イベントping(25秒毎)で生存を計り、途絶したら作り直す
+let currentEs = null;
+let lastSseAt = Date.now(); // 壁時計: スリープ中もperformance.now()と違い進む=復帰時に途絶が正しく見える
 function connect() {
+  if (currentEs) { try { currentEs.close(); } catch { /* 既に死んでいる */ } }
+  lastSseAt = Date.now();
   // 実行係も受信は観戦SSE(ループバック・world:eventのみ)で足りる。送信側だけ実行キーを使う
   const es = (SPECTATE || EXECUTOR)
     ? new EventSource('/api/world/spectate')
     : new EventSource(`/api/events?token=${encodeURIComponent(TOKEN ?? '')}`);
+  currentEs = es;
+  es.addEventListener('ping', () => { lastSseAt = Date.now(); });
   es.addEventListener('world:event', (e) => {
+    lastSseAt = Date.now();
     try {
       const payload = JSON.parse(e.data);
       cmdQueue.push(payload);
@@ -1212,6 +1221,19 @@ function connect() {
 if (TOKEN || SPECTATE || EXECUTOR) {
   connect();
   if (!SPECTATE) setInterval(() => { void post({ kind: 'state', state: snapshot() }); }, 10_000);
+  // M145: 生存監視。ping(25秒毎)が65秒来なければ張り直し。スマホの画面復帰時は即チェック
+  const checkAlive = () => {
+    if (document.visibilityState !== 'visible') return;
+    if (Date.now() - lastSseAt > 65_000) {
+      bst.textContent = '再接続中…';
+      connect(); // onopenのhello→復元バッチで取りこぼしも回復する
+    }
+  };
+  setInterval(checkAlive, 15_000);
+  document.addEventListener('visibilitychange', () => {
+    // スリープ中はperformance.now()も止まる端末があるため、復帰時は無条件で疑って即検査
+    if (document.visibilityState === 'visible') setTimeout(checkAlive, 400);
+  });
 }
 
 // ================= M143: 作業モーション(トンカチ) =================

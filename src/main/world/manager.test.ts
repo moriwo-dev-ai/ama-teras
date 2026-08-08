@@ -82,26 +82,34 @@ describe('WorldManager', () => {
     const { mgr } = setup(now);
     const seen: string[] = [];
     mgr.setChatHandler((t) => seen.push(t));
-    mgr.onPageEvent({ kind: 'chat', text: 'こんにちは' });
-    expect(seen).toEqual(['こんにちは']);
+    // b案P2の振り分け後: 指示語入りは思考層(ハンドラ)へ
+    mgr.onPageEvent({ kind: 'chat', text: '塔を作って' });
+    expect(seen).toEqual(['塔を作って']);
     // 空文字は拒否しハンドラも呼ばない
     expect(mgr.onPageEvent({ kind: 'chat', text: '  ' }).ok).toBe(false);
     expect(seen).toHaveLength(1);
     const obs = mgr.observe();
     // M122: 記憶にはタイムスタンプが付く
-    expect(obs.chat).toEqual([{ from: 'user', text: 'こんにちは', ts: expect.any(String) }]);
+    expect(obs.chat).toEqual([{ from: 'user', text: '塔を作って', ts: expect.any(String) }]);
   });
 
-  it('b案P2: チャットは world:chat としてもバスへ流れる(生命体デーモンの知覚用)', () => {
+  it('b案P2: 振り分け — 雑談はworld:chat(ヒナタ)へ排他で流れ、指示は思考層へ', () => {
     const now = { t: 0 };
     const { bus, mgr } = setup(now);
     const heard: { from: string; text: string }[] = [];
+    const agent: string[] = [];
     bus.subscribe('world:chat', (p) => heard.push(p));
-    mgr.onPageEvent({ kind: 'chat', text: 'ヒナタ、おはよう' });
-    expect(heard).toEqual([{ from: 'user', text: 'ヒナタ、おはよう' }]);
-    // 空文字は流れない
+    mgr.setChatHandler((t) => agent.push(t));
+    mgr.onPageEvent({ kind: 'chat', text: 'ヒナタ、おはよう' }); // 呼びかけ→ヒナタ
+    mgr.onPageEvent({ kind: 'chat', text: 'きょうは天気いいね' }); // 雑談(既定)→ヒナタ
+    mgr.onPageEvent({ kind: 'chat', text: '観覧車を作って' }); // 指示語→思考層
+    mgr.onPageEvent({ kind: 'chat', text: 'テラちゃん、月見よう' }); // 呼びかけ最優先→思考層
+    expect(heard.map((h) => h.text)).toEqual(['ヒナタ、おはよう', 'きょうは天気いいね']);
+    expect(agent).toEqual(['観覧車を作って', 'テラちゃん、月見よう']);
+    // 排他: 二重返事にならない(同じ文が両方に届かない)
     mgr.onPageEvent({ kind: 'chat', text: ' ' });
-    expect(heard).toHaveLength(1);
+    expect(heard).toHaveLength(2);
+    expect(agent).toHaveLength(2);
   });
 
   it('state/ack の state スナップショットが observe に反映される', () => {

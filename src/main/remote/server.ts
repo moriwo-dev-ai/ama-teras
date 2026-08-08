@@ -426,7 +426,8 @@ export class RemoteServer {
       });
     });
     const heartbeat = setInterval(() => {
-      res.write(': ping\n\n');
+      // コメント(: ping)はEventSourceのJSから観測できない。生存監視(M145)のため実イベントで送る
+      write('ping', {});
     }, this.deps.heartbeatMs ?? 25_000);
     const cleanup = (): void => {
       clearInterval(heartbeat);
@@ -999,7 +1000,8 @@ export class RemoteServer {
 
     const unsubscribe = this.deps.bus.subscribeAll((channel, payload) => write(channel, payload));
     const heartbeat = setInterval(() => {
-      res.write(': ping\n\n');
+      // コメント(: ping)はEventSourceのJSから観測できない。生存監視(M145)のため実イベントで送る
+      write('ping', {});
     }, this.deps.heartbeatMs ?? 25_000);
 
     const cleanup = (): void => {
