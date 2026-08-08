@@ -29,8 +29,7 @@ async function discover() {
   const res = await fetch('http://127.0.0.1:9225/json/list', { signal: AbortSignal.timeout(3000) });
   const pages = await res.json();
   for (const p of pages) {
-    const m = /^http:\/\/127\.0\.0\.1:(\d+)\/world\.html\?[^"]*exec=1[^"]*[?&]k=([\w-]+)/.exec(p.url ?? '') ??
-              /^http:\/\/127\.0\.0\.1:(\d+)\/world\.html\?[^"]*[?&]?k=([\w-]+)/.exec(p.url ?? '');
+    const m = /^http:\/\/127\.0\.0\.1:(\d+)\/world\.html\?[^"]*executor=1[^"]*[?&]k=([\w-]+)/.exec(p.url ?? '');
     if (m !== null) return { port: Number(m[1]), key: m[2] };
   }
   throw new Error('実行係ページが見つからない(AMA-terasが起動しているか・CDP 9225が有効か確認)');
