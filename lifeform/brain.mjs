@@ -40,6 +40,7 @@ export async function think(brain, persona, recent, drivesNote, userText) {
       body: JSON.stringify({
         model: brain.model,
         stream: false,
+        keep_alive: '3h', // モデル常駐=毎回の再ロード(約4秒)を避けて300〜800msを維持する
         options: { temperature: 0.9, num_predict: 100 },
         messages: [
           {
