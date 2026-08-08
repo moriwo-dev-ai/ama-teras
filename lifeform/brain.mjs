@@ -6,7 +6,8 @@
 
 const OLLAMA = 'http://127.0.0.1:11434';
 /** 小型高速を優先(会話層は1〜3秒応答が命)。前方一致で先に見つかったものを使う */
-const PREFERRED = ['qwen3:4b', 'qwen2.5:3b', 'gemma3:4b', 'llama3.2:3b', 'gemma2:2b', 'qwen2.5:7b', 'gemma3', 'qwen', 'llama'];
+// gemma3:4b が人格の一貫性で圧勝(2026-08-09 A/B実測: ため口維持・人格事実の正用・480〜590ms)
+const PREFERRED = ['gemma3:4b', 'qwen3:4b', 'qwen2.5:3b', 'llama3.2:3b', 'gemma2:2b', 'qwen2.5:7b', 'gemma3', 'qwen', 'llama'];
 
 export async function detectBrain() {
   try {
@@ -45,7 +46,9 @@ export async function think(brain, persona, recent, drivesNote, userText) {
             role: 'system',
             content:
               `${persona}\n\n# いまの気分\n${drivesNote}\n\n` +
-              '# ルール\n上の人格になりきって、日本語で1〜2文だけ返す。説明・注釈・絵文字・括弧書きは書かない。声に出して読まれる文だけを書く。',
+              '# ルール\n上の人格になりきって、日本語で1〜2文だけ返す。' +
+              '敬語(です・ます)は絶対に使わない=いつもため口。' +
+              '説明・注釈・絵文字・括弧書きは書かない。声に出して読まれる文だけを書く。',
           },
           ...history,
           { role: 'user', content: userText },

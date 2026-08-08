@@ -14,6 +14,7 @@
  * 起動: node lifeform/hinata-daemon.mjs [--port 8787] [--key XXXX] [--chat]
  * 依存ゼロ(素のNode 18+)。c案で独立パッケージ化する際の核になる。
  */
+import { spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,10 +33,11 @@ const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 // ---------- 記憶(エピソード): 夜間蒸留の材料。1日1ファイルのJSONL ----------
 const MEM_DIR = join(HERE, 'memory');
 mkdirSync(MEM_DIR, { recursive: true });
+/** ローカル日付 YYYY-MM-DD(UTCだと深夜の記憶が前日に混ざる) */
+const localDay = (d = new Date()) => d.toLocaleDateString('sv-SE');
 function remember(kind, data) {
   try {
-    const day = new Date().toISOString().slice(0, 10);
-    appendFileSync(join(MEM_DIR, `episodes-${day}.jsonl`), JSON.stringify({ ts: new Date().toISOString(), kind, ...data }) + '\n');
+    appendFileSync(join(MEM_DIR, `episodes-${localDay()}.jsonl`), JSON.stringify({ ts: new Date().toISOString(), kind, ...data }) + '\n');
   } catch { /* 記憶失敗で生命活動は止めない */ }
 }
 
@@ -268,6 +270,7 @@ async function main() {
     lastTick = now;
   }, 5000);
 
+  let lastLoopMotion = ''; // 直前と同じループモーション(sit/idle)は打ち直さない(座り直し連打の抑制)
   const heartbeat = () => {
     const now = Date.now();
     const agentQuiet = now - lastAgentBusyAt > 90_000; // 思考層が90秒静かなら身体は空いている
@@ -275,10 +278,14 @@ async function main() {
     if (agentQuiet && worldQuiet && !thinking) {
       const cmds = chooseBehavior();
       if (cmds !== null) {
-        // 独り言はさらに間引く(10分に1回まで)
         const isSay = cmds.some((c) => c.type === 'say');
-        if (!isSay || now - lastMurmurAt > 600_000) {
+        const loopMotion = cmds.length === 1 && cmds[0].type === 'motion' && ['sit', 'idle'].includes(cmds[0].name) ? cmds[0].name : '';
+        if (loopMotion !== '' && loopMotion === lastLoopMotion) {
+          // 既にその姿勢のまま=何もしない(静けさも生きている演出のうち)
+        } else if (!isSay || now - lastMurmurAt > 600_000) {
+          // 独り言はさらに間引く(10分に1回まで)
           if (isSay) lastMurmurAt = now;
+          lastLoopMotion = loopMotion;
           act(cmds, cmds.map((c) => c.name ?? c.type).join('+'));
         }
       }
@@ -290,6 +297,19 @@ async function main() {
   setInterval(() => {
     log('欲求', JSON.stringify(Object.fromEntries(Object.entries(drives).map(([k, v]) => [k, Math.round(v * 100) / 100]))));
   }, 120_000);
+
+  // ---- 夜間蒸留: 毎朝4時台に前日を振り返って日記+人格提案を書く(眠っている時間の学び) ----
+  let lastDistilledDay = '';
+  setInterval(() => {
+    const now = new Date();
+    if (now.getHours() !== 4) return;
+    const yesterday = localDay(new Date(now.getTime() - 86_400_000));
+    if (lastDistilledDay === yesterday) return;
+    lastDistilledDay = yesterday;
+    log(`夜間蒸留を開始(${yesterday})`);
+    const p = spawn(process.execPath, [join(HERE, 'distill.mjs'), yesterday], { stdio: 'ignore', detached: false });
+    p.on('exit', (code) => log(`夜間蒸留おわり(exit ${code})`));
+  }, 600_000);
 
   remember('wake', { chat: CHAT_ENABLED, brain: brain?.model ?? null });
   log('生命体デーモン起動(P1:反射+欲求+微動 / P2:会話層)。Ctrl+Cで停止');
