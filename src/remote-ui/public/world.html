@@ -297,7 +297,9 @@ try {
   // M130: 後半6本は派手モーション枠。assets-lab/ に同名FBXを置くだけで有効になる(未配置なら警告のみ)
   const MOTIONS = { idle: 'Breathing Idle', guard: 'Fighting Idle', jab: 'Lead Jab', hook: 'Hook Punch', kick: 'Roundhouse Kick', walk: 'Walking', sit: 'Sitting Idle',
     backflip: 'Backflip', flykick: 'Flying Kick', run: 'Fast Run', wave: 'Waving', dance: 'Samba Dancing', cheer: 'Victory',
-    punch: 'Cross Punch', spinkick: 'Mma Kick', jump: 'Jump', climb: 'Climbing Up Wall' };
+    punch: 'Cross Punch', spinkick: 'Mma Kick', jump: 'Jump', climb: 'Climbing Up Wall',
+    // M143: 作業/思考モーション(assets-labに同名FBXを置くと有効=建築中・考え中の自動再生に使う)
+    hammer: 'Hammering', think: 'Thinking' };
   await Promise.all(Object.entries(MOTIONS).map(async ([k, f]) => {
     try {
       actions[k] = mixer.clipAction(await loadMixamo(`./assets-lab/${f}.fbx`, avatar));
@@ -1147,14 +1149,14 @@ function connect() {
   es.addEventListener('chat:event', (e) => {
     try {
       const ev = JSON.parse(e.data);
-      if (ev.kind === 'error' && typeof ev.message === 'string') { addMsg('sys', '⚠ ' + ev.message); clearWorkSoon(100); return; }
+      if (ev.kind === 'error' && typeof ev.message === 'string') { addMsg('sys', '⚠ ' + ev.message); agentBusy = false; clearWorkSoon(100); return; }
       if (ev.kind === 'status') {
-        if (ev.status === 'calling_llm') showWork('考え中…', '');
-        else if (ev.status === 'done' || ev.status === 'cancelled' || ev.status === 'error') clearWorkSoon(1200);
+        if (ev.status === 'calling_llm') { agentBusy = 'think'; showWork('考え中…', ''); }
+        else if (ev.status === 'done' || ev.status === 'cancelled' || ev.status === 'error') { agentBusy = false; clearWorkSoon(1200); }
         return;
       }
-      if (ev.kind === 'tool_start') { showWork(`${TOOL_JP[ev.name] ?? ev.name} 中…`, maskForLive(ev.inputPreview?.slice(0, 90) ?? '')); return; }
-      if (ev.kind === 'tool_progress') { showWork(`${TOOL_JP[ev.name] ?? ev.name} 中…`); worktail.textContent = maskForLive((ev.outputTail ?? '').split('\n').pop()?.slice(0, 90) ?? ''); return; }
+      if (ev.kind === 'tool_start') { agentBusy = 'build'; showWork(`${TOOL_JP[ev.name] ?? ev.name} 中…`, maskForLive(ev.inputPreview?.slice(0, 90) ?? '')); return; }
+      if (ev.kind === 'tool_progress') { agentBusy = 'build'; showWork(`${TOOL_JP[ev.name] ?? ev.name} 中…`); worktail.textContent = maskForLive((ev.outputTail ?? '').split('\n').pop()?.slice(0, 90) ?? ''); return; }
       if (ev.kind === 'tool_result') { showWork(`${TOOL_JP[ev.name] ?? ev.name} ✓`); clearWorkSoon(2500); return; }
     } catch { /* 他会話のイベント形式差異は無視 */ }
   });
@@ -1168,6 +1170,43 @@ function connect() {
 if (TOKEN || SPECTATE || EXECUTOR) {
   connect();
   if (!SPECTATE) setInterval(() => { void post({ kind: 'state', state: snapshot() }); }, 10_000);
+}
+
+// ================= M143: 作業モーション(トンカチ) =================
+// エージェントが働いている間(考え中・ツール実行中)、アイドル棒立ちなら Hammering クリップを
+// ループ再生+右手に金槌の小道具=「作ってる」が一目で伝わる。明示モーション・移動中は発動しない
+// (2026-08-08ユーザー要望。Hammering.fbx はMixamoからユーザーDL→assets-labへ)
+let agentBusy = false;
+let hammerObj = null;
+function ensureHammer() {
+  if (hammerObj || !avatar) return;
+  const hand = avatar.humanoid?.getRawBoneNode?.('rightHand');
+  if (!hand) return;
+  const g = new THREE.Group();
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.34, 8), new THREE.MeshToonMaterial({ color: 0x8b5a2b }));
+  handle.position.y = 0.12;
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.075, 0.075), new THREE.MeshToonMaterial({ color: 0x8890a0 }));
+  head.position.y = 0.28;
+  g.add(handle, head);
+  g.rotation.x = Math.PI / 2;
+  hammerObj = g;
+  hand.add(g);
+}
+/** 作業状態とモーションの橋渡し(800ms毎)。agentBusy: false | 'think'(考え中) | 'build'(ツール実行中)。
+ * クリップ未配置なら何もしない(通常アイドルのまま) */
+setInterval(() => {
+  if (!mixer) return;
+  const want = agentBusy === 'think' ? 'think' : agentBusy === 'build' ? 'hammer' : null;
+  if (want && actions[want] && !moveTarget && (current === 'idle' || current === 'hammer' || current === 'think')) {
+    if (current !== want) fadeTo(want);
+  } else if (!agentBusy && (current === 'hammer' || current === 'think')) {
+    fadeTo('idle');
+  }
+}, 800);
+/** 毎フレーム: Hammering再生中だけ金槌を見せる */
+function applyWorkHammer() {
+  if (current === 'hammer' && avatar) { ensureHammer(); if (hammerObj) hammerObj.visible = true; }
+  else if (hammerObj) hammerObj.visible = false;
 }
 
 // ================= M120: 社のタップ/長押しドラッグ =================
@@ -1405,6 +1444,7 @@ renderer.setAnimationLoop(() => {
         avatar.scene.rotation.y += dy * Math.min(1, dt * 5);
       }
     }
+    applyWorkHammer(); // M143: mixerの後・vrm反映の前に腕を上書き(作業トンカチ)
     avatar.update(dt);
     // 吹き出し追従
     if (performance.now() < bubUntil) {
