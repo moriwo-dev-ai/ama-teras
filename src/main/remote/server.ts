@@ -105,6 +105,11 @@ export interface RemoteServerDeps {
      * キーは起動ごとにランダム生成され、main→隠しウィンドウのURLでのみ受け渡される
      */
     executorKey?: string;
+    /**
+     * b案(AI生命体): 生命体デーモン(別プロセス)の世界コマンド投入口。
+     * ループバック+実行キー限定。WorldManager.act に委譲(=検証・配信ガード・ackを共有)
+     */
+    act?(cmds: import('../../shared/types').WorldCommand[]): Promise<{ ok: boolean; detail: string }>;
   };
 }
 
@@ -349,6 +354,20 @@ export class RemoteServer {
       const file = join(dir, `rec-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`);
       await writeFile(file, Buffer.concat(chunks));
       return sendJson(res, 200, { ok: true, file });
+    }
+    // b案(AI生命体): 生命体デーモン(別プロセス)の世界コマンド投入。ループバック+実行キー限定
+    if (path === '/api/world/command' && req.method === 'POST' && this.isWorldExecutor(req, url)) {
+      if (this.deps.world?.act === undefined) throw new HttpError(404, 'world act 未注入');
+      const body = await readJsonBody(req);
+      const cmds = body['cmds'];
+      if (!Array.isArray(cmds) || cmds.length === 0 || cmds.length > 10) {
+        throw new HttpError(400, 'cmds(1〜10件の配列)が必要');
+      }
+      // 生命体はアイドル演出専用: 破壊系・録画・アプリ操作系は経路ごと遮断する(誤動作の爆風半径を絞る)
+      const allowed = new Set(['say', 'motion', 'move_to', 'face']);
+      const banned = (cmds as { type?: unknown }[]).find((c) => typeof c.type !== 'string' || !allowed.has(c.type));
+      if (banned !== undefined) throw new HttpError(400, `生命体デーモンが使えるのは say/motion/move_to/face のみ`);
+      return sendJson(res, 200, await this.deps.world.act(cmds as import('../../shared/types').WorldCommand[]));
     }
     // M117-B: 常時実行ページ(ループバック+実行キー)はトークンなしで世界イベントを送れる
     if (path === '/api/world/event' && req.method === 'POST' && this.isWorldExecutor(req, url)) {

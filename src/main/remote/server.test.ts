@@ -118,6 +118,8 @@ async function startServer(opts?: {
   operations?: import('./server').RemoteOperationsFacade;
   /** M99: 公開系は任意実装。未注入なら 501 を返す(この経路自体もテストする) */
   plugins?: Partial<RemoteFacade>;
+  /** b案(AI生命体): 世界ブリッジ(実行キー+デーモン投入口)のテスト用注入 */
+  world?: NonNullable<ConstructorParameters<typeof RemoteServer>[0]['world']>;
 }): Promise<void> {
   const stub = stubFacade();
   if (opts?.plugins !== undefined) Object.assign(stub.facade, opts.plugins);
@@ -138,6 +140,7 @@ async function startServer(opts?: {
     auditTail: (limit) => audit.tail(limit),
     heartbeatMs: 60_000,
     ...(opts?.operations !== undefined ? { operations: opts.operations } : {}),
+    ...(opts?.world !== undefined ? { world: opts.world } : {}),
   });
   await server.start(0, '127.0.0.1');
   const p = server.port();
@@ -800,5 +803,61 @@ describe('RemoteServer: ライフサイクル', () => {
   it('二重 start はエラー', async () => {
     await startServer();
     await expect(server.start(0, '127.0.0.1')).rejects.toThrow();
+  });
+});
+
+describe('b案(AI生命体): POST /api/world/command', () => {
+  function post(portNum: number, path: string, body: unknown): Promise<{ status: number; body: string }> {
+    return new Promise((resolve, reject) => {
+      const payload = JSON.stringify(body);
+      const req = httpRequest(
+        { host: '127.0.0.1', port: portNum, path, method: 'POST', headers: { 'content-type': 'application/json' } },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
+        },
+      );
+      req.on('error', reject);
+      req.end(payload);
+    });
+  }
+
+  it('実行キー一致でactへ委譲され、結果が返る', async () => {
+    const acted: unknown[][] = [];
+    await startServer({
+      world: {
+        onPageEvent: () => ({ ok: true }),
+        executorKey: 'life-key',
+        act: async (cmds) => {
+          acted.push(cmds);
+          return { ok: true, detail: '実行完了(1コマンド)' };
+        },
+      },
+    });
+    const res = await post(port, '/api/world/command?k=life-key', { cmds: [{ type: 'motion', name: 'think' }] });
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body).ok).toBe(true);
+    expect(acted).toHaveLength(1);
+  });
+
+  it('キー不一致は素通りせず404(既存の未知API扱い)', async () => {
+    await startServer({
+      world: { onPageEvent: () => ({ ok: true }), executorKey: 'life-key', act: async () => ({ ok: true, detail: '' }) },
+    });
+    const res = await post(port, '/api/world/command?k=wrong', { cmds: [{ type: 'motion', name: 'think' }] });
+    expect(res.status).not.toBe(200);
+  });
+
+  it('許可外コマンド(spawn等)と件数超過は400', async () => {
+    await startServer({
+      world: { onPageEvent: () => ({ ok: true }), executorKey: 'life-key', act: async () => ({ ok: true, detail: '' }) },
+    });
+    const bad = await post(port, '/api/world/command?k=life-key', { cmds: [{ type: 'spawn', id: 'x' }] });
+    expect(bad.status).toBe(400);
+    const many = await post(port, '/api/world/command?k=life-key', {
+      cmds: Array.from({ length: 11 }, () => ({ type: 'motion', name: 'idle' })),
+    });
+    expect(many.status).toBe(400);
   });
 });

@@ -1972,6 +1972,8 @@ export async function registerIpcHandlers(
         onPageEvent: (ev) => worldManager.onPageEvent(ev),
         restorePayload: () => worldManager.restorePayload(),
         executorKey: worldExecutorKey,
+        // b案(AI生命体): 生命体デーモンの世界コマンド(server.ts側でsay/motion/move_to/faceに制限済み)
+        act: (cmds) => worldManager.act(cmds),
       },
       // M34-6: 運営のリモートフル対応(既存トークン認証配下。オーナーモードOFF時は空を返す)
       operations: {
