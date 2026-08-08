@@ -312,10 +312,48 @@ try {
   actions.idle?.play();
   mixer.addEventListener('finished', () => { if (ONESHOT.has(current)) fadeTo('idle'); });
 } catch (e) { console.error('[world] avatar load failed', e); }
+
+// ================= b案P1: 微動(呼吸・まばたき・視線ゆらぎ・髪揺れ) =================
+// 「生きてる感」の土台=完全静止の人形感を消す。モーション(mixer)が書いたrawボーンの上に
+// 毎フレーム極小の加算をする方式。vrm.update()は使わない: humanoid.update()が
+// normalized(静止姿勢)でrawを上書きしMixamoリターゲットを壊すため。個別マネージャのみ回す
+const micro = { t: 0, nextBlinkAt: 2 + Math.random() * 3, blinkUntil: 0, canBlink: null,
+  gp1: Math.random() * 99, gp2: Math.random() * 99 };
+function microMotion(dt) {
+  if (!avatar) return;
+  micro.t += dt;
+  const h = avatar.humanoid;
+  // 呼吸: 3.8秒周期の胸のわずかな前後(Breathing Idle素材への上乗せなので極小振幅)
+  const chest = h?.getRawBoneNode?.('chest') ?? h?.getRawBoneNode?.('spine');
+  if (chest) chest.rotation.x += Math.sin(micro.t * (Math.PI * 2 / 3.8)) * 0.012;
+  // 視線ゆらぎ: 静止中だけ頭が低速でわずかに泳ぐ(移動・face指示中は邪魔しない)
+  const head = h?.getRawBoneNode?.('head');
+  if (head && !moveTarget && !faceTarget) {
+    head.rotation.y += (Math.sin(micro.t * 0.31 + micro.gp1) * 0.6 + Math.sin(micro.t * 0.83 + micro.gp2) * 0.4) * 0.045;
+    head.rotation.x += Math.sin(micro.t * 0.47 + micro.gp2) * 0.02;
+  }
+  // まばたき: 2〜5.5秒間隔で120ms。表情が無いアバター(現サンプル)では静かに何もしない
+  //(ヒナタVRM=VRoid製は blink 表情を必ず持つので、体が来た日に自動で目が生きる)
+  const em = avatar.expressionManager;
+  if (em) {
+    if (micro.canBlink === null) micro.canBlink = !!em.getExpression?.('blink');
+    if (micro.canBlink) {
+      if (micro.t >= micro.nextBlinkAt) {
+        micro.blinkUntil = micro.t + 0.12;
+        micro.nextBlinkAt = micro.t + 2 + Math.random() * 3.5;
+      }
+      const rem = micro.blinkUntil - micro.t;
+      em.setValue('blink', rem > 0 ? Math.sin((1 - rem / 0.12) * Math.PI) : 0);
+      em.update();
+    }
+  }
+  avatar.springBoneManager?.update(dt); // 髪・服の揺れ(こちらもヒナタVRMで本領発揮)
+}
+
 // QA用フック(2026-08-02の教訓: 見えない状態はデバッグできない)。
 // 後方で宣言される変数もあるため全部getter(即時参照はTDZでモジュールごと死ぬ)
 window.__world = { get avatar() { return avatar; }, actions, get current() { return current; }, get objects() { return objects; },
-  get camera() { return camera; }, get controls() { return controls; } };
+  get camera() { return camera; }, get controls() { return controls; }, get micro() { return micro; } };
 
 // ================= 世界オブジェクト(spawn / remove) =================
 const objects = new Map(); // id -> {mesh, shape, label, x, z}
@@ -1415,6 +1453,7 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
   if (mixer && avatar) {
     mixer.update(dt);
+    microMotion(dt); // b案P1: 呼吸・まばたき・視線ゆらぎ(mixerの後=加算が消されない)
     // move_to の移動(0.9m/s・向き追従)
     if (moveTarget) {
       const pos = avatar.scene.position;
