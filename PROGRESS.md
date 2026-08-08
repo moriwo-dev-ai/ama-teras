@@ -1,6 +1,6 @@
 # PROGRESS
 
-## M144: AI生命体 b案 P1着手 — 生命体デーモンv0.1(2026-08-09 未明)
+## M144: AI生命体 b案 実装完了+c着手(2026-08-09 未明〜早朝)
 
 ユーザー指示「今からb進めて!(欲を言えばcを早く)」。c案設計はai-lifeform-plan.mdに合意済み。
 - **POST /api/world/command**(server.ts): 生命体デーモン(別プロセス)の世界コマンド投入口。
@@ -17,7 +17,13 @@
 - 起動: `AMATERAS_REMOTE_DEBUG=9225 npm run start` でアプリ→ `node lifeform/hinata-daemon.mjs`
 - 既知の割り切り(次で解消予定): デーモンのsayはchatLogに'agent'として記録される(話者分離はP2)/
   1体のアバターを時分割共有(専用アバターはc案の世界モジュール切り出しで)
-- 次: 微動(呼吸/まばたき/視線)のworld.html実装 → P2会話層(高速LLM) → 世界モジュール切り出し(c)
+- P1完了: 微動(呼吸3.8s/まばたき2〜5.5s/視線ゆらぎ/springBone)をworld.htmlへ。CDP実測で確認
+- P2完了: world:chat知覚経路(観戦SSE・ループバック限定)+brain.mjs(Ollama自動検出)+会話層
+  (--chat・既定OFF)。Ollama+gemma3:4b導入済(A/B実測で採用・応答300〜600ms)。
+  蒸留バッチdistill.mjs(日記+人格提案・毎朝4時台自動)。記憶はローカル日付・sit連打抑制済
+- c着手: ?viewer=1(神視点・視点操作のみ)実装/lifeform/C-PLAN.md(c-1〜c-5工程表)
+- 朝の判断待ち: lifeform/MORNING-PACK-0809.md(会話層ON可否・第3回告知文・VRoidタイミング)
+- 次: 話者分離(ヒナタ名義のsay)→ 会話の振り分け(雑談=ヒナタ/指示=思考層)→ c-1世界サーバ切り出し
 
 ## M141: 配信フィードバック一括対応(2026-08-08 未明・初回配信のユーザー8項目)
 

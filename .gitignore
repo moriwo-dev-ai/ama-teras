@@ -28,3 +28,5 @@ assets-lab/
 # (完全コピーしてもヒナタにはならない、が一意性の主防壁)。雛形は persona.example.md を公開
 lifeform/persona/
 lifeform/memory/
+# 朝の承認パック(運営内部文書。公開リポジトリに含めない)
+lifeform/MORNING-PACK*.md
