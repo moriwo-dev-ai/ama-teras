@@ -1044,6 +1044,17 @@ const WORLD_APP_HELPER = `
       try { window.parent.postMessage({ amaWorldState: state }, '*'); } catch (e) {}
     },
   };
+  // M142: アプリを開き直した時、親が最後のpublish状態を送り返す(amaWorldRestore)。
+  // アプリ側は window.amaWorldOnRestore(state) を定義すればUIを実状態に同期できる
+  // (例: 月アプリが進行中の落下タイマーを表示し続ける)。未定義なら amaWorldLastState に保持のみ
+  window.addEventListener('message', function (ev) {
+    if (ev.data && 'amaWorldRestore' in ev.data) {
+      window.amaWorldLastState = ev.data.amaWorldRestore;
+      if (typeof window.amaWorldOnRestore === 'function') {
+        try { window.amaWorldOnRestore(ev.data.amaWorldRestore); } catch (e) {}
+      }
+    }
+  });
   window.addEventListener('message', function (ev) {
     var req = ev.data && ev.data.amaWorldOp;
     if (!req || typeof req.op !== 'string') return;

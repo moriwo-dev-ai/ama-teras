@@ -539,6 +539,12 @@ function getAppFrame(id) {
   f = document.createElement('iframe');
   if (LIVE) f.setAttribute('sandbox', 'allow-scripts');
   f.src = `/world-apps/${encodeURIComponent(id)}/`;
+  // M142: 開き直したアプリへ最後のpublish状態を返す=UIが実状態に同期できる
+  // (月アプリが進行中の落下を知らず「平常運転」と誤表示→タイマー掛け直し事故の根本対策)
+  f.addEventListener('load', () => {
+    const st = appStates.get(id);
+    if (st !== undefined) { try { f.contentWindow.postMessage({ amaWorldRestore: st }, '*'); } catch {} }
+  });
   appframes.appendChild(f);
   appFramePool.set(id, f);
   return f;
