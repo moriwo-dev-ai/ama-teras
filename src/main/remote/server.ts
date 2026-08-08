@@ -405,6 +405,8 @@ export class RemoteServer {
     const restore = this.deps.world.restorePayload?.() ?? null;
     if (restore !== null) write('world:event', restore);
     const unsubscribe = this.deps.bus.subscribe('world:event', (payload) => write('world:event', payload));
+    // b案P2: ユーザーの世界チャットを生命体デーモンへ中継(観戦=ループバック限定の境界のまま)
+    const unsubscribeChat = this.deps.bus.subscribe('world:chat', (payload) => write('world:chat', payload));
     // M141: 稼働可視化を観戦(=OBS配信画面)にも流す。「作ってる間、何をしてるか分からない」対策。
     // 中継するのは進捗系のみ・許可フィールドだけを写経し、パス風文字列はサーバ側で必ずマスクする
     const unsubscribeWork = this.deps.bus.subscribe('chat:event', (raw) => {
@@ -429,6 +431,7 @@ export class RemoteServer {
     const cleanup = (): void => {
       clearInterval(heartbeat);
       unsubscribe();
+      unsubscribeChat();
       unsubscribeWork();
       this.sseCleanups.delete(cleanup);
       res.end();

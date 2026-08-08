@@ -29,6 +29,11 @@ export interface BusEventMap {
   /** M115: 世界(WORLD)へのコマンド押し出し。世界ページがSSEで受けて実行する */
   'world:event': import('../../shared/types').WorldPushPayload;
   /**
+   * b案P2: ユーザーの世界チャット発話。生命体デーモンの知覚用に観戦SSE(ループバック限定)だけへ
+   * 中継する。BUS_CHANNELS(スマホSSE)には載せない=既存の境界を変えない
+   */
+  'world:chat': { from: 'user'; text: string };
+  /**
    * M42(TUKU-yomi): 月読の通知(発話・帳の変化・現況)。
    * **remote-ui(スマホ)へは中継しない**(鉄則4: 発話内容・帳がスマホへ漏れる経路を作らない)。
    * そのため BUS_CHANNELS(=SSE中継の対象)には入れない

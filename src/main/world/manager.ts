@@ -205,6 +205,8 @@ export class WorldManager {
       case 'chat': {
         if (typeof ev.text !== 'string' || ev.text.trim() === '') return { ok: false };
         this.pushChat('user', ev.text);
+        // b案P2: 生命体デーモン(観戦SSE購読)にもユーザー発話を知覚させる(ループバック限定で中継される)
+        this.bus.publish('world:chat', { from: 'user', text: ev.text });
         this.chatHandler?.(ev.text);
         return { ok: true };
       }

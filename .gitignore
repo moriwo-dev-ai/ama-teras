@@ -23,3 +23,8 @@ NIGHT_TASKS*.md
 docs/TSUKUYOMI_VISION.md
 docs/vision-mihashira.md
 assets-lab/
+
+# AI生命体の「魂」(記憶・人格カーネル)。c案の鉄則: コードは公開・魂は非公開
+# (完全コピーしてもヒナタにはならない、が一意性の主防壁)。雛形は persona.example.md を公開
+lifeform/persona/
+lifeform/memory/

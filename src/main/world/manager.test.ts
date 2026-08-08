@@ -92,6 +92,18 @@ describe('WorldManager', () => {
     expect(obs.chat).toEqual([{ from: 'user', text: 'こんにちは', ts: expect.any(String) }]);
   });
 
+  it('b案P2: チャットは world:chat としてもバスへ流れる(生命体デーモンの知覚用)', () => {
+    const now = { t: 0 };
+    const { bus, mgr } = setup(now);
+    const heard: { from: string; text: string }[] = [];
+    bus.subscribe('world:chat', (p) => heard.push(p));
+    mgr.onPageEvent({ kind: 'chat', text: 'ヒナタ、おはよう' });
+    expect(heard).toEqual([{ from: 'user', text: 'ヒナタ、おはよう' }]);
+    // 空文字は流れない
+    mgr.onPageEvent({ kind: 'chat', text: ' ' });
+    expect(heard).toHaveLength(1);
+  });
+
   it('state/ack の state スナップショットが observe に反映される', () => {
     const now = { t: 0 };
     const { mgr } = setup(now);
