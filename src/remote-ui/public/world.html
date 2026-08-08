@@ -277,7 +277,7 @@ async function loadMixamo(url, vrm) {
 let avatar = null, mixer = null;
 const actions = {};
 let current = 'idle';
-const ONESHOT = new Set(['jab', 'hook', 'kick', 'backflip', 'flykick', 'wave', 'cheer', 'punch', 'spinkick', 'jump', 'climb']);
+const ONESHOT = new Set(['jab', 'hook', 'kick', 'backflip', 'flykick', 'wave', 'cheer', 'punch', 'spinkick', 'jump', 'climb', 'clap', 'bow']);
 function fadeTo(name) {
   if (!mixer || !actions[name] || current === name) return;
   actions[name].reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.18).play();
@@ -298,8 +298,8 @@ try {
   const MOTIONS = { idle: 'Breathing Idle', guard: 'Fighting Idle', jab: 'Lead Jab', hook: 'Hook Punch', kick: 'Roundhouse Kick', walk: 'Walking', sit: 'Sitting Idle',
     backflip: 'Backflip', flykick: 'Flying Kick', run: 'Fast Run', wave: 'Waving', dance: 'Samba Dancing', cheer: 'Victory',
     punch: 'Cross Punch', spinkick: 'Mma Kick', jump: 'Jump', climb: 'Climbing Up Wall',
-    // M143: 作業/思考モーション(assets-labに同名FBXを置くと有効=建築中・考え中の自動再生に使う)
-    hammer: 'Hammering', think: 'Thinking' };
+    // M143: 作業/思考モーション(建築中=Digging・考え中=Thinking を自動再生)+挨拶系
+    hammer: 'Digging', think: 'Thinking', clap: 'Clapping', bow: 'Quick Formal Bow' };
   await Promise.all(Object.entries(MOTIONS).map(async ([k, f]) => {
     try {
       actions[k] = mixer.clipAction(await loadMixamo(`./assets-lab/${f}.fbx`, avatar));
@@ -1203,10 +1203,10 @@ setInterval(() => {
     fadeTo('idle');
   }
 }, 800);
-/** 毎フレーム: Hammering再生中だけ金槌を見せる */
+/** 毎フレーム呼び出し。作業モーションはDigging(シャベル・両手)のため手持ち小道具は当面オフ
+ * (右手固定の金槌は両手モーションと噛み合わない。専用の持ち替え実装は後日) */
 function applyWorkHammer() {
-  if (current === 'hammer' && avatar) { ensureHammer(); if (hammerObj) hammerObj.visible = true; }
-  else if (hammerObj) hammerObj.visible = false;
+  if (hammerObj) hammerObj.visible = false;
 }
 
 // ================= M120: 社のタップ/長押しドラッグ =================

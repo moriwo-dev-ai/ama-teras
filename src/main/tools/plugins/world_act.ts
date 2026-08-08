@@ -7,7 +7,7 @@ import type { ToolContext, ToolPlugin, ToolResult } from '../types';
  * 返答は文章だけでなく「世界で見せる」こと(say + spawn での図解など)。
  */
 
-const MOTIONS = ['idle', 'guard', 'jab', 'hook', 'kick', 'walk', 'sit', 'backflip', 'flykick', 'run', 'wave', 'dance', 'cheer', 'punch', 'spinkick', 'jump', 'climb'] as const;
+const MOTIONS = ['idle', 'guard', 'jab', 'hook', 'kick', 'walk', 'sit', 'backflip', 'flykick', 'run', 'wave', 'dance', 'cheer', 'punch', 'spinkick', 'jump', 'climb', 'hammer', 'think', 'clap', 'bow'] as const;
 const SHAPES = ['box', 'sphere', 'cylinder', 'cone', 'torus', 'sign', 'screen', 'custom'] as const;
 const MAX_CODE_CHARS = 20_000;
 const CAMERA_TARGETS = ['avatar', 'overview', 'object', 'shoulder'] as const;
