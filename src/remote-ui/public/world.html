@@ -312,7 +312,8 @@ try {
 } catch (e) { console.error('[world] avatar load failed', e); }
 // QA用フック(2026-08-02の教訓: 見えない状態はデバッグできない)。
 // 後方で宣言される変数もあるため全部getter(即時参照はTDZでモジュールごと死ぬ)
-window.__world = { get avatar() { return avatar; }, actions, get current() { return current; }, get objects() { return objects; } };
+window.__world = { get avatar() { return avatar; }, actions, get current() { return current; }, get objects() { return objects; },
+  get camera() { return camera; }, get controls() { return controls; } };
 
 // ================= 世界オブジェクト(spawn / remove) =================
 const objects = new Map(); // id -> {mesh, shape, label, x, z}
@@ -1453,6 +1454,8 @@ renderer.setAnimationLoop(() => {
     return;
   }
   // M139: カメラ制御の優先順位: 肩越しモード > cameraFocus自動追尾(auto) > 演出トゥイーン > 自動周回(auto)
+  // M142: 見上げ角上限は毎フレーム既定に戻す(focus追尾中だけ緩める)
+  controls.maxPolarAngle = Math.PI * 0.55;
   if (camMode === 'shoulder' && avatar) {
     autoOrbitAng = null;
     const p = avatar.scene.position, yaw = avatar.scene.rotation.y;
@@ -1462,17 +1465,20 @@ renderer.setAnimationLoop(() => {
   } else {
     const focusMesh = CAM_AUTO ? findCameraFocus() : null;
     if (focusMesh) {
-      // 見せ場の自動追尾(例: 落下中の月)。M141: カメラはアバター(広場)側に留まり対象を見上げる
-      // =「みんなで見上げる」構図。アバターが前景に入り、社に埋まる事故も避ける。
-      // 引き距離は対象の実寸に比例(巨大化した月が画面を埋め尽くさない)
+      // 見せ場の自動追尾(例: 落下中の月)。M142: 「頭越しショット」— アバターの頭のすぐ後ろ・
+      // やや上から対象を見上げる。頭が前景に入り、巨大化した月が空を埋めていく圧が画になる
+      // (2026-08-08ユーザー要望: 引きの全体像ではなくキャラの頭越しにズームで見たい)
       const wp = new THREE.Vector3();
       focusMesh.getWorldPosition(wp);
       const anchor = avatar ? avatar.scene.position : new THREE.Vector3();
-      const away = new THREE.Vector3(anchor.x - wp.x, 0, anchor.z - wp.z);
-      if (away.length() < 1) away.set(0, 0, 1); else away.normalize();
-      const dCam = Math.min(16, Math.max(7, (focusHunt.radius ?? 4) * 1.1));
-      camera.position.lerp(new THREE.Vector3(anchor.x + away.x * dCam, 2.6, anchor.z + away.z * dCam), 0.04);
-      controls.target.lerp(wp, 0.06);
+      const toT = new THREE.Vector3(wp.x - anchor.x, 0, wp.z - anchor.z);
+      if (toT.length() < 0.5) toT.set(0, 0, -1); else toT.normalize();
+      // 頭(y≈1.5)が画面下端に入る高さ・距離。注視点は対象中心よりやや下(仰角を殺して
+      // 頭のシルエットと巨大対象を同じフレームに収める)。
+      // 巨大対象の見上げは通常の見上げ角上限(0.55π)を超える — 見せ場中だけ緩める
+      controls.maxPolarAngle = Math.PI * 0.85;
+      camera.position.lerp(new THREE.Vector3(anchor.x - toT.x * 2.4, 1.35, anchor.z - toT.z * 2.4), 0.12);
+      controls.target.lerp(new THREE.Vector3(wp.x, Math.max(2, wp.y * 0.55), wp.z), 0.1);
     } else if (camTween) {
       controls.target.lerp(camTween.target, 0.08);
       if (camTween.pos) camera.position.lerp(camTween.pos, 0.06);
