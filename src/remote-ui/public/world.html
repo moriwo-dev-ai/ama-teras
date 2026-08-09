@@ -812,7 +812,9 @@ const _box = new THREE.Box3();
 const _size = new THREE.Vector3();
 function snapshot() {
   return {
-    avatar: avatar ? { x: +avatar.scene.position.x.toFixed(2), z: +avatar.scene.position.z.toFixed(2), motion: current } : undefined,
+    // M147b: アバターの真実は実行係だけが報告する。閲覧ページ(スマホ等)は自分の複製の位置を
+    // 報告しない — 開いた直後の(0,0)が正本を上書きして「全ページ初期位置」に伝染する事故の根治
+    avatar: (EXECUTOR && avatar) ? { x: +avatar.scene.position.x.toFixed(2), z: +avatar.scene.position.z.toFixed(2), motion: current } : undefined,
     objects: [...objects.entries()].map(([id, o]) => {
       // 実寸(バウンディングボックス)。エージェントの「メジャー」— 配置計算の根拠になる
       _box.setFromObject(o.mesh);

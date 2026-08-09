@@ -120,6 +120,18 @@ describe('WorldManager', () => {
     expect(restore?.cmds).toContainEqual({ type: 'avatar_state', x: 3.5, z: -2, name: 'sit' });
   });
 
+  it('M147b: avatar無しのhello/state(閲覧ページ)は既知のアバター位置を消さない', () => {
+    const now = { t: 0 };
+    const { mgr } = setup(now);
+    // 実行係がアバター位置を報告
+    mgr.onPageEvent({ kind: 'state', state: { avatar: { x: -9.6, z: -6.1, motion: 'think' } } });
+    // スマホページが開いてhello(avatarフィールド無し)を送る
+    mgr.onPageEvent({ kind: 'hello', state: { note: 'viewers:2' } });
+    mgr.onPageEvent({ kind: 'state', state: { note: 'viewers:2' } });
+    const restore = mgr.restorePayload();
+    expect(restore?.cmds).toContainEqual({ type: 'avatar_state', x: -9.6, z: -6.1, name: 'think' });
+  });
+
   it('state/ack の state スナップショットが observe に反映される', () => {
     const now = { t: 0 };
     const { mgr } = setup(now);

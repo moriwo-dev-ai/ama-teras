@@ -205,7 +205,7 @@ export class WorldManager {
     this.lastSeenMs = this.now();
     switch (ev.kind) {
       case 'hello': {
-        if (ev.state) this.state = ev.state;
+        if (ev.state) this.storeState(ev.state);
         // M128: 新しいページでは何も開いていない=「開いてるアプリ」の記録を巻き戻す
         this.openAppId = null;
         // M115-4: 再入場したページへ世界の正本を復元(quiet=効果音・カメラ演出なし)
@@ -214,7 +214,7 @@ export class WorldManager {
         return { ok: true };
       }
       case 'state':
-        if (ev.state) this.state = ev.state;
+        if (ev.state) this.storeState(ev.state);
         return { ok: true };
       case 'chat': {
         if (typeof ev.text !== 'string' || ev.text.trim() === '') return { ok: false };
@@ -389,6 +389,15 @@ export class WorldManager {
       });
       this.bus.publish('world:event', payload);
     });
+  }
+
+  /**
+   * M147b: 状態スナップショットの取り込み。avatar は実行係だけが報告する設計なので、
+   * 報告に無ければ既知の値を保持する(閲覧ページのhello/stateで正本のアバター位置が消えない)
+   */
+  private storeState(s: WorldStateSnapshot): void {
+    const avatar = s.avatar ?? this.state?.avatar;
+    this.state = { ...s, ...(avatar !== undefined ? { avatar } : {}) };
   }
 
   private pushChat(from: 'user' | 'agent' | 'world', text: string): void {
