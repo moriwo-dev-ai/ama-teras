@@ -110,6 +110,13 @@ export interface RemoteServerDeps {
      * ループバック+実行キー限定。WorldManager.act に委譲(=検証・配信ガード・ackを共有)
      */
     act?(cmds: import('../../shared/types').WorldCommand[]): Promise<{ ok: boolean; detail: string }>;
+    /** b案P3(知覚拡張): 生命体が世界を「見る」ための観察スナップショット(objects/apps/avatar) */
+    observe?(): {
+      connected: boolean;
+      state: import('../../shared/types').WorldStateSnapshot | null;
+      chat: { from: string; text: string }[];
+      apps?: import('../../shared/types').WorldApp[];
+    };
   };
 }
 
@@ -354,6 +361,11 @@ export class RemoteServer {
       const file = join(dir, `rec-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`);
       await writeFile(file, Buffer.concat(chunks));
       return sendJson(res, 200, { ok: true, file });
+    }
+    // b案P3(知覚拡張): 生命体が世界を見る(読み取り専用)。ループバック+実行キー限定
+    if (path === '/api/world/state' && req.method === 'GET' && this.isWorldExecutor(req, url)) {
+      if (this.deps.world?.observe === undefined) throw new HttpError(404, 'world observe 未注入');
+      return sendJson(res, 200, this.deps.world.observe());
     }
     // b案(AI生命体): 生命体デーモン(別プロセス)の世界コマンド投入。ループバック+実行キー限定
     if (path === '/api/world/command' && req.method === 'POST' && this.isWorldExecutor(req, url)) {

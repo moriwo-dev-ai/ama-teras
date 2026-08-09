@@ -1223,7 +1223,9 @@ if (TOKEN || SPECTATE || EXECUTOR) {
   if (!SPECTATE) setInterval(() => { void post({ kind: 'state', state: snapshot() }); }, 10_000);
   // M145: 生存監視。ping(25秒毎)が65秒来なければ張り直し。スマホの画面復帰時は即チェック
   const checkAlive = () => {
-    if (document.visibilityState !== 'visible') return;
+    // 実行係は常に不可視の隠しウィンドウ=可視判定を免除(2026-08-09朝: 実行係のSSEが静かに死んで
+    // 世界全体が無応答になった事故の恒久対策)。通常ページは可視時のみ(裏タブの無駄な張り直し防止)
+    if (!EXECUTOR && document.visibilityState !== 'visible') return;
     if (Date.now() - lastSseAt > 65_000) {
       bst.textContent = '再接続中…';
       connect(); // onopenのhello→復元バッチで取りこぼしも回復する

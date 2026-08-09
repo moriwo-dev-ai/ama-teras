@@ -81,14 +81,16 @@ function tickDrives(dtSec) {
 let sleeping = false; // 就寝状態(深夜に元気が尽きると寝る。話しかけられたら寝ぼけて答える)
 
 function drivesNote() {
-  if (sleeping) return 'ぐっすり寝ていたところを起こされた。寝ぼけていて、とてもねむい';
+  const h = new Date().getHours();
+  const tod = h < 5 ? 'まよなか' : h < 10 ? 'あさ' : h < 17 ? 'おひる' : h < 22 ? 'ゆうがた' : 'よる';
+  if (sleeping) return `いまは${tod}。ぐっすり寝ていたところを起こされた。寝ぼけていて、とてもねむい`;
   const parts = [];
   if (drives.energy < 0.3) parts.push('ねむい');
   else if (drives.energy > 0.7) parts.push('元気いっぱい');
   if (drives.boredom > 0.6) parts.push('ちょっと退屈してた');
   if (drives.social > 0.5) parts.push('おしゃべりできて嬉しい');
   if (drives.curiosity > 0.6) parts.push('気になることがある');
-  return parts.length > 0 ? parts.join('、') : 'おだやか';
+  return `いまは${tod}。` + (parts.length > 0 ? parts.join('、') : 'おだやか');
 }
 
 // ---------- 行動レパートリー(P1: 既存の世界コマンドだけで組む) ----------
@@ -194,6 +196,49 @@ async function main() {
       thinking = false;
     }
   }
+
+  // ---- 探検(P3知覚拡張): 世界を「見て」、気になるものに会いに行く ----
+  // チャットや反射(受け身の刺激)だけでなく、世界そのものが刺激になる=観察→興味→接近→感想。
+  // 好奇心/退屈が高い時だけ発動。対象は実在の社・造形(ランダム地点の散歩とは別物)
+  let lastExploreAt = 0;
+  let lastExploreSayAt = 0;
+  async function explore() {
+    const now = Date.now();
+    if (sleeping || thinking) return;
+    if (now - lastAgentBusyAt < 90_000 || now - lastWorldCmdAt < 20_000) return;
+    if (drives.curiosity < 0.35 && drives.boredom < 0.5) return;
+    if (now - lastExploreAt < 180_000) return;
+    try {
+      const res = await fetch(`${base}/api/world/state?k=${key}`, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return;
+      const obs = await res.json();
+      const spots = [];
+      for (const a of obs.apps ?? []) spots.push({ name: a.name, x: a.x, z: a.z });
+      for (const o of obs.state?.objects ?? []) spots.push({ name: o.label ?? o.shape, x: o.x, z: o.z });
+      const reachable = spots.filter((s) => Math.hypot(s.x, s.z) < 16.5 && typeof s.x === 'number');
+      if (reachable.length === 0) return;
+      const s = reachable[Math.floor(Math.random() * reachable.length)];
+      lastExploreAt = now;
+      drives.curiosity = clamp(drives.curiosity - 0.25);
+      drives.boredom = clamp(drives.boredom - 0.3);
+      remember('explore', { name: s.name, x: s.x, z: s.z });
+      // 対象の少し手前(広場中心寄り)に立つ=めり込み防止
+      const d = Math.hypot(s.x, s.z) || 1;
+      const tx = +(s.x - (s.x / d) * 1.6).toFixed(1);
+      const tz = +(s.z - (s.z / d) * 1.6).toFixed(1);
+      await act([{ type: 'move_to', x: tx, z: tz }], `探検:${s.name}`);
+      // 目の前のものへの感想(15分に1回まで。頭脳がない日は黙って眺める)
+      if (brain !== null && Date.now() - lastExploreSayAt > 900_000) {
+        const line = await think(brain, persona, [], drivesNote(), `(いま世界にある「${s.name}」の前に来た。それを見てのひとことだけつぶやいて)`);
+        if (line !== null) {
+          lastExploreSayAt = Date.now();
+          remember('say', { text: line, about: s.name });
+          await act([{ type: 'say', text: line }], '探検のつぶやき');
+        }
+      }
+    } catch { /* 見えない時もある(サーバ再起動中など)。次の機会に */ }
+  }
+  setInterval(() => { void explore(); }, 150_000 + Math.floor(Math.random() * 90_000));
 
   // ---- 知覚: 観戦SSE(読み取り専用) ----
   function connectSse() {
