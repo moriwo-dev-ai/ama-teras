@@ -1478,7 +1478,12 @@ function findCameraFocus() {
 controls.addEventListener('start', () => { camTween = null; camMode = null; });
 
 const clock = new THREE.Clock();
-renderer.setAnimationLoop(() => {
+// M146b: 不可視の実行係ウィンドウはbackgroundThrottling:falseでもrAFが約1fpsに落ちる
+// (コンポジタのフレームが来ない)。歩行1.3m/sが実質1/60になり長距離move_toがack 90秒を
+// 超えて世界全体が詰まる事故の真因。rAFが黙ったらタイマーで同じtickを回して補完する
+let lastTickAt = performance.now();
+const tick = () => {
+  lastTickAt = performance.now();
   const dt = Math.min(clock.getDelta(), 0.05);
   if (mixer && avatar) {
     mixer.update(dt);
@@ -1627,7 +1632,10 @@ renderer.setAnimationLoop(() => {
   }
   controls.update();
   renderer.render(scene, camera);
-});
+};
+renderer.setAnimationLoop(tick);
+// 実行係のみ: rAFが100ms黙ったらタイマー駆動(タイマーはbackgroundThrottling:falseで正確に動く)
+if (EXECUTOR) setInterval(() => { if (performance.now() - lastTickAt > 100) tick(); }, 50);
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
