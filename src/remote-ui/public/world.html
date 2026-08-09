@@ -281,7 +281,8 @@ async function loadMixamo(url, vrm) {
 let avatar = null, mixer = null;
 const actions = {};
 let current = 'idle';
-const ONESHOT = new Set(['jab', 'hook', 'kick', 'backflip', 'flykick', 'wave', 'cheer', 'punch', 'spinkick', 'jump', 'climb', 'clap', 'bow']);
+const ONESHOT = new Set(['jab', 'hook', 'kick', 'backflip', 'flykick', 'wave', 'cheer', 'punch', 'spinkick', 'jump', 'climb', 'clap', 'bow',
+  'yawn', 'stretch', 'surprised', 'excited', 'lookaround', 'scared']);
 function fadeTo(name) {
   if (!mixer || !actions[name] || current === name) return;
   actions[name].reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.18).play();
@@ -303,7 +304,10 @@ try {
     backflip: 'Backflip', flykick: 'Flying Kick', run: 'Fast Run', wave: 'Waving', dance: 'Samba Dancing', cheer: 'Victory',
     punch: 'Cross Punch', spinkick: 'Mma Kick', jump: 'Jump', climb: 'Climbing Up Wall',
     // M143: 作業/思考モーション(建築中=Digging・考え中=Thinking を自動再生)+挨拶系
-    hammer: 'Digging', think: 'Thinking', clap: 'Clapping', bow: 'Quick Formal Bow' };
+    hammer: 'Digging', think: 'Thinking', clap: 'Clapping', bow: 'Quick Formal Bow',
+    // M152: 自己表現の語彙(B′: 生命体がしぐさを自分で選ぶ)。FBX未配置でも警告のみで世界は動く
+    sleep: 'Sleeping Idle', yawn: 'Yawning', stretch: 'Stretching', sad: 'Sad Idle', cry: 'Crying',
+    excited: 'Excited', surprised: 'Surprised', lookaround: 'Looking Around', happy: 'Happy Idle', scared: 'Terrified' };
   await Promise.all(Object.entries(MOTIONS).map(async ([k, f]) => {
     try {
       actions[k] = mixer.clipAction(await loadMixamo(`./assets-lab/${f}.fbx`, avatar));

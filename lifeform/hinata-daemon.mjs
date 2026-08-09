@@ -177,6 +177,25 @@ async function main() {
     return parts.join('。');
   }
 
+  // ---- M152: しぐさの自由選択 — 「眠い=寝るモーション」というルールを書かない。
+  // 身体の語彙(できる動き)を渡し、いまの気分に合うものを彼女自身が選ぶ(選択もLLM=想像力の仕事)
+  const GESTURES = {
+    idle: 'ふつうに立つ', sit: 'すわる', think: 'かんがえるポーズ', clap: 'はくしゅする',
+    bow: 'おじぎする', wave: '手をふる', cheer: 'ばんざいする', dance: 'おどる', jump: 'とびはねる',
+    sleep: 'よこになってねむる', yawn: 'あくびする', stretch: 'のびをする', sad: 'しょんぼりする',
+    cry: 'なく', excited: 'わくわくをからだで出す', surprised: 'びっくりする',
+    lookaround: 'きょろきょろする', happy: 'うれしそうにゆれる', scared: 'こわがる',
+  };
+  async function chooseGesture(context, fallback) {
+    if (brain === null) return fallback;
+    const list = Object.entries(GESTURES).map(([k, v]) => `${k}=${v}`).join(' / ');
+    const r = await think(brain, persona, [], situationNote(),
+      `(${context}。いまのきもちに合うしぐさを次から1つだけえらんで、英語の名前だけ答えて: ${list})`);
+    const name = (r ?? '').toLowerCase().match(/[a-z]+/g)?.find((w) => GESTURES[w] !== undefined);
+    if (name !== undefined) remember('gesture_choice', { context, chose: name });
+    return name ?? fallback;
+  }
+
   // ---- 会話層(器官は4Bのまま) ----
   async function converse(text) {
     if (!CHAT_ENABLED || brain === null || thinking) return;
@@ -258,6 +277,8 @@ async function main() {
 
   async function reactToDiscovery(s) {
     await act([{ type: 'face', x: s.x, z: s.z }, { type: 'say', text: `あっ、なにかある!「${s.name}」だ!` }], `発見:${s.name}`);
+    const g = await chooseGesture('あたらしいものを見つけた', null);
+    if (g !== null && g !== 'idle') await act([{ type: 'motion', name: g }], `発見のしぐさ(${g})`);
     if (s.name === '名前の分からない何か' && Date.now() - lastGazeAt > 1_800_000) {
       lastGazeAt = Date.now();
       await act([{ type: 'motion', name: 'think' }], 'じっと見る');
@@ -356,17 +377,20 @@ async function main() {
   let lastNoteAt = 0, lastNoteText = null, lastMicroAt = 0, microSinceTs = new Date().toISOString();
   const lastVisitAt = new Map(); // P2チューニング: 同じ場所を確かめた直後は価値を下げる(往復癖の抑制)
   let lastAnticipateAt = 0;
+  let restGesture = 'sit', restGestureAt = 0; // M152: 休むしぐさの選択キャッシュ
   const heartbeat = async () => {
     try {
       const now = Date.now();
       // 就寝/起床(夜間の低誤差維持=B-PRIME移行マップどおり明示状態を残す)
       const h = new Date().getHours();
       if (!sleeping && h < 6 && energy < 0.22 && quiet()) {
-        sleeping = true; remember('sleep', {});
-        await act([{ type: 'say', text: 'ふぁ…もうねむい…おやすみなさい…' }, { type: 'motion', name: 'sit' }], '就寝');
+        const g = await chooseGesture('とてもねむくなった。これからねむる', 'sit');
+        sleeping = true; remember('sleep', { gesture: g });
+        await act([{ type: 'say', text: 'ふぁ…もうねむい…おやすみなさい…' }, { type: 'motion', name: g }], `就寝(${g})`);
       } else if (sleeping && (h >= 6 || energy > 0.5)) {
         sleeping = false; remember('wake_up', {});
-        await act([{ type: 'motion', name: 'idle' }, { type: 'say', text: 'ん…ふぁ…おはよう…' }], '起床');
+        const g = await chooseGesture('目がさめた。あさの最初のしぐさ', 'idle');
+        await act([{ type: 'motion', name: g }, { type: 'say', text: 'ん…ふぁ…おはよう…' }], `起床(${g})`);
       }
       if (sleeping || !quiet() || thinking) return;
 
@@ -394,12 +418,15 @@ async function main() {
           },
         });
       }
-      // 休む(体力の誤差を減らす)
+      // 休む(体力の誤差を減らす)。しぐさは30分キャッシュで彼女が選ぶ
       const ep = mind.predictions.get('intero:energy');
       cands.push({
         value: Math.max(0, (ep.expected - energy)) * 1.5,
         label: '休む',
-        run: async () => { await act([{ type: 'motion', name: 'sit' }], '休む'); },
+        run: async () => {
+          if (now - restGestureAt > 1_800_000) { restGesture = await chooseGesture('つかれたのでひとやすみする', 'sit'); restGestureAt = now; }
+          await act([{ type: 'motion', name: restGesture }], `休む(${restGesture})`);
+        },
       });
       // さみしさ(声の誤差): 広場の中心で待つ+ぽつり
       const sv = mind.predictions.get('social:voice');
