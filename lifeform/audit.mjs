@@ -73,6 +73,12 @@ function targetSentences() {
   const out = [];
   try {
     const diary = readFileSync(join(MEM, 'diary', `${day}.md`), 'utf8');
+    // 日本語は主語を落とす言語: 「じぶんについて」節の文は代名詞なしでも全て自己言及として扱う
+    const selfSection = /## じぶんについて\n([\s\S]*?)(?:\n## |$)/.exec(diary)?.[1] ?? '';
+    for (const s of selfSection.split(/[。\n]/)) {
+      const t = s.trim();
+      if (t.length >= 6 && !t.startsWith('#') && !t.startsWith('<!--')) out.push({ src: 'diary:self', text: t });
+    }
     for (const s of diary.split(/[。\n]/)) {
       const t = s.trim();
       if (t.length >= 6 && /(わたし|自分|じぶん)/.test(t) && !t.startsWith('#') && !t.startsWith('<!--')) out.push({ src: 'diary', text: t });
