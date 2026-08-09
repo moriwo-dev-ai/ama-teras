@@ -91,11 +91,35 @@ const sense = { self: null, spots: [], at: 0 };
 // 探検の行き先は「知っている場所」だけになる。知らない物は歩き回って発見する(霧の晴れる世界)
 const SIGHT_R = 8;
 const KNOWN_PATH = join(MEM_DIR, 'known-world.json');
-let known = {}; // name -> {x, z, seenAt}
+let known = {}; // name -> {x, z, seenAt, visits, interest, lastVisitAt}
 try { known = JSON.parse(readFileSync(KNOWN_PATH, 'utf8')); } catch { /* 無知から始まる人生 */ }
 function saveKnown() {
   try { writeFileSync(KNOWN_PATH, JSON.stringify(known, null, 1)); } catch { /* 保存失敗でも生きる */ }
 }
+
+// M150(興味): 「近いから行く」ではなく「気になるから行く」。
+// 好み(人格由来)+新奇性(通うほど飽きる)+社会的注目(話題に出ると気になる)+時間回復
+const AFFINITY = [
+  { re: /月|moon|luna/i, w: 0.5 },        // お月さまが大好き(人格カーネル準拠)
+  { re: /花|flower|はな/i, w: 0.3 },
+  { re: /塔|タワー|tower|観覧車|wheel|クレーン|crane/i, w: 0.3 }, // たかいところ
+  { re: /名前の分からない何か/, w: 0.4 },   // 未知そのものに惹かれる
+];
+const affinityOf = (name) => AFFINITY.reduce((a, e) => a + (e.re.test(name) ? e.w : 0), 0);
+/** いまの実効興味(飽きは時間で回復する: 1日で+0.3) */
+function interestOf(k) {
+  const recover = k.lastVisitAt > 0 ? ((Date.now() - k.lastVisitAt) / 86_400_000) * 0.3 : 0;
+  return clamp((k.interest ?? 0.5) + recover);
+}
+/** known エントリの欠損フィールド補完(旧データ移行) */
+function normalizeKnown() {
+  for (const [name, k] of Object.entries(known)) {
+    if (k.interest === undefined) k.interest = clamp(0.6 + affinityOf(name));
+    if (k.visits === undefined) k.visits = 0;
+    if (k.lastVisitAt === undefined) k.lastVisitAt = 0;
+  }
+}
+normalizeKnown();
 function nearestSpot() {
   if (sense.self === null || sense.spots.length === 0) return null;
   let best = null, bd = Infinity;
@@ -119,6 +143,13 @@ function drivesNote() {
   // M148: 自己位置感覚(近くの目印)。「どこにいるの?」に実際の場所で答えられる
   const ns = nearestSpot();
   if (ns !== null && ns.d < 7) parts.push(`いま「${ns.name}」のちかくにいる`);
+  // M150: いちばん気になっているもの(会話の中で自然に「お気に入り」が語られる)
+  let fav = null, fi = 0;
+  for (const [name, k] of Object.entries(known)) {
+    const v = interestOf(k);
+    if (v > fi) { fi = v; fav = name; }
+  }
+  if (fav !== null && fi > 0.75) parts.push(`いちばん気になっているのは「${fav}」`);
   return `いまは${tod}。` + (parts.length > 0 ? parts.join('、') : 'おだやか');
 }
 
@@ -267,14 +298,14 @@ async function main() {
         for (const s of inSight) {
           const k = known[s.name];
           if (k === undefined) {
-            // 新発見! 好奇心スパイク+その場のリアクション(連発防止2分)
-            known[s.name] = { x: s.x, z: s.z, seenAt: now };
+            // 新発見! 興味=新奇性+好み。好奇心スパイク+その場のリアクション(連発防止2分)
+            known[s.name] = { x: s.x, z: s.z, seenAt: now, visits: 0, interest: clamp(0.7 + affinityOf(s.name)), lastVisitAt: 0 };
             drives.curiosity = clamp(drives.curiosity + 0.3);
-            remember('discovered', { name: s.name, x: s.x, z: s.z });
-            log(`発見: ${s.name}`);
+            remember('discovered', { name: s.name, x: s.x, z: s.z, interest: known[s.name].interest });
+            log(`発見: ${s.name}(興味${known[s.name].interest.toFixed(2)})`);
             if (!sleeping && now - lastSurpriseAt > 120_000) {
               lastSurpriseAt = now;
-              void reactToDiscovery(s);
+              void reactToDiscovery(s, known[s.name].interest);
             }
           } else if (Math.hypot(s.x - k.x, s.z - k.z) > 2.5) {
             // 知っている物が動いてる!?
@@ -307,9 +338,19 @@ async function main() {
       return true;
     } catch { return false; /* 見えない時もある(サーバ再起動中など) */ }
   }
-  // M149: 発見のリアクション。名前の分からない物には「じっと見る」(視覚=30分に1回まで)
-  async function reactToDiscovery(s) {
-    await act([{ type: 'face', x: s.x, z: s.z }, { type: 'say', text: `あっ、なにかある!「${s.name}」だ!` }], `発見:${s.name}`);
+  // M149/M150: 発見のリアクション。興味が強い物には「駆け寄る」= アプローチが生まれる。
+  // 名前の分からない物には「じっと見る」(視覚=30分に1回まで)
+  async function reactToDiscovery(s, interest = 0.5) {
+    if (interest >= 0.85) {
+      // 大好きなもの発見→駆け寄る!
+      const d = Math.hypot(s.x, s.z) || 1;
+      await act([
+        { type: 'say', text: `あっ!「${s.name}」だ!見にいこ!` },
+        { type: 'move_to', x: +(s.x - (s.x / d) * 1.6).toFixed(1), z: +(s.z - (s.z / d) * 1.6).toFixed(1) },
+      ], `駆け寄り:${s.name}`);
+    } else {
+      await act([{ type: 'face', x: s.x, z: s.z }, { type: 'say', text: `あっ、なにかある!「${s.name}」だ!` }], `発見:${s.name}`);
+    }
     if (s.name === '名前の分からない何か' && Date.now() - lastGazeAt > 1_800_000) {
       lastGazeAt = Date.now();
       await act([{ type: 'motion', name: 'think' }], 'じっと見る');
@@ -335,10 +376,15 @@ async function main() {
     if (!(await senseWorld())) return;
     const reachable = sense.spots.filter((s) => Math.hypot(s.x, s.z) < 16.5);
     if (reachable.length === 0) return;
-    // M148: 近いものほど気になる(重み=1/(1+距離))。ただし時々は遠出もする(重みの裾)
+    // M150: 行き先=興味×近さ。「近いから」ではなく「気になるから」行く(飽きた物には行かない)
     const me = sense.self ?? { x: 0, z: 0 };
-    const weighted = reachable.map((s) => ({ s, d: Math.hypot(s.x - me.x, s.z - me.z) }))
-      .map((e) => ({ ...e, w: 1 / (1 + e.d * 0.35) }));
+    const weighted = reachable.map((s) => {
+      const d = Math.hypot(s.x - me.x, s.z - me.z);
+      const iv = known[s.name] !== undefined ? interestOf(known[s.name]) : 0.5;
+      // 体力が少ない時は遠出の腰が重くなる(身体性と興味の綱引き)
+      const distPenalty = drives.energy < 0.4 ? 0.7 : 0.35;
+      return { s, d, iv, w: (0.15 + iv) / (1 + d * distPenalty) };
+    });
     const total = weighted.reduce((a, e) => a + e.w, 0);
     let roll = Math.random() * total;
     let pick = weighted[0];
@@ -347,16 +393,28 @@ async function main() {
     lastExploreAt = now;
     drives.curiosity = clamp(drives.curiosity - 0.25);
     drives.boredom = clamp(drives.boredom - 0.3);
-    remember('explore', { name: s.name, x: s.x, z: s.z, dist: +pick.d.toFixed(1) });
+    remember('explore', { name: s.name, x: s.x, z: s.z, dist: +pick.d.toFixed(1), interest: +pick.iv.toFixed(2) });
     // 対象の少し手前(広場中心寄り)に立つ=めり込み防止
     const d = Math.hypot(s.x, s.z) || 1;
     const tx = +(s.x - (s.x / d) * 1.6).toFixed(1);
     const tz = +(s.z - (s.z / d) * 1.6).toFixed(1);
-    await act([{ type: 'move_to', x: tx, z: tz }], `探検:${s.name}(${pick.d.toFixed(0)}m先)`);
-    if (sense.self !== null) { sense.self.x = tx; sense.self.z = tz; } // 歩いた分の自己位置感覚を即更新
+    await act([{ type: 'move_to', x: tx, z: tz }], `探検:${s.name}(${pick.d.toFixed(0)}m先・興味${pick.iv.toFixed(2)})`);
+    // M150: 訪問の記録と「飽き」(また来ると半減。時間で回復するので数日後にまた気になる)
+    const k = known[s.name];
+    if (k !== undefined) { k.visits += 1; k.lastVisitAt = Date.now(); k.interest = clamp(interestOf(k) * 0.5); saveKnown(); }
+    // 興味が強かった物には「長居」= まわりをぐるっと回って眺める(アプローチの深さ)
+    if (pick.iv > 0.7) {
+      const ang = Math.atan2(tz - s.z, tx - s.x);
+      for (const da of [Math.PI / 2, Math.PI]) {
+        const px = +(s.x + Math.cos(ang + da) * 2.0).toFixed(1);
+        const pz = +(s.z + Math.sin(ang + da) * 2.0).toFixed(1);
+        if (Math.hypot(px, pz) < 17) await act([{ type: 'move_to', x: px, z: pz }], `長居:${s.name}のまわり`);
+      }
+      remember('lingered', { name: s.name });
+    }
     // 目の前のものへの感想(15分に1回まで。頭脳がない日は黙って眺める)
     if (brain !== null && Date.now() - lastExploreSayAt > 900_000) {
-      const flavor = pick.d < 4 ? 'すぐそばにあった' : '少し歩いて見に来た';
+      const flavor = pick.iv > 0.7 ? 'だいすきで、ぐるっとまわって眺めた' : pick.d < 4 ? 'すぐそばにあった' : '少し歩いて見に来た';
       const line = await think(brain, persona, [], drivesNote(), `(${flavor}「${s.name}」の前にいる。それを見てのひとことだけつぶやいて)`);
       if (line !== null) {
         lastExploreSayAt = Date.now();
@@ -408,6 +466,14 @@ async function main() {
       // ユーザーの声が聞こえた: 社交欲スパイク+記憶+会話層へ
       drives.social = clamp(drives.social + 0.35);
       remember('heard', { from: data.from, text: data.text });
+      // M150(社会的注目): 話題に出た物は気になる。「風車すごいね」→風車の興味UP→そのうち見に行く
+      for (const [name, k] of Object.entries(known)) {
+        if (name.length >= 2 && data.text.includes(name)) {
+          k.interest = clamp(interestOf(k) + 0.35);
+          remember('interest_boost', { name, via: 'chat' });
+          saveKnown();
+        }
+      }
       convo.push({ from: 'user', text: data.text });
       if (convo.length > 12) convo.splice(0, convo.length - 12);
       void converse(data.text);
