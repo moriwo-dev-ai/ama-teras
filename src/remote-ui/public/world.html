@@ -1136,7 +1136,8 @@ async function runCommand(c, quiet = false) {
       // helloは再接続のたびに走るので、二重表示しないよう洗い替えにする
       chatlog.innerHTML = '';
       for (const en of c.entries ?? []) {
-        addMsg(en.from === 'agent' ? 'agent' : en.from === 'user' ? 'user' : 'sys', en.text);
+        // M154: hinata(住人)の発言はagent風バブルで表示(専用スタイルはVRM分離後に)
+        addMsg(en.from === 'agent' || en.from === 'hinata' ? 'agent' : en.from === 'user' ? 'user' : 'sys', en.text);
       }
       return;
     case 'app_point': await pointInApp(c.selector, c.note); touchAppIdle(); await sleep(800); return;

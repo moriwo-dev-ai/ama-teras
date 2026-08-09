@@ -379,7 +379,10 @@ export class RemoteServer {
       const allowed = new Set(['say', 'motion', 'move_to', 'face']);
       const banned = (cmds as { type?: unknown }[]).find((c) => typeof c.type !== 'string' || !allowed.has(c.type));
       if (banned !== undefined) throw new HttpError(400, `生命体デーモンが使えるのは say/motion/move_to/face のみ`);
-      return sendJson(res, 200, await this.deps.world.act(cmds as import('../../shared/types').WorldCommand[]));
+      // M154(話者分離): この経路の発言は生命体のもの。チャットログでagent(思考層)と区別する
+      const marked = (cmds as import('../../shared/types').WorldCommand[]).map((c) =>
+        c.type === 'say' ? { ...c, speaker: 'hinata' as const } : c);
+      return sendJson(res, 200, await this.deps.world.act(marked));
     }
     // M117-B: 常時実行ページ(ループバック+実行キー)はトークンなしで世界イベントを送れる
     if (path === '/api/world/event' && req.method === 'POST' && this.isWorldExecutor(req, url)) {

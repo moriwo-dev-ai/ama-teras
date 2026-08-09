@@ -50,7 +50,7 @@ export class WorldManager {
    * M122: 世界の記憶(チャット+出来事)。会話セッションを跨いで世界そのものが履歴を持つ
    * — どの会話が世界チャットを担当しても、observe すれば過去の文脈が見える
    */
-  private readonly chatLog: { from: 'user' | 'agent' | 'world'; text: string; ts?: string }[] = [];
+  private readonly chatLog: { from: 'user' | 'agent' | 'world' | 'hinata'; text: string; ts?: string }[] = [];
   private chatHandler: ((text: string) => void) | null = null;
   /**
    * M115-4: 世界の正本。spawn/remove の全パラメータを id 単位で保持し、ページは
@@ -99,7 +99,7 @@ export class WorldManager {
       const data = JSON.parse(raw) as {
         objects?: WorldCommand[];
         apps?: WorldApp[];
-        log?: { from: 'user' | 'agent' | 'world'; text: string; ts?: string }[];
+        log?: { from: 'user' | 'agent' | 'world' | 'hinata'; text: string; ts?: string }[];
       };
       for (const c of data.objects ?? []) {
         if (c.type === 'spawn' && typeof c.id === 'string') this.objects.set(c.id, c);
@@ -300,11 +300,17 @@ export class WorldManager {
     openApp?: string | null;
     howToSee?: string;
     howToApps?: string;
+    resident?: string;
   } {
     return {
       connected: this.isConnected(),
       state: this.state,
       chat: this.chatLog.slice(-40),
+      // M154: 人格の混線防止(実測: エージェントが住人の発言を自分の続きと誤認して名乗った)
+      resident:
+        'この世界にはあなたとは別の住人「ヒナタ」(自律生命体)が住んでいる。chatの from:"hinata" は' +
+        '彼女の発言で、あなたの発言ではない。**あなたはヒナタを名乗らない・彼女のふりをしない**。' +
+        'あなたはAMA-teras(大工・世話役)として振る舞い、彼女には友達として接すること',
       apps: this.listApps(),
       // M127: 「〇〇してみて」の〇〇は開いているアプリのことが多い。文脈として常に返す
       openApp: this.openAppId,
@@ -372,7 +378,7 @@ export class WorldManager {
       }
     }
     for (const c of cmds) {
-      if (c.type === 'say' && typeof c.text === 'string') this.pushChat('agent', c.text);
+      if (c.type === 'say' && typeof c.text === 'string') this.pushChat(c.speaker === 'hinata' ? 'hinata' : 'agent', c.text);
     }
     this.applyToCanon(cmds);
     const seq = ++this.seq;
@@ -403,7 +409,7 @@ export class WorldManager {
     this.state = { ...s, ...(avatar !== undefined ? { avatar } : {}) };
   }
 
-  private pushChat(from: 'user' | 'agent' | 'world', text: string): void {
+  private pushChat(from: 'user' | 'agent' | 'world' | 'hinata', text: string): void {
     this.chatLog.push({ from, text, ts: new Date(this.now()).toISOString() });
     if (this.chatLog.length > WORLD_LOG_MAX) this.chatLog.splice(0, this.chatLog.length - WORLD_LOG_MAX);
     this.persist();
