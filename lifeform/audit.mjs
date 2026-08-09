@@ -106,8 +106,37 @@ for (const t of targets) {
   results.push({ ...t, simA, simB, r2ref, verdict });
 }
 const novel = results.filter((r) => r.verdict === 'novel-self');
+
+// ---- P2メータ: 言葉vs行動の相関(拡張1が本物になったかの観測点) ----
+// 未来語の発話数と、未来向け行動(anticipate/prepare)の数。両方が同じ日に立ち上がり
+// 相関し始めた日=「明日」が言葉だけでなく行動になった日
+const FUTURE_RE = /(あした|明日|あとで|後で|そのうち|こんど|今度|たのしみ|楽しみ|そろそろ|もうすぐ|まってる|待って)/;
+let futureSays = 0, anticipates = 0;
+try {
+  for (const line of readFileSync(join(MEM, `episodes-${day}.jsonl`), 'utf8').split('\n')) {
+    if (line === '') continue;
+    try {
+      const e = JSON.parse(line);
+      if (e.kind === 'anticipate' || e.kind === 'prepare') anticipates++;
+      const texts = [];
+      if (e.kind === 'say') texts.push(e.text ?? '');
+      if (e.kind === 'act') for (const c of e.cmds ?? []) if (c.type === 'say') texts.push(c.text ?? '');
+      for (const t of texts) if (FUTURE_RE.test(t)) futureSays++;
+    } catch { /* 破損行 */ }
+  }
+} catch { /* エピソードなし */ }
+
 const rec = { ts: new Date().toISOString(), day, sentences: results.length, novel: novel.length,
-  r2refs: results.filter((r) => r.r2ref).length, detail: results };
+  r2refs: results.filter((r) => r.r2ref).length, futureSays, anticipates, detail: results };
 appendFileSync(join(MEM, 'audit', 'audit-log.jsonl'), JSON.stringify(rec) + '\n');
-console.log(`監査(${day}): 自己言及${results.length}文 / 本人由来候補${novel.length}文 / R2徴候${rec.r2refs}文`);
+
+// ---- R段階ダッシュボード(summary.md): 毎朝1行ずつ育つ ----
+const dash = join(MEM, 'audit', 'summary.md');
+let head = '';
+try { readFileSync(dash, 'utf8'); } catch {
+  head = '# R段階ダッシュボード(出所監査の日次サマリ)\n\n| 日付 | 自己言及 | 本人由来 | R2徴候 | 未来語 | 未来行動 |\n|---|---|---|---|---|---|\n';
+}
+appendFileSync(dash, head + `| ${day} | ${results.length} | ${novel.length} | ${rec.r2refs} | ${futureSays} | ${anticipates} |\n`);
+
+console.log(`監査(${day}): 自己言及${results.length}文 / 本人由来候補${novel.length}文 / R2徴候${rec.r2refs}文 / 未来語${futureSays} / 未来行動${anticipates}`);
 for (const n of novel) console.log(`  ★ [${n.src}] ${n.text} (A:${n.simA} B:${n.simB}${n.r2ref ? ' R2参照!' : ''})`);

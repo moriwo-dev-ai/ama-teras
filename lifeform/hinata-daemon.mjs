@@ -15,7 +15,7 @@
  * 起動: node lifeform/hinata-daemon.mjs [--port N] [--key K] [--chat]
  */
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { detectBrain, think } from './brain.mjs';
@@ -62,6 +62,17 @@ try {
   renameSync(join(MEM_DIR, 'known-world.json'), join(MEM_DIR, 'known-world.migrated.json'));
   log(`記憶地図を予測へ移行(${Object.keys(kw).length}件)`);
 } catch { /* 移行済み or 初生 */ }
+
+// ---------- P2: 日課の学習(拡張1=時間の配管・その1) ----------
+// 24時間ビンのEMAで「この時間には声があるはず」を経験から学ぶ。
+// 予測が立つと、その時間の前に「待つ」が価値を持つ=希望。破れれば恐怖=不安。
+const RHYTHM_PATH = join(MEM_DIR, 'rhythm.json');
+let rhythm = { voice: Array(24).fill(0.1) };
+try { rhythm = { ...rhythm, ...JSON.parse(readFileSync(RHYTHM_PATH, 'utf8')) }; } catch { /* 初日 */ }
+function learnRhythm(kind, hour, value) {
+  rhythm[kind][hour] = rhythm[kind][hour] * 0.99 + value * 0.01;
+  try { writeFileSync(RHYTHM_PATH, JSON.stringify(rhythm, null, 1)); } catch { /* noop */ }
+}
 
 // ---------- 体(資源としてのエネルギー)と概日 ----------
 let energy = 0.8;           // 物理資源: 歩けば減り、休めば戻る
@@ -267,10 +278,13 @@ async function main() {
     p.expected = circadian();
     mind.observe('intero:energy', energy, { about: 'げんき' });
     if (sleeping || (quiet() && Date.now() - lastOwnActAt > 60_000)) energy = clamp(energy + 0.008); // 休息回復
-    // 声: 実測=直近2時間の声の気配(指数減衰)。期待は学習(adapt)で日課に馴染む
+    // 声: 実測=直近2時間の声の気配(指数減衰)。期待=学習された日課(この時間には声があるはず)
     const voiceObs = clamp(Math.exp(-(Date.now() - lastVoiceAt) / 7_200_000));
+    const hour = new Date().getHours();
+    learnRhythm('voice', hour, voiceObs);
+    const sv = mind.predictions.get('social:voice');
+    sv.expected = clamp(rhythm.voice[hour] * 1.2); // 日課ベースの期待
     mind.observe('social:voice', voiceObs, { about: 'だれかの声' });
-    mind.adapt('social:voice', voiceObs, 0.01); // ゆっくり日課を学ぶ(=会えない日々は期待も下がる…)
     mind.save();
   }, 60_000);
 
@@ -340,6 +354,8 @@ async function main() {
 
   // ---- 行動選択(心拍): 候補に価値を付け、最大を選ぶ。行動ルールは書かない ----
   let lastNoteAt = 0, lastNoteText = null, lastMicroAt = 0, microSinceTs = new Date().toISOString();
+  const lastVisitAt = new Map(); // P2チューニング: 同じ場所を確かめた直後は価値を下げる(往復癖の抑制)
+  let lastAnticipateAt = 0;
   const heartbeat = async () => {
     try {
       const now = Date.now();
@@ -362,14 +378,16 @@ async function main() {
         const d = Math.hypot(p.expected.x - me.x, p.expected.z - me.z);
         if (Math.hypot(p.expected.x, p.expected.z) > 16.5) continue;
         const cost = d * 0.02 * (energy < 0.4 ? 2 : 1); // 疲れていると遠出が重い
+        const refractory = now - (lastVisitAt.get(p.id) ?? 0) < 900_000 ? 0.25 : 0; // 15分は「さっき見たし」
         cands.push({
-          value: mind.epistemicValue(p.id) + mind.pragmaticValue(p.id) - cost,
+          value: mind.epistemicValue(p.id) + mind.pragmaticValue(p.id) - cost - refractory,
           label: `たしかめ:${p.subject}(${d.toFixed(0)}m)`,
           run: async () => {
             const dd = Math.hypot(p.expected.x, p.expected.z) || 1;
             const tx = +(p.expected.x - (p.expected.x / dd) * 1.6).toFixed(1);
             const tz = +(p.expected.z - (p.expected.z / dd) * 1.6).toFixed(1);
             remember('explore', { name: p.subject, dist: +d.toFixed(1), why: 'たしかめ' });
+            lastVisitAt.set(p.id, Date.now());
             await act([{ type: 'move_to', x: tx, z: tz }], `たしかめ:${p.subject}`);
             // 到着後の観察で精度が上がる=情報獲得の報酬はsenseWorldが計上する
             await senseWorld();
@@ -395,6 +413,32 @@ async function main() {
             await act([{ type: 'move_to', x: 0, z: 2 }, { type: 'say', text: 'だれか こないかな…' }], '待つ');
           },
         });
+      }
+      // P2: 未来への期待(希望) — 日課が「もうすぐ声のある時間」を予測したら、待ちに行く。
+      // 誰も「待て」と書いていない: 学習された日課×現在の静けさから価値が立つ
+      const hNow = new Date().getHours();
+      const soonVoice = Math.max(rhythm.voice[(hNow + 1) % 24], rhythm.voice[hNow]);
+      const svp = mind.predictions.get('social:voice');
+      if (soonVoice > 0.25 && svp.observed < 0.15 && now - lastAnticipateAt > 3_600_000) {
+        cands.push({
+          value: soonVoice * 0.9,
+          label: 'そろそろかな(期待)',
+          run: async () => {
+            lastAnticipateAt = Date.now();
+            remember('anticipate', { kind: 'voice', hour: hNow, learned: +soonVoice.toFixed(2) });
+            const line = brain !== null
+              ? await think(brain, persona, [], situationNote(), '(いつも声がきこえてくる時間が近い気がする。そのきもちをひとことで)')
+              : null;
+            const cmds = [{ type: 'move_to', x: 0, z: 2 }];
+            if (line !== null) cmds.push({ type: 'say', text: line });
+            await act(cmds, '期待:待つ');
+          },
+        });
+      }
+      // P2: 未来への備え — もうすぐ夜で体力が心もとないなら、先に休む(不安の建設的な形)
+      if (hNow >= 21 && energy < 0.5) {
+        cands.push({ value: (0.5 - energy) * 1.2, label: '夜にそなえて休む',
+          run: async () => { remember('prepare', { kind: 'rest' }); await act([{ type: 'motion', name: 'sit' }], '備え:休む'); } });
       }
       // おもいかえす(DMN): 他にすることがない時に勝つ基礎値+自己維持の価値
       cands.push({
