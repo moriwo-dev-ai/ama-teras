@@ -54,7 +54,7 @@ export class Mind {
   ensure(id, init) {
     if (!this.predictions.has(id)) {
       this.predictions.set(id, {
-        id, kind: init.kind, subject: init.subject,
+        id, kind: init.kind, subject: init.subject, dir: init.dir ?? 'sym',
         expected: init.expected, observed: init.expected,
         precision: init.precision ?? 0.3, weight: init.weight ?? 0.5,
         lastConfirmAt: this.now(), origin: init.origin ?? 'learned',
@@ -96,6 +96,10 @@ export class Mind {
 
   errorOf(p) {
     if (typeof p.expected === 'number' && typeof p.observed === 'number') {
+      // M157: 符号付き誤差。dir='high'(声・体力など欲求的変数)は不足だけが痛く、
+      // 期待を上回る幸運は誤差ゼロ=喜び側に落ちる(来訪に怯えるバグの根治)
+      if (p.dir === 'high') return Math.max(0, p.expected - p.observed);
+      if (p.dir === 'low') return Math.max(0, p.observed - p.expected);
       return Math.abs(p.expected - p.observed);
     }
     if (p.expected !== null && typeof p.expected === 'object' && p.observed !== null && typeof p.observed === 'object') {
