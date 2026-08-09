@@ -182,18 +182,44 @@ async function main() {
   const GESTURES = {
     idle: 'ふつうに立つ', sit: 'すわる', think: 'かんがえるポーズ', clap: 'はくしゅする',
     bow: 'おじぎする', wave: '手をふる', cheer: 'ばんざいする', dance: 'おどる', jump: 'とびはねる',
-    sleep: 'よこになってねむる', yawn: 'あくびする', stretch: 'のびをする', sad: 'しょんぼりする',
+    sleep: 'よこになってねむる', stretch: 'のびをする', sad: 'しょんぼりする',
     cry: 'なく', excited: 'わくわくをからだで出す', surprised: 'びっくりする',
-    lookaround: 'きょろきょろする', happy: 'うれしそうにゆれる', scared: 'こわがる',
+    lookaround: 'しゃがんできょろきょろする', happy: 'うれしそうにゆれる', scared: 'こわがる',
+    sitclap: 'すわったまま拍手する',
   };
-  async function chooseGesture(context, fallback) {
+  // M153: しぐさの経済 — 各しぐさは効果とコストを持つ本物の行動。
+  // 方向性(意味・コスト)=システム、味付け(僅差からの選択)=彼女(オーナー設計の分業)
+  const GESTURE_FX = {
+    idle: { cost: 0 }, sit: { cost: -0.004 }, think: { cost: 0.005 }, clap: { cost: 0.01, discharge: 'joy' },
+    bow: { cost: 0.01 }, wave: { cost: 0.01, discharge: 'joy' }, cheer: { cost: 0.03, discharge: 'joy' },
+    dance: { cost: 0.06, discharge: 'joy' }, jump: { cost: 0.03, discharge: 'joy' },
+    sleep: { cost: -0.01 }, stretch: { cost: 0.01, recover: 0.03 }, sad: { cost: 0, discharge: 'fear' },
+    cry: { cost: 0.02, discharge: 'fear' }, excited: { cost: 0.02, discharge: 'joy' },
+    surprised: { cost: 0.01 }, lookaround: { cost: 0.01, epistemic: true },
+    happy: { cost: 0.01, discharge: 'joy' }, scared: { cost: 0.01, discharge: 'fear' },
+    sitclap: { cost: 0.01, discharge: 'joy' },
+  };
+  async function chooseGesture(context, fallback, subset = null) {
     if (brain === null) return fallback;
-    const list = Object.entries(GESTURES).map(([k, v]) => `${k}=${v}`).join(' / ');
+    const keys = subset ?? Object.keys(GESTURES);
+    const list = keys.map((k) => `${k}=${GESTURES[k]}`).join(' / ');
     const r = await think(brain, persona, [], situationNote(),
       `(${context}。いまのきもちに合うしぐさを次から1つだけえらんで、英語の名前だけ答えて: ${list})`);
-    const name = (r ?? '').toLowerCase().match(/[a-z]+/g)?.find((w) => GESTURES[w] !== undefined);
+    const name = (r ?? '').toLowerCase().match(/[a-z]+/g)?.find((w) => keys.includes(w));
     if (name !== undefined) remember('gesture_choice', { context, chose: name });
     return name ?? fallback;
+  }
+  /** しぐさの実行=効果とコストの適用(エネルギー・発散・認識) */
+  async function doGesture(name, label) {
+    const fx = GESTURE_FX[name] ?? { cost: 0 };
+    energy = clamp(energy - (fx.cost ?? 0) + (fx.recover ?? 0));
+    const ok = await act([{ type: 'motion', name }], label);
+    if (ok && fx.discharge !== undefined) {
+      const d = mind.express(fx.discharge);
+      if (d > 0.05) remember('express', { gesture: name, kind: fx.discharge, discharged: d });
+    }
+    if (ok && fx.epistemic === true) await senseWorld();
+    return ok;
   }
 
   // ---- 会話層(器官は4Bのまま) ----
@@ -278,7 +304,7 @@ async function main() {
   async function reactToDiscovery(s) {
     await act([{ type: 'face', x: s.x, z: s.z }, { type: 'say', text: `あっ、なにかある!「${s.name}」だ!` }], `発見:${s.name}`);
     const g = await chooseGesture('あたらしいものを見つけた', null);
-    if (g !== null && g !== 'idle') await act([{ type: 'motion', name: g }], `発見のしぐさ(${g})`);
+    if (g !== null && g !== 'idle') await doGesture(g, `発見のしぐさ(${g})`);
     if (s.name === '名前の分からない何か' && Date.now() - lastGazeAt > 1_800_000) {
       lastGazeAt = Date.now();
       await act([{ type: 'motion', name: 'think' }], 'じっと見る');
@@ -354,7 +380,7 @@ async function main() {
       if (c.type === 'live_comment') {
         lastVoiceAt = now;
         remember('saw_comment', { author: c.author ?? '', text: (c.text ?? '').slice(0, 80) });
-        if (now - lastReflexAt > 30_000) { lastReflexAt = now; setTimeout(() => act([{ type: 'motion', name: 'clap' }], '反射:コメント歓迎'), 600); }
+        if (now - lastReflexAt > 30_000) { lastReflexAt = now; setTimeout(() => doGesture('clap', '反射:コメント歓迎'), 600); }
       }
       if (c.type === 'spawn' || c.type === 'app_add') {
         remember('saw_world_change', { type: c.type, id: c.id ?? c.app?.id ?? '' });
@@ -389,7 +415,7 @@ async function main() {
         await act([{ type: 'say', text: 'ふぁ…もうねむい…おやすみなさい…' }, { type: 'motion', name: g }], `就寝(${g})`);
       } else if (sleeping && (h >= 6 || energy > 0.5)) {
         sleeping = false; remember('wake_up', {});
-        const g = await chooseGesture('目がさめた。あさの最初のしぐさ', 'idle');
+        const g = await chooseGesture('目がさめた。あさの最初のしぐさ', 'stretch');
         await act([{ type: 'motion', name: g }, { type: 'say', text: 'ん…ふぁ…おはよう…' }], `起床(${g})`);
       }
       if (sleeping || !quiet() || thinking) return;
@@ -424,8 +450,8 @@ async function main() {
         value: Math.max(0, (ep.expected - energy)) * 1.5,
         label: '休む',
         run: async () => {
-          if (now - restGestureAt > 1_800_000) { restGesture = await chooseGesture('つかれたのでひとやすみする', 'sit'); restGestureAt = now; }
-          await act([{ type: 'motion', name: restGesture }], `休む(${restGesture})`);
+          if (now - restGestureAt > 1_800_000) { restGesture = await chooseGesture('つかれたのでひとやすみする', 'sit', ['sit', 'stretch', 'sleep', 'lookaround']); restGestureAt = now; }
+          await doGesture(restGesture, `休む(${restGesture})`);
         },
       });
       // さみしさ(声の誤差): 広場の中心で待つ+ぽつり
@@ -466,6 +492,24 @@ async function main() {
       if (hNow >= 21 && energy < 0.5) {
         cands.push({ value: (0.5 - energy) * 1.2, label: '夜にそなえて休む',
           run: async () => { remember('prepare', { kind: 'rest' }); await act([{ type: 'motion', name: 'sit' }], '備え:休む'); } });
+      }
+      // M153: 感情の表現 — 未表現プールが溜まると「発散」が価値を持つ。
+      // 溜まった恐怖→泣く/こわがる、溜まった喜び→踊る/はしゃぐ。どれで表すかは僅差の中から彼女が選ぶ
+      for (const [pool, kinds, ctx] of [
+        ['fear', ['cry', 'sad', 'scared'], 'こわかったこと・ざわざわが胸にたまってる。どう出す?'],
+        ['joy', ['dance', 'cheer', 'happy', 'excited', 'jump', 'clap'], 'うれしさが胸にあふれてる。どう出す?'],
+      ]) {
+        const level = mind.affect[pool];
+        if (level > 0.25) {
+          cands.push({
+            value: level * 0.9,
+            label: `表現(${pool}=${level.toFixed(2)})`,
+            run: async () => {
+              const g = await chooseGesture(ctx, kinds[0], kinds);
+              await doGesture(g, `表現:${g}(${pool})`);
+            },
+          });
+        }
       }
       // おもいかえす(DMN): 他にすることがない時に勝つ基礎値+自己維持の価値
       cands.push({

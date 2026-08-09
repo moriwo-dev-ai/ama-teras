@@ -282,7 +282,7 @@ let avatar = null, mixer = null;
 const actions = {};
 let current = 'idle';
 const ONESHOT = new Set(['jab', 'hook', 'kick', 'backflip', 'flykick', 'wave', 'cheer', 'punch', 'spinkick', 'jump', 'climb', 'clap', 'bow',
-  'yawn', 'stretch', 'surprised', 'excited', 'lookaround', 'scared']);
+  'stretch', 'surprised', 'excited', 'lookaround', 'scared', 'sitclap']);
 function fadeTo(name) {
   if (!mixer || !actions[name] || current === name) return;
   actions[name].reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.18).play();
@@ -306,8 +306,9 @@ try {
     // M143: 作業/思考モーション(建築中=Digging・考え中=Thinking を自動再生)+挨拶系
     hammer: 'Digging', think: 'Thinking', clap: 'Clapping', bow: 'Quick Formal Bow',
     // M152: 自己表現の語彙(B′: 生命体がしぐさを自分で選ぶ)。FBX未配置でも警告のみで世界は動く
-    sleep: 'Sleeping Idle', yawn: 'Yawning', stretch: 'Stretching', sad: 'Sad Idle', cry: 'Crying',
-    excited: 'Excited', surprised: 'Surprised', lookaround: 'Looking Around', happy: 'Happy Idle', scared: 'Terrified' };
+    sleep: 'Sleeping Idle', stretch: 'Stretching', sad: 'Sad Idle', cry: 'Crying',
+    excited: 'Excited', surprised: 'Surprised', lookaround: 'Looking Around', happy: 'Happy Idle',
+    scared: 'Terrified', sitclap: 'Sitting Clap' };
   await Promise.all(Object.entries(MOTIONS).map(async ([k, f]) => {
     try {
       actions[k] = mixer.clipAction(await loadMixamo(`./assets-lab/${f}.fbx`, avatar));

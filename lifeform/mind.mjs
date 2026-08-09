@@ -24,17 +24,30 @@ export class Mind {
     this.now = now;
     this.predictions = new Map();
     this.valenceLog = []; // {ts, kind:'reward'|'fear'|'surprise', amount, about}
+    // M153: 未表現の感情プール。感じたのに表現していない分が溜まり、表現(発散)で本当に減る。
+    // 恐怖が溜まれば「なく」の価値が上がり、泣くと楽になる — 演出ではなく生理として実装
+    this.affect = { joy: 0, fear: 0 };
+    this.lastAffectDecayAt = now();
     this.prevScalar = null;
     try {
       const data = JSON.parse(readFileSync(path, 'utf8'));
       for (const p of data.predictions ?? []) this.predictions.set(p.id, p);
+      if (data.affect !== undefined) this.affect = data.affect;
     } catch { /* 最初の心は空 */ }
   }
 
   save() {
     try {
-      writeFileSync(this.path, JSON.stringify({ predictions: [...this.predictions.values()] }, null, 1));
+      writeFileSync(this.path, JSON.stringify({ predictions: [...this.predictions.values()], affect: this.affect }, null, 1));
     } catch { /* 保存失敗で心は止めない */ }
+  }
+
+  /** 感情の発散(表現行動が呼ぶ)。プールの35%が本当に軽くなる。返り値=発散量 */
+  express(kind) {
+    const v = this.affect[kind] ?? 0;
+    const d = +(v * 0.35).toFixed(3);
+    this.affect[kind] = +(v - d).toFixed(3);
+    return d;
   }
 
   /** 予測を持つ(なければ作る)。originは出所監査用('innate'|'learned'|'told') */
@@ -62,13 +75,13 @@ export class Mind {
     p.precision = clamp01(p.precision + (after < 0.15 ? 0.06 : -Math.min(0.3, after * 0.5)));
     const delta = before - after; // 正=誤差が減った
     if (Math.abs(delta) > 0.08) {
-      this.valenceLog.push({
-        ts: this.now(),
-        kind: delta > 0 ? 'reward' : (p.weight > 0.6 ? 'fear' : 'surprise'),
-        amount: +Math.abs(delta * p.weight).toFixed(3),
-        about: opts.about ?? p.subject,
-      });
+      const kind = delta > 0 ? 'reward' : (p.weight > 0.6 ? 'fear' : 'surprise');
+      const amount = +Math.abs(delta * p.weight).toFixed(3);
+      this.valenceLog.push({ ts: this.now(), kind, amount, about: opts.about ?? p.subject });
       if (this.valenceLog.length > 200) this.valenceLog.splice(0, this.valenceLog.length - 200);
+      // 未表現プールへ蓄積(表現されるまで残る)
+      if (kind === 'reward') this.affect.joy = Math.min(1, this.affect.joy + amount);
+      else this.affect.fear = Math.min(1, this.affect.fear + amount * (kind === 'fear' ? 1 : 0.3));
     }
     return delta;
   }
@@ -96,6 +109,14 @@ export class Mind {
   scalar() {
     let sum = 0, wsum = 0;
     const now = this.now();
+    // 未表現プールの自然減衰(3%/分)。時間も少しずつ癒すが、表現ほど速くない
+    const mins = (now - this.lastAffectDecayAt) / 60_000;
+    if (mins > 0.5) {
+      const k = Math.exp(-0.03 * mins);
+      this.affect.joy = +(this.affect.joy * k).toFixed(3);
+      this.affect.fear = +(this.affect.fear * k).toFixed(3);
+      this.lastAffectDecayAt = now;
+    }
     for (const p of this.predictions.values()) {
       const staleDays = (now - p.lastConfirmAt) / 86_400_000;
       if (staleDays > 0.02) p.precision = clamp01(p.precision - staleDays * 0.004); // 精度の自然減衰
