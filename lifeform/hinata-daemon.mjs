@@ -214,7 +214,11 @@ async function main() {
       const obs = await res.json();
       const spots = [];
       for (const a of obs.apps ?? []) spots.push({ name: a.name, x: a.x, z: a.z });
-      for (const o of obs.state?.objects ?? []) spots.push({ name: o.label ?? o.shape, x: o.x, z: o.z });
+      // 名前はラベル>ID>「名前の分からない何か」の順(customだけ渡すと頭脳が意味を取れない)
+      for (const o of obs.state?.objects ?? []) {
+        const nm = o.label ?? (typeof o.id === 'string' && !/^obj\d+$/.test(o.id) ? o.id : null);
+        spots.push({ name: nm ?? '名前の分からない何か', x: o.x, z: o.z });
+      }
       const reachable = spots.filter((s) => Math.hypot(s.x, s.z) < 16.5 && typeof s.x === 'number');
       if (reachable.length === 0) return;
       const s = reachable[Math.floor(Math.random() * reachable.length)];
