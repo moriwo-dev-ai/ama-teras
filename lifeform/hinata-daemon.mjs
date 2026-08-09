@@ -15,10 +15,11 @@
  * 依存ゼロ(素のNode 18+)。c案で独立パッケージ化する際の核になる。
  */
 import { spawn } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { detectBrain, think } from './brain.mjs';
+import { lookAtWorld } from './eyes.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ARGS = process.argv.slice(2);
@@ -84,6 +85,17 @@ let sleeping = false; // 就寝状態(深夜に元気が尽きると寝る。話
 
 // M148(空間感覚): 直近の世界観察のキャッシュ。自分の位置と物の距離が「感覚」になる
 const sense = { self: null, spots: [], at: 0 };
+
+// M149(視野と発見): 人間らしさは「全知」ではなく「制限」から生まれる。
+// 見えるのは半径8mだけ。見たものは記憶地図(known-world.json=人生をまたいで持続)に刻まれ、
+// 探検の行き先は「知っている場所」だけになる。知らない物は歩き回って発見する(霧の晴れる世界)
+const SIGHT_R = 8;
+const KNOWN_PATH = join(MEM_DIR, 'known-world.json');
+let known = {}; // name -> {x, z, seenAt}
+try { known = JSON.parse(readFileSync(KNOWN_PATH, 'utf8')); } catch { /* 無知から始まる人生 */ }
+function saveKnown() {
+  try { writeFileSync(KNOWN_PATH, JSON.stringify(known, null, 1)); } catch { /* 保存失敗でも生きる */ }
+}
 function nearestSpot() {
   if (sense.self === null || sense.spots.length === 0) return null;
   let best = null, bd = Infinity;
@@ -172,15 +184,26 @@ async function main() {
   let lastOwnActAt = 0;      // 自分のコマンドのエコーを区別する近似
   let lastMurmurAt = 0;
   let lastReflexAt = 0;
+  let lastHearAt = 0;
   let sentThisMinute = 0;
   let thinking = false;      // 会話は一度にひとつ(single-flight)
   const convo = [];          // 直近のやり取り {from:'user'|'me', text}
   setInterval(() => { sentThisMinute = 0; }, 60_000);
 
+  let walkedToday = 0; // M149(身体性): 歩けば疲れる。今日歩いた距離(m)
   async function act(cmds, label) {
     if (sentThisMinute >= 6) return; // 暴走防止の上限
     sentThisMinute++;
     lastOwnActAt = Date.now();
+    // M149: 移動の身体コスト=距離に応じて元気が減る(遠出は「体力を使う判断」になる)
+    for (const c of cmds) {
+      if (c.type === 'move_to' && sense.self !== null && typeof c.x === 'number' && typeof c.z === 'number') {
+        const d = Math.hypot(c.x - sense.self.x, c.z - sense.self.z);
+        drives.energy = clamp(drives.energy - d * 0.004);
+        walkedToday += d;
+        sense.self = { ...sense.self, x: c.x, z: c.z }; // 歩いた先を自己位置感覚に即反映
+      }
+    }
     remember('act', { label, cmds });
     try {
       const res = await fetch(`${base}/api/world/command?k=${key}`, {
@@ -217,27 +240,88 @@ async function main() {
   // ---- 探検(P3知覚拡張): 世界を「見て」、気になるものに会いに行く ----
   // チャットや反射(受け身の刺激)だけでなく、世界そのものが刺激になる=観察→興味→接近→感想。
   // 好奇心/退屈が高い時だけ発動。対象は実在の社・造形(ランダム地点の散歩とは別物)
-  // M148: 世界を「見る」(観察スナップショット→空間感覚キャッシュ)。探検と会話が共有する
+  // M148/M149: 世界を「見る」— ただし全知ではない。視界(8m)に入った物だけ知覚し、
+  // 記憶地図との差分(新発見・消失・移動)が「驚き」のイベントになる
+  let lastSurpriseAt = 0;
+  let lastGazeAt = 0;
   async function senseWorld() {
     try {
       const res = await fetch(`${base}/api/world/state?k=${key}`, { signal: AbortSignal.timeout(5000) });
       if (!res.ok) return false;
       const obs = await res.json();
-      const spots = [];
-      for (const a of obs.apps ?? []) spots.push({ name: a.name, x: a.x, z: a.z });
+      const trueSpots = [];
+      for (const a of obs.apps ?? []) trueSpots.push({ name: a.name, x: a.x, z: a.z });
       // 名前はラベル>ID>「名前の分からない何か」の順(customだけ渡すと頭脳が意味を取れない)
       for (const o of obs.state?.objects ?? []) {
         if (typeof o.x !== 'number' || typeof o.z !== 'number') continue;
         const nm = o.label ?? (typeof o.id === 'string' && !/^obj\d+$/.test(o.id) ? o.id : null);
-        spots.push({ name: nm ?? '名前の分からない何か', x: o.x, z: o.z });
+        trueSpots.push({ name: nm ?? '名前の分からない何か', x: o.x, z: o.z });
       }
       sense.self = obs.state?.avatar ?? sense.self;
-      sense.spots = spots;
       sense.at = Date.now();
+      const me = sense.self;
+      if (me !== null) {
+        const now = Date.now();
+        const inSight = trueSpots.filter((s) => Math.hypot(s.x - me.x, s.z - me.z) <= SIGHT_R);
+        const seenNames = new Set(trueSpots.map((s) => s.name));
+        for (const s of inSight) {
+          const k = known[s.name];
+          if (k === undefined) {
+            // 新発見! 好奇心スパイク+その場のリアクション(連発防止2分)
+            known[s.name] = { x: s.x, z: s.z, seenAt: now };
+            drives.curiosity = clamp(drives.curiosity + 0.3);
+            remember('discovered', { name: s.name, x: s.x, z: s.z });
+            log(`発見: ${s.name}`);
+            if (!sleeping && now - lastSurpriseAt > 120_000) {
+              lastSurpriseAt = now;
+              void reactToDiscovery(s);
+            }
+          } else if (Math.hypot(s.x - k.x, s.z - k.z) > 2.5) {
+            // 知っている物が動いてる!?
+            known[s.name] = { x: s.x, z: s.z, seenAt: now };
+            remember('saw_moved', { name: s.name });
+            if (!sleeping && now - lastSurpriseAt > 120_000) {
+              lastSurpriseAt = now;
+              void act([{ type: 'say', text: `あれ?「${s.name}」、うごいてない?` }], '驚き:移動');
+            }
+          } else {
+            known[s.name].seenAt = now;
+          }
+        }
+        // 消失の目撃: 「あった場所」が視界内なのに世界から無くなっている時だけ気づく
+        // (視界の外の消失には気づかない=いない物を信じ続け、行ってみて驚く。人間と同じ勘違い)
+        for (const [name, k] of Object.entries(known)) {
+          if (!seenNames.has(name) && Math.hypot(k.x - me.x, k.z - me.z) <= SIGHT_R) {
+            delete known[name];
+            remember('saw_gone', { name });
+            if (!sleeping && now - lastSurpriseAt > 120_000) {
+              lastSurpriseAt = now;
+              void act([{ type: 'say', text: `えっ、ここにあった「${name}」が…ない!` }], '驚き:消失');
+            }
+          }
+        }
+        saveKnown();
+      }
+      // 探検の行き先=知っている場所だけ(全知リストではなく、自分の足で作った地図)
+      sense.spots = Object.entries(known).map(([name, k]) => ({ name, x: k.x, z: k.z }));
       return true;
     } catch { return false; /* 見えない時もある(サーバ再起動中など) */ }
   }
-  setInterval(() => { void senseWorld(); }, 60_000); // 1分ごとに世界を見回す(会話の場所感覚も新鮮に保つ)
+  // M149: 発見のリアクション。名前の分からない物には「じっと見る」(視覚=30分に1回まで)
+  async function reactToDiscovery(s) {
+    await act([{ type: 'face', x: s.x, z: s.z }, { type: 'say', text: `あっ、なにかある!「${s.name}」だ!` }], `発見:${s.name}`);
+    if (s.name === '名前の分からない何か' && Date.now() - lastGazeAt > 1_800_000) {
+      lastGazeAt = Date.now();
+      await act([{ type: 'motion', name: 'think' }], 'じっと見る');
+      const seen = await lookAtWorld('この3D世界の画面に写っている一番目立つ物の見た目を、6歳の子どもが言うみたいに日本語で短く一言だけ。');
+      if (seen !== null) {
+        remember('gazed', { about: s.name, seen });
+        const line = await think(brain, persona, [], drivesNote(), `(じっと見たら、こう見えた:「${seen}」。それを自分の言葉でひとことつぶやいて)`);
+        if (line !== null) await act([{ type: 'say', text: line }], '視覚のつぶやき');
+      }
+    }
+  }
+  setInterval(() => { void senseWorld(); }, 60_000); // 1分ごとに見回す(会話の場所感覚も新鮮に保つ)
   void senseWorld();
 
   let lastExploreAt = 0;
@@ -343,10 +427,21 @@ async function main() {
           setTimeout(() => act([{ type: 'motion', name: 'clap' }], '反射:コメント歓迎'), 600);
         }
       }
-      // 世界に何か生えた → 好奇心
+      // M149(聴覚の空間化): 何かが建つ「音」には位置がある。近く(15m)なら音の方を振り向く
+      // — 音が探索の入口になる(遠い音は気づかない=これも知覚の制限)
       if (c.type === 'spawn' || c.type === 'app_add') {
         drives.curiosity = clamp(drives.curiosity + 0.25);
         remember('saw_world_change', { type: c.type, id: c.id ?? c.app?.id ?? '' });
+        const sx = c.x ?? c.app?.x, sz = c.z ?? c.app?.z;
+        const me = sense.self;
+        if (typeof sx === 'number' && typeof sz === 'number' && me !== null && !sleeping) {
+          const d = Math.hypot(sx - me.x, sz - me.z);
+          if (d < 15 && now - lastHearAt > 60_000) {
+            lastHearAt = now;
+            remember('heard_sound', { x: sx, z: sz, dist: +d.toFixed(1) });
+            setTimeout(() => act([{ type: 'face', x: sx, z: sz }], '反射:音の方を見る'), 800);
+          }
+        }
       }
     }
   }
@@ -401,7 +496,8 @@ async function main() {
   setTimeout(heartbeat, 8000);
 
   setInterval(() => {
-    log('欲求', JSON.stringify(Object.fromEntries(Object.entries(drives).map(([k, v]) => [k, Math.round(v * 100) / 100]))));
+    log('欲求', JSON.stringify(Object.fromEntries(Object.entries(drives).map(([k, v]) => [k, Math.round(v * 100) / 100]))),
+      `記憶地図:${Object.keys(known).length}件 今日の歩行:${Math.round(walkedToday)}m`);
   }, 120_000);
 
   // ---- 夜間蒸留: 毎朝4時台に前日を振り返って日記+人格提案を書く(眠っている時間の学び) ----
