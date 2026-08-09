@@ -25,8 +25,8 @@ async function ask(model, sys, user, maxTokens = 400) {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        model, stream: false, keep_alive: '30m',
-        options: { temperature: 0.7, num_predict: maxTokens },
+        model, stream: false, keep_alive: '30m', think: false,
+        options: { temperature: 0.7, num_predict: Math.max(maxTokens, 600) },
         messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
       }),
       signal: AbortSignal.timeout(180_000),
@@ -61,11 +61,21 @@ function readPersona() {
   return s;
 }
 
-/** エピソード列を材料テキストに圧縮(LLMの狭い帯域) */
+/** エピソード列を材料テキストに圧縮(LLMの狭い帯域)。
+ * 尻切れ防止: 重要な種類(会話・発見・情動)を優先し、一日全体から拾う */
 function materialOf(episodes, limit = 60) {
+  const SALIENT = new Set(['heard', 'say', 'discovered', 'saw_gone', 'lingered', 'gazed', 'discontinuity', 'sleep', 'wake_up', 'express', 'waiting']);
+  let picked = episodes.filter((e) => SALIENT.has(e.kind) || (e.kind === 'valence' && e.fear > 0.2) || e.kind === 'explore');
+  if (picked.length > limit) {
+    // 会話と発見は全部残し、その他を間引く
+    const must = picked.filter((e) => ['heard', 'say', 'discovered', 'discontinuity'].includes(e.kind));
+    const rest = picked.filter((e) => !['heard', 'say', 'discovered', 'discontinuity'].includes(e.kind));
+    const step = Math.ceil(rest.length / Math.max(1, limit - must.length));
+    picked = [...must, ...rest.filter((_, i) => i % step === 0)].sort((a, b) => (a.ts ?? '').localeCompare(b.ts ?? ''));
+  }
   const lines = [];
-  for (const e of episodes.slice(-limit)) {
-    const t = (e.ts ?? '').slice(11, 16);
+  for (const e of picked.slice(0, limit + 40)) {
+    const t = e.ts ? new Date(e.ts).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '';
     if (e.kind === 'heard') lines.push(`${t} 聞いた:「${e.text}」`);
     else if (e.kind === 'say') lines.push(`${t} 言った:「${e.text}」`);
     else if (e.kind === 'discovered') lines.push(`${t} 発見: ${e.name}`);
