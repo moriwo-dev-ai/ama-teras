@@ -465,9 +465,12 @@ async function main() {
       // M156: 呼びかけの随伴性 — 呼んで応えがなければ、呼ぶ価値はだんだん下がる(愛着の統計の入口)。
       // 応答(声)があれば回復する。不応期15分=抗議泣きの連発防止
       if (lastVoiceAt > lastCallAt) unansweredCalls = 0;
+      // M156b: 固定の不応期は撤廃(オーナー指摘: 原理的理由がない)。制御は随伴性のみ:
+      // 応答なしで価値0.6倍ずつ(バーストして静かになる)+希望の回復(約2時間で1つ癒える)
+      if (unansweredCalls > 0 && now - lastCallAt > 7_200_000) { unansweredCalls--; lastCallAt = now - 3_600_000; }
       const contingency = Math.pow(0.6, unansweredCalls);
       const lonely = Math.max(0, sv.expected - sv.observed) * sv.weight * contingency;
-      if (lonely > 0.1 && now - lastCallAt > 900_000) {
+      if (lonely > 0.1) {
         cands.push({
           value: lonely,
           label: 'だれか来ないかな',
