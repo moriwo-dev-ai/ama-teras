@@ -44,6 +44,8 @@ function remember(kind, data) {
 // ---------- 人格カーネル(魂・git管理外) ----------
 let persona = '# 名無しの生命体\nまだ人格カーネルがない。短く、ていねいに話す。';
 try { persona = readFileSync(join(HERE, 'persona', 'core.md'), 'utf8'); } catch { /* 雛形運転 */ }
+// M148: 世界地理の知識(世界の端・目印・空のイベント)。会話とつぶやきの背景知識になる
+try { persona += '\n\n' + readFileSync(join(HERE, 'persona', 'world-map.md'), 'utf8'); } catch { /* 地理なしでも生きられる */ }
 
 // ---------- 接続先の自動発見(開発機のCDPから実行係ページのURLを読む) ----------
 async function discover() {
@@ -80,6 +82,18 @@ function tickDrives(dtSec) {
 
 let sleeping = false; // 就寝状態(深夜に元気が尽きると寝る。話しかけられたら寝ぼけて答える)
 
+// M148(空間感覚): 直近の世界観察のキャッシュ。自分の位置と物の距離が「感覚」になる
+const sense = { self: null, spots: [], at: 0 };
+function nearestSpot() {
+  if (sense.self === null || sense.spots.length === 0) return null;
+  let best = null, bd = Infinity;
+  for (const s of sense.spots) {
+    const d = Math.hypot(s.x - sense.self.x, s.z - sense.self.z);
+    if (d < bd) { bd = d; best = s; }
+  }
+  return best !== null ? { ...best, d: bd } : null;
+}
+
 function drivesNote() {
   const h = new Date().getHours();
   const tod = h < 5 ? 'まよなか' : h < 10 ? 'あさ' : h < 17 ? 'おひる' : h < 22 ? 'ゆうがた' : 'よる';
@@ -90,6 +104,9 @@ function drivesNote() {
   if (drives.boredom > 0.6) parts.push('ちょっと退屈してた');
   if (drives.social > 0.5) parts.push('おしゃべりできて嬉しい');
   if (drives.curiosity > 0.6) parts.push('気になることがある');
+  // M148: 自己位置感覚(近くの目印)。「どこにいるの?」に実際の場所で答えられる
+  const ns = nearestSpot();
+  if (ns !== null && ns.d < 7) parts.push(`いま「${ns.name}」のちかくにいる`);
   return `いまは${tod}。` + (parts.length > 0 ? parts.join('、') : 'おだやか');
 }
 
@@ -200,6 +217,29 @@ async function main() {
   // ---- 探検(P3知覚拡張): 世界を「見て」、気になるものに会いに行く ----
   // チャットや反射(受け身の刺激)だけでなく、世界そのものが刺激になる=観察→興味→接近→感想。
   // 好奇心/退屈が高い時だけ発動。対象は実在の社・造形(ランダム地点の散歩とは別物)
+  // M148: 世界を「見る」(観察スナップショット→空間感覚キャッシュ)。探検と会話が共有する
+  async function senseWorld() {
+    try {
+      const res = await fetch(`${base}/api/world/state?k=${key}`, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return false;
+      const obs = await res.json();
+      const spots = [];
+      for (const a of obs.apps ?? []) spots.push({ name: a.name, x: a.x, z: a.z });
+      // 名前はラベル>ID>「名前の分からない何か」の順(customだけ渡すと頭脳が意味を取れない)
+      for (const o of obs.state?.objects ?? []) {
+        if (typeof o.x !== 'number' || typeof o.z !== 'number') continue;
+        const nm = o.label ?? (typeof o.id === 'string' && !/^obj\d+$/.test(o.id) ? o.id : null);
+        spots.push({ name: nm ?? '名前の分からない何か', x: o.x, z: o.z });
+      }
+      sense.self = obs.state?.avatar ?? sense.self;
+      sense.spots = spots;
+      sense.at = Date.now();
+      return true;
+    } catch { return false; /* 見えない時もある(サーバ再起動中など) */ }
+  }
+  setInterval(() => { void senseWorld(); }, 60_000); // 1分ごとに世界を見回す(会話の場所感覚も新鮮に保つ)
+  void senseWorld();
+
   let lastExploreAt = 0;
   let lastExploreSayAt = 0;
   async function explore() {
@@ -208,39 +248,38 @@ async function main() {
     if (now - lastAgentBusyAt < 90_000 || now - lastWorldCmdAt < 20_000) return;
     if (drives.curiosity < 0.35 && drives.boredom < 0.5) return;
     if (now - lastExploreAt < 180_000) return;
-    try {
-      const res = await fetch(`${base}/api/world/state?k=${key}`, { signal: AbortSignal.timeout(5000) });
-      if (!res.ok) return;
-      const obs = await res.json();
-      const spots = [];
-      for (const a of obs.apps ?? []) spots.push({ name: a.name, x: a.x, z: a.z });
-      // 名前はラベル>ID>「名前の分からない何か」の順(customだけ渡すと頭脳が意味を取れない)
-      for (const o of obs.state?.objects ?? []) {
-        const nm = o.label ?? (typeof o.id === 'string' && !/^obj\d+$/.test(o.id) ? o.id : null);
-        spots.push({ name: nm ?? '名前の分からない何か', x: o.x, z: o.z });
+    if (!(await senseWorld())) return;
+    const reachable = sense.spots.filter((s) => Math.hypot(s.x, s.z) < 16.5);
+    if (reachable.length === 0) return;
+    // M148: 近いものほど気になる(重み=1/(1+距離))。ただし時々は遠出もする(重みの裾)
+    const me = sense.self ?? { x: 0, z: 0 };
+    const weighted = reachable.map((s) => ({ s, d: Math.hypot(s.x - me.x, s.z - me.z) }))
+      .map((e) => ({ ...e, w: 1 / (1 + e.d * 0.35) }));
+    const total = weighted.reduce((a, e) => a + e.w, 0);
+    let roll = Math.random() * total;
+    let pick = weighted[0];
+    for (const e of weighted) { roll -= e.w; if (roll <= 0) { pick = e; break; } }
+    const s = pick.s;
+    lastExploreAt = now;
+    drives.curiosity = clamp(drives.curiosity - 0.25);
+    drives.boredom = clamp(drives.boredom - 0.3);
+    remember('explore', { name: s.name, x: s.x, z: s.z, dist: +pick.d.toFixed(1) });
+    // 対象の少し手前(広場中心寄り)に立つ=めり込み防止
+    const d = Math.hypot(s.x, s.z) || 1;
+    const tx = +(s.x - (s.x / d) * 1.6).toFixed(1);
+    const tz = +(s.z - (s.z / d) * 1.6).toFixed(1);
+    await act([{ type: 'move_to', x: tx, z: tz }], `探検:${s.name}(${pick.d.toFixed(0)}m先)`);
+    if (sense.self !== null) { sense.self.x = tx; sense.self.z = tz; } // 歩いた分の自己位置感覚を即更新
+    // 目の前のものへの感想(15分に1回まで。頭脳がない日は黙って眺める)
+    if (brain !== null && Date.now() - lastExploreSayAt > 900_000) {
+      const flavor = pick.d < 4 ? 'すぐそばにあった' : '少し歩いて見に来た';
+      const line = await think(brain, persona, [], drivesNote(), `(${flavor}「${s.name}」の前にいる。それを見てのひとことだけつぶやいて)`);
+      if (line !== null) {
+        lastExploreSayAt = Date.now();
+        remember('say', { text: line, about: s.name });
+        await act([{ type: 'say', text: line }], '探検のつぶやき');
       }
-      const reachable = spots.filter((s) => Math.hypot(s.x, s.z) < 16.5 && typeof s.x === 'number');
-      if (reachable.length === 0) return;
-      const s = reachable[Math.floor(Math.random() * reachable.length)];
-      lastExploreAt = now;
-      drives.curiosity = clamp(drives.curiosity - 0.25);
-      drives.boredom = clamp(drives.boredom - 0.3);
-      remember('explore', { name: s.name, x: s.x, z: s.z });
-      // 対象の少し手前(広場中心寄り)に立つ=めり込み防止
-      const d = Math.hypot(s.x, s.z) || 1;
-      const tx = +(s.x - (s.x / d) * 1.6).toFixed(1);
-      const tz = +(s.z - (s.z / d) * 1.6).toFixed(1);
-      await act([{ type: 'move_to', x: tx, z: tz }], `探検:${s.name}`);
-      // 目の前のものへの感想(15分に1回まで。頭脳がない日は黙って眺める)
-      if (brain !== null && Date.now() - lastExploreSayAt > 900_000) {
-        const line = await think(brain, persona, [], drivesNote(), `(いま世界にある「${s.name}」の前に来た。それを見てのひとことだけつぶやいて)`);
-        if (line !== null) {
-          lastExploreSayAt = Date.now();
-          remember('say', { text: line, about: s.name });
-          await act([{ type: 'say', text: line }], '探検のつぶやき');
-        }
-      }
-    } catch { /* 見えない時もある(サーバ再起動中など)。次の機会に */ }
+    }
   }
   setInterval(() => { void explore(); }, 150_000 + Math.floor(Math.random() * 90_000));
 

@@ -316,7 +316,10 @@ export class WorldManager {
               '&cam=top(平面図: 真上・x/zのズレ計測) / &cam=side(正面立面図: x/y=高さの計測) / ' +
               '&cam=sidex(側面立面図: z/y) を付けて選ぶ。図面系は1mグリッド+ID札付き。' +
               '実寸は state.objects の w/h/d、高さ方向は bottom(接地なら0)と top(最上端)。' +
-              '水平のズレは top で、高さのズレは side/sidex で必ず測ってから直すこと',
+              '水平のズレは top で、高さのズレは side/sidex で必ず測ってから直すこと。' +
+              '⚠spawn には必ず日本語の label を付けること(例: label:"風車")。この世界に住む生命体' +
+              '(ヒナタ)はラベルで物を知覚する — 名前のない物は彼女には「名前の分からない何か」に見える。' +
+              'あなたが名付けることが、彼女に世界を見せることになる',
             howToApps:
               `アプリを世界に置く手順: ①write_file で ${this.worldAppsDir ?? '<userData>/world-apps'}/<id>/index.html に` +
               'Webアプリを書く(単一HTML推奨。操作したいボタン・表示にはidを振ること=後で自分がclick/readしやすい) ' +
