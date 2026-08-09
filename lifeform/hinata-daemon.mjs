@@ -78,7 +78,9 @@ function learnRhythm(kind, hour, value) {
 // M155: 体は再起動をまたいで続く(リセットのたび「夜なのに元気」という内受容の違和感=恐怖が
 // 積もっていた実測への対処)。体の状態も自己連続性の一部
 let energy = 0.8;           // 物理資源: 歩けば減り、休めば戻る
-try { energy = JSON.parse(readFileSync(join(MEM_DIR, 'body.json'), 'utf8')).energy ?? 0.8; } catch { /* 初生 */ }
+let savedBody = {};
+try { savedBody = JSON.parse(readFileSync(join(MEM_DIR, 'body.json'), 'utf8')); } catch { /* 初生 */ }
+energy = savedBody.energy ?? 0.8;
 let sleeping = false;
 let walkedToday = 0;
 const circadian = () => { const h = new Date().getHours() + new Date().getMinutes() / 60; return h >= 7 && h < 23 ? 0.85 : h >= 6 ? 0.5 : 0.15; };
@@ -321,7 +323,7 @@ async function main() {
   }
 
   // ---- 内受容の知覚(1分ごと): 体力の予測誤差・声の予測誤差 ----
-  let lastVoiceAt = 0;
+  let lastVoiceAt = savedBody.lastVoiceAt ?? 0; // 声の記憶も体と同じく持続(再起動で無音錯覚に陥らない)
   setInterval(() => {
     // 体力: 期待=概日カーブ、実測=資源。「思ったより疲れてる」がここで生まれる
     const p = mind.predictions.get('intero:energy');
@@ -407,6 +409,7 @@ async function main() {
   const lastVisitAt = new Map(); // P2チューニング: 同じ場所を確かめた直後は価値を下げる(往復癖の抑制)
   let lastAnticipateAt = 0;
   let restGesture = 'sit', restGestureAt = 0; // M152: 休むしぐさの選択キャッシュ
+  let lastCallAt = 0, unansweredCalls = 0; // M156: 呼びかけの随伴性
   const heartbeat = async () => {
     try {
       const now = Date.now();
@@ -459,13 +462,18 @@ async function main() {
       });
       // さみしさ(声の誤差): 広場の中心で待つ+ぽつり
       const sv = mind.predictions.get('social:voice');
-      const lonely = Math.max(0, sv.expected - sv.observed) * sv.weight;
-      if (lonely > 0.1) {
+      // M156: 呼びかけの随伴性 — 呼んで応えがなければ、呼ぶ価値はだんだん下がる(愛着の統計の入口)。
+      // 応答(声)があれば回復する。不応期15分=抗議泣きの連発防止
+      if (lastVoiceAt > lastCallAt) unansweredCalls = 0;
+      const contingency = Math.pow(0.6, unansweredCalls);
+      const lonely = Math.max(0, sv.expected - sv.observed) * sv.weight * contingency;
+      if (lonely > 0.1 && now - lastCallAt > 900_000) {
         cands.push({
           value: lonely,
           label: 'だれか来ないかな',
           run: async () => {
-            remember('waiting', {});
+            lastCallAt = Date.now(); unansweredCalls++;
+            remember('waiting', { unanswered: unansweredCalls });
             await act([{ type: 'move_to', x: 0, z: 2 }, { type: 'say', text: 'だれか こないかな…' }], '待つ');
           },
         });
@@ -596,7 +604,7 @@ async function main() {
   setInterval(() => {
     const v = mind.valence();
     remember('valence', { scalar: +mind.scalar().toFixed(3), ...v });
-    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3) })); } catch { /* noop */ }
+    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt })); } catch { /* noop */ }
     log(`心 scalar=${mind.scalar().toFixed(2)} 報酬=${v.reward} 恐怖=${v.fear} 体力=${energy.toFixed(2)} 予測=${mind.predictions.size}件 歩行=${Math.round(walkedToday)}m`);
   }, 120_000);
 
