@@ -1115,6 +1115,15 @@ async function runCommand(c, quiet = false) {
       if (rec) rec.tickErrs = 0;
       return;
     }
+    case 'avatar_state':
+      // M147: 再入場時にアバターの現在地・モーションを瞬間復元(初期位置棒立ち対策)。
+      // 歩かせず直接置く=どのページも「いまの世界」から始まる。restorePayload(quiet)専用
+      if (avatar && typeof c.x === 'number' && typeof c.z === 'number') {
+        if (moveTarget) { const r = moveTarget.resolve; moveTarget = null; r(); }
+        avatar.scene.position.set(c.x, 0, c.z);
+        if (typeof c.name === 'string' && actions[c.name] && !ONESHOT.has(c.name)) fadeTo(c.name);
+      }
+      return;
     case 'chat_restore':
       // M128: 再入場時に世界の記憶(直近チャット)を表示復元。restorePayload(quiet)専用。
       // helloは再接続のたびに走るので、二重表示しないよう洗い替えにする

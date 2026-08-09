@@ -112,6 +112,14 @@ describe('WorldManager', () => {
     expect(agent).toHaveLength(2);
   });
 
+  it('M147: restorePayload がアバター現在地・モーションを avatar_state で含む', () => {
+    const now = { t: 0 };
+    const { mgr } = setup(now);
+    mgr.onPageEvent({ kind: 'state', state: { avatar: { x: 3.5, z: -2, motion: 'sit' } } });
+    const restore = mgr.restorePayload();
+    expect(restore?.cmds).toContainEqual({ type: 'avatar_state', x: 3.5, z: -2, name: 'sit' });
+  });
+
   it('state/ack の state スナップショットが observe に反映される', () => {
     const now = { t: 0 };
     const { mgr } = setup(now);

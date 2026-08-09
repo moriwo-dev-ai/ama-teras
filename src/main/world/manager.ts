@@ -281,6 +281,12 @@ export class WorldManager {
     if (this.chatLog.length > 0) {
       cmds.push({ type: 'chat_restore', entries: this.chatLog.slice(-12).map(({ from, text }) => ({ from, text })) });
     }
+    // M147: アバターの現在地・モーションも復元(新規/再入場ページの「初期位置に棒立ち」対策)。
+    // 正確な現在値は実行係が10秒毎に報告する state スナップショットが持っている
+    const av = this.state?.avatar;
+    if (av !== undefined && typeof av.x === 'number' && typeof av.z === 'number') {
+      cmds.push({ type: 'avatar_state', x: av.x, z: av.z, name: av.motion });
+    }
     if (cmds.length === 0) return null;
     return { seq: ++this.seq, cmds, quiet: true };
   }
