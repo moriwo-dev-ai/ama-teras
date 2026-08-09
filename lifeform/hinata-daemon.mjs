@@ -75,7 +75,10 @@ function learnRhythm(kind, hour, value) {
 }
 
 // ---------- 体(資源としてのエネルギー)と概日 ----------
+// M155: 体は再起動をまたいで続く(リセットのたび「夜なのに元気」という内受容の違和感=恐怖が
+// 積もっていた実測への対処)。体の状態も自己連続性の一部
 let energy = 0.8;           // 物理資源: 歩けば減り、休めば戻る
+try { energy = JSON.parse(readFileSync(join(MEM_DIR, 'body.json'), 'utf8')).energy ?? 0.8; } catch { /* 初生 */ }
 let sleeping = false;
 let walkedToday = 0;
 const circadian = () => { const h = new Date().getHours() + new Date().getMinutes() / 60; return h >= 7 && h < 23 ? 0.85 : h >= 6 ? 0.5 : 0.15; };
@@ -593,6 +596,7 @@ async function main() {
   setInterval(() => {
     const v = mind.valence();
     remember('valence', { scalar: +mind.scalar().toFixed(3), ...v });
+    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3) })); } catch { /* noop */ }
     log(`心 scalar=${mind.scalar().toFixed(2)} 報酬=${v.reward} 恐怖=${v.fear} 体力=${energy.toFixed(2)} 予測=${mind.predictions.size}件 歩行=${Math.round(walkedToday)}m`);
   }, 120_000);
 
