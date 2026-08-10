@@ -175,6 +175,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import { initGhosts } from './world-modules/ghosts.js'; // M178: 段階分割の第1弾
 
 // ================= 認証(remote-ui と同じトークンを使う) =================
 // ?spectate=1: M115-5 観戦モード(同一PC限定・読み取り専用SSE・トークン不要・発言不可)
@@ -1075,22 +1076,8 @@ async function runCommand(c, quiet = false) {
       objects.delete(c.id);
       return;
     }
-    case 'visitor_sync': { // M176: 訪問者ゴーストの出現・移動(やわらかい光の人影+名札)
-      let g = visitors.get(c.id);
-      if (!g) {
-        g = makeVisitorGhost(c.name ?? 'ゲスト');
-        g.grp.position.set(c.x ?? 0, 0, c.z ?? 0);
-        scene.add(g.grp);
-        visitors.set(c.id, g);
-      }
-      g.target.set(c.x ?? 0, 0, c.z ?? 0);
-      return;
-    }
-    case 'visitor_gone': { // M176: 退場(ふわっと消える)
-      const g = visitors.get(c.id);
-      if (g) { scene.remove(g.grp); visitors.delete(c.id); }
-      return;
-    }
+    case 'visitor_sync': ghosts.syncVisitor(c); return; // M176(→ghosts.js)
+    case 'visitor_gone': ghosts.removeVisitor(c); return;
     case 'obj_sync': { // M169: 建築物の配置調整を全ページへ同期(再spawnせず滑らかに)
       const o = objects.get(c.id);
       if (!o) return;
@@ -1384,41 +1371,9 @@ function kioskAt(clientX, clientY) {
   }
   return null;
 }
-// ================= M176: 訪問者ゴースト(招待制の友達の姿) =================
-const visitors = new Map(); // id -> {grp, target, bob}
-function makeVisitorGhost(name) {
-  const grp = new THREE.Group();
-  // 名前から色を決める(同じ人はいつも同じ色)
-  let h = 0; for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
-  const color = new THREE.Color(`hsl(${h}, 65%, 70%)`);
-  const body = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.28, 0.7, 6, 12),
-    new THREE.MeshToonMaterial({ color, transparent: true, opacity: 0.75 }),
-  );
-  body.position.y = 0.85;
-  grp.add(body);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 12), new THREE.MeshToonMaterial({ color, transparent: true, opacity: 0.85 }));
-  head.position.y = 1.55;
-  grp.add(head);
-  // 名札(canvasスプライト)
-  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
-  const cx2 = cv.getContext('2d');
-  cx2.fillStyle = 'rgba(255,255,255,0.85)'; cx2.beginPath(); cx2.roundRect(28, 8, 200, 48, 24); cx2.fill();
-  cx2.fillStyle = '#34406b'; cx2.font = 'bold 28px sans-serif'; cx2.textAlign = 'center'; cx2.textBaseline = 'middle';
-  cx2.fillText(name, 128, 33);
-  const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true }));
-  tag.scale.set(1.6, 0.4, 1); tag.position.y = 2.1;
-  grp.add(tag);
-  return { grp, target: new THREE.Vector3(), bob: Math.random() * Math.PI * 2 };
-}
-function tickVisitors(dt, t) {
-  for (const g of visitors.values()) {
-    const p = g.grp.position;
-    p.x += (g.target.x - p.x) * Math.min(1, dt * 4);
-    p.z += (g.target.z - p.z) * Math.min(1, dt * 4);
-    g.grp.position.y = Math.sin(t * 2 + g.bob) * 0.06; // ふわふわ(幽体ではなく気配の表現)
-  }
-}
+// ================= M176: 訪問者ゴースト → world-modules/ghosts.js へ分離(M178整理・第1弾) =================
+const ghosts = initGhosts(THREE, scene);
+const tickVisitors = ghosts.tickVisitors;
 // M176: 訪問者自身の移動 — 地面タップで歩く(300ms間引き)
 let lastPosSentAt = 0;
 let visitLastX = 8 + Math.random() * 4, visitLastZ = 8 + Math.random() * 4; // 入場位置は広場の端
