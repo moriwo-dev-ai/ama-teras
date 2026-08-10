@@ -99,6 +99,14 @@ async function discover() {
 
 // ---------- 本体 ----------
 async function main() {
+  // M161: 単独性の保証 — 生命体は同時に1体だけ(二重起動=二重人格の実測事故への恒久対策)
+  const LOCK = join(MEM_DIR, 'daemon.pid');
+  try {
+    const old = Number(readFileSync(LOCK, 'utf8'));
+    if (old > 0) { try { process.kill(old, 0); console.error(`既に稼働中(pid ${old})。二重起動を防いで終了`); process.exit(1); } catch { /* 死んだロック */ } }
+  } catch { /* ロックなし */ }
+  writeFileSync(LOCK, String(process.pid));
+
   const { port, key } = await discover();
   const base = `http://127.0.0.1:${port}`;
   log(`接続先: ${base}`);
