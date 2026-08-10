@@ -325,6 +325,7 @@ async function main() {
     const r = await classify(brain, '文の中のたいせつな言葉(名詞や動詞の辞書形)を最大2つ、読点(、)区切りで抜き出す係。なければ「なし」', text);
     if (r === null || /^なし/.test(r.trim())) return;
     for (const w of r.split(/[、,\s/]+/).map((s) => s.trim().replace(/[「」。、!?…]/gu, '')).filter((s) => s.length >= 2 && s.length <= 8)) {
+      if (w === 'なし' || w === 'とくになし') continue; // 分類器の否定応答が言葉として漏れる実測バグ対策
       if (readJournal(wordKey(w), 1).length > 0) continue; // もう台帳がある=知っている
       if (persona.includes(w)) continue;                    // 核にある言葉は既知
       if (heardWords.some((h) => h.word === w)) continue;
