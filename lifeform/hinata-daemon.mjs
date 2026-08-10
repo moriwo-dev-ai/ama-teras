@@ -569,9 +569,30 @@ async function main() {
           await act([{ type: 'app_click', selector: chosen.sel }], `おす:${name}「${chosen.label}」`);
           await act([{ type: 'app_scan' }], `へんかを見る:${name}`);
           const after = parseScan(lastActDetail);
-          detail = after.screen !== '' && after.screen !== before.screen
-            ? `「${chosen.label}」をおしたら、画面が「${after.screen.slice(0, 60)}」になった`
-            : `「${chosen.label}」をおしても、見た目はかわらなかった${fields.length > 0 ? '(書くところがある)' : ''}`;
+          // M170b: 押したら入力欄が現れた(黒板・辞典型)→ 同じ訪問内で書ける。書くかどうか・何を書くかは彼女
+          const newFields = after.items.filter((x) => isWritable(x) && !fields.some((f) => f.sel === x.sel));
+          if (newFields.length > 0 && brain !== null) {
+            const f2 = newFields[0];
+            const w2 = await think(brain, persona, [], situationNote(),
+              `(「${chosen.label}」をおしたら、「${f2.label || 'かきこみらん'}」という書くところが出てきた。なにか書いてみる?書くならその言葉だけ、やめるなら「やめる」と答えて)`);
+            if (w2 !== null && !/やめる/.test(w2)) {
+              const textIn2 = w2.slice(0, 30);
+              await act([{ type: 'app_type', selector: f2.sel, text: textIn2 }], `かく:${name}「${textIn2.slice(0, 15)}」`);
+              // 書いたら確定ボタンらしきものを1つ押す(のせる/書き込む/OK系があれば)
+              const submit = after.items.find((x) => !isWritable(x) && /のせる|書き込む|決定|OK|送/.test(x.label));
+              if (submit !== undefined) await act([{ type: 'app_click', selector: submit.sel }], `だす:${name}「${submit.label}」`);
+              await act([{ type: 'app_scan' }], `へんかを見る:${name}`);
+              const after2 = parseScan(lastActDetail);
+              detail = `「${chosen.label}」で出てきた「${f2.label || 'かきこみらん'}」に「${textIn2.slice(0, 20)}」と書いた` +
+                (after2.screen !== after.screen && after2.screen !== '' ? `。画面が「${after2.screen.slice(0, 50)}」になった` : '');
+            } else {
+              detail = `「${chosen.label}」をおしたら書くところが出てきた(こんどなにか書いてみようかな)`;
+            }
+          } else {
+            detail = after.screen !== '' && after.screen !== before.screen
+              ? `「${chosen.label}」をおしたら、画面が「${after.screen.slice(0, 60)}」になった`
+              : `「${chosen.label}」をおしても、見た目はかわらなかった${fields.length > 0 ? '(書くところがある)' : ''}`;
+          }
         }
       } else if (before.screen !== '') {
         detail = `画面にこう書いてあった: ${before.screen.slice(0, 60)}`;
