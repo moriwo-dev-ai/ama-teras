@@ -54,7 +54,7 @@ export async function perceive(brainModel, { name, spec = '', level }) {
     const seen = await lookAtWorld(
       `この3D世界の画面に「${name}」${spec !== '' ? `(${spec})` : ''}という物があります。その見た目を、子どもが言うみたいに日本語で短く1文だけ。`);
     if (seen === null) return null;
-    appendJournal(name, { ts: new Date().toISOString(), level, tod: tod(), detail: seen });
+    // M181: 台帳への記帳は呼び出し側(noteDetail)に一元化 — 学び/再現の判定を先にできるように
     return seen;
   }
 
@@ -79,7 +79,7 @@ export async function perceive(brainModel, { name, spec = '', level }) {
     let text = ((await res.json()).message?.content ?? '').trim().replace(/<think>[\s\S]*?<\/think>/g, '').trim();
     text = text.split('\n')[0].slice(0, 90);
     if (text === '') return null;
-    appendJournal(name, { ts: new Date().toISOString(), level, tod: tod(), detail: text });
+    // M181: 記帳は呼び出し側に一元化(noteDetail)
     return text;
   } catch { return null; }
 }
@@ -95,6 +95,18 @@ export function knownWords() {
       .filter((f) => f.startsWith('ことば_') && f.endsWith('.jsonl'))
       .map((f) => f.slice('ことば_'.length, -'.jsonl'.length));
   } catch { return []; }
+}
+
+/** M181: 既知照合 — 「予測できるものは学びではない」。正規化して台帳と比較する */
+const normalizeDetail = (s) => String(s).replace(/[「」。、!?…✨🌙☀️\s]/gu, '').slice(0, 60);
+export function isKnownDetail(name, detail) {
+  const n = normalizeDetail(detail);
+  if (n === '') return true;
+  for (const e of readJournal(name, 50)) {
+    const k = normalizeDetail(e.detail);
+    if (k === n || (k.length > 10 && (k.includes(n) || n.includes(k)))) return true;
+  }
+  return false;
 }
 
 /** 外から観測した細部を台帳に記す(アプリ操作の反応など、生成ではなく実測の知覚) */

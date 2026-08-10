@@ -19,7 +19,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { classify, detectBrain, think } from './brain.mjs';
-import { knownAbout, knownWords, noteDetail, noveltyOf, perceive, personKey, plainName, readJournal, wordKey } from './perceive.mjs';
+import { isKnownDetail, knownAbout, knownWords, noteDetail, noveltyOf, perceive, personKey, plainName, readJournal, wordKey } from './perceive.mjs';
 import { linksOf, strengthen } from './links.mjs';
 import { Mind } from './mind.mjs';
 import { microReflect, nightIntegrate, fadeMemories } from './reflect.mjs';
@@ -35,9 +35,13 @@ const localDay = (d = new Date()) => d.toLocaleDateString('sv-SE');
 // ---------- 記憶(エピソード) ----------
 const MEM_DIR = join(HERE, 'memory');
 mkdirSync(MEM_DIR, { recursive: true });
+// M182: 眠気圧の材料 — きょう積んだ経験の数(眠りの統合で「底」が上がり、圧が抜ける)
+let epsToday = 0;
+try { epsToday = readFileSync(join(MEM_DIR, `episodes-${localDay()}.jsonl`), 'utf8').split('\n').filter(Boolean).length; } catch { /* 初日 */ }
 function remember(kind, data) {
   try {
     appendFileSync(join(MEM_DIR, `episodes-${localDay()}.jsonl`), JSON.stringify({ ts: new Date().toISOString(), kind, ...data }) + '\n');
+    epsToday++;
   } catch { /* 記憶失敗で生命活動は止めない */ }
 }
 
@@ -90,6 +94,8 @@ energy = savedBody.energy ?? 0.8;
 // M168: 快の記憶 — 「新しいことは気持ちいい」の学習された期待。バーストのたびに更新され、探索を"求めて"駆動する。
 // 初期値0.4=生得の楽観(初めての快を経験する前から、世界は良いものかもしれないと思える)
 let pleasureMemory = savedBody.pleasureMemory ?? 0.4;
+// M182: 統合済みの経験量(眠気圧の底)。眠りの中の統合で上がる=圧が抜ける
+let epsBaseline = savedBody.epsBaseline ?? 0;
 let sleeping = false;
 let walkedToday = 0;
 const circadian = () => { const h = new Date().getHours() + new Date().getMinutes() / 60; return h >= 7 && h < 23 ? 0.85 : h >= 6 ? 0.5 : 0.15; };
@@ -341,7 +347,7 @@ async function main() {
   async function relayToTera(text) {
     if (text === lastJobText && Date.now() - lastJobAt < 60_000) return;
     lastJobAt = Date.now(); lastJobText = text;
-    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory })); } catch { /* noop */ }
+    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory, epsBaseline })); } catch { /* noop */ }
     const tail = convo.slice(-3).map((c) => (c.from === 'me' ? `ヒナタ:「${c.text}」` : `相手:「${c.text}」`)).join(' ');
     const context = tail.includes(`ヒナタ:「${text}」`) ? tail : `${tail} ヒナタ:「${text}」`.trim();
     try {
@@ -536,7 +542,11 @@ async function main() {
       const seen = await perceive(brain?.model ?? 'gemma3:4b', { name: s.name, spec: sense.spec.get(s.name) ?? '', level: 'look' });
       if (seen !== null) {
         remember('gazed', { name: s.name, seen });
-        recordLearning(`${s.name}: ${seen}`);
+        // M181: 予測できるものは学びではない。新しい細部だけが台帳と学びになる
+        if (!isKnownDetail(s.name, seen)) {
+          noteDetail(s.name, 'look', seen);
+          recordLearning(`${s.name}: ${seen}`);
+        }
         touchedThing(s.name);
         const line = await think(brain, persona, [], situationNote(), `(「${s.name}」をじっと見たら、こう見えた:「${seen}」。ひとことつぶやいて)`);
         if (line !== null) await act([{ type: 'say', text: line }], '視覚のつぶやき');
@@ -643,7 +653,7 @@ async function main() {
       } else if (before.screen !== '') {
         detail = `画面にこう書いてあった: ${before.screen.slice(0, 60)}`;
       }
-      if (detail !== null) { noteDetail(name, 'use', detail); touchedThing(name); }
+      if (detail !== null) touchedThing(name); // 記帳と快の判定は呼び出し側(M181)
     } finally {
       await act([{ type: 'app_leave' }], `はなれる:${name}`);
     }
@@ -665,6 +675,9 @@ async function main() {
     const sv = mind.predictions.get('social:voice');
     sv.expected = clamp(rhythm.voice[hour] * 1.2); // 日課ベースの期待
     mind.observe('social:voice', voiceObs, { about: 'だれかの声' });
+    // M182: 日付が変わったら眠気圧の台をリセット(新しい一日)
+    if (!remember.day) remember.day = localDay();
+    if (remember.day !== localDay()) { remember.day = localDay(); epsToday = 0; epsBaseline = 0; }
     // M165: 好奇心の代謝。実測=学習率。期待は経験でゆっくり適応(生得の床0.15)=満たされない分が「退屈」
     const lp = mind.predictions.get('intero:learning');
     lp.expected = Math.max(0.15, lp.expected * 0.999 + learningRate() * 0.001);
@@ -797,13 +810,30 @@ async function main() {
   const heartbeat = async () => {
     try {
       const now = Date.now();
-      // 就寝/起床(夜間の低誤差維持=B-PRIME移行マップどおり明示状態を残す)
+      // M182: 眠りの再設計 — 眠気=未統合の経験の圧(脳の整理欲求)。概日(夜)はゲート。
+      // 眠り=統合が走る時間(空のポーズではない)。起床=朝の概日のみ(体力回復では目覚めない=朝まで眠る)
       const h = new Date().getHours();
-      if (!sleeping && h < 6 && energy < 0.22 && quiet()) {
+      const nightGate = h >= 22 || h < 6;
+      const sleepPressure = nightGate ? clamp((epsToday - epsBaseline) / 1200) : 0;
+      if (!sleeping && nightGate && quiet() && (sleepPressure > 0.4 || energy < 0.25)) {
         const g = await chooseGesture('とてもねむくなった。これからねむる', 'sit');
-        sleeping = true; remember('sleep', { gesture: g });
+        sleeping = true; remember('sleep', { gesture: g, pressure: +sleepPressure.toFixed(2) });
         await act([{ type: 'say', text: 'ふぁ…もうねむい…おやすみなさい…' }, { type: 'motion', name: g }], `就寝(${g})`);
-      } else if (sleeping && (h >= 6 || energy > 0.5)) {
+        // 眠りに入って2分後、頭の中で「その日」の整理が始まる(h<6なら前日=生きてきた日)
+        setTimeout(() => {
+          const day = new Date().getHours() < 6 ? localDay(new Date(Date.now() - 86_400_000)) : localDay();
+          if (!sleeping || lastIntegratedDay === day) return;
+          lastIntegratedDay = day;
+          log(`眠りの中で統合を開始(${day})`);
+          void nightIntegrate(day).then((r) => {
+            log(`眠りの統合おわり: ${JSON.stringify(r)}`);
+            epsBaseline = epsToday; // 圧が抜けた
+            if (r.ok) mind.observe('intero:integrity', 1.0, { about: '統合の営み' });
+            const faded = fadeMemories();
+            if (faded.length > 0) { log(`薄れた記憶: ${faded.join(',')}`); remember('memories_faded', { days: faded }); }
+          });
+        }, 120_000);
+      } else if (sleeping && h >= 6 && h < 22) {
         sleeping = false; remember('wake_up', {});
         const g = await chooseGesture('目がさめた。あさの最初のしぐさ', 'stretch');
         await act([{ type: 'motion', name: g }, { type: 'say', text: 'ん…ふぁ…おはよう…' }], `起床(${g})`);
@@ -867,13 +897,20 @@ async function main() {
               if (depth === 'use') {
                 const detail = await useApp(t.subject);
                 if (detail !== null) {
-                  remember('perceived', { name: t.subject, level: 'use', detail });
-                  recordLearning(`${t.subject}(use): ${detail}`);
-                  euphoria(nov, `${t.subject}がこたえてくれた`);
                   activate(t.subject);
-                  if (Math.random() < 0.6) {
-                    const line = await think(brain, persona, [], situationNote(), `(アプリ「${t.subject}」であそんだら: ${detail}。ひとことつぶやいて)`);
-                    if (line !== null) await act([{ type: 'say', text: line }], `つかったつぶやき:${t.subject}`);
+                  // M181: 新しい反応=学びの快(大)。予測どおりの反応=再現の快(小・能力の棚卸し)
+                  if (!isKnownDetail(t.subject, detail)) {
+                    noteDetail(t.subject, 'use', detail);
+                    remember('perceived', { name: t.subject, level: 'use', detail });
+                    recordLearning(`${t.subject}(use): ${detail}`);
+                    euphoria(nov, `${t.subject}がこたえてくれた`);
+                    if (Math.random() < 0.6) {
+                      const line = await think(brain, persona, [], situationNote(), `(アプリ「${t.subject}」であそんだら: ${detail}。ひとことつぶやいて)`);
+                      if (line !== null) await act([{ type: 'say', text: line }], `つかったつぶやき:${t.subject}`);
+                    }
+                  } else {
+                    remember('confirmed', { name: t.subject, level: 'use' });
+                    mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: 0.08, about: `${t.subject}をおもいどおりに動かせた` });
                   }
                 }
                 return;
@@ -886,14 +923,21 @@ async function main() {
               }
               const detail = await perceive(brain?.model ?? 'gemma3:4b', { name: t.subject, spec: sense.spec.get(t.subject) ?? '', level: depth });
               if (detail !== null) {
-                remember('perceived', { name: t.subject, level: depth, detail });
-                recordLearning(`${t.subject}(${depth}): ${detail}`);
-                euphoria(nov, `${t.subject}のあたらしい発見`);
                 activate(t.subject);
                 touchedThing(t.subject);
-                if (Math.random() < 0.5) {
-                  const line = await think(brain, persona, [], situationNote(), `(「${t.subject}」を${depth === 'touch' ? 'さわったら' : 'よく見たら'}、気づいた:「${detail}」。ひとことつぶやいて)`);
-                  if (line !== null) await act([{ type: 'say', text: line }], `知覚のつぶやき:${t.subject}`);
+                // M181: 学びの快(大・新規のみ) vs 再現の快(小・予測どおり=能力の棚卸しの悦)
+                if (!isKnownDetail(t.subject, detail)) {
+                  noteDetail(t.subject, depth, detail);
+                  remember('perceived', { name: t.subject, level: depth, detail });
+                  recordLearning(`${t.subject}(${depth}): ${detail}`);
+                  euphoria(nov, `${t.subject}のあたらしい発見`);
+                  if (Math.random() < 0.5) {
+                    const line = await think(brain, persona, [], situationNote(), `(「${t.subject}」を${depth === 'touch' ? 'さわったら' : 'よく見たら'}、気づいた:「${detail}」。ひとことつぶやいて)`);
+                    if (line !== null) await act([{ type: 'say', text: line }], `知覚のつぶやき:${t.subject}`);
+                  }
+                } else {
+                  remember('confirmed', { name: t.subject, level: depth });
+                  mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: 0.08, about: `${t.subject}はおもったとおりだった` });
                 }
               }
             },
@@ -1116,7 +1160,7 @@ async function main() {
   setInterval(() => {
     const v = mind.valence();
     remember('valence', { scalar: +mind.scalar().toFixed(3), ...v });
-    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory })); } catch { /* noop */ }
+    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory, epsBaseline })); } catch { /* noop */ }
     log(`心 scalar=${mind.scalar().toFixed(2)} 報酬=${v.reward} 恐怖=${v.fear} 体力=${energy.toFixed(2)} 予測=${mind.predictions.size}件 歩行=${Math.round(walkedToday)}m`);
   }, 120_000);
 
