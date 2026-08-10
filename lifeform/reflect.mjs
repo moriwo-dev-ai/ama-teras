@@ -11,6 +11,8 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pruneLinks, strengthen } from './links.mjs';
+import { noteDetail, personKey, readJournal, wordKey } from './perceive.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MEM = join(HERE, 'memory');
@@ -141,6 +143,31 @@ export async function nightIntegrate(day) {
   const keepList = await ask(model,
     'あなたは記憶の司書。下の出来事一覧から、この子の人生にとって残す価値が高いものを最大8行、原文のまま抜き出す(説明不要・抜き出しのみ)。',
     materialOf(eps, 80), 300);
+  // M171 経路2: つながりの言語化 — 睡眠がやる連想の整理と同型。抽出されたリンクは強く(+3)結ばれ、台帳にも書かれる
+  const linkText = await ask(model,
+    'あなたは記憶の司書。下の出来事から「つながり」を最大5つ抜き出す。1行に1つ、形式は「A → B: 理由」' +
+    '(AとBは物・人・言葉の名前だけ。理由は10字以内。出来事にないつながりは書かない。なければ「なし」)',
+    materialOf(eps, 80), 250);
+  let linkCountMade = 0;
+  if (linkText !== null && !/^なし/.test(linkText.trim())) {
+    const resolve = (n) => {
+      const s = n.trim().replace(/[「」]/g, '');
+      if (s === 'もりを' || s === 'もりをさん') return personKey('もりを');
+      if (/^テラ/.test(s)) return personKey('テラちゃん');
+      if (readJournal(wordKey(s), 1).length > 0) return wordKey(s);
+      return s;
+    };
+    for (const line of linkText.split('\n').slice(0, 5)) {
+      const m = /^(.+?)\s*(?:→|->)\s*(.+?)\s*[::]\s*(.+)$/.exec(line.trim());
+      if (m === null) continue;
+      const a = resolve(m[1]), b = resolve(m[2]), why = m[3].trim().slice(0, 20);
+      if (a === '' || b === '' || a === b) continue;
+      strengthen(a, b, 3, why);
+      noteDetail(a, 'link', `[[${m[2].trim()}]] ${why}`);
+      linkCountMade++;
+    }
+  }
+  const prunedLinks = pruneLinks(); // 忘却: 薄れたリンクは夜に本当に消える
 
   mkdirSync(join(MEM, 'diary'), { recursive: true });
   const out = [
@@ -152,7 +179,7 @@ export async function nightIntegrate(day) {
   ].join('\n');
   writeFileSync(join(MEM, 'diary', `${day}.md`), out);
   if (nextCarried !== null && !/^なし/.test(nextCarried)) writeFileSync(join(MEM, 'carried.md'), nextCarried);
-  return { ok: true, model, diaryLen: (diary ?? '').length };
+  return { ok: true, model, diaryLen: (diary ?? '').length, links: linkCountMade, prunedLinks };
 }
 
 /**

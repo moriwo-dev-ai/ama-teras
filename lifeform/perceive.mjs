@@ -84,8 +84,11 @@ export async function perceive(brainModel, { name, spec = '', level }) {
   } catch { return null; }
 }
 
-/** M170: 言葉も好奇心の対象(台帳の名前空間はことば:) */
+/** M170: 言葉も好奇心の対象(台帳の名前空間はことば:) / M171: ひとの台帳(ひと:) */
 export const wordKey = (w) => `ことば:${w}`;
+export const personKey = (p) => `ひと:${p}`;
+/** 表示用: 名前空間の接頭辞を剥がす */
+export const plainName = (n) => n.replace(/^(ことば|ひと):/, '');
 export function knownWords() {
   try {
     return readdirSync(OBJ_DIR)

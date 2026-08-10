@@ -19,7 +19,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { classify, detectBrain, think } from './brain.mjs';
-import { knownAbout, knownWords, noteDetail, noveltyOf, perceive, readJournal, wordKey } from './perceive.mjs';
+import { knownAbout, knownWords, noteDetail, noveltyOf, perceive, personKey, plainName, readJournal, wordKey } from './perceive.mjs';
+import { linksOf, strengthen } from './links.mjs';
 import { Mind } from './mind.mjs';
 import { microReflect, nightIntegrate, fadeMemories } from './reflect.mjs';
 
@@ -156,6 +157,31 @@ async function main() {
   const heardWords = [];      // {word, ts}
   const mentions = new Map(); // 物の名前 -> 最後に会話に出た時刻
   let pendingWordQ = null;    // {word, ts} 「◯◯ってなに?」と聞いて答えを待っている
+  // M171: 共起=リンク形成(ヘッブ則)。同じ3分窓で一緒に現れた対象同士が結びつく
+  const activeEnts = []; // {name, ts}
+  function activate(...names) {
+    const now = Date.now();
+    for (const n of names) {
+      if (n === undefined || n === '') continue;
+      for (const a of activeEnts) {
+        if (a.name !== n && now - a.ts < 180_000) strengthen(a.name, n);
+      }
+      activeEnts.push({ name: n, ts: now });
+    }
+    while (activeEnts.length > 30) activeEnts.shift();
+  }
+  // 文の中の既知エンティティ(物・言葉・ひと)を検出して活性化
+  function activateFrom(text, speaker) {
+    const found = [];
+    for (const p of mind.predictions.values()) {
+      if (p.kind === 'world' && text.includes(p.subject)) found.push(p.subject);
+    }
+    for (const w of knownWords()) if (text.includes(w)) found.push(wordKey(w));
+    if (text.includes('もりを')) found.push(personKey('もりを'));
+    if (text.includes('テラ')) found.push(personKey('テラちゃん'));
+    if (speaker !== undefined) found.push(personKey(speaker));
+    activate(...found.slice(0, 6));
+  }
   let watchers = 0; // M159: 気配 — 実行係以外に世界を見ている画面の数(観戦・スマホ・将来の公開ビューア)
 
   async function act(cmds, label) {
@@ -210,14 +236,25 @@ async function main() {
         // M165: 深い知覚の台帳が会話の帯域に乗る=「わからない」の正体だった感覚の貧困を埋める
         const k = knownAbout(near, 3);
         if (k !== '') parts.push(`「${near}」について知っていること: ${k}`);
+        recallInto(parts, near); // M171: 目の前の物から連想が広がる
       }
     }
     // M170: 直近の会話に出た「教わった言葉」の台帳も帯域に乗せる(遊ぶ=クレーンをさわること、が会話で使える)
     const lastMsg = convo.length > 0 ? convo[convo.length - 1].text : '';
     for (const w of knownWords()) {
-      if (lastMsg.includes(w)) { parts.push(`「${w}」について知っていること: ${knownAbout(wordKey(w), 2)}`); break; }
+      if (lastMsg.includes(w)) {
+        parts.push(`「${w}」について知っていること: ${knownAbout(wordKey(w), 2)}`);
+        recallInto(parts, wordKey(w));
+        break;
+      }
     }
     return parts.join('。');
+  }
+  // M171: 想起=活性化拡散(1ホップ・上位2件)。連想は説明でなく「思い出す」として帯域に乗る
+  function recallInto(parts, cue) {
+    const ls = linksOf(cue, 2);
+    if (ls.length === 0) return;
+    parts.push(`「${plainName(cue)}」から思い出す: ${ls.map((l) => plainName(l.other) + (l.note !== undefined ? `(${l.note})` : '')).join('、')}`);
   }
 
   // ---- M152: しぐさの自由選択 — 「眠い=寝るモーション」というルールを書かない。
@@ -307,6 +344,7 @@ async function main() {
         convo.push({ from: 'me', text: reply });
         if (convo.length > 12) convo.splice(0, convo.length - 12);
         remember('say', { text: reply, latencyMs: Date.now() - t0 });
+        activateFrom(reply); // M171: 自分の言葉に出た対象も結びつく
         // もりを宛の返事はテラに中継しない(2人の会話に割り込ませない)。それ以外の声は世界に響く
         suppressRelay = opts.relay === false;
         try { await act([{ type: 'say', text: reply }], `返事(${Date.now() - t0}ms)`); }
@@ -335,7 +373,7 @@ async function main() {
   }
   // 質問への答えの受信(随伴性3分)。実測の教訓: 「最初の声=答え」は雑談中に誤爆する(「飽きた?」事故)。
   // 窓の間の声は全部聞き、その言葉に触れている声だけ強い答えとして刻む(触れない声は弱い文脈として1件だけ)
-  function maybeWordAnswer(text) {
+  function maybeWordAnswer(text, who) {
     if (pendingWordQ === null) return;
     if (Date.now() - pendingWordQ.ts > 180_000) { pendingWordQ = null; return; }
     const relevant = text.includes(pendingWordQ.word);
@@ -344,6 +382,11 @@ async function main() {
     if (relevant) {
       recordLearning(`ことば「${pendingWordQ.word}」: ${text.slice(0, 40)}`);
       euphoria(1, `「${pendingWordQ.word}」がわかった`);
+      // M171: 教わった経験は「ひとの台帳」にも刻まれ、言葉と人が結びつく(関係の記憶=愛着の土台)
+      if (who !== undefined) {
+        noteDetail(personKey(who), 'gave', `「${pendingWordQ.word}」を教えてくれた`);
+        strengthen(wordKey(pendingWordQ.word), personKey(who), 2, '教えてくれた');
+      }
       log(`ことばの台帳: ${pendingWordQ.word} ← ${text.slice(0, 40)}`);
       pendingWordQ = null;
     } else {
@@ -385,6 +428,7 @@ async function main() {
           remember('discovered', { name: s.name, x: s.x, z: s.z });
           recordLearning(`発見: ${s.name}`);
           euphoria(1, `はじめての「${s.name}」`); // M168: 出会いは最大の快
+          activate(s.name); // M171: 発見も連想の網に入る
           log(`発見: ${s.name}`);
           if (!sleeping && now - lastSurpriseAt > 120_000 && quiet()) {
             lastSurpriseAt = now;
@@ -601,8 +645,9 @@ async function main() {
         remember('soothed', {});
       }
       remember('heard', { from: data.from, text: data.text });
-      maybeWordAnswer(data.text); // M170: 質問中なら、この声が答え
+      maybeWordAnswer(data.text, 'もりを'); // M170: 質問中なら、この声が答え
       void noticeWords(data.text);
+      activateFrom(data.text, 'もりを'); // M171: 声に出た対象が結びつく
       convo.push({ from: 'user', text: data.text });
       if (convo.length > 12) convo.splice(0, convo.length - 12);
       void converse(data.text, { relay: false }); // もりをとの会話にテラを割り込ませない
@@ -616,8 +661,9 @@ async function main() {
       if (c.type === 'say' && c.speaker !== 'hinata' && typeof c.text === 'string' && data.quiet !== true) {
         lastVoiceAt = now; // テラちゃんの声も「ひとりじゃない」
         remember('heard', { from: 'tera', text: c.text.slice(0, 120) });
-        maybeWordAnswer(c.text); // M170: テラちゃんの声も答えになる
+        maybeWordAnswer(c.text, 'テラちゃん'); // M170: テラちゃんの声も答えになる
         void noticeWords(c.text);
+        activateFrom(c.text, 'テラちゃん');
         convo.push({ from: 'user', text: `(テラちゃん)「${c.text.slice(0, 80)}」` });
         if (convo.length > 12) convo.splice(0, convo.length - 12);
         if ((/(ヒナタ|ひなた)/.test(c.text) || /[??]\s*$/.test(c.text)) && now - lastTeraReplyAt > 60_000) {
@@ -727,6 +773,7 @@ async function main() {
                   remember('perceived', { name: t.subject, level: 'use', detail });
                   recordLearning(`${t.subject}(use): ${detail}`);
                   euphoria(nov, `${t.subject}がこたえてくれた`);
+                  activate(t.subject);
                   if (Math.random() < 0.6) {
                     const line = await think(brain, persona, [], situationNote(), `(アプリ「${t.subject}」であそんだら: ${detail}。ひとことつぶやいて)`);
                     if (line !== null) await act([{ type: 'say', text: line }], `つかったつぶやき:${t.subject}`);
@@ -745,6 +792,7 @@ async function main() {
                 remember('perceived', { name: t.subject, level: depth, detail });
                 recordLearning(`${t.subject}(${depth}): ${detail}`);
                 euphoria(nov, `${t.subject}のあたらしい発見`);
+                activate(t.subject);
                 if (Math.random() < 0.5) {
                   const line = await think(brain, persona, [], situationNote(), `(「${t.subject}」を${depth === 'touch' ? 'さわったら' : 'よく見たら'}、気づいた:「${detail}」。ひとことつぶやいて)`);
                   if (line !== null) await act([{ type: 'say', text: line }], `知覚のつぶやき:${t.subject}`);
