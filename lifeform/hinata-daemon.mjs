@@ -278,7 +278,14 @@ async function main() {
     thinking = true;
     try {
       const t0 = Date.now();
-      const reply = await think(brain, persona, convo, situationNote(), text);
+      let reply = await think(brain, persona, convo, situationNote(), text);
+      // 会話履歴の書式「(ヒナタ)「…」」を4Bが真似て発話に混入する事故のサニタイズ(実測: 「(ヒナタ)「うむ。」)
+      if (reply !== null) {
+        reply = reply.replace(/^[((]\s*(ヒナタ|ひなた|テラちゃん|わたし)\s*[))]\s*[::]?\s*/u, '').trim();
+        const m = /^「([\s\S]*)」$/.exec(reply);
+        if (m !== null) reply = m[1].trim();
+        if (reply === '') reply = null;
+      }
       if (reply !== null) {
         convo.push({ from: 'me', text: reply });
         if (convo.length > 12) convo.splice(0, convo.length - 12);
