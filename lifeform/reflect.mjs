@@ -69,10 +69,16 @@ function materialOf(episodes, limit = 60) {
   const SALIENT = new Set(['heard', 'say', 'discovered', 'saw_gone', 'lingered', 'gazed', 'discontinuity', 'sleep', 'wake_up', 'express', 'waiting']);
   let picked = episodes.filter((e) => SALIENT.has(e.kind) || (e.kind === 'valence' && e.fear > 0.2) || e.kind === 'explore');
   if (picked.length > limit) {
-    // 会話と発見は全部残し、その他を間引く
-    const must = picked.filter((e) => ['heard', 'say', 'discovered', 'discontinuity'].includes(e.kind));
+    // 会話と発見を優先しつつ、多すぎる日は「一日全体から等間隔に」拾う。
+    // 実測バグ: 先頭から切ると会話の多い日は夕方以降が丸ごと日記から消えた(2026-08-10)
+    let must = picked.filter((e) => ['heard', 'say', 'discovered', 'discontinuity'].includes(e.kind));
     const rest = picked.filter((e) => !['heard', 'say', 'discovered', 'discontinuity'].includes(e.kind));
-    const step = Math.ceil(rest.length / Math.max(1, limit - must.length));
+    if (must.length > limit) {
+      const stepM = Math.ceil(must.length / limit);
+      must = must.filter((_, i) => i % stepM === 0);
+    }
+    const room = Math.max(1, limit - must.length);
+    const step = Math.ceil(rest.length / room);
     picked = [...must, ...rest.filter((_, i) => i % step === 0)].sort((a, b) => (a.ts ?? '').localeCompare(b.ts ?? ''));
   }
   const lines = [];

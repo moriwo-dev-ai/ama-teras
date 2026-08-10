@@ -6,6 +6,15 @@ export default defineConfig({
   main: {
     // esbuild等のネイティブ依存はバンドル不可。依存は実行時にnode_modulesから解決する
     plugins: [externalizeDepsPlugin()],
+    build: {
+      rollupOptions: {
+        // M173(C工事): world-serverはelectron非依存の独立プロセス(plain nodeで起動)
+        input: {
+          index: 'src/main/index.ts',
+          'world-server': 'src/main/world-server.ts',
+        },
+      },
+    },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
