@@ -1976,6 +1976,8 @@ export async function registerIpcHandlers(
         act: (cmds) => worldManager.act(cmds),
         // b案P3(知覚拡張): 生命体が世界を見る(観察スナップショット)
         observe: () => worldManager.observe(),
+        // M163: 会話ログの履歴(スマホ閲覧用)
+        chatHistory: (limit) => worldManager.chatHistory(limit),
       },
       // M34-6: 運営のリモートフル対応(既存トークン認証配下。オーナーモードOFF時は空を返す)
       operations: {

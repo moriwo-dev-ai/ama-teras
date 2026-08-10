@@ -291,6 +291,11 @@ export class WorldManager {
     return { seq: ++this.seq, cmds, quiet: true };
   }
 
+  /** M163: 会話ログの全履歴(話者・時刻付き)。スマホの履歴ページ用 */
+  chatHistory(limit = 200): { from: string; text: string; ts?: string }[] {
+    return this.chatLog.slice(-limit);
+  }
+
   /** world_observe ツールが返す内容 */
   observe(): {
     connected: boolean;

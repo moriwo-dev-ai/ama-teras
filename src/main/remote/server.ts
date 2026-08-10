@@ -110,6 +110,8 @@ export interface RemoteServerDeps {
      * ループバック+実行キー限定。WorldManager.act に委譲(=検証・配信ガード・ackを共有)
      */
     act?(cmds: import('../../shared/types').WorldCommand[]): Promise<{ ok: boolean; detail: string }>;
+    /** M163: 世界チャットの履歴(話者・時刻付き)。トークン認証APIから返す */
+    chatHistory?(limit?: number): { from: string; text: string; ts?: string }[];
     /** b案P3(知覚拡張): 生命体が世界を「見る」ための観察スナップショット(objects/apps/avatar) */
     observe?(): {
       connected: boolean;
@@ -374,6 +376,10 @@ export class RemoteServer {
       );
       return sendJson(res, 200, { ok: true, sessionId: r.sessionId });
     }
+    // M163: 会話ログの読み出しは実行キー(ループバック)でも可 — 読み取り専用で爆風半径なし
+    if (path === '/api/world/chatlog' && req.method === 'GET' && this.isWorldExecutor(req, url)) {
+      return sendJson(res, 200, { log: this.deps.world?.chatHistory?.(200) ?? [] });
+    }
     // b案P3(知覚拡張): 生命体が世界を見る(読み取り専用)。ループバック+実行キー限定
     if (path === '/api/world/state' && req.method === 'GET' && this.isWorldExecutor(req, url)) {
       if (this.deps.world?.observe === undefined) throw new HttpError(404, 'world observe 未注入');
@@ -545,6 +551,10 @@ export class RemoteServer {
 
       case 'GET /api/evolution':
         return sendJson(res, 200, { jobs: facade.evolutionList() });
+
+      // M163: 世界チャットの履歴(スマホの履歴ページ world-log.html 用)
+      case 'GET /api/world/chatlog':
+        return sendJson(res, 200, { log: this.deps.world?.chatHistory?.(200) ?? [] });
 
       case 'GET /api/audit': {
         const rawLimit = Number(url.searchParams.get('limit') ?? '100');

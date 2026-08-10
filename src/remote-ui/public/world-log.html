@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>世界の会話ログ</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: 'Segoe UI', 'Hiragino Sans', sans-serif; background: linear-gradient(180deg, #f4f7ff, #fdf6f0);
+    color: #34406b; padding: 12px 12px calc(24px + env(safe-area-inset-bottom)); max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 16px; padding: 6px 2px 10px; display: flex; align-items: center; gap: 8px; }
+  h1 small { font-weight: normal; color: #99a; font-size: 11px; margin-left: auto; }
+  #log { display: flex; flex-direction: column; gap: 8px; }
+  .day { text-align: center; color: #99a; font-size: 11px; margin: 10px 0 2px; }
+  .m { padding: 8px 12px; border-radius: 14px; font-size: 13px; line-height: 1.55; max-width: 88%;
+    box-shadow: 0 2px 8px rgba(90,123,216,.12); word-break: break-word; background: #fff; }
+  .m .who { display: block; font-size: 9px; margin-bottom: 2px; opacity: .8; }
+  .m .t { float: right; font-size: 9px; color: #aab; margin-left: 8px; margin-top: 4px; }
+  .user { align-self: flex-end; background: #e8efff; }
+  .user .who { color: #6b7fb8; }
+  .hinata { background: #fff1eb; border: 1px solid rgba(255,180,150,.5); color: #6b4034; }
+  .hinata .who { color: #cc8866; }
+  .agent .who { color: #8899bb; }
+  .world { align-self: center; background: transparent; box-shadow: none; color: #99a; font-size: 11px; max-width: 100%; }
+  .world .who, .world .t { display: none; }
+  #status { text-align: center; color: #99a; font-size: 11px; padding: 14px; }
+</style>
+</head>
+<body>
+<h1>💬 世界の会話ログ <small id="upd"></small></h1>
+<div id="log"></div>
+<div id="status">読み込み中…</div>
+<script>
+const TOKEN_KEY = 'amateras-remote-token';
+const hashTok = /[#?&]t=([0-9a-f]{64})(?:[&#]|$)/.exec(location.hash)?.[1];
+if (hashTok) localStorage.setItem(TOKEN_KEY, hashTok);
+const TOKEN = hashTok ?? localStorage.getItem(TOKEN_KEY);
+const WHO = { user: '👤 もりを', hinata: '🌙 ヒナタ', agent: '🔧 テラ', world: '' };
+const logEl = document.getElementById('log');
+const statusEl = document.getElementById('status');
+
+async function load() {
+  if (!TOKEN) { statusEl.textContent = 'トークン未設定(world.htmlを一度開いてから来てね)'; return; }
+  try {
+    const res = await fetch(`/api/world/chatlog?token=${encodeURIComponent(TOKEN)}`);
+    if (!res.ok) { statusEl.textContent = `取得失敗(${res.status})`; return; }
+    const { log } = await res.json();
+    logEl.innerHTML = '';
+    let lastDay = '';
+    for (const e of log) {
+      const d = e.ts ? new Date(e.ts) : null;
+      const day = d ? d.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' }) : '';
+      if (day !== '' && day !== lastDay) {
+        lastDay = day;
+        const dv = document.createElement('div');
+        dv.className = 'day';
+        dv.textContent = `— ${day} —`;
+        logEl.appendChild(dv);
+      }
+      const m = document.createElement('div');
+      m.className = `m ${e.from}`;
+      const who = document.createElement('span');
+      who.className = 'who';
+      who.textContent = WHO[e.from] ?? e.from;
+      const t = document.createElement('span');
+      t.className = 't';
+      t.textContent = d ? d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '';
+      m.appendChild(who);
+      m.appendChild(document.createTextNode(e.text));
+      m.appendChild(t);
+      logEl.appendChild(m);
+    }
+    statusEl.textContent = log.length === 0 ? 'まだ会話がありません' : '';
+    document.getElementById('upd').textContent = '更新 ' + new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+    // 初回だけ最下部(最新)へ
+    if (!load.scrolled) { window.scrollTo(0, document.body.scrollHeight); load.scrolled = true; }
+  } catch { statusEl.textContent = '接続できません(アプリ起動中?)'; }
+}
+load();
+setInterval(load, 30_000);
+</script>
+</body>
+</html>
