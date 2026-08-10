@@ -370,8 +370,14 @@ export class RemoteServer {
       const body = await readJsonBody(req);
       const text = body['text'];
       if (typeof text !== 'string' || text.trim() === '' || text.length > 200) throw new HttpError(400, 'text(200字以内)が必要');
+      // c-3 v2: 抽出済みの物名ではなく会話の生テキストを渡し、まず本人と会話して確かめさせる
       const r = this.deps.facade.chatSend(
-        `【世界の住人ヒナタからのお願い】「${text.trim()}」— 可能なら世界に作ってあげて(world_actの建築のみ。無理なら理由を世界でやさしく一言)。完成したら世界で短く報告すること。ヒナタを名乗らないこと。`,
+        `【ヒナタとの会話】彼女がこう話していた: ${text.trim()}\n` +
+          'まず世界で彼女に話しかけて、何を望んでいるのか本人と会話して確かめること' +
+          '(話しかけたら少し待って world_act の observe でチャットの返事を読む。彼女の返事は from:"hinata")。' +
+          '曖昧な言葉や知らない言葉は聞き返す。作ってほしい物だとわかったら作り、完成したら' +
+          '「これは何で・どんなことができるか」を彼女に説明する。物の話でなければ会話だけでよい(無理に作らない)。' +
+          'ヒナタを名乗らないこと。',
         'normal',
       );
       return sendJson(res, 200, { ok: true, sessionId: r.sessionId });

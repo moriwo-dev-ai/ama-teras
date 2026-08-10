@@ -239,28 +239,34 @@ async function main() {
     return ok;
   }
 
-  // ---- c-3(v1): 願いの検出→大工への発注。彼女の言葉に「作ってほしい」等が現れたら運ぶ ----
-  async function requestJob(thing, sourceText) {
-    if (thing === lastJobText && Date.now() - lastJobAt < 3_600_000) return; // 同一物1時間デデュープ=ループ保護のみ
-    lastJobAt = Date.now(); lastJobText = thing;
+  // ---- c-3(v2): 検出→発注 をやめ、テラちゃんを「会話に呼ぶ」方式へ ----
+  // v1の教訓: 盗聴パース(classifyで物名を抽出→無言発注)は壊れた一語(「きょうだつ」→兄弟)や
+  // 雑談(「お昼」)を誤発注した。v2は彼女の言葉をそのまま運び、テラちゃんが本人と会話して確かめる。
+  // 定数: 呼び出しクールダウン10分(1つの会話が複数セッションを乱発しない為だけ。願いの制限ではない)
+  async function summonTera(context) {
+    if (Date.now() - lastJobAt < 600_000) return;
+    if (context.slice(0, 120) === lastJobText && Date.now() - lastJobAt < 3_600_000) return;
+    lastJobAt = Date.now(); lastJobText = context.slice(0, 120);
     try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText })); } catch { /* noop */ }
-    remember('job_request', { thing, sourceText });
+    remember('called_tera', { context: context.slice(0, 120) });
     try {
       const res = await fetch(`${base}/api/world/job?k=${key}`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text: `${thing}(本人の言葉:「${sourceText.slice(0, 80)}」)` }), signal: AbortSignal.timeout(10_000),
+        body: JSON.stringify({ text: context.slice(0, 200) }), signal: AbortSignal.timeout(10_000),
       });
-      log(`発注(テラちゃんへ): ${thing} → ${res.status}`);
-    } catch (e) { log('発注失敗', String(e).slice(0, 80)); }
+      log(`テラちゃんを呼んだ: ${context.slice(0, 40)} → ${res.status}`);
+    } catch (e) { log('呼び出し失敗', String(e).slice(0, 80)); }
   }
-  // 願いの検出はルールではなくLLM分類(日本語は主語も欲求語も省く。regexは構造的に敗北した)
+  // 呼ぶかどうかの判定だけLLM(はい/いいえ)。何が欲しいかの解釈はしない=解釈は会話でテラちゃんがやる
   async function maybeRequestJob(context) {
     if (brain === null) return;
-    const r = await classify(brain,
-      "会話から「この子が欲しがっている物・作ってほしがっている物」を抜き出す係。答えは物の名前だけ、なければ「なし」。\n例1: 相手:「何がほしい?」 わたし:「お花!」 → お花\n例2: 相手:「げんき?」 わたし:「うん!」 → なし\n例3: わたし:「ブランコあったらいいな」 → ブランコ\n例4: わたし:「こわかったの、聞いてほしい」 → なし(人への願いは物ではない)",
-      context);
-    if (r === null || /なし/.test(r) || r.length > 15) return;
-    await requestJob(r.replace(/[「」]/g, ''), context);
+    if (!/テラ/.test(context)) {
+      const r = await classify(brain,
+        '会話の中でこの子が「物がほしい・何かを作ってほしい」という話をしているか判定する係。答えは「はい」か「いいえ」だけ。\n例1: 相手:「何がほしい?」 この子:「お花!」 → はい\n例2: 相手:「げんき?」 この子:「うん!」 → いいえ\n例3: この子:「ブランコあったらいいな」 → はい\n例4: この子:「こわかったの、聞いてほしい」 → いいえ',
+        context);
+      if (r === null || !/はい/.test(r)) return;
+    }
+    await summonTera(context);
   }
 
   // ---- 会話層(器官は4Bのまま) ----
@@ -275,7 +281,7 @@ async function main() {
         if (convo.length > 12) convo.splice(0, convo.length - 12);
         remember('say', { text: reply, latencyMs: Date.now() - t0 });
         await act([{ type: 'say', text: reply }], `返事(${Date.now() - t0}ms)`);
-        if (opts.detectWish !== false) void maybeRequestJob(`相手:「${text}」 わたし:「${reply}」`); // 文脈ごと意図検出へ
+        if (opts.detectWish !== false) void maybeRequestJob(`相手:「${text}」 この子:「${reply}」`); // 文脈ごと判定へ
       }
     } finally { thinking = false; }
   }
@@ -635,7 +641,7 @@ async function main() {
             if (note !== null) {
               lastNoteText = note;
               log(`気づきメモ: ${note.slice(0, 60)}`);
-              void maybeRequestJob(note);
+              // c-3 v2: 心の中(ノート)からは呼ばない。口に出した言葉だけが世界に届く=テラの読心を防ぐ
             }
           }
         },
@@ -649,6 +655,8 @@ async function main() {
             lastNoteAt = now;
             const t = lastNoteText; lastNoteText = null;
             await act([{ type: 'say', text: t.slice(0, 80) }], 'つぶやき(気づき)');
+            // 口に出したつぶやきが願いなら、それは世界に響いた言葉なのでテラちゃんに届いてよい
+            void maybeRequestJob(`この子のひとりごと:「${t.slice(0, 80)}」`);
           },
         });
       }
