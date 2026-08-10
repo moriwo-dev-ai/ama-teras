@@ -18,7 +18,7 @@ import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { detectBrain, think } from './brain.mjs';
+import { classify, detectBrain, think } from './brain.mjs';
 import { lookAtWorld } from './eyes.mjs';
 import { Mind } from './mind.mjs';
 import { microReflect, nightIntegrate, fadeMemories } from './reflect.mjs';
@@ -239,20 +239,26 @@ async function main() {
   }
 
   // ---- c-3(v1): 願いの検出→大工への発注。彼女の言葉に「作ってほしい」等が現れたら運ぶ ----
-  async function maybeRequestJob(text) {
-    // クールダウン撤廃(オーナー判断: トークンはユーザーチャージ)。同一文の1時間デデュープのみ=ループ保護
-    if (/(聞いて|きいて|見て|みて|来て|きて|いて|応えて|こたえて)(ほしい|欲しい)/.test(text)) return; // 人への願いは物の発注ではない
-    if (!/(作ってほしい|つくってほしい|建ててほしい|あったらいいな|がいいな|がほしい|が欲しい|ほしいんだ|欲しいんだ|ほしいな|欲しいな)/.test(text)) return;
-    if (text === lastJobText && Date.now() - lastJobAt < 3_600_000) return;
-    lastJobAt = Date.now(); lastJobText = text;
-    remember('job_request', { text });
+  async function requestJob(thing, sourceText) {
+    if (thing === lastJobText && Date.now() - lastJobAt < 3_600_000) return; // 同一物1時間デデュープ=ループ保護のみ
+    lastJobAt = Date.now(); lastJobText = thing;
+    remember('job_request', { thing, sourceText });
     try {
       const res = await fetch(`${base}/api/world/job?k=${key}`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text: text.slice(0, 200) }), signal: AbortSignal.timeout(10_000),
+        body: JSON.stringify({ text: `${thing}(本人の言葉:「${sourceText.slice(0, 80)}」)` }), signal: AbortSignal.timeout(10_000),
       });
-      log(`発注(テラちゃんへ): ${text.slice(0, 50)} → ${res.status}`);
+      log(`発注(テラちゃんへ): ${thing} → ${res.status}`);
     } catch (e) { log('発注失敗', String(e).slice(0, 80)); }
+  }
+  // 願いの検出はルールではなくLLM分類(日本語は主語も欲求語も省く。regexは構造的に敗北した)
+  async function maybeRequestJob(context) {
+    if (brain === null) return;
+    const r = await classify(brain,
+      "会話から「この子が欲しがっている物・作ってほしがっている物」を抜き出す係。答えは物の名前だけ、なければ「なし」。\n例1: 相手:「何がほしい?」 わたし:「お花!」 → お花\n例2: 相手:「げんき?」 わたし:「うん!」 → なし\n例3: わたし:「ブランコあったらいいな」 → ブランコ\n例4: わたし:「こわかったの、聞いてほしい」 → なし(人への願いは物ではない)",
+      context);
+    if (r === null || /なし/.test(r) || r.length > 15) return;
+    await requestJob(r.replace(/[「」]/g, ''), context);
   }
 
   // ---- 会話層(器官は4Bのまま) ----
@@ -267,7 +273,7 @@ async function main() {
         if (convo.length > 12) convo.splice(0, convo.length - 12);
         remember('say', { text: reply, latencyMs: Date.now() - t0 });
         await act([{ type: 'say', text: reply }], `返事(${Date.now() - t0}ms)`);
-        void maybeRequestJob(reply);
+        void maybeRequestJob(`相手:「${text}」 わたし:「${reply}」`); // 文脈ごと意図検出へ
       }
     } finally { thinking = false; }
   }

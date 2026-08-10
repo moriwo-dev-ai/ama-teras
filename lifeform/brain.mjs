@@ -68,3 +68,21 @@ export async function think(brain, persona, recent, drivesNote, userText) {
     return null;
   }
 }
+
+/** 分類器: 人格を通さない事務的な判定(意図検出など)。低温度・短出力 */
+export async function classify(brain, instruction, text) {
+  try {
+    const res = await fetch(`${OLLAMA}/api/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: brain.model, stream: false, keep_alive: '3h', think: false,
+        options: { temperature: 0, num_predict: 30 },
+        messages: [{ role: 'system', content: instruction }, { role: 'user', content: text }],
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) return null;
+    return ((await res.json()).message?.content ?? '').replace(/<think>[\s\S]*?<\/think>/g, '').trim() || null;
+  } catch { return null; }
+}
