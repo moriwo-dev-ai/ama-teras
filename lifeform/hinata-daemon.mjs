@@ -290,6 +290,8 @@ async function main() {
         reply = reply.replace(/^[((]\s*(ヒナタ|ひなた|テラちゃん|わたし)\s*[))]\s*[::]?\s*/u, '').trim();
         const m = /^「([\s\S]*)」$/.exec(reply);
         if (m !== null) reply = m[1].trim();
+        // 対にならない鉤括弧の混入(実測: 「うん。)も剥がす
+        reply = reply.replace(/^「/, '').replace(/」$/, '').trim();
         if (reply === '') reply = null;
       }
       if (reply !== null) {
