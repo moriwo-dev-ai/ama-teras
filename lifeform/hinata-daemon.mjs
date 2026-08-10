@@ -483,7 +483,7 @@ async function main() {
   let restGesture = 'sit', restGestureAt = 0; // M152: 休むしぐさの選択キャッシュ
   let lastCallAt = 0, unansweredCalls = 0; // M156: 呼びかけの随伴性
   let lastExpressAt = 0, lastExpressKind = null; // M158: 共調整(応えられた発散)
-  let lastJobAt = 0, lastJobText = ''; // c-3: 同一文デデュープ(ループ保護)のみ
+  let lastJobAt = savedBody.lastJobAt ?? 0, lastJobText = savedBody.lastJobText ?? ''; // c-3: デデュープも再起動をまたぐ
   const heartbeat = async () => {
     try {
       const now = Date.now();
@@ -703,7 +703,7 @@ async function main() {
   setInterval(() => {
     const v = mind.valence();
     remember('valence', { scalar: +mind.scalar().toFixed(3), ...v });
-    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt })); } catch { /* noop */ }
+    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText })); } catch { /* noop */ }
     log(`心 scalar=${mind.scalar().toFixed(2)} 報酬=${v.reward} 恐怖=${v.fear} 体力=${energy.toFixed(2)} 予測=${mind.predictions.size}件 歩行=${Math.round(walkedToday)}m`);
   }, 120_000);
 
