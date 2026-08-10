@@ -18,8 +18,8 @@ import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { detectBrain, think } from './brain.mjs';
-import { knownAbout, noteDetail, noveltyOf, perceive, readJournal } from './perceive.mjs';
+import { classify, detectBrain, think } from './brain.mjs';
+import { knownAbout, knownWords, noteDetail, noveltyOf, perceive, readJournal, wordKey } from './perceive.mjs';
 import { Mind } from './mind.mjs';
 import { microReflect, nightIntegrate, fadeMemories } from './reflect.mjs';
 
@@ -152,6 +152,10 @@ async function main() {
 
   const sense = { self: null, spec: new Map(), appIds: new Map() };
   let lastActDetail = ''; // 直近のack詳細(app_read/app_scanの結果=感覚の戻り)
+  // M170: 言葉の好奇心 — 聞いた中の知らない言葉(きく候補の材料)・言及された物(新規度の回復)・質問中の言葉
+  const heardWords = [];      // {word, ts}
+  const mentions = new Map(); // 物の名前 -> 最後に会話に出た時刻
+  let pendingWordQ = null;    // {word, ts} 「◯◯ってなに?」と聞いて答えを待っている
   let watchers = 0; // M159: 気配 — 実行係以外に世界を見ている画面の数(観戦・スマホ・将来の公開ビューア)
 
   async function act(cmds, label) {
@@ -207,6 +211,11 @@ async function main() {
         const k = knownAbout(near, 3);
         if (k !== '') parts.push(`「${near}」について知っていること: ${k}`);
       }
+    }
+    // M170: 直近の会話に出た「教わった言葉」の台帳も帯域に乗せる(遊ぶ=クレーンをさわること、が会話で使える)
+    const lastMsg = convo.length > 0 ? convo[convo.length - 1].text : '';
+    for (const w of knownWords()) {
+      if (lastMsg.includes(w)) { parts.push(`「${w}」について知っていること: ${knownAbout(wordKey(w), 2)}`); break; }
     }
     return parts.join('。');
   }
@@ -304,6 +313,33 @@ async function main() {
         finally { suppressRelay = false; }
       }
     } finally { thinking = false; }
+  }
+
+  // ---- M170: 言葉の知覚 — 聞いた文から「知らない言葉」と「知っている物への言及」を拾う ----
+  async function noticeWords(text) {
+    // 言及=新規度の回復: 人が物について話す=「まだ知らない面がある」の開示(好奇心経済に流れ込む)
+    for (const p of mind.predictions.values()) {
+      if (p.kind === 'world' && text.includes(p.subject)) mentions.set(p.subject, Date.now());
+    }
+    if (brain === null) return;
+    const r = await classify(brain, '文の中のたいせつな言葉(名詞や動詞の辞書形)を最大2つ、読点(、)区切りで抜き出す係。なければ「なし」', text);
+    if (r === null || /^なし/.test(r.trim())) return;
+    for (const w of r.split(/[、,\s/]+/).map((s) => s.trim().replace(/[「」。、!?…]/gu, '')).filter((s) => s.length >= 2 && s.length <= 8)) {
+      if (readJournal(wordKey(w), 1).length > 0) continue; // もう台帳がある=知っている
+      if (persona.includes(w)) continue;                    // 核にある言葉は既知
+      if (heardWords.some((h) => h.word === w)) continue;
+      heardWords.push({ word: w, ts: Date.now() });
+      while (heardWords.length > 6) heardWords.shift();
+    }
+  }
+  // 質問への答えの受信(随伴性3分): 聞いたことがそのまま言葉の台帳になる
+  function maybeWordAnswer(text) {
+    if (pendingWordQ === null || Date.now() - pendingWordQ.ts > 180_000) return;
+    noteDetail(wordKey(pendingWordQ.word), 'told', text.slice(0, 100));
+    recordLearning(`ことば「${pendingWordQ.word}」: ${text.slice(0, 40)}`);
+    euphoria(1, `「${pendingWordQ.word}」がわかった`);
+    log(`ことばの台帳: ${pendingWordQ.word} ← ${text.slice(0, 40)}`);
+    pendingWordQ = null;
   }
 
   // ---- 知覚=予測照合。世界observe→差分→驚き/発見 ----
@@ -437,18 +473,38 @@ async function main() {
     try {
       if (!(await act([{ type: 'app_scan' }], `見つめる:${name}`))) return null;
       const before = parseScan(lastActDetail);
-      const labels = before.items.filter((x) => x.label !== '').map((x) => x.label);
-      if (labels.length > 0 && brain !== null) {
+      const isWritable = (x) => x.kind === 'input' || x.kind === 'textarea';
+      const buttons = before.items.filter((x) => x.label !== '' && !isWritable(x));
+      const fields = before.items.filter(isWritable);
+      if ((buttons.length > 0 || fields.length > 0) && brain !== null) {
+        // M170: 「書く」も手のうち。押す/書くの選択も、何を書くかも彼女(経験=台帳が知恵になる)
+        const menu = [
+          ...buttons.slice(0, 10).map((x) => `「${x.label}」をおす`),
+          ...fields.slice(0, 4).map((x) => `「${x.label || 'かきこみらん'}」に書く`),
+        ];
         const pick = await think(brain, persona, [], situationNote(),
-          `(アプリ「${name}」にさわってみる。画面: ${before.screen.slice(0, 80) || 'なにか表示されてる'}。押せるもの: ${labels.slice(0, 12).join(' / ')}。どれかひとつだけ押すなら?その名前だけ答えて)`);
-        const chosen = before.items.find((x) => x.label !== '' && pick !== null && pick.includes(x.label)) ??
-          before.items[Math.floor(Math.random() * before.items.length)];
-        await act([{ type: 'app_click', selector: chosen.sel }], `おす:${name}「${chosen.label}」`);
-        await act([{ type: 'app_scan' }], `へんかを見る:${name}`);
-        const after = parseScan(lastActDetail);
-        detail = after.screen !== '' && after.screen !== before.screen
-          ? `「${chosen.label}」をおしたら、画面が「${after.screen.slice(0, 60)}」になった`
-          : `「${chosen.label}」をおしても、見た目はかわらなかった`;
+          `(アプリ「${name}」にさわってみる。画面: ${before.screen.slice(0, 80) || 'なにか表示されてる'}。できること: ${menu.join(' / ')}。どれかひとつ選んで、そのまま答えて)`);
+        const wantWrite = pick !== null && /に書く/.test(pick);
+        const chosenField = fields.find((x) => pick !== null && (x.label !== '' ? pick.includes(x.label) : /かきこみらん/.test(pick)));
+        if ((wantWrite || buttons.length === 0) && (chosenField !== undefined || fields.length > 0)) {
+          const f = chosenField ?? fields[0];
+          const w = await think(brain, persona, [], situationNote(), `(アプリ「${name}」の「${f.label || 'かきこみらん'}」に、みじかくなにか書いてみる。書く言葉だけ答えて)`);
+          const textIn = (w ?? 'こんにちは').slice(0, 30);
+          await act([{ type: 'app_type', selector: f.sel, text: textIn }], `かく:${name}「${textIn.slice(0, 15)}」`);
+          await act([{ type: 'app_scan' }], `へんかを見る:${name}`);
+          const afterW = parseScan(lastActDetail);
+          detail = `「${f.label || 'かきこみらん'}」に「${textIn.slice(0, 20)}」と書いてみた` +
+            (afterW.screen !== before.screen && afterW.screen !== '' ? `。画面が「${afterW.screen.slice(0, 50)}」になった` : '');
+        } else {
+          const chosen = buttons.find((x) => pick !== null && pick.includes(x.label)) ??
+            buttons[Math.floor(Math.random() * Math.max(1, buttons.length))] ?? before.items[0];
+          await act([{ type: 'app_click', selector: chosen.sel }], `おす:${name}「${chosen.label}」`);
+          await act([{ type: 'app_scan' }], `へんかを見る:${name}`);
+          const after = parseScan(lastActDetail);
+          detail = after.screen !== '' && after.screen !== before.screen
+            ? `「${chosen.label}」をおしたら、画面が「${after.screen.slice(0, 60)}」になった`
+            : `「${chosen.label}」をおしても、見た目はかわらなかった${fields.length > 0 ? '(書くところがある)' : ''}`;
+        }
       } else if (before.screen !== '') {
         detail = `画面にこう書いてあった: ${before.screen.slice(0, 60)}`;
       }
@@ -536,6 +592,8 @@ async function main() {
         remember('soothed', {});
       }
       remember('heard', { from: data.from, text: data.text });
+      maybeWordAnswer(data.text); // M170: 質問中なら、この声が答え
+      void noticeWords(data.text);
       convo.push({ from: 'user', text: data.text });
       if (convo.length > 12) convo.splice(0, convo.length - 12);
       void converse(data.text, { relay: false }); // もりをとの会話にテラを割り込ませない
@@ -549,6 +607,8 @@ async function main() {
       if (c.type === 'say' && c.speaker !== 'hinata' && typeof c.text === 'string' && data.quiet !== true) {
         lastVoiceAt = now; // テラちゃんの声も「ひとりじゃない」
         remember('heard', { from: 'tera', text: c.text.slice(0, 120) });
+        maybeWordAnswer(c.text); // M170: テラちゃんの声も答えになる
+        void noticeWords(c.text);
         convo.push({ from: 'user', text: `(テラちゃん)「${c.text.slice(0, 80)}」` });
         if (convo.length > 12) convo.splice(0, convo.length - 12);
         if ((/(ヒナタ|ひなた)/.test(c.text) || /[??]\s*$/.test(c.text)) && now - lastTeraReplyAt > 60_000) {
@@ -635,7 +695,10 @@ async function main() {
         for (const p of mind.predictions.values()) {
           if (p.kind !== 'world' || typeof p.expected !== 'object') continue;
           const d = Math.hypot(p.expected.x - sense.self.x, p.expected.z - sense.self.z);
-          const v = noveltyOf(p.subject) - d * 0.015; // 遠さは注意のコスト
+          // M170: 言及=新規度の回復(+0.4・τ15分)。話題に出た物は「まだ知らない面」が開示された
+          const mAt = mentions.get(p.subject);
+          const mb = mAt !== undefined ? 0.4 * Math.exp(-(Date.now() - mAt) / 900_000) : 0;
+          const v = Math.min(1, noveltyOf(p.subject) + mb) - d * 0.015; // 遠さは注意のコスト
           if (v > tv) { tv = v; target = p; }
         }
         if (target !== null && tv > 0.2) {
@@ -681,6 +744,21 @@ async function main() {
             },
           });
         }
+      }
+      // M170: 言葉の好奇心 — 知らない言葉を「きく」。聞くかどうかはこの選択経済しだい(聞いたり聞かなかったり)
+      const freshWords = heardWords.filter((h) => now - h.ts < 900_000 && readJournal(wordKey(h.word), 1).length === 0);
+      if (freshWords.length > 0 && pendingWordQ === null) {
+        const h = freshWords[freshWords.length - 1];
+        cands.push({
+          value: pleasureMemory * 0.9,
+          label: `きく:${h.word}`,
+          run: async () => {
+            const q = await think(brain, persona, convo, situationNote(), `(さっき聞こえた「${h.word}」がどういうことか、よくわからない。ちかくのだれかに聞いてみる。聞く言葉だけ答えて)`);
+            pendingWordQ = { word: h.word, ts: Date.now() };
+            noteDetail(wordKey(h.word), 'ask', `「${h.word}」ってなに?と聞いてみた`);
+            await act([{ type: 'say', text: q ?? `${h.word}ってなに?` }], `きく:${h.word}`);
+          },
+        });
       }
       // 休む(体力の誤差を減らす)。しぐさは30分キャッシュで彼女が選ぶ
       const ep = mind.predictions.get('intero:energy');

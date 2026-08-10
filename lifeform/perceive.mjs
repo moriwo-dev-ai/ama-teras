@@ -6,7 +6,7 @@
  * 錨(デタラメ防止): 実スクリーンショット(look)・建築仕様(shape/label)・観察台帳(過去の全細部)。
  * 台帳は lifeform/memory/objects/<name>.jsonl に永続し、世界は二度と自分と矛盾しない。
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lookAtWorld } from './eyes.mjs';
@@ -82,6 +82,16 @@ export async function perceive(brainModel, { name, spec = '', level }) {
     appendJournal(name, { ts: new Date().toISOString(), level, tod: tod(), detail: text });
     return text;
   } catch { return null; }
+}
+
+/** M170: 言葉も好奇心の対象(台帳の名前空間はことば:) */
+export const wordKey = (w) => `ことば:${w}`;
+export function knownWords() {
+  try {
+    return readdirSync(OBJ_DIR)
+      .filter((f) => f.startsWith('ことば_') && f.endsWith('.jsonl'))
+      .map((f) => f.slice('ことば_'.length, -'.jsonl'.length));
+  } catch { return []; }
 }
 
 /** 外から観測した細部を台帳に記す(アプリ操作の反応など、生成ではなく実測の知覚) */
