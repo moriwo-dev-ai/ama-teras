@@ -712,11 +712,13 @@ function appOpOnce(op, selector, text, timeoutMs) {
 }
 async function appOp(op, selector, text) {
   if (openAppId === null) throw new Error(`${op}: アプリが開いていない(先に app_open)`);
-  // 読込直後はヘルパー未稼働のことがあるので短いタイムアウトで数回試す
+  // 読込直後はヘルパー未稼働のことがあるので数回試す。
+  // M179: ヘッドレス実行係(分離世界)はソフトウェア描画でiframe起動が遅く、6.6秒では
+  // 「アプリが応答しない」が常態化した実測(クレーンのuse全滅)→ 約20秒まで粘る
   let lastErr = null;
-  for (let i = 0; i < 3; i++) {
-    try { return await appOpOnce(op, selector, text, 1500); }
-    catch (e) { lastErr = e; if (!String(e.message).includes('応答しない')) break; await sleep(700); }
+  for (let i = 0; i < 8; i++) {
+    try { return await appOpOnce(op, selector, text, 2000); }
+    catch (e) { lastErr = e; if (!String(e.message).includes('応答しない')) break; await sleep(600); }
   }
   throw lastErr;
 }
