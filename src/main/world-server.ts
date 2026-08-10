@@ -267,6 +267,16 @@ server.listen(PORT, '127.0.0.1', () => {
   launchExecutor();
 });
 
+// 実行係の健全性見張り: プロセスは生きているのにレンダラだけ死ぬ事故(実測 2026-08-11 01:19)への対策。
+// 世界からの報告が2分途絶えたら実行係を作り直す(exitハンドラが10秒後に自動再起動する)
+setInterval(() => {
+  if (NO_EXECUTOR || executorProc === null) return;
+  if (!world.isConnected()) {
+    log('実行係が沈黙(2分)。レンダラ死亡とみなして作り直す');
+    try { executorProc.kill(); } catch { /* もう死んでいる */ }
+  }
+}, 120_000);
+
 // ---- M175(B工事): 訪問者(招待制) ----
 // 名簿はJSONファイル(userData/world-visitors.json)。鍵→名前。発言は1人5秒に1回・120字・NG語遮断。
 // 訪問者はヒナタの友達=テラへの発注経路なし・建築なし・声だけ(弾幕表示+ヒナタが知覚)
