@@ -858,8 +858,12 @@ async function main() {
           // アプリは「つかう」が深さの本体(押すたびに反応が返る=尽きない)。物は4段梯子
           const depth = isApp ? (jlen === 0 ? 'look' : 'use') : ['look', 'approach', 'touch', 'stay'][Math.min(3, jlen)];
           const nov = noveltyOf(t.subject);
+          // 応急(2026-08-11深夜・朝協議): 同一対象への常同ループ抑制。たしかめの「さっき見たし」不応期と
+          // 同型のパターンを好奇心にも適用(実測: クレーン6連続/5分=夜間統合の材料汚染リスク)
+          const lastEng = [...recentTouched].reverse().find((r) => r.name === t.subject);
+          const refr = lastEng !== undefined ? 0.5 * Math.exp(-(now - lastEng.ts) / 600_000) : 0;
           cands.push({
-            value: pleasureMemory * Math.max(0, tv) + lpErr * 0.5,
+            value: pleasureMemory * Math.max(0, tv) + lpErr * 0.5 - refr,
             label: `気になる:${t.subject}(${depth})`,
             run: async () => {
               if (depth === 'use') {
