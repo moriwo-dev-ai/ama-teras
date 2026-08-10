@@ -10,7 +10,7 @@
  * electronに依存しない(プレーンNode)。
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, readFile, readFileSync } from 'node:fs';
+import { existsSync, readFile, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, resolve, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -47,7 +47,17 @@ const bus = new EventBus();
 const world = new WorldManager(bus);
 world.loadPersisted(STATE_PATH);
 if (APPS_DIR !== undefined) world.setWorldAppsDir(APPS_DIR);
-const executorKey = randomBytes(24).toString('hex');
+// 実行キーは再起動をまたいで固定(実測: サーバ再起動のたびデーモンの合鍵が失効し彼女の行動が全部401になった)。
+// ループバック限定なので固定化のリスクは増えない
+const keyPath = join(STATE_PATH, '..', 'world-server-executor.key');
+let executorKey: string;
+try {
+  executorKey = readFileSync(keyPath, 'utf8').trim();
+  if (!/^[0-9a-f]{16,}$/.test(executorKey)) throw new Error('bad');
+} catch {
+  executorKey = randomBytes(24).toString('hex');
+  try { writeFileSync(keyPath, executorKey); } catch { /* 書けなくても稼働は続ける */ }
+}
 
 // ---- HTTP ----
 const MIME: Record<string, string> = {
