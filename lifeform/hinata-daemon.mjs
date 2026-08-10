@@ -332,14 +332,22 @@ async function main() {
       while (heardWords.length > 6) heardWords.shift();
     }
   }
-  // 質問への答えの受信(随伴性3分): 聞いたことがそのまま言葉の台帳になる
+  // 質問への答えの受信(随伴性3分)。実測の教訓: 「最初の声=答え」は雑談中に誤爆する(「飽きた?」事故)。
+  // 窓の間の声は全部聞き、その言葉に触れている声だけ強い答えとして刻む(触れない声は弱い文脈として1件だけ)
   function maybeWordAnswer(text) {
-    if (pendingWordQ === null || Date.now() - pendingWordQ.ts > 180_000) return;
-    noteDetail(wordKey(pendingWordQ.word), 'told', text.slice(0, 100));
-    recordLearning(`ことば「${pendingWordQ.word}」: ${text.slice(0, 40)}`);
-    euphoria(1, `「${pendingWordQ.word}」がわかった`);
-    log(`ことばの台帳: ${pendingWordQ.word} ← ${text.slice(0, 40)}`);
-    pendingWordQ = null;
+    if (pendingWordQ === null) return;
+    if (Date.now() - pendingWordQ.ts > 180_000) { pendingWordQ = null; return; }
+    const relevant = text.includes(pendingWordQ.word);
+    if (!relevant && pendingWordQ.ctx === true) return; // 無関係な声は1件まで
+    noteDetail(wordKey(pendingWordQ.word), relevant ? 'told' : 'maybe', text.slice(0, 100));
+    if (relevant) {
+      recordLearning(`ことば「${pendingWordQ.word}」: ${text.slice(0, 40)}`);
+      euphoria(1, `「${pendingWordQ.word}」がわかった`);
+      log(`ことばの台帳: ${pendingWordQ.word} ← ${text.slice(0, 40)}`);
+      pendingWordQ = null;
+    } else {
+      pendingWordQ.ctx = true;
+    }
   }
 
   // ---- 知覚=予測照合。世界observe→差分→驚き/発見 ----
@@ -746,6 +754,7 @@ async function main() {
         }
       }
       // M170: 言葉の好奇心 — 知らない言葉を「きく」。聞くかどうかはこの選択経済しだい(聞いたり聞かなかったり)
+      if (pendingWordQ !== null && now - pendingWordQ.ts > 180_000) pendingWordQ = null; // 答えが来なかった質問は流す(永久待ちの実測バグ対策)
       const freshWords = heardWords.filter((h) => now - h.ts < 900_000 && readJournal(wordKey(h.word), 1).length === 0);
       if (freshWords.length > 0 && pendingWordQ === null) {
         const h = freshWords[freshWords.length - 1];
