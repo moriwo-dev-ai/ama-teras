@@ -123,14 +123,24 @@ export interface ToolContext {
    * 未注入(進化ジョブ等)なら各ツールが明示エラーを返す
    */
   world?: {
-    observe(): {
-      connected: boolean;
-      state: import('../../shared/types').WorldStateSnapshot | null;
-      chat: { from: string; text: string }[];
-      apps?: import('../../shared/types').WorldApp[];
-      howToSee?: string;
-      howToApps?: string;
-    };
+    // M173: 分離世界モード(WorldRemoteClient)は非同期。呼び出し側はawaitで両対応
+    observe():
+      | {
+          connected: boolean;
+          state: import('../../shared/types').WorldStateSnapshot | null;
+          chat: { from: string; text: string }[];
+          apps?: import('../../shared/types').WorldApp[];
+          howToSee?: string;
+          howToApps?: string;
+        }
+      | Promise<{
+          connected: boolean;
+          state: import('../../shared/types').WorldStateSnapshot | null;
+          chat: { from: string; text: string }[];
+          apps?: import('../../shared/types').WorldApp[];
+          howToSee?: string;
+          howToApps?: string;
+        }>;
     act(cmds: import('../../shared/types').WorldCommand[]): Promise<{ ok: boolean; detail: string }>;
   };
   /**

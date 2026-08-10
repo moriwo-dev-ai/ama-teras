@@ -31,6 +31,7 @@ const APPS_DIR = arg('apps');
 const STATIC_DIR = arg('static');
 const CDP_PORT = Number(arg('cdp', '9226'));
 const APP_JOB_URL = arg('app-job'); // ヒナタ→テラの発注中継先(アプリ)。未指定なら202で握る
+const PROXY_KEY = arg('proxy-key'); // アプリ(テラの身体)用の合鍵。未指定ならアプリ接続不可
 const NO_EXECUTOR = argv.includes('--no-executor');
 
 if (STATE_PATH === undefined || STATIC_DIR === undefined) {
@@ -91,7 +92,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   const url = new URL(req.url ?? '/', `http://127.0.0.1:${PORT}`);
   const path = url.pathname;
   const key = url.searchParams.get('k');
-  const keyed = isLoopback(req) && key === executorKey;
+  const keyed = isLoopback(req) && (key === executorKey || (PROXY_KEY !== undefined && key === PROXY_KEY));
+  const proxied = isLoopback(req) && PROXY_KEY !== undefined && key === PROXY_KEY;
   try {
     // 静的: 世界ページ+資産(ループバック限定。公開面(A工事)は別途read-only surfaceで)
     if (req.method === 'GET' && (path === '/world.html' || path.startsWith('/assets') || path.startsWith('/motions') || path.startsWith('/avatars') || /\.(js|css|png|svg|vrm|glb|fbx|webmanifest|ico|mp3|wav)$/.test(path))) {
@@ -119,8 +121,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       if (restore !== null) res.write(`event: world:event\ndata: ${JSON.stringify(restore)}\n\n`);
       const offEvent = bus.subscribe('world:event', (payload) => res.write(`event: world:event\ndata: ${JSON.stringify(payload)}\n\n`));
       const offChat = bus.subscribe('world:chat', (payload) => res.write(`event: world:chat\ndata: ${JSON.stringify(payload)}\n\n`));
+      // M173: テラ宛て作業指示はアプリがブリッジで受ける
+      const offAgent = bus.subscribe('world:agent-chat', (payload) => res.write(`event: world:agent-chat\ndata: ${JSON.stringify(payload)}\n\n`));
       const ping = setInterval(() => res.write('event: ping\ndata: {}\n\n'), 20_000);
-      req.on('close', () => { clearInterval(ping); offEvent(); offChat(); });
+      req.on('close', () => { clearInterval(ping); offEvent(); offChat(); offAgent(); });
       return;
     }
     // 生命体の身体(say/motion/move_to/face+アプリの手)
@@ -157,6 +161,20 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       } catch (e) {
         sendJson(res, 502, { ok: false, detail: String(e).slice(0, 100) });
       }
+      return;
+    }
+    // アプリ(テラの身体)専用: フルコマンドのact(建築・カメラ・アプリ管理まで全部)
+    if (req.method === 'POST' && path === '/api/world/act') {
+      if (!proxied) { sendJson(res, 401, { error: 'unauthorized' }); return; }
+      const body = await readJsonBody(req);
+      const cmds = body['cmds'];
+      if (!Array.isArray(cmds) || cmds.length === 0 || cmds.length > 30) { sendJson(res, 400, { error: 'cmds(1〜30件)が必要' }); return; }
+      sendJson(res, 200, await world.act(cmds as WorldCommand[]));
+      return;
+    }
+    if (req.method === 'GET' && path === '/api/world/restore') {
+      if (!keyed) { sendJson(res, 401, { error: 'unauthorized' }); return; }
+      sendJson(res, 200, { restore: world.restorePayload() });
       return;
     }
     if (req.method === 'GET' && path === '/healthz') {

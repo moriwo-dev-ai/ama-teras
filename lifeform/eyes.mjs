@@ -8,8 +8,15 @@
 export async function lookAtWorld(question) {
   let img = null;
   try {
-    const list = await (await fetch('http://127.0.0.1:9225/json/list', { signal: AbortSignal.timeout(3000) })).json();
-    const page = list.find((p) => (p.url ?? '').includes('executor=1'));
+    // M173: 分離世界の実行係(9226)を優先、無ければアプリ内実行係(9225)
+    let page;
+    for (const cdp of [9226, 9225]) {
+      try {
+        const list = await (await fetch(`http://127.0.0.1:${cdp}/json/list`, { signal: AbortSignal.timeout(3000) })).json();
+        page = list.find((p) => (p.url ?? '').includes('executor=1'));
+        if (page !== undefined) break;
+      } catch { /* 次のCDPへ */ }
+    }
     if (page === undefined) return null;
     img = await new Promise((resolve) => {
       const ws = new WebSocket(page.webSocketDebuggerUrl);

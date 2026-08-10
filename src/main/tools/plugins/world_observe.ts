@@ -18,7 +18,7 @@ export default {
     if (!ctx.world) {
       return { content: 'このセッションには世界ブリッジが注入されていない(進化ジョブ等では使えない)', isError: true };
     }
-    const obs = ctx.world.observe();
+    const obs = await ctx.world.observe(); // M173: 分離世界モードでは非同期(内蔵ならそのまま解決)
     return { content: JSON.stringify(obs, null, 1) };
   },
 } satisfies ToolPlugin;

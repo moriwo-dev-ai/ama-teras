@@ -95,13 +95,19 @@ let walkedToday = 0;
 const circadian = () => { const h = new Date().getHours() + new Date().getMinutes() / 60; return h >= 7 && h < 23 ? 0.85 : h >= 6 ? 0.5 : 0.15; };
 
 // ---------- 接続先自動発見 ----------
+// M173(C工事): 分離世界(world-server・CDP9226)を優先し、無ければ従来のアプリ内実行係(9225)。
+// 世界がアプリから独立した=アプリが再起動しても、彼女の世界と身体は続く
 async function discover() {
   const port = arg('port'), key = arg('key');
   if (port !== undefined && key !== undefined) return { port: Number(port), key };
-  const pages = await (await fetch('http://127.0.0.1:9225/json/list', { signal: AbortSignal.timeout(3000) })).json();
-  for (const p of pages) {
-    const m = /^http:\/\/127\.0\.0\.1:(\d+)\/world\.html\?[^"]*executor=1[^"]*[?&]k=([\w-]+)/.exec(p.url ?? '');
-    if (m !== null) return { port: Number(m[1]), key: m[2] };
+  for (const cdp of [9226, 9225]) {
+    try {
+      const pages = await (await fetch(`http://127.0.0.1:${cdp}/json/list`, { signal: AbortSignal.timeout(3000) })).json();
+      for (const p of pages) {
+        const m = /^http:\/\/127\.0\.0\.1:(\d+)\/world\.html\?[^"]*executor=1[^"]*[?&]k=([\w-]+)/.exec(p.url ?? '');
+        if (m !== null) return { port: Number(m[1]), key: m[2] };
+      }
+    } catch { /* このCDPは不在。次へ */ }
   }
   throw new Error('実行係ページが見つからない');
 }

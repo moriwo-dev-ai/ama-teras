@@ -223,8 +223,11 @@ export class WorldManager {
         // 両方に届けると二重返事になるため排他(2026-08-09 未明の実測フィードバック)
         if (routeWorldChat(ev.text) === 'hinata') {
           this.bus.publish('world:chat', { from: 'user', text: ev.text });
+        } else if (this.chatHandler !== null) {
+          this.chatHandler(ev.text);
         } else {
-          this.chatHandler?.(ev.text);
+          // M173: 分離世界(world-server)にはテラ本体がいない=SSEブリッジ経由でアプリへ届ける
+          this.bus.publish('world:agent-chat', { text: ev.text });
         }
         return { ok: true };
       }

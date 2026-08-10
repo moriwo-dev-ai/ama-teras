@@ -28,6 +28,7 @@ import { detectReadiness } from './mcp/setup';
 import { CheckpointManager } from './core/checkpoints';
 import { EventBus } from './core/events';
 import { WorldManager } from './world/manager';
+import { WorldRemoteClient } from './world/remoteClient';
 import { LiveDirector } from './world/live';
 import { AgentService } from './core/service';
 import { UsageMeter } from './core/usage';
@@ -482,8 +483,29 @@ export async function registerIpcHandlers(
 
   // M115: 世界(WORLD)ブリッジ。ページ→main は /api/world/event、main→ページは SSE(world:event)
   const worldManager = new WorldManager(bus);
+  // M173(C工事): 分離世界モード — userData/world-server.json があれば世界はworld-serverが所有し、
+  // アプリはクライアント(テラの身体)になる。アプリ再起動で世界とヒナタが死なない
+  let worldExternal: { url: string; key: string } | null = null;
+  try {
+    const raw = JSON.parse(readFileSync(join(app.getPath('userData'), 'world-server.json'), 'utf8')) as {
+      url?: unknown;
+      key?: unknown;
+    };
+    if (typeof raw.url === 'string' && typeof raw.key === 'string') worldExternal = { url: raw.url, key: raw.key };
+  } catch {
+    /* ファイルなし=従来どおり内蔵世界 */
+  }
   // M115-4: 世界の正本はディスクに永続化(ページはビュー。再入場時に復元される)
-  worldManager.loadPersisted(join(app.getPath('userData'), 'world-state.json'));
+  if (worldExternal === null) worldManager.loadPersisted(join(app.getPath('userData'), 'world-state.json'));
+  // M173: クライアント(テラの身体)。dispatchは後段(service生成後)で差し込む
+  let agentChatDispatch: (text: string) => void = () => {};
+  const worldClient = worldExternal !== null
+    ? new WorldRemoteClient(worldExternal.url, worldExternal.key, bus, (t) => agentChatDispatch(t))
+    : null;
+  if (worldClient !== null && worldExternal !== null) {
+    worldClient.start();
+    console.log(`[world] 分離世界モード: ${worldExternal.url}`);
+  }
   // M116-B: エージェントの目 — 観戦URL(ループバック限定・読み取り専用)を教える
   {
     const rcPort = (config.get().remote?.port as number | undefined) ?? 8787;
@@ -545,10 +567,10 @@ export async function registerIpcHandlers(
     config,
     secrets,
     audit,
-    // M115: world_observe / world_act ツールへ世界ブリッジを注入
+    // M115: world_observe / world_act ツールへ世界ブリッジを注入(M173: 分離世界ならクライアント経由)
     world: {
-      observe: () => worldManager.observe(),
-      act: (cmds) => worldManager.act(cmds),
+      observe: () => (worldClient !== null ? worldClient.observe() : worldManager.observe()),
+      act: (cmds) => (worldClient !== null ? worldClient.act(cmds) : worldManager.act(cmds)),
     },
     // M71: 配布版は進化パイプラインを持てないので、プラグイン導入は git 非依存の経路を使う
     packaged: app.isPackaged,
@@ -731,7 +753,7 @@ export async function registerIpcHandlers(
   });
 
   // M115: 世界内チャット → エージェント起動。実行中なら追加指示としてキューされる(chatSend仕様)
-  worldManager.setChatHandler((text) => {
+  const dispatchWorldAgentChat = (text: string): void => {
     try {
       service.chatSend(
         `[世界チャット] ユーザーが世界(共有3D空間)であなたに話しかけた:「${text}」\n` +
@@ -748,7 +770,9 @@ export async function registerIpcHandlers(
     } catch (err) {
       console.error('[world] チャット起動に失敗:', err);
     }
-  });
+  };
+  if (worldClient === null) worldManager.setChatHandler(dispatchWorldAgentChat);
+  agentChatDispatch = dispatchWorldAgentChat; // M173: 分離世界モードはSSEブリッジ経由でここへ届く
 
   // bus → renderer(webContents.send)。チャネル名はバスとIPCで同一
   bus.subscribe('chat:event', (e) => push(IpcChannels.chatEvent, e));
@@ -757,9 +781,9 @@ export async function registerIpcHandlers(
   // M127: 承認待ちを世界にも見せる(世界だけ見ていると無音停止に見える問題)
   bus.subscribe('approval:request', (r) => {
     const req = r as { toolName?: string };
-    worldManager.notify(
-      `⏳ ツール「${req.toolName ?? '?'}」の実行に承認が必要で止まってるよ。承認タブから許可してね(🔓連続作業モードなら自動で通る)`,
-    );
+    const note = `⏳ ツール「${req.toolName ?? '?'}」の実行に承認が必要で止まってるよ。承認タブから許可してね(🔓連続作業モードなら自動で通る)`;
+    if (worldClient !== null) worldClient.notify(note);
+    else worldManager.notify(note);
   });
   bus.subscribe('evolution:event', (e) => push(IpcChannels.evolutionEvent, e));
   bus.subscribe('agent:sub_update', (u) => push(IpcChannels.subAgentUpdate, u));
@@ -1969,15 +1993,16 @@ export async function registerIpcHandlers(
       usageSummary: () => usageMeter.summary(),
       // M115: 世界ページ→main の入口(+観戦モード初期表示+常時実行キー)
       world: {
-        onPageEvent: (ev) => worldManager.onPageEvent(ev),
-        restorePayload: () => worldManager.restorePayload(),
-        executorKey: worldExecutorKey,
+        onPageEvent: (ev) => (worldClient !== null ? worldClient.onPageEvent(ev) : worldManager.onPageEvent(ev)),
+        restorePayload: () => (worldClient !== null ? worldClient.restorePayload() : worldManager.restorePayload()),
+        // M173: 分離世界モードでは合鍵がexecutorKey代わり(world-serverからのjob転送を通す)
+        executorKey: worldExternal !== null ? worldExternal.key : worldExecutorKey,
         // b案(AI生命体): 生命体デーモンの世界コマンド(server.ts側でsay/motion/move_to/faceに制限済み)
-        act: (cmds) => worldManager.act(cmds),
+        act: (cmds) => (worldClient !== null ? worldClient.act(cmds) : worldManager.act(cmds)),
         // b案P3(知覚拡張): 生命体が世界を見る(観察スナップショット)
-        observe: () => worldManager.observe(),
+        observe: () => (worldClient !== null ? worldClient.observe() : worldManager.observe()),
         // M163: 会話ログの履歴(スマホ閲覧用)
-        chatHistory: (limit) => worldManager.chatHistory(limit),
+        chatHistory: (limit) => (worldClient !== null ? worldClient.chatHistory(limit) : worldManager.chatHistory(limit)),
       },
       // M34-6: 運営のリモートフル対応(既存トークン認証配下。オーナーモードOFF時は空を返す)
       operations: {
@@ -2077,6 +2102,7 @@ export async function registerIpcHandlers(
   // M134: 実行係ページのconsoleエラー(スモークゲートの合否材料)
   const worldPageConsoleErrors: string[] = [];
   const ensureWorldExecutor = (port: number): void => {
+    if (worldExternal !== null) return; // M173: 分離世界モードでは実行係はworld-server側(専用Chromium)
     if (worldExecutorWin !== null && !worldExecutorWin.isDestroyed()) return;
     const win = new BrowserWindow({
       show: false,

@@ -97,7 +97,8 @@ export interface RemoteServerDeps {
   operations?: RemoteOperationsFacade;
   /** M115: 世界(WORLD)ブリッジ。未注入なら /api/world/* は404 */
   world?: {
-    onPageEvent(ev: import('../../shared/types').WorldPageEvent): { ok: boolean };
+    // M173: 分離世界モード(WorldRemoteClient)ではPromiseを返す。呼び出し側はawaitで両対応
+    onPageEvent(ev: import('../../shared/types').WorldPageEvent): { ok: boolean } | Promise<{ ok: boolean }>;
     /** M115-5: 観戦モードの初期表示(現在の世界の復元バッチ)。未実装なら初期表示なし */
     restorePayload?(): import('../../shared/types').WorldPushPayload | null;
     /**
@@ -112,14 +113,21 @@ export interface RemoteServerDeps {
      */
     act?(cmds: import('../../shared/types').WorldCommand[]): Promise<{ ok: boolean; detail: string }>;
     /** M163: 世界チャットの履歴(話者・時刻付き)。トークン認証APIから返す */
-    chatHistory?(limit?: number): { from: string; text: string; ts?: string }[];
+    chatHistory?(limit?: number): { from: string; text: string; ts?: string }[] | Promise<{ from: string; text: string; ts?: string }[]>;
     /** b案P3(知覚拡張): 生命体が世界を「見る」ための観察スナップショット(objects/apps/avatar) */
-    observe?(): {
-      connected: boolean;
-      state: import('../../shared/types').WorldStateSnapshot | null;
-      chat: { from: string; text: string }[];
-      apps?: import('../../shared/types').WorldApp[];
-    };
+    observe?():
+      | {
+          connected: boolean;
+          state: import('../../shared/types').WorldStateSnapshot | null;
+          chat: { from: string; text: string }[];
+          apps?: import('../../shared/types').WorldApp[];
+        }
+      | Promise<{
+          connected: boolean;
+          state: import('../../shared/types').WorldStateSnapshot | null;
+          chat: { from: string; text: string }[];
+          apps?: import('../../shared/types').WorldApp[];
+        }>;
   };
 }
 
@@ -387,12 +395,12 @@ export class RemoteServer {
     }
     // M163: 会話ログの読み出しは実行キー(ループバック)でも可 — 読み取り専用で爆風半径なし
     if (path === '/api/world/chatlog' && req.method === 'GET' && this.isWorldExecutor(req, url)) {
-      return sendJson(res, 200, { log: this.deps.world?.chatHistory?.(200) ?? [] });
+      return sendJson(res, 200, { log: (await this.deps.world?.chatHistory?.(200)) ?? [] });
     }
     // b案P3(知覚拡張): 生命体が世界を見る(読み取り専用)。ループバック+実行キー限定
     if (path === '/api/world/state' && req.method === 'GET' && this.isWorldExecutor(req, url)) {
       if (this.deps.world?.observe === undefined) throw new HttpError(404, 'world observe 未注入');
-      return sendJson(res, 200, this.deps.world.observe());
+      return sendJson(res, 200, await this.deps.world.observe());
     }
     // b案(AI生命体): 生命体デーモン(別プロセス)の世界コマンド投入。ループバック+実行キー限定
     if (path === '/api/world/command' && req.method === 'POST' && this.isWorldExecutor(req, url)) {
@@ -417,7 +425,7 @@ export class RemoteServer {
       if (!this.deps.world) throw new HttpError(404, 'world ブリッジ未注入');
       const body = await readJsonBody(req);
       if (typeof body['kind'] !== 'string') throw new HttpError(400, 'kind が必要');
-      return sendJson(res, 200, this.deps.world.onPageEvent(body as unknown as import('../../shared/types').WorldPageEvent));
+      return sendJson(res, 200, await this.deps.world.onPageEvent(body as unknown as import('../../shared/types').WorldPageEvent));
     }
     if (path.startsWith('/api/')) return this.handleApi(req, res, url);
     if (req.method === 'GET') return this.handleStatic(path, res);
@@ -564,7 +572,7 @@ export class RemoteServer {
 
       // M163: 世界チャットの履歴(スマホの履歴ページ world-log.html 用)
       case 'GET /api/world/chatlog':
-        return sendJson(res, 200, { log: this.deps.world?.chatHistory?.(200) ?? [] });
+        return sendJson(res, 200, { log: (await this.deps.world?.chatHistory?.(200)) ?? [] });
 
       case 'GET /api/audit': {
         const rawLimit = Number(url.searchParams.get('limit') ?? '100');
@@ -606,7 +614,7 @@ export class RemoteServer {
         const body = await readJsonBody(req);
         const kind = body['kind'];
         if (typeof kind !== 'string') throw new HttpError(400, 'kind が必要');
-        const r = this.deps.world.onPageEvent(body as unknown as import('../../shared/types').WorldPageEvent);
+        const r = await this.deps.world.onPageEvent(body as unknown as import('../../shared/types').WorldPageEvent);
         return sendJson(res, 200, r);
       }
 
