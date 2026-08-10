@@ -10,7 +10,7 @@
  * electronに依存しない(プレーンNode)。
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, readFile } from 'node:fs';
+import { existsSync, readFile, readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, resolve, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -32,6 +32,7 @@ const STATIC_DIR = arg('static');
 const CDP_PORT = Number(arg('cdp', '9226'));
 const APP_JOB_URL = arg('app-job'); // ヒナタ→テラの発注中継先(アプリ)。未指定なら202で握る
 const PROXY_KEY = arg('proxy-key'); // アプリ(テラの身体)用の合鍵。未指定ならアプリ接続不可
+const VISITORS_PATH = arg('visitors'); // M175: 招待名簿 [{name,key}]。未指定なら訪問機能なし
 const NO_EXECUTOR = argv.includes('--no-executor');
 
 if (STATE_PATH === undefined || STATIC_DIR === undefined) {
@@ -142,7 +143,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     }
     if (req.method === 'GET' && path === '/api/world/state') {
       if (!keyed) { sendJson(res, 401, { error: 'unauthorized' }); return; }
-      sendJson(res, 200, world.observe());
+      // M175: 公開面の観戦者数を気配として添える(ヒナタのwatchers知覚)
+      sendJson(res, 200, { ...world.observe(), watchers: publicSseCount });
       return;
     }
     if (req.method === 'GET' && path === '/api/world/chatlog') {
@@ -227,6 +229,85 @@ server.listen(PORT, '127.0.0.1', () => {
   log(`世界サーバ起動 http://127.0.0.1:${PORT} (state=${STATE_PATH})`);
   launchExecutor();
 });
+
+// ---- M175(B工事): 訪問者(招待制) ----
+// 名簿はJSONファイル(userData/world-visitors.json)。鍵→名前。発言は1人5秒に1回・120字・NG語遮断。
+// 訪問者はヒナタの友達=テラへの発注経路なし・建築なし・声だけ(弾幕表示+ヒナタが知覚)
+type Visitor = { name: string; key: string };
+function loadVisitors(): Visitor[] {
+  if (VISITORS_PATH === undefined) return [];
+  try {
+    const raw = JSON.parse(readFileSync(VISITORS_PATH, 'utf8')) as unknown;
+    return Array.isArray(raw) ? (raw as Visitor[]).filter((v) => typeof v.name === 'string' && typeof v.key === 'string') : [];
+  } catch { return []; }
+}
+const visitorLastAt = new Map<string, number>();
+let publicSseCount = 0; // M175: 公開面の観戦者数=ヒナタの「気配」になる
+const NG_WORDS = /(死ね|殺す|きもい|うざい|ばか|バカ|アホ|http|www\.|\.com|\.jp)/i;
+function handleVisitorChat(body: Record<string, unknown>): { code: number; res: unknown } {
+  const vk = String(body['vk'] ?? '');
+  const text = String(body['text'] ?? '').trim().slice(0, 120);
+  const v = loadVisitors().find((x) => x.key === vk);
+  if (v === undefined) return { code: 401, res: { error: '招待キーが違う' } };
+  if (text === '') return { code: 400, res: { error: '空の発言' } };
+  const last = visitorLastAt.get(vk) ?? 0;
+  if (Date.now() - last < 5_000) return { code: 429, res: { error: 'ゆっくり話してね(5秒に1回)' } };
+  if (NG_WORDS.test(text)) return { code: 400, res: { error: 'その言葉は世界に持ち込めない' } };
+  visitorLastAt.set(vk, Date.now());
+  world.visitorChat(v.name.slice(0, 12), text);
+  log(`訪問者の声: ${v.name}「${text.slice(0, 40)}」`);
+  return { code: 200, res: { ok: true } };
+}
+
+// ---- M174(A工事): 公開観戦面 — 見るだけの窓 ----
+// トンネル(cloudflared等)をこのポートへ向ける。書き込みAPI・鍵付きAPIは一切存在しない別サーバ。
+// 世界のURL公開そのものはオーナー承認制(鉄則)。ここは「窓を作る」だけ
+const PUBLIC_PORT = arg('public-port');
+if (PUBLIC_PORT !== undefined) {
+  const pub = createServer((req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', `http://localhost`);
+      const path = url.pathname;
+      if (req.method === 'GET' && (path === '/' || path === '/world.html') && url.searchParams.get('viewer') !== '1') {
+        res.writeHead(302, { location: '/world.html?viewer=1' });
+        res.end();
+        return;
+      }
+      if (req.method === 'GET' && (path === '/world.html' || path.startsWith('/assets') || path.startsWith('/motions') || path.startsWith('/avatars') || /\.(js|css|png|svg|vrm|glb|fbx|webmanifest|ico)$/.test(path))) {
+        serveStatic(STATIC_DIR!, path.slice(1), res, false);
+        return;
+      }
+      if (req.method === 'GET' && path === '/api/world/spectate') {
+        if (publicSseCount >= 25) { res.writeHead(503); res.end('満員'); return; }
+        publicSseCount++;
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+        const restore = world.restorePayload();
+        if (restore !== null) res.write(`event: world:event\ndata: ${JSON.stringify(restore)}\n\n`);
+        const offEvent = bus.subscribe('world:event', (payload) => res.write(`event: world:event\ndata: ${JSON.stringify(payload)}\n\n`));
+        const ping = setInterval(() => res.write('event: ping\ndata: {}\n\n'), 20_000);
+        req.on('close', () => { clearInterval(ping); offEvent(); publicSseCount--; });
+        return;
+      }
+      // 観戦ページのhello/state報告は受けるふりだけして捨てる(書き込み経路は公開面に存在しない)
+      if (req.method === 'POST' && path === '/api/world/event') {
+        void readJsonBody(req).then(() => sendJson(res, 200, { ok: true }));
+        return;
+      }
+      // M175: 訪問者の声(招待キー・レート制限・NG語つき)— 公開面で唯一の書き込み
+      if (req.method === 'POST' && path === '/api/world/visitor') {
+        void readJsonBody(req).then((body) => {
+          const { code, res: r } = handleVisitorChat(body);
+          sendJson(res, code, r);
+        });
+        return;
+      }
+      res.writeHead(404); res.end();
+    } catch {
+      res.writeHead(500); res.end();
+    }
+  });
+  pub.listen(Number(PUBLIC_PORT), '127.0.0.1', () => log(`公開観戦面(読み取り専用) http://127.0.0.1:${PUBLIC_PORT}/world.html?viewer=1`));
+}
 
 process.on('SIGTERM', () => { executorProc?.kill(); process.exit(0); });
 process.on('SIGINT', () => { executorProc?.kill(); process.exit(0); });

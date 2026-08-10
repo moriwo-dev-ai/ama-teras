@@ -182,7 +182,9 @@ import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 const QUERY = new URLSearchParams(location.search);
 // ?viewer=1: c案の神視点ビューア(公開想定)。観戦の読み取り専用に加え、ユーザー操作での
 // アプリ起動も封じる=できるのは視点操作(回転/ズーム/パン)だけ。世界に対して完全に無害
-const VIEWER = QUERY.has('viewer');
+const VISIT = QUERY.has('visit'); // M175: 招待制の訪問者(観戦+声だけ)
+const VISIT_KEY = QUERY.get('vk') ?? '';
+const VIEWER = QUERY.has('viewer') || VISIT;
 const SPECTATE = QUERY.has('spectate') || VIEWER;
 // ?executor=1&k=…: M117-B 常時実行モード(アプリ自身が開く隠しウィンドウ。世界の正実行体)
 const EXECUTOR = QUERY.has('executor');
@@ -194,8 +196,10 @@ if (hashTok) localStorage.setItem(TOKEN_KEY, hashTok);
 const TOKEN = hashTok ?? localStorage.getItem(TOKEN_KEY);
 if (!TOKEN && !SPECTATE && !EXECUTOR) document.getElementById('pair').style.display = 'flex';
 if (SPECTATE || EXECUTOR) {
-  document.getElementById('chatbar').style.display = 'none';
-  document.getElementById('bst').textContent = VIEWER ? '見学モード' : SPECTATE ? '観戦モード' : '実行係';
+  // M175: 訪問者は声だけ出せる(チャット欄は残す)
+  if (!VISIT) document.getElementById('chatbar').style.display = 'none';
+  document.getElementById('bst').textContent = VISIT ? 'あそびに来た' : VIEWER ? '見学モード' : SPECTATE ? '観戦モード' : '実行係';
+  if (VISIT) document.getElementById('chatin').placeholder = 'ヒナタに話しかける…';
 }
 // M141: 観戦(=OBS配信画面)は専用レイアウト(実況ボード大・アプリ右6割・字幕)。
 // 見学(viewer)は素の世界ビュー(配信オーバーレイなし=覗き窓に徹する)
@@ -826,6 +830,18 @@ async function sendChat() {
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
+  // M175: 訪問者モード — 招待キーで声を届ける(弾幕表示+ヒナタが知覚)。建築・アプリ経路はなし
+  if (VISIT) {
+    try {
+      const r = await fetch('/api/world/visitor', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ vk: VISIT_KEY, text }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) addMsg('sys', j.error ?? '送れなかった');
+    } catch { addMsg('sys', '世界に届かなかった(接続を確認)'); }
+    return;
+  }
   addMsg('user', text);
   const ok = await post({ kind: 'chat', text });
   if (!ok) addMsg('sys', '送信に失敗(アプリが起動しているか確認)');

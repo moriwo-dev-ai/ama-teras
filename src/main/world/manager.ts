@@ -442,4 +442,21 @@ export class WorldManager {
     if (this.chatLog.length > WORLD_LOG_MAX) this.chatLog.splice(0, this.chatLog.length - WORLD_LOG_MAX);
     this.persist();
   }
+
+  /**
+   * M175(B工事): 訪問者(招待制ゲスト)の発言。
+   * - チャットログには guest:名前 で残る(会話ログページで見える)
+   * - 表示は弾幕(live_comment)=全ページに流れる
+   * - ヒナタは world:chat で知覚する(who=名前。ひとの台帳が名前で生える)
+   * テラ(思考層)へは中継しない=訪問者はヒナタの友達であって発注者ではない
+   */
+  visitorChat(name: string, text: string): void {
+    this.pushChat(`guest:${name}` as 'user', text);
+    this.bus.publish('world:event', {
+      seq: ++this.seq,
+      cmds: [{ type: 'live_comment', author: name, text } as WorldCommand],
+      quiet: true,
+    });
+    this.bus.publish('world:chat', { from: 'user', text, who: name });
+  }
 }

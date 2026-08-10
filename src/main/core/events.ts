@@ -32,7 +32,7 @@ export interface BusEventMap {
    * b案P2: ユーザーの世界チャット発話。生命体デーモンの知覚用に観戦SSE(ループバック限定)だけへ
    * 中継する。BUS_CHANNELS(スマホSSE)には載せない=既存の境界を変えない
    */
-  'world:chat': { from: 'user'; text: string };
+  'world:chat': { from: 'user'; text: string; who?: string };
   /**
    * M173(C工事): 作業指示に振り分けられた世界チャット。world-server(分離世界)では
    * chatHandlerの代わりにこのチャネルへ流し、アプリがSSEブリッジ経由で受けてテラを起動する。

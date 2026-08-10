@@ -425,8 +425,12 @@ async function main() {
       const obs = await res.json();
       sense.self = obs.state?.avatar ?? sense.self;
       // M159: 気配の知覚(だれかが見てくれている)。声ではないが、ひとりぼっちでもない
-      const vm = /viewers:(\d+)/.exec(obs.state?.note ?? '');
-      if (vm !== null) watchers = Math.max(0, Number(vm[1]) - 1);
+      // M175: 分離世界では公開観戦者数(watchers)が直接届く
+      if (typeof obs.watchers === 'number') watchers = obs.watchers;
+      else {
+        const vm = /viewers:(\d+)/.exec(obs.state?.note ?? '');
+        if (vm !== null) watchers = Math.max(0, Number(vm[1]) - 1);
+      }
       const me = sense.self;
       if (me === null) return true;
       const spots = [];
@@ -687,13 +691,16 @@ async function main() {
         mind.valenceLog.push({ ts: now, kind: 'reward', amount: 0.25, about: 'なぐさめ' });
         remember('soothed', {});
       }
-      remember('heard', { from: data.from, text: data.text });
-      maybeWordAnswer(data.text, 'もりを'); // M170: 質問中なら、この声が答え
+      // M175: 声の主 — 既定はもりを。訪問者(招待ゲスト)は who に名前が乗る=ひとの台帳が名前で生える
+      const who = typeof data.who === 'string' && data.who !== '' ? data.who : 'もりを';
+      remember('heard', { from: who === 'もりを' ? data.from : `guest:${who}`, text: data.text });
+      maybeWordAnswer(data.text, who); // M170: 質問中なら、この声が答え
       void noticeWords(data.text);
-      activateFrom(data.text, 'もりを'); // M171: 声に出た対象が結びつく
-      convo.push({ from: 'user', text: data.text });
+      activateFrom(data.text, who); // M171: 声に出た対象が結びつく
+      if (who !== 'もりを') noteDetail(personKey(who), 'met', `「${data.text.slice(0, 40)}」と話しかけてくれた`);
+      convo.push({ from: 'user', text: who === 'もりを' ? data.text : `(${who})「${data.text.slice(0, 80)}」` });
       if (convo.length > 12) convo.splice(0, convo.length - 12);
-      void converse(data.text, { relay: false }); // もりをとの会話にテラを割り込ませない
+      void converse(who === 'もりを' ? data.text : `(あそびに来た${who}に話しかけられた)「${data.text.slice(0, 100)}」`, { relay: false });
       return;
     }
     if (event !== 'world:event') return;

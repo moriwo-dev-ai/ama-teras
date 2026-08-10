@@ -48,6 +48,8 @@ const args = [
   '--cdp', String(CDP),
   '--proxy-key', key,
   '--app-job', `http://127.0.0.1:8787/api/world/job?k=${key}`,
+  '--public-port', '8790', // M174: 公開観戦面(トンネルの向け先。URL公開はオーナー承認制)
+  '--visitors', join(USERDATA, 'world-visitors.json'), // M175: 招待名簿(world-invite.mjsで追加)
 ];
 const logPath = join(USERDATA, 'world-server.log');
 const { openSync } = await import('node:fs');
