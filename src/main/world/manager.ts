@@ -233,6 +233,25 @@ export class WorldManager {
         if (typeof ev.appId !== 'string' || typeof ev.x !== 'number' || typeof ev.z !== 'number') return { ok: false };
         return { ok: this.moveApp(ev.appId, ev.x, ev.z, ev.y, ev.ry, ev.locked) };
       }
+      case 'obj_moved': {
+        // M169: 建築物のユーザー配置調整(ページ→正本のspawn定義へ。復元でも位置が続く)
+        if (typeof ev.objId !== 'string') return { ok: false };
+        const def = this.objects.get(ev.objId);
+        if (def === undefined) return { ok: false };
+        if (typeof ev.x === 'number') def.x = ev.x;
+        if (typeof ev.z === 'number') def.z = ev.z;
+        if (typeof ev.uy === 'number') def.uy = ev.uy;
+        if (typeof ev.ury === 'number') def.ury = ev.ury;
+        if (typeof ev.locked === 'boolean') def.locked = ev.locked;
+        this.persist();
+        // 他ページへは再spawnせず差分同期(まばたきさせない)
+        this.bus.publish('world:event', {
+          seq: ++this.seq,
+          cmds: [{ type: 'obj_sync', id: ev.objId, x: def.x, z: def.z, uy: def.uy, ury: def.ury, locked: def.locked }],
+          quiet: true,
+        });
+        return { ok: true };
+      }
       case 'app_state': {
         // M129b: アプリのpublish状態はmainを経由して全ページへ配る。
         // スクショ用の観戦ページは毎回新規=ページ内だけの保持では「生きた社」が映らない。

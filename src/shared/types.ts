@@ -1482,7 +1482,12 @@ export type EvolutionEvent =
  * 世界ページ(out/remote-ui/world.html)がこれを解釈して実行する。
  */
 export interface WorldCommand {
-  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'camera_to' | 'face' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_leave' | 'app_close' | 'app_point' | 'chat_restore' | 'app_state' | 'app_click' | 'app_type' | 'app_read' | 'record' | 'live_hud' | 'live_comment' | 'avatar_state';
+  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'camera_to' | 'face' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_leave' | 'app_close' | 'app_point' | 'chat_restore' | 'app_state' | 'app_click' | 'app_type' | 'app_read' | 'app_scan' | 'obj_sync' | 'record' | 'live_hud' | 'live_comment' | 'avatar_state';
+  /** M169: ユーザー配置調整(spawn定義に永続・obj_syncで全ページ同期)。テラのy/ryとは独立の加算値 */
+  uy?: number;
+  ury?: number;
+  /** M169: 建築物の固定(spawn定義用。WorldAppDefのlockedと同義) */
+  locked?: boolean;
   /** say: セリフ(吹き出し+チャットログ)。speaker='hinata'は生命体の発言(話者分離・M154) */
   speaker?: 'hinata';
   text?: string;
@@ -1586,6 +1591,8 @@ export type WorldPageEvent =
   | { kind: 'chat'; text: string }
   | { kind: 'ack'; seq: number; ok: boolean; errors?: string[]; notes?: string[]; state?: WorldStateSnapshot }
   | { kind: 'app_moved'; appId: string; x: number; z: number; y?: number; ry?: number; locked?: boolean }
+  /** M169: 建築物のユーザー配置調整(ページ→main。保存済みspawn定義へ反映) */
+  | { kind: 'obj_moved'; objId: string; x?: number; z?: number; uy?: number; ury?: number; locked?: boolean }
   /** M127: いまオーバーレイで表示中のアプリ(null=閉じた/離れた)。byUser=ユーザーのタップ起動 */
   | { kind: 'app_view'; appId: string | null; byUser?: boolean }
   /** M129b: アプリが amaWorld.publish した状態(ページ→main→全ページへ再配布) */

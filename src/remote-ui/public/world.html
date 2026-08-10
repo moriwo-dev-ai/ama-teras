@@ -537,8 +537,13 @@ function spawnObject(c, quiet = false) {
   if ((c.shape === 'sign' || c.shape === 'screen' || c.shape === 'custom') && typeof c.y === 'number') grp.position.y = c.y;
   if ((c.shape === 'sign' || c.shape === 'screen' || c.shape === 'custom') && typeof c.ry === 'number') grp.rotation.y = c.ry;
   grp.scale.setScalar(0.01);
+  // M169: ユーザー配置調整(uy=高さ・ury=回転・locked)。テラのy/ry(建築時の意味)と衝突しない加算方式
+  const baseY = grp.position.y, baseRy = grp.rotation.y;
+  grp.position.y = baseY + (c.uy ?? 0);
+  grp.rotation.y = baseRy + (c.ury ?? 0);
   scene.add(grp);
-  objects.set(id, { mesh: grp, shape: c.shape, label: c.label, x: c.x, z: c.z, born: performance.now(), tick: findTick(grp) });
+  objects.set(id, { mesh: grp, shape: c.shape, label: c.label, x: c.x, z: c.z, born: performance.now(), tick: findTick(grp),
+    baseY, baseRy, uy: c.uy ?? 0, ury: c.ury ?? 0, locked: c.locked === true });
   if (!quiet) chime([523, 784]);
   return id;
 }
@@ -1053,6 +1058,16 @@ async function runCommand(c, quiet = false) {
       objects.delete(c.id);
       return;
     }
+    case 'obj_sync': { // M169: 建築物の配置調整を全ページへ同期(再spawnせず滑らかに)
+      const o = objects.get(c.id);
+      if (!o) return;
+      if (typeof c.x === 'number') { o.x = c.x; o.mesh.position.x = c.x; }
+      if (typeof c.z === 'number') { o.z = c.z; o.mesh.position.z = c.z; }
+      if (typeof c.uy === 'number') { o.uy = c.uy; o.mesh.position.y = o.baseY + c.uy; }
+      if (typeof c.ury === 'number') { o.ury = c.ury; o.mesh.rotation.y = o.baseRy + c.ury; }
+      if (typeof c.locked === 'boolean') o.locked = c.locked;
+      return;
+    }
     case 'camera': {
       if (c.target === 'shoulder') { camMode = 'shoulder'; return; } // M139: 肩越し追従(次のcamera系まで維持)
       camMode = null;
@@ -1377,6 +1392,13 @@ addEventListener('pointerdown', (e) => {
       controls.enabled = false;
       chime([330, 330]);
     }, 450);
+  } else if (obj && !SPECTATE && obj.o.locked !== true) {
+    // M169: 建築物も長押しで移動(社と同じ操作)
+    holdTimer = setTimeout(() => {
+      dragging = { obj };
+      controls.enabled = false;
+      chime([330, 330]);
+    }, 450);
   }
 });
 addEventListener('pointermove', (e) => {
@@ -1391,16 +1413,24 @@ addEventListener('pointermove', (e) => {
       const r = Math.hypot(hit.x, hit.z);
       if (r > 18) { hit.multiplyScalar(18 / r); }
       // M127: 高所(y)設置はエージェント経由で行い、ドラッグは水平移動のみ=高さは保つ
-      dragging.rec.mesh.position.set(hit.x, dragging.rec.mesh.position.y, hit.z);
+      const mesh = dragging.rec ? dragging.rec.mesh : dragging.obj.o.mesh;
+      mesh.position.set(hit.x, mesh.position.y, hit.z);
     }
   }
 });
 addEventListener('pointerup', (e) => {
   if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
   if (dragging) {
-    const p = dragging.rec.mesh.position;
-    dragging.rec.def.x = +p.x.toFixed(2); dragging.rec.def.z = +p.z.toFixed(2);
-    void post({ kind: 'app_moved', appId: dragging.rec.def.id, x: dragging.rec.def.x, z: dragging.rec.def.z });
+    if (dragging.rec) {
+      const p = dragging.rec.mesh.position;
+      dragging.rec.def.x = +p.x.toFixed(2); dragging.rec.def.z = +p.z.toFixed(2);
+      void post({ kind: 'app_moved', appId: dragging.rec.def.id, x: dragging.rec.def.x, z: dragging.rec.def.z });
+    } else {
+      // M169: 建築物の移動を正本(mainの保存済みspawn定義)へ反映
+      const o = dragging.obj.o, p = o.mesh.position;
+      o.x = +p.x.toFixed(2); o.z = +p.z.toFixed(2);
+      void post({ kind: 'obj_moved', objId: dragging.obj.id, x: o.x, z: o.z });
+    }
     dragging = null;
     controls.enabled = true;
     tapStart = null;
@@ -1424,7 +1454,8 @@ addEventListener('pointerup', (e) => {
       return;
     }
     lastTap = { t: now2, id: oid };
-    addMsg('sys', `🌳 ${obj.name}(ダブルタップで開く)`);
+    addMsg('sys', `🌳 ${obj.name}(ダブルタップで開く・長押しで移動)`);
+    if (!SPECTATE) showObjCtl(obj); // M169: 建築物にも配置コントロール
     const p = new THREE.Vector3();
     _box.setFromObject(obj.o.mesh); _box.getCenter(p);
     camFocusTo(p, p.clone().add(new THREE.Vector3(3.2, 2.2, 3.2)));
@@ -1475,10 +1506,38 @@ function hideKioskCtl() {
   kioskctl.classList.remove('on');
   ctlTarget = null;
 }
+// M169: 建築物用の配置コントロール(同じUI・対象だけ違う)
+function showObjCtl(obj) {
+  ctlTarget = { isObj: true, id: obj.id, o: obj.o, name: obj.name };
+  kioskctl.querySelector('.kname').textContent = obj.name;
+  kioskctl.querySelector('[data-k="lock"]').textContent = obj.o.locked ? '🔒' : '🔓';
+  kioskctl.classList.add('on');
+  clearTimeout(ctlHideTimer);
+  ctlHideTimer = setTimeout(hideKioskCtl, 10_000);
+}
 kioskctl.addEventListener('click', (e) => {
   const k = e.target.closest('button')?.dataset.k;
   if (!k || !ctlTarget) return;
   if (k === 'done') { hideKioskCtl(); return; }
+  if (ctlTarget.isObj) {
+    const o = ctlTarget.o;
+    if (k === 'lock') {
+      o.locked = !o.locked;
+      kioskctl.querySelector('[data-k="lock"]').textContent = o.locked ? '🔒' : '🔓';
+      addMsg('sys', o.locked ? `🔒 ${ctlTarget.name} を固定した` : `🔓 ${ctlTarget.name} の固定を解除した`);
+    } else {
+      if (o.locked) { addMsg('sys', `🔒 ${ctlTarget.name} は固定中(🔓で解除してから)`); return; }
+      if (k === 'rotl' || k === 'rotr') o.ury = (o.ury ?? 0) + (k === 'rotl' ? 1 : -1) * Math.PI / 8;
+      if (k === 'up') o.uy = Math.min(30, (o.uy ?? 0) + 0.5);
+      if (k === 'down') o.uy = Math.max(-o.baseY, (o.uy ?? 0) - 0.5); // 地面より下へは沈めない
+      o.mesh.position.y = o.baseY + (o.uy ?? 0);
+      o.mesh.rotation.y = o.baseRy + (o.ury ?? 0);
+    }
+    clearTimeout(ctlHideTimer);
+    ctlHideTimer = setTimeout(hideKioskCtl, 10_000);
+    void post({ kind: 'obj_moved', objId: ctlTarget.id, x: o.x, z: o.z, uy: o.uy ?? 0, ury: o.ury ?? 0, locked: o.locked === true });
+    return;
+  }
   const d = ctlTarget.def;
   if (k === 'lock') {
     d.locked = !d.locked;
