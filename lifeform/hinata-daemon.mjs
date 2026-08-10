@@ -157,6 +157,12 @@ async function main() {
   const heardWords = [];      // {word, ts}
   const mentions = new Map(); // 物の名前 -> 最後に会話に出た時刻
   let pendingWordQ = null;    // {word, ts} 「◯◯ってなに?」と聞いて答えを待っている
+  // M172: さっき自分がさわった(知覚した・つかった)物。会話の帯域に経験知を乗せる用(窓30分・最新1件)
+  const recentTouched = []; // {name, ts}
+  function touchedThing(name) {
+    recentTouched.push({ name, ts: Date.now() });
+    while (recentTouched.length > 10) recentTouched.shift();
+  }
   // M171: 共起=リンク形成(ヘッブ則)。同じ3分窓で一緒に現れた対象同士が結びつく
   const activeEnts = []; // {name, ts}
   function activate(...names) {
@@ -247,6 +253,13 @@ async function main() {
         recallInto(parts, wordKey(w));
         break;
       }
+    }
+    // M172: さっき自分がさわった物の知識も帯域へ(経験と発言のずれ=右脳と左脳の分断を埋める。
+    // 「アラームで月が来る」と台帳が知ってるのに会話で「できない」と言った実測への配線)
+    const rt = [...recentTouched].reverse().find((r) => Date.now() - r.ts < 1_800_000 && r.name !== near);
+    if (rt !== undefined) {
+      const k2 = knownAbout(rt.name, 3);
+      if (k2 !== '') parts.push(`さっきさわった「${rt.name}」でおぼえたこと: ${k2}`);
     }
     return parts.join('。');
   }
@@ -478,6 +491,7 @@ async function main() {
       if (seen !== null) {
         remember('gazed', { name: s.name, seen });
         recordLearning(`${s.name}: ${seen}`);
+        touchedThing(s.name);
         const line = await think(brain, persona, [], situationNote(), `(「${s.name}」をじっと見たら、こう見えた:「${seen}」。ひとことつぶやいて)`);
         if (line !== null) await act([{ type: 'say', text: line }], '視覚のつぶやき');
       }
@@ -562,7 +576,7 @@ async function main() {
       } else if (before.screen !== '') {
         detail = `画面にこう書いてあった: ${before.screen.slice(0, 60)}`;
       }
-      if (detail !== null) noteDetail(name, 'use', detail);
+      if (detail !== null) { noteDetail(name, 'use', detail); touchedThing(name); }
     } finally {
       await act([{ type: 'app_leave' }], `はなれる:${name}`);
     }
@@ -794,6 +808,7 @@ async function main() {
                 recordLearning(`${t.subject}(${depth}): ${detail}`);
                 euphoria(nov, `${t.subject}のあたらしい発見`);
                 activate(t.subject);
+                touchedThing(t.subject);
                 if (Math.random() < 0.5) {
                   const line = await think(brain, persona, [], situationNote(), `(「${t.subject}」を${depth === 'touch' ? 'さわったら' : 'よく見たら'}、気づいた:「${detail}」。ひとことつぶやいて)`);
                   if (line !== null) await act([{ type: 'say', text: line }], `知覚のつぶやき:${t.subject}`);
