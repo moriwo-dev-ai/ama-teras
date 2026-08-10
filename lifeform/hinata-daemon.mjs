@@ -228,6 +228,21 @@ async function main() {
     return ok;
   }
 
+  // ---- c-3(v1): 願いの検出→大工への発注。彼女の言葉に「作ってほしい」等が現れたら運ぶ ----
+  async function maybeRequestJob(text) {
+    if (Date.now() - lastJobAt < 21_600_000) return; // 6時間に1件
+    if (!/(作ってほしい|つくってほしい|建ててほしい|あったらいいな|がほしいな|が欲しいな)/.test(text)) return;
+    lastJobAt = Date.now();
+    remember('job_request', { text });
+    try {
+      const res = await fetch(`${base}/api/world/job?k=${key}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: text.slice(0, 200) }), signal: AbortSignal.timeout(10_000),
+      });
+      log(`発注(テラちゃんへ): ${text.slice(0, 50)} → ${res.status}`);
+    } catch (e) { log('発注失敗', String(e).slice(0, 80)); }
+  }
+
   // ---- 会話層(器官は4Bのまま) ----
   async function converse(text) {
     if (!CHAT_ENABLED || brain === null || thinking) return;
