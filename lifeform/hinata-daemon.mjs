@@ -163,6 +163,8 @@ async function main() {
   const heardWords = [];      // {word, ts}
   const mentions = new Map(); // 物の名前 -> 最後に会話に出た時刻
   let pendingWordQ = null;    // {word, ts} 「◯◯ってなに?」と聞いて答えを待っている
+  // M180: あいさつ待ちの来訪者(強制イベントではなく候補の材料。行くかは選択経済しだい)
+  const pendingArrivals = []; // {name, ts}
   // M172: さっき自分がさわった(知覚した・つかった)物。会話の帯域に経験知を乗せる用(窓30分・最新1件)
   const recentTouched = []; // {name, ts}
   function touchedThing(name) {
@@ -443,20 +445,15 @@ async function main() {
       const nowVisitors = new Map((obs.visitors ?? []).map((v) => [v.name, { x: v.x, z: v.z }]));
       for (const [name, pos] of nowVisitors) {
         if (!sense.visitors.has(name)) {
+          // 来訪の知覚と生理(出会いの快)まで。あいさつに行くかどうか・何と言うかは彼女の選択(M180)
           remember('visitor_came', { name, x: pos.x, z: pos.z });
           recordLearning(`${name}があそびに来た`);
           euphoria(1, `${name}があそびに来た`);
           noteDetail(personKey(name), 'came', 'せかいにあそびに来てくれた');
           activate(personKey(name));
           lastVoiceAt = Date.now(); // 人が来た=ひとりじゃない
-          if (!sleeping && quiet()) {
-            const g = await chooseGesture(`${name}があそびに来てくれた!むかえに行く`, 'wave');
-            void act([
-              { type: 'move_to', x: +(pos.x * 0.8).toFixed(1), z: +(pos.z * 0.8).toFixed(1) },
-              { type: 'say', text: `わーい、${name}だ!いらっしゃい!` },
-              ...(g !== null && g !== 'idle' ? [{ type: 'motion', name: g }] : []),
-            ], `おでむかえ:${name}`);
-          }
+          pendingArrivals.push({ name, ts: Date.now() });
+          while (pendingArrivals.length > 5) pendingArrivals.shift();
         }
       }
       for (const [name] of sense.visitors) {
@@ -902,6 +899,27 @@ async function main() {
             },
           });
         }
+      }
+      // M180: あいさつ — 来た人のところへ行く。価値は出会いの喜び(euphoriaが満たしたjoy)から流れる=
+      // 嬉しければすぐ行くし、他の欲が強ければ行かない。言葉も彼女(LLM)が作る
+      for (let i = pendingArrivals.length - 1; i >= 0; i--) {
+        const a = pendingArrivals[i];
+        if (now - a.ts > 600_000 || !sense.visitors.has(a.name)) { pendingArrivals.splice(i, 1); continue; }
+        cands.push({
+          value: 0.3 + mind.affect.joy * 0.5,
+          label: `あいさつ:${a.name}`,
+          run: async () => {
+            pendingArrivals.splice(pendingArrivals.indexOf(a), 1);
+            const p = sense.visitors.get(a.name);
+            const line = await think(brain, persona, convo, situationNote(), `(${a.name}があそびに来た。かけよって、じぶんの言葉でむかえる。言うことだけ答えて)`);
+            const g = await chooseGesture(`${a.name}が来てくれてうれしい`, 'wave');
+            await act([
+              ...(p !== undefined ? [{ type: 'move_to', x: +(p.x * 0.8).toFixed(1), z: +(p.z * 0.8).toFixed(1) }] : []),
+              { type: 'say', text: line ?? `${a.name}、いらっしゃい` },
+              ...(g !== null && g !== 'idle' ? [{ type: 'motion', name: g }] : []),
+            ], `あいさつ:${a.name}`);
+          },
+        });
       }
       // M170: 言葉の好奇心 — 知らない言葉を「きく」。聞くかどうかはこの選択経済しだい(聞いたり聞かなかったり)
       if (pendingWordQ !== null && now - pendingWordQ.ts > 180_000) pendingWordQ = null; // 答えが来なかった質問は流す(永久待ちの実測バグ対策)
