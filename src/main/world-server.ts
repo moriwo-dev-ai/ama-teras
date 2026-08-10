@@ -114,7 +114,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     }
     if (req.method === 'GET' && path.startsWith('/world-apps/') && APPS_DIR !== undefined) {
       if (!isLoopback(req)) { res.writeHead(403); res.end(); return; }
-      serveStatic(APPS_DIR, path.slice('/world-apps/'.length), res, true);
+      // ディレクトリURL(/world-apps/moon/)はindex.htmlへ解決(実測: 未解決だと404が
+      // iframeに載り、ヘルパー不在で全アプリ操作が「応答しない」になった)
+      let rel = path.slice('/world-apps/'.length);
+      if (rel === '' || rel.endsWith('/')) rel += 'index.html';
+      else if (!rel.split('/').pop()!.includes('.')) rel += '/index.html';
+      serveStatic(APPS_DIR, rel, res, true);
       return;
     }
     // ページ→正本
