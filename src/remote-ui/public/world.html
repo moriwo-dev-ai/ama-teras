@@ -49,6 +49,13 @@
     justify-content: center; text-align: center; color: #5a6b9e; font-size: 14px; line-height: 2; padding: 20px; }
   #home { position: fixed; top: 6px; left: 10px; z-index: 31; border: none; background: #fff; color: #5a6b9e;
     font-size: 15px; padding: 5px 12px; border-radius: 999px; box-shadow: 0 2px 12px rgba(90,123,216,.25); }
+  /* M167: 建築物の「口」 — ダブルタップで開く小さなカード(同名アプリがなければ空の口) */
+  #mouth { position: fixed; left: 50%; top: 44%; transform: translate(-50%, -50%); z-index: 45; display: none;
+    background: #fff; color: #34406b; border-radius: 18px; padding: 18px 26px; text-align: center;
+    box-shadow: 0 8px 40px rgba(60,80,160,.35); max-width: 78vw; }
+  #mouth.on { display: block; }
+  #mouth .mname { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+  #mouth .mbody { font-size: 12px; color: #99a; }
   /* M163b: 会話ログページへの入口(配信オーバーレイでは非表示)。中央バッジと被らないよう右端 */
   #loglink { position: fixed; top: 6px; right: 10px; z-index: 31; border: none; background: #fff; color: #5a6b9e;
     font-size: 13px; padding: 6px 12px; border-radius: 999px; box-shadow: 0 2px 12px rgba(90,123,216,.25); }
@@ -141,6 +148,7 @@
 </div>
 <div id="apppointer"><div class="pnote" id="appnote">ここ!</div><div class="arrow">👇</div></div>
 <div id="kioskctl"><span class="kname"></span><button data-k="rotl">↺</button><button data-k="rotr">↻</button><button data-k="up">▲</button><button data-k="down">▼</button><button data-k="lock">🔓</button><button data-k="done">✓</button></div>
+<div id="mouth"><div class="mname"></div><div class="mbody"></div></div>
 <div id="work"><div id="workhead"><span class="gear">⚙️</span><span id="worklabel"></span></div><div id="worktail"></div></div>
 <div id="livehud">
   <span id="livebadge"><span class="reddot"></span>LIVE — コメントで世界が育ちます</span>
@@ -1328,7 +1336,30 @@ function kioskAt(clientX, clientY) {
   }
   return null;
 }
-let tapStart = null; // {x,y,t,kiosk}
+// M167: 建築物の「口」— ラベル付きオブジェクトもタップ対象(全建築物=アプリ、中身は後から)
+function objectAt(clientX, clientY) {
+  _ndc.set((clientX / innerWidth) * 2 - 1, -(clientY / innerHeight) * 2 + 1);
+  _ray.setFromCamera(_ndc, camera);
+  let best = null, bestD = Infinity;
+  for (const [id, o] of objects) {
+    const nm = o.label ?? (!/^obj\d+$/.test(id) ? id : null);
+    if (nm === null) continue;
+    const hits = _ray.intersectObject(o.mesh, true);
+    if (hits.length > 0 && hits[0].distance < bestD) { bestD = hits[0].distance; best = { id, o, name: nm }; }
+  }
+  return best;
+}
+const mouthEl = document.getElementById('mouth');
+function openMouth(name) {
+  mouthEl.querySelector('.mname').textContent = name;
+  const app = [...worldApps.values()].find((r) => r.def.name === name);
+  mouthEl.querySelector('.mbody').textContent = app ? '(見学モードではアプリを開けません)' : '(まだ機能がありません)';
+  mouthEl.classList.add('on');
+  clearTimeout(openMouth.timer);
+  openMouth.timer = setTimeout(() => mouthEl.classList.remove('on'), 8_000);
+}
+mouthEl.addEventListener('pointerdown', (e) => { e.stopPropagation(); mouthEl.classList.remove('on'); });
+let tapStart = null; // {x,y,t,kiosk,obj}
 let pendingFocus = null;
 let lastTap = { t: 0, id: null };
 let dragging = null; // {rec}
@@ -1336,7 +1367,8 @@ let holdTimer = null;
 addEventListener('pointerdown', (e) => {
   if (e.target.closest('#chatbar') || e.target.closest('#chatlog') || e.target.closest('#appov') || e.target.closest('#kioskctl')) return;
   const rec = kioskAt(e.clientX, e.clientY);
-  tapStart = { x: e.clientX, y: e.clientY, t: performance.now(), kiosk: rec };
+  const obj = rec === null ? objectAt(e.clientX, e.clientY) : null; // 社が優先(手前の看板を邪魔しない)
+  tapStart = { x: e.clientX, y: e.clientY, t: performance.now(), kiosk: rec, obj };
   // M136: 固定中の社は長押しドラッグを発動しない(スマホの誤移動防止)
   if (rec && !SPECTATE && rec.def.locked !== true) {
     holdTimer = setTimeout(() => {
@@ -1377,8 +1409,28 @@ addEventListener('pointerup', (e) => {
   if (!tapStart) return;
   const isTap = performance.now() - tapStart.t < 350 && Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y) < 12;
   const rec = tapStart.kiosk;
+  const obj = tapStart.obj;
   tapStart = null;
-  if (!isTap || !rec) return;
+  if (!isTap) return;
+  // M167: 建築物のタップ=名札、ダブルタップ=口を開く(同名アプリがあればそれが中身)
+  if (!rec && obj) {
+    const now2 = performance.now();
+    const oid = `o:${obj.id}`;
+    if (lastTap.id === oid && now2 - lastTap.t < 450) {
+      lastTap = { t: 0, id: null };
+      const app = [...worldApps.values()].find((r) => r.def.name === obj.name);
+      if (app && !VIEWER) { try { openApp(app.def.id); } catch (err) { addMsg('sys', String(err?.message ?? err)); } }
+      else openMouth(obj.name);
+      return;
+    }
+    lastTap = { t: now2, id: oid };
+    addMsg('sys', `🌳 ${obj.name}(ダブルタップで開く)`);
+    const p = new THREE.Vector3();
+    _box.setFromObject(obj.o.mesh); _box.getCenter(p);
+    camFocusTo(p, p.clone().add(new THREE.Vector3(3.2, 2.2, 3.2)));
+    return;
+  }
+  if (!rec) return;
   const now = performance.now();
   if (lastTap.id === rec.def.id && now - lastTap.t < 450) {
     // ダブルタップ=起動(3Dで見つけて2Dで使う)。見学モードは封鎖(視点操作だけの覗き窓)
