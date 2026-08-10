@@ -861,9 +861,10 @@ async function main() {
           // 応急(2026-08-11深夜・朝協議): 同一対象への常同ループ抑制。たしかめの「さっき見たし」不応期と
           // 同型のパターンを好奇心にも適用(実測: クレーン6連続/5分=夜間統合の材料汚染リスク)
           const lastEng = [...recentTouched].reverse().find((r) => r.name === t.subject);
-          const refr = lastEng !== undefined ? 0.5 * Math.exp(-(now - lastEng.ts) / 600_000) : 0;
+          // 乗算式: 直後は価値が15%まで下がり、10分かけて回復(減算式は快の飽和値に勝てなかった実測)
+          const satiation = lastEng !== undefined ? 1 - 0.85 * Math.exp(-(now - lastEng.ts) / 600_000) : 1;
           cands.push({
-            value: pleasureMemory * Math.max(0, tv) + lpErr * 0.5 - refr,
+            value: (pleasureMemory * Math.max(0, tv) + lpErr * 0.5) * satiation,
             label: `気になる:${t.subject}(${depth})`,
             run: async () => {
               if (depth === 'use') {
