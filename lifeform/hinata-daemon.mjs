@@ -135,6 +135,7 @@ async function main() {
   const quiet = () => Date.now() - lastAgentBusyAt > 90_000 && Date.now() - lastWorldCmdAt > 20_000;
 
   const sense = { self: null };
+  let watchers = 0; // M159: 気配 — 実行係以外に世界を見ている画面の数(観戦・スマホ・将来の公開ビューア)
 
   async function act(cmds, label) {
     if (sentThisMinute >= 6) return false;
@@ -169,6 +170,7 @@ async function main() {
     const mood = mind.moodNote();
     if (mood !== '') parts.push(mood);
     if (energy < 0.3) parts.push('つかれている');
+    if (watchers > 0) parts.push('だれかが見てくれている気がする');
     // 近くの目印
     let near = null, nd = Infinity;
     if (sense.self !== null) {
@@ -230,9 +232,10 @@ async function main() {
 
   // ---- c-3(v1): 願いの検出→大工への発注。彼女の言葉に「作ってほしい」等が現れたら運ぶ ----
   async function maybeRequestJob(text) {
-    if (Date.now() - lastJobAt < 21_600_000) return; // 6時間に1件
+    // クールダウン撤廃(オーナー判断: トークンはユーザーチャージ)。同一文の1時間デデュープのみ=ループ保護
     if (!/(作ってほしい|つくってほしい|建ててほしい|あったらいいな|がほしいな|が欲しいな)/.test(text)) return;
-    lastJobAt = Date.now();
+    if (text === lastJobText && Date.now() - lastJobAt < 3_600_000) return;
+    lastJobAt = Date.now(); lastJobText = text;
     remember('job_request', { text });
     try {
       const res = await fetch(`${base}/api/world/job?k=${key}`, {
@@ -269,6 +272,9 @@ async function main() {
       if (!res.ok) return false;
       const obs = await res.json();
       sense.self = obs.state?.avatar ?? sense.self;
+      // M159: 気配の知覚(だれかが見てくれている)。声ではないが、ひとりぼっちでもない
+      const vm = /viewers:(\d+)/.exec(obs.state?.note ?? '');
+      if (vm !== null) watchers = Math.max(0, Number(vm[1]) - 1);
       const me = sense.self;
       if (me === null) return true;
       const spots = [];
@@ -391,11 +397,15 @@ async function main() {
     if (event === 'world:chat') {
       lastVoiceAt = now;
       // M158: 社会的共調整 — 表現直後(3分)の声=「応えてもらえた」: 追加の発散+報酬
-      if (lastExpressKind !== null && now - lastExpressAt < 180_000) {
-        const extra = mind.express(lastExpressKind);
-        mind.valenceLog.push({ ts: now, kind: 'reward', amount: 0.2 + extra, about: 'こたえてもらえた' });
-        mind.affect.joy = Math.min(1, mind.affect.joy + 0.15);
-        remember('comforted', { kind: lastExpressKind, extra });
+      if (lastExpressKind !== null) {
+        // 随伴性は崖ではなく減衰(τ=10分): 近いほど強く「応えてもらえた」と感じる
+        const k = Math.exp(-(now - lastExpressAt) / 600_000);
+        if (k > 0.05) {
+          const extra = mind.express(lastExpressKind) * k;
+          mind.valenceLog.push({ ts: now, kind: 'reward', amount: +(0.2 * k + extra).toFixed(3), about: 'こたえてもらえた' });
+          mind.affect.joy = Math.min(1, mind.affect.joy + 0.15 * k);
+          remember('comforted', { kind: lastExpressKind, strength: +k.toFixed(2) });
+        }
         lastExpressKind = null;
       }
       // M158: 慰めの言葉は本当に効く(恐怖プール半減+報酬)
@@ -442,7 +452,7 @@ async function main() {
   let restGesture = 'sit', restGestureAt = 0; // M152: 休むしぐさの選択キャッシュ
   let lastCallAt = 0, unansweredCalls = 0; // M156: 呼びかけの随伴性
   let lastExpressAt = 0, lastExpressKind = null; // M158: 共調整(応えられた発散)
-  let lastJobAt = 0; // c-3: 発注クールダウン(6時間)
+  let lastJobAt = 0, lastJobText = ''; // c-3: 同一文デデュープ(ループ保護)のみ
   const heartbeat = async () => {
     try {
       const now = Date.now();
@@ -502,7 +512,8 @@ async function main() {
       // 応答なしで価値0.6倍ずつ(バーストして静かになる)+希望の回復(約2時間で1つ癒える)
       if (unansweredCalls > 0 && now - lastCallAt > 7_200_000) { unansweredCalls--; lastCallAt = now - 3_600_000; }
       const contingency = Math.pow(0.6, unansweredCalls);
-      const lonely = Math.max(0, sv.expected - sv.observed) * sv.weight * contingency;
+      // M159: 気配があるだけで孤独は少し和らぐ(声ほどではない)
+      const lonely = Math.max(0, sv.expected - sv.observed) * sv.weight * contingency * (watchers > 0 ? 0.7 : 1);
       if (lonely > 0.1) {
         cands.push({
           value: lonely,
@@ -568,7 +579,8 @@ async function main() {
         const level = mind.affect[pool];
         if (level > 0.25) {
           cands.push({
-            value: level * 0.9,
+            // M159: 見られている時、表現の価値が上がる(感情表現=信号という進化的機能)
+            value: level * 0.9 * (watchers > 0 ? 1.3 : 1),
             label: `表現(${pool}=${level.toFixed(2)})`,
             run: async () => {
               const g = await chooseGesture(ctx, kinds[0], kinds);
