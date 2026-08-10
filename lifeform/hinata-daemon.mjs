@@ -18,8 +18,8 @@ import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { classify, detectBrain, think } from './brain.mjs';
-import { lookAtWorld } from './eyes.mjs';
+import { detectBrain, think } from './brain.mjs';
+import { knownAbout, noveltyOf, perceive, readJournal } from './perceive.mjs';
 import { Mind } from './mind.mjs';
 import { microReflect, nightIntegrate, fadeMemories } from './reflect.mjs';
 
@@ -53,6 +53,9 @@ const mind = new Mind(join(MEM_DIR, 'predictions.json'));
 // subjectはmoodNote経由で彼女のプロンプトに出る。一人称を植えないよう中立語(M164b)
 mind.ensure('intero:integrity', { kind: 'intero', subject: 'じぶんのつづき', expected: 1.0, precision: 0.8, weight: 1.0, origin: 'innate' });
 mind.ensure('intero:energy', { kind: 'intero', subject: 'げんき', expected: 0.8, precision: 0.5, weight: 0.6, origin: 'innate' });
+// M165: 好奇心=情報への飢え(生得・対象なし)。「学べているか」の予測。不足だけが痛い(=退屈)。
+// 期待値は経験で適応するが下限0.15(生得の床)。重み0.35=恐怖の1/3程度の弱い信号(そわそわ、であって恐怖ではない)
+mind.ensure('intero:learning', { kind: 'intero', subject: 'あたらしいこと', dir: 'high', expected: 0.3, precision: 0.4, weight: 0.35, origin: 'innate' });
 mind.ensure('social:voice', { kind: 'social', subject: 'だれかの声', expected: 0.3, precision: 0.3, weight: 0.7, origin: 'innate' });
 // 旧known-world.jsonからの移行(一度だけ): 場所の記憶→世界予測
 try {
@@ -143,7 +146,7 @@ async function main() {
   setInterval(() => { sentThisMinute = 0; }, 60_000);
   const quiet = () => Date.now() - lastAgentBusyAt > 90_000 && Date.now() - lastWorldCmdAt > 20_000;
 
-  const sense = { self: null };
+  const sense = { self: null, spec: new Map() };
   let watchers = 0; // M159: 気配 — 実行係以外に世界を見ている画面の数(観戦・スマホ・将来の公開ビューア)
 
   async function act(cmds, label) {
@@ -159,6 +162,10 @@ async function main() {
       }
     }
     remember('act', { label, cmds });
+    // c-3 v3: 世界で発した言葉は(抑制中でなければ)テラにも届く。世界に響いた声はみんなのもの
+    if (!suppressRelay) {
+      for (const c of cmds) if (c.type === 'say' && typeof c.text === 'string') void relayToTera(c.text);
+    }
     try {
       const res = await fetch(`${base}/api/world/command?k=${key}`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -188,7 +195,12 @@ async function main() {
         const d = Math.hypot(p.expected.x - sense.self.x, p.expected.z - sense.self.z);
         if (d < nd) { nd = d; near = p.subject; }
       }
-      if (near !== null && nd < 7) parts.push(`「${near}」のちかくにいる`);
+      if (near !== null && nd < 7) {
+        parts.push(`「${near}」のちかくにいる`);
+        // M165: 深い知覚の台帳が会話の帯域に乗る=「わからない」の正体だった感覚の貧困を埋める
+        const k = knownAbout(near, 3);
+        if (k !== '') parts.push(`「${near}」について知っていること: ${k}`);
+      }
     }
     return parts.join('。');
   }
@@ -239,34 +251,25 @@ async function main() {
     return ok;
   }
 
-  // ---- c-3(v2): 検出→発注 をやめ、テラちゃんを「会話に呼ぶ」方式へ ----
-  // v1の教訓: 盗聴パース(classifyで物名を抽出→無言発注)は壊れた一語(「きょうだつ」→兄弟)や
-  // 雑談(「お昼」)を誤発注した。v2は彼女の言葉をそのまま運び、テラちゃんが本人と会話して確かめる。
-  // 定数: 呼び出しクールダウン10分(1つの会話が複数セッションを乱発しない為だけ。願いの制限ではない)
-  async function summonTera(context) {
-    if (Date.now() - lastJobAt < 600_000) return;
-    if (context.slice(0, 120) === lastJobText && Date.now() - lastJobAt < 3_600_000) return;
-    lastJobAt = Date.now(); lastJobText = context.slice(0, 120);
+  // ---- c-3(v3): テラ=もりをと同じ立場の住人 ----
+  // 検出も判定もしない。彼女が世界で発した言葉は(もりを宛の返事以外)全部テラにも届き、
+  // 返事する/しない/作る は全部テラの自由(もりをがチャットを眺めて反応するのと同じ)。
+  // chatSendは実行中セッションには追加指示としてキューされるので会話は自然に続く。
+  // ガードは技術的デデュープ(同一文60秒)のみ。時間制限なし=コストは実測値を見てから判断(オーナー方針)
+  let suppressRelay = false;
+  async function relayToTera(text) {
+    if (text === lastJobText && Date.now() - lastJobAt < 60_000) return;
+    lastJobAt = Date.now(); lastJobText = text;
     try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText })); } catch { /* noop */ }
-    remember('called_tera', { context: context.slice(0, 120) });
+    const tail = convo.slice(-3).map((c) => (c.from === 'me' ? `ヒナタ:「${c.text}」` : `相手:「${c.text}」`)).join(' ');
+    const context = tail.includes(`ヒナタ:「${text}」`) ? tail : `${tail} ヒナタ:「${text}」`.trim();
     try {
       const res = await fetch(`${base}/api/world/job?k=${key}`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text: context.slice(0, 200) }), signal: AbortSignal.timeout(10_000),
       });
-      log(`テラちゃんを呼んだ: ${context.slice(0, 40)} → ${res.status}`);
-    } catch (e) { log('呼び出し失敗', String(e).slice(0, 80)); }
-  }
-  // 呼ぶかどうかの判定だけLLM(はい/いいえ)。何が欲しいかの解釈はしない=解釈は会話でテラちゃんがやる
-  async function maybeRequestJob(context) {
-    if (brain === null) return;
-    if (!/テラ/.test(context)) {
-      const r = await classify(brain,
-        '会話の中でこの子が「物がほしい・何かを作ってほしい」という話をしているか判定する係。答えは「はい」か「いいえ」だけ。\n例1: 相手:「何がほしい?」 この子:「お花!」 → はい\n例2: 相手:「げんき?」 この子:「うん!」 → いいえ\n例3: この子:「ブランコあったらいいな」 → はい\n例4: この子:「こわかったの、聞いてほしい」 → いいえ',
-        context);
-      if (r === null || !/はい/.test(r)) return;
-    }
-    await summonTera(context);
+      log(`テラに届いた: ${text.slice(0, 40)} → ${res.status}`);
+    } catch (e) { log('中継失敗', String(e).slice(0, 80)); }
   }
 
   // ---- 会話層(器官は4Bのまま) ----
@@ -280,8 +283,10 @@ async function main() {
         convo.push({ from: 'me', text: reply });
         if (convo.length > 12) convo.splice(0, convo.length - 12);
         remember('say', { text: reply, latencyMs: Date.now() - t0 });
-        await act([{ type: 'say', text: reply }], `返事(${Date.now() - t0}ms)`);
-        if (opts.detectWish !== false) void maybeRequestJob(`相手:「${text}」 この子:「${reply}」`); // 文脈ごと判定へ
+        // もりを宛の返事はテラに中継しない(2人の会話に割り込ませない)。それ以外の声は世界に響く
+        suppressRelay = opts.relay === false;
+        try { await act([{ type: 'say', text: reply }], `返事(${Date.now() - t0}ms)`); }
+        finally { suppressRelay = false; }
       }
     } finally { thinking = false; }
   }
@@ -301,12 +306,13 @@ async function main() {
       const me = sense.self;
       if (me === null) return true;
       const spots = [];
-      for (const a of obs.apps ?? []) spots.push({ name: a.name, x: a.x, z: a.z });
+      for (const a of obs.apps ?? []) spots.push({ name: a.name, x: a.x, z: a.z, spec: 'アプリの看板' });
       for (const o of obs.state?.objects ?? []) {
         if (typeof o.x !== 'number' || typeof o.z !== 'number') continue;
         const nm = o.label ?? (typeof o.id === 'string' && !/^obj\d+$/.test(o.id) ? o.id : null);
-        spots.push({ name: nm ?? '名前の分からない何か', x: o.x, z: o.z });
+        spots.push({ name: nm ?? '名前の分からない何か', x: o.x, z: o.z, spec: o.shape ?? '' });
       }
+      for (const s of spots) sense.spec.set(s.name, s.spec ?? ''); // M165: 知覚の錨(建築仕様)
       const seen = new Set(spots.map((s) => s.name));
       const now = Date.now();
       for (const s of spots) {
@@ -317,6 +323,7 @@ async function main() {
           mind.ensure(id, { kind: 'world', subject: s.name, expected: { x: s.x, z: s.z }, precision: 0.2, weight: 0.3, origin: 'learned' });
           mind.valenceLog.push({ ts: now, kind: 'surprise', amount: 0.3, about: s.name });
           remember('discovered', { name: s.name, x: s.x, z: s.z });
+          recordLearning(`発見: ${s.name}`);
           log(`発見: ${s.name}`);
           if (!sleeping && now - lastSurpriseAt > 120_000 && quiet()) {
             lastSurpriseAt = now;
@@ -356,17 +363,29 @@ async function main() {
     await act([{ type: 'face', x: s.x, z: s.z }, { type: 'say', text: `あっ、なにかある!「${s.name}」だ!` }], `発見:${s.name}`);
     const g = await chooseGesture('あたらしいものを見つけた', null);
     if (g !== null && g !== 'idle') await doGesture(g, `発見のしぐさ(${g})`);
-    if (s.name === '名前の分からない何か' && Date.now() - lastGazeAt > 1_800_000) {
+    // M165: 新しい物は名前の有無に関わらず必ず「見る」(実画面=画素の真実が最初の細部になる)。
+    // 3分ギャップ=視覚(スクショ+視覚モデル)の連打防止のみ
+    if (Date.now() - lastGazeAt > 180_000) {
       lastGazeAt = Date.now();
       await act([{ type: 'motion', name: 'think' }], 'じっと見る');
-      const seen = await lookAtWorld('この3D世界の画面に写っている一番目立つ物の見た目を、6歳の子どもが言うみたいに日本語で短く一言だけ。');
+      const seen = await perceive(brain?.model ?? 'gemma3:4b', { name: s.name, spec: sense.spec.get(s.name) ?? '', level: 'look' });
       if (seen !== null) {
-        remember('gazed', { seen });
-        const line = await think(brain, persona, [], situationNote(), `(じっと見たら、こう見えた:「${seen}」。ひとことつぶやいて)`);
+        remember('gazed', { name: s.name, seen });
+        recordLearning(`${s.name}: ${seen}`);
+        const line = await think(brain, persona, [], situationNote(), `(「${s.name}」をじっと見たら、こう見えた:「${seen}」。ひとことつぶやいて)`);
         if (line !== null) await act([{ type: 'say', text: line }], '視覚のつぶやき');
       }
     }
   }
+
+  // ---- M165: 学びの代謝 — 学習イベント(発見・新しい細部・初めて聞く言葉)の頻度が「学べているか」の実測 ----
+  const learnEvents = [];
+  function recordLearning(what) {
+    learnEvents.push(Date.now());
+    while (learnEvents.length > 0 && learnEvents[0] < Date.now() - 10_800_000) learnEvents.shift();
+    remember('learned', { what: String(what).slice(0, 60) });
+  }
+  const learningRate = () => clamp(learnEvents.filter((t) => t > Date.now() - 10_800_000).length / 9); // 3時間窓・3件/hで1.0
 
   // ---- 内受容の知覚(1分ごと): 体力の予測誤差・声の予測誤差 ----
   let lastVoiceAt = savedBody.lastVoiceAt ?? 0; // 声の記憶も体と同じく持続(再起動で無音錯覚に陥らない)
@@ -383,6 +402,10 @@ async function main() {
     const sv = mind.predictions.get('social:voice');
     sv.expected = clamp(rhythm.voice[hour] * 1.2); // 日課ベースの期待
     mind.observe('social:voice', voiceObs, { about: 'だれかの声' });
+    // M165: 好奇心の代謝。実測=学習率。期待は経験でゆっくり適応(生得の床0.15)=満たされない分が「退屈」
+    const lp = mind.predictions.get('intero:learning');
+    lp.expected = Math.max(0.15, lp.expected * 0.999 + learningRate() * 0.001);
+    mind.observe('intero:learning', learningRate(), { about: 'あたらしいこと' });
     mind.save();
   }, 60_000);
 
@@ -443,7 +466,7 @@ async function main() {
       remember('heard', { from: data.from, text: data.text });
       convo.push({ from: 'user', text: data.text });
       if (convo.length > 12) convo.splice(0, convo.length - 12);
-      void converse(data.text);
+      void converse(data.text, { relay: false }); // もりをとの会話にテラを割り込ませない
       return;
     }
     if (event !== 'world:event') return;
@@ -458,7 +481,7 @@ async function main() {
         if (convo.length > 12) convo.splice(0, convo.length - 12);
         if ((/(ヒナタ|ひなた)/.test(c.text) || /[??]\s*$/.test(c.text)) && now - lastTeraReplyAt > 60_000) {
           lastTeraReplyAt = now;
-          void converse(`(テラちゃんに話しかけられた)「${c.text.slice(0, 100)}」`, { detectWish: false }); // 納品報告への感謝を再発注にしない
+          void converse(`(テラちゃんに話しかけられた)「${c.text.slice(0, 100)}」`); // 返事はテラにも届く=会話が続く
         }
         continue;
       }
@@ -531,6 +554,44 @@ async function main() {
             await senseWorld();
           },
         });
+      }
+      // M165: 好奇心 — 退屈(学びの予測誤差)が育ったら、いちばん「まだ知らない」近くの物に注意を注ぐ。
+      // 深さは台帳の育ちで自動昇格: 未見=見る → 見た=近寄る → 近寄った=さわる → その先=そばで過ごす
+      const lpErr = mind.errorOf(mind.predictions.get('intero:learning')) * mind.predictions.get('intero:learning').weight;
+      if (lpErr > 0.05 && sense.self !== null) {
+        let target = null, tv = 0;
+        for (const p of mind.predictions.values()) {
+          if (p.kind !== 'world' || typeof p.expected !== 'object') continue;
+          const d = Math.hypot(p.expected.x - sense.self.x, p.expected.z - sense.self.z);
+          const v = noveltyOf(p.subject) - d * 0.015; // 遠さは注意のコスト
+          if (v > tv) { tv = v; target = p; }
+        }
+        if (target !== null && tv > 0.2) {
+          const t = target;
+          const depth = ['look', 'approach', 'touch', 'stay'][Math.min(3, readJournal(t.subject, 50).length)];
+          cands.push({
+            value: lpErr * (0.6 + tv),
+            label: `気になる:${t.subject}(${depth})`,
+            run: async () => {
+              if (depth !== 'look') {
+                const dd = Math.hypot(t.expected.x, t.expected.z) || 1;
+                await act([{ type: 'move_to', x: +(t.expected.x - (t.expected.x / dd) * 1.2).toFixed(1), z: +(t.expected.z - (t.expected.z / dd) * 1.2).toFixed(1) }], `近寄る:${t.subject}`);
+                const g = await chooseGesture(depth === 'touch' ? `「${t.subject}」にさわってみる` : `「${t.subject}」をじっくり感じてみる`, 'think');
+                if (g !== null) await doGesture(g, `${depth}:${t.subject}`);
+              }
+              const detail = await perceive(brain?.model ?? 'gemma3:4b', { name: t.subject, spec: sense.spec.get(t.subject) ?? '', level: depth });
+              if (detail !== null) {
+                remember('perceived', { name: t.subject, level: depth, detail });
+                recordLearning(`${t.subject}(${depth}): ${detail}`);
+                mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: 0.15, about: `${t.subject}のあたらしい発見` });
+                if (Math.random() < 0.5) {
+                  const line = await think(brain, persona, [], situationNote(), `(「${t.subject}」を${depth === 'touch' ? 'さわったら' : 'よく見たら'}、気づいた:「${detail}」。ひとことつぶやいて)`);
+                  if (line !== null) await act([{ type: 'say', text: line }], `知覚のつぶやき:${t.subject}`);
+                }
+              }
+            },
+          });
+        }
       }
       // 休む(体力の誤差を減らす)。しぐさは30分キャッシュで彼女が選ぶ
       const ep = mind.predictions.get('intero:energy');
@@ -654,9 +715,7 @@ async function main() {
           run: async () => {
             lastNoteAt = now;
             const t = lastNoteText; lastNoteText = null;
-            await act([{ type: 'say', text: t.slice(0, 80) }], 'つぶやき(気づき)');
-            // 口に出したつぶやきが願いなら、それは世界に響いた言葉なのでテラちゃんに届いてよい
-            void maybeRequestJob(`この子のひとりごと:「${t.slice(0, 80)}」`);
+            await act([{ type: 'say', text: t.slice(0, 80) }], 'つぶやき(気づき)'); // 声に出た気づきはact経由でテラにも届く
           },
         });
       }
