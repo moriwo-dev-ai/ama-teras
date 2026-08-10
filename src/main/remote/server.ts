@@ -400,8 +400,9 @@ export class RemoteServer {
       if (!Array.isArray(cmds) || cmds.length === 0 || cmds.length > 10) {
         throw new HttpError(400, 'cmds(1〜10件の配列)が必要');
       }
-      // 生命体はアイドル演出専用: 破壊系・録画・アプリ操作系は経路ごと遮断する(誤動作の爆風半径を絞る)
-      const allowed = new Set(['say', 'motion', 'move_to', 'face']);
+      // 生命体の手: 破壊系(app_close/app_remove/spawn等)・録画は経路ごと遮断のまま。
+      // M166: アプリの操作(開く/見る/押す/書く/読む/離れる)は解放=「入力への反応」を知覚できる身体
+      const allowed = new Set(['say', 'motion', 'move_to', 'face', 'app_open', 'app_scan', 'app_click', 'app_type', 'app_read', 'app_leave']);
       const banned = (cmds as { type?: unknown }[]).find((c) => typeof c.type !== 'string' || !allowed.has(c.type));
       if (banned !== undefined) throw new HttpError(400, `生命体デーモンが使えるのは say/motion/move_to/face のみ`);
       // M154(話者分離): この経路の発言は生命体のもの。チャットログでagent(思考層)と区別する
@@ -1132,6 +1133,31 @@ const WORLD_APP_HELPER = `
       try { src.postMessage({ amaWorldOpResult: payload }, '*'); } catch (e) {}
     }
     try {
+      // M166: scan=押せる物の列挙(ヒナタの「子どもの手」用。selector不要・副作用なし)
+      if (req.op === 'scan') {
+        var els = document.querySelectorAll('button, input, select, textarea, a, [onclick], [role="button"]');
+        var out = [];
+        var selOf = function (n) {
+          var parts = [];
+          while (n && n !== document.body && parts.length < 6) {
+            var i = 1, s = n;
+            while ((s = s.previousElementSibling) !== null) i++;
+            parts.unshift(n.tagName.toLowerCase() + ':nth-child(' + i + ')');
+            n = n.parentElement;
+          }
+          return parts.join('>');
+        };
+        for (var k = 0; k < els.length && out.length < 12; k++) {
+          var e2 = els[k];
+          var r2 = e2.getBoundingClientRect();
+          if (r2.width < 2 || r2.height < 2) continue;
+          var lb = String(e2.value || e2.textContent || e2.placeholder || e2.getAttribute('aria-label') || '').trim().slice(0, 12);
+          out.push({ sel: selOf(e2), label: lb, kind: e2.tagName.toLowerCase() });
+        }
+        var scr = String(document.body.innerText || '').split('\\n').join(' ').split('"').join('').slice(0, 160);
+        reply({ ok: true, items: out, text: scr });
+        return;
+      }
       var el = document.querySelector(req.selector);
       if (!el) { reply({ ok: false, error: 'selector が見つからない: ' + req.selector }); return; }
       if (el.scrollIntoView) el.scrollIntoView({ block: 'center' });

@@ -84,6 +84,11 @@ export async function perceive(brainModel, { name, spec = '', level }) {
   } catch { return null; }
 }
 
+/** 外から観測した細部を台帳に記す(アプリ操作の反応など、生成ではなく実測の知覚) */
+export function noteDetail(name, level, detail) {
+  appendJournal(name, { ts: new Date().toISOString(), level, tod: tod(), detail: String(detail).slice(0, 120) });
+}
+
 /** 会話・内省用: この物について知っていることの要約(狭い帯域に収まる形) */
 export function knownAbout(name, limit = 3) {
   const j = readJournal(name, limit);

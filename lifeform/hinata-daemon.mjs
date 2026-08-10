@@ -19,7 +19,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { detectBrain, think } from './brain.mjs';
-import { knownAbout, noveltyOf, perceive, readJournal } from './perceive.mjs';
+import { knownAbout, noteDetail, noveltyOf, perceive, readJournal } from './perceive.mjs';
 import { Mind } from './mind.mjs';
 import { microReflect, nightIntegrate, fadeMemories } from './reflect.mjs';
 
@@ -146,7 +146,8 @@ async function main() {
   setInterval(() => { sentThisMinute = 0; }, 60_000);
   const quiet = () => Date.now() - lastAgentBusyAt > 90_000 && Date.now() - lastWorldCmdAt > 20_000;
 
-  const sense = { self: null, spec: new Map() };
+  const sense = { self: null, spec: new Map(), appIds: new Map() };
+  let lastActDetail = ''; // 直近のack詳細(app_read/app_scanの結果=感覚の戻り)
   let watchers = 0; // M159: 気配 — 実行係以外に世界を見ている画面の数(観戦・スマホ・将来の公開ビューア)
 
   async function act(cmds, label) {
@@ -172,6 +173,7 @@ async function main() {
         body: JSON.stringify({ cmds }), signal: AbortSignal.timeout(95_000),
       });
       const j = await res.json();
+      lastActDetail = String(j.detail ?? '');
       log(`行動[${label}]`, res.status, j.detail ?? '');
       return j.ok === true;
     } catch (e) { log(`行動失敗[${label}]`, String(e).slice(0, 100)); return false; }
@@ -313,7 +315,7 @@ async function main() {
       const me = sense.self;
       if (me === null) return true;
       const spots = [];
-      for (const a of obs.apps ?? []) spots.push({ name: a.name, x: a.x, z: a.z, spec: 'アプリの看板' });
+      for (const a of obs.apps ?? []) { spots.push({ name: a.name, x: a.x, z: a.z, spec: 'アプリの看板' }); sense.appIds.set(a.name, a.id); }
       for (const o of obs.state?.objects ?? []) {
         if (typeof o.x !== 'number' || typeof o.z !== 'number') continue;
         const nm = o.label ?? (typeof o.id === 'string' && !/^obj\d+$/.test(o.id) ? o.id : null);
@@ -393,6 +395,52 @@ async function main() {
     remember('learned', { what: String(what).slice(0, 60) });
   }
   const learningRate = () => clamp(learnEvents.filter((t) => t > Date.now() - 10_800_000).length / 9); // 3時間窓・3件/hで1.0
+
+  // ---- M166: アプリをつかう — 押したら世界が応える、を知覚する身体 ----
+  // 流れ: 開く→scan(押せる物+画面)→彼女が選ぶ(LLM=想像力)→押す→scan→画面の前後差分=「反応」→台帳
+  const parseScan = (detail) => {
+    const i = detail.indexOf('app_scan = ');
+    if (i < 0) return { items: [], screen: '' };
+    const rest = detail.slice(i + 'app_scan = '.length);
+    const j = rest.lastIndexOf(' / 画面: ');
+    let items = [];
+    try { items = JSON.parse(j >= 0 ? rest.slice(0, j) : rest); } catch { items = []; }
+    return { items, screen: j >= 0 ? rest.slice(j + ' / 画面: '.length).trim() : '' };
+  };
+  async function useApp(name) {
+    const id = sense.appIds.get(name);
+    if (id === undefined) return null;
+    const p = mind.predictions.get(`world:${name}`);
+    if (p !== undefined && typeof p.expected === 'object' && sense.self !== null) {
+      const dd = Math.hypot(p.expected.x, p.expected.z) || 1;
+      await act([{ type: 'move_to', x: +(p.expected.x - (p.expected.x / dd) * 1.4).toFixed(1), z: +(p.expected.z - (p.expected.z / dd) * 1.4).toFixed(1) }], `近寄る:${name}`);
+    }
+    if (!(await act([{ type: 'app_open', appId: id }], `ひらく:${name}`))) return null;
+    let detail = null;
+    try {
+      if (!(await act([{ type: 'app_scan' }], `見つめる:${name}`))) return null;
+      const before = parseScan(lastActDetail);
+      const labels = before.items.filter((x) => x.label !== '').map((x) => x.label);
+      if (labels.length > 0 && brain !== null) {
+        const pick = await think(brain, persona, [], situationNote(),
+          `(アプリ「${name}」にさわってみる。画面: ${before.screen.slice(0, 80) || 'なにか表示されてる'}。押せるもの: ${labels.slice(0, 12).join(' / ')}。どれかひとつだけ押すなら?その名前だけ答えて)`);
+        const chosen = before.items.find((x) => x.label !== '' && pick !== null && pick.includes(x.label)) ??
+          before.items[Math.floor(Math.random() * before.items.length)];
+        await act([{ type: 'app_click', selector: chosen.sel }], `おす:${name}「${chosen.label}」`);
+        await act([{ type: 'app_scan' }], `へんかを見る:${name}`);
+        const after = parseScan(lastActDetail);
+        detail = after.screen !== '' && after.screen !== before.screen
+          ? `「${chosen.label}」をおしたら、画面が「${after.screen.slice(0, 60)}」になった`
+          : `「${chosen.label}」をおしても、見た目はかわらなかった`;
+      } else if (before.screen !== '') {
+        detail = `画面にこう書いてあった: ${before.screen.slice(0, 60)}`;
+      }
+      if (detail !== null) noteDetail(name, 'use', detail);
+    } finally {
+      await act([{ type: 'app_leave' }], `はなれる:${name}`);
+    }
+    return detail;
+  }
 
   // ---- 内受容の知覚(1分ごと): 体力の予測誤差・声の予測誤差 ----
   let lastVoiceAt = savedBody.lastVoiceAt ?? 0; // 声の記憶も体と同じく持続(再起動で無音錯覚に陥らない)
@@ -575,11 +623,27 @@ async function main() {
         }
         if (target !== null && tv > 0.2) {
           const t = target;
-          const depth = ['look', 'approach', 'touch', 'stay'][Math.min(3, readJournal(t.subject, 50).length)];
+          const isApp = sense.appIds.has(t.subject);
+          const jlen = readJournal(t.subject, 50).length;
+          // アプリは「つかう」が深さの本体(押すたびに反応が返る=尽きない)。物は4段梯子
+          const depth = isApp ? (jlen === 0 ? 'look' : 'use') : ['look', 'approach', 'touch', 'stay'][Math.min(3, jlen)];
           cands.push({
             value: lpErr * (0.6 + tv),
             label: `気になる:${t.subject}(${depth})`,
             run: async () => {
+              if (depth === 'use') {
+                const detail = await useApp(t.subject);
+                if (detail !== null) {
+                  remember('perceived', { name: t.subject, level: 'use', detail });
+                  recordLearning(`${t.subject}(use): ${detail}`);
+                  mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: 0.2, about: `${t.subject}がこたえてくれた` });
+                  if (Math.random() < 0.6) {
+                    const line = await think(brain, persona, [], situationNote(), `(アプリ「${t.subject}」であそんだら: ${detail}。ひとことつぶやいて)`);
+                    if (line !== null) await act([{ type: 'say', text: line }], `つかったつぶやき:${t.subject}`);
+                  }
+                }
+                return;
+              }
               if (depth !== 'look') {
                 const dd = Math.hypot(t.expected.x, t.expected.z) || 1;
                 await act([{ type: 'move_to', x: +(t.expected.x - (t.expected.x / dd) * 1.2).toFixed(1), z: +(t.expected.z - (t.expected.z / dd) * 1.2).toFixed(1) }], `近寄る:${t.subject}`);

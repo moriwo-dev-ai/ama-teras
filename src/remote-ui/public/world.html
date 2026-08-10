@@ -1158,6 +1158,12 @@ async function runCommand(c, quiet = false) {
       pendingNotes.push(`app_read ${c.selector} = ${JSON.stringify(r.text ?? '')}`);
       return;
     }
+    case 'app_scan': { // M166: 押せる物の列挙+画面テキスト(ヒナタの知覚用)
+      const r = await appOp('scan', 'body');
+      touchAppIdle();
+      pendingNotes.push(`app_scan = ${JSON.stringify(r.items ?? [])} / 画面: ${r.text ?? ''}`);
+      return;
+    }
     default: throw new Error(`未知のコマンド: ${c.type}`);
   }
 }
