@@ -24,7 +24,8 @@ const day = process.argv[2] ?? localDay(new Date(Date.now() - 86_400_000));
 // ---- コーパスA: 設計者由来(彼女に注がれた全テキスト) ----
 function designerCorpus() {
   let s = '';
-  for (const f of ['core.md', 'self.md', 'world-map.md']) {
+  // removed-seeds.md: 撤去済みの設計種。プロンプトには入らないが「注がれた言葉」の事実は消えないので監査には残す
+  for (const f of ['core.md', 'self.md', 'world-map.md', 'removed-seeds.md']) {
     try { s += readFileSync(join(HERE, 'persona', f), 'utf8') + '\n'; } catch { /* なし */ }
   }
   // デーモン・反芻のソースに埋まった定型句・プロンプト文言も全て設計者由来

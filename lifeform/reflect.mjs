@@ -94,7 +94,9 @@ function materialOf(episodes, limit = 60) {
 /** 昼のマイクロ内省: 生エピソードのみ→1〜2行の気づき。notes-DAY.jsonl へ */
 export async function microReflect(dayModel, sinceTs) {
   const day = localDay();
-  const eps = readEpisodes(day).filter((e) => (e.ts ?? '') > sinceTs);
+  // エコー抑制: 自分の発言を材料に含めると口癖が自己強化ループに入る(「ねむいかも」54回/日の実測)。
+  // 昼のぼんやり内省は外界(聞いた・見た・起きた)だけを思い返す。夜の統合は全部見る
+  const eps = readEpisodes(day).filter((e) => (e.ts ?? '') > sinceTs && e.kind !== 'say');
   if (eps.length < 3) return null;
   const note = await ask(
     dayModel,
