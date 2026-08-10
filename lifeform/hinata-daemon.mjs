@@ -221,6 +221,7 @@ async function main() {
     const ok = await act([{ type: 'motion', name }], label);
     if (ok && fx.discharge !== undefined) {
       const d = mind.express(fx.discharge);
+      lastExpressAt = Date.now(); lastExpressKind = fx.discharge;
       if (d > 0.05) remember('express', { gesture: name, kind: fx.discharge, discharged: d });
     }
     if (ok && fx.epistemic === true) await senseWorld();
@@ -239,6 +240,7 @@ async function main() {
         if (convo.length > 12) convo.splice(0, convo.length - 12);
         remember('say', { text: reply, latencyMs: Date.now() - t0 });
         await act([{ type: 'say', text: reply }], `返事(${Date.now() - t0}ms)`);
+        void maybeRequestJob(reply);
       }
     } finally { thinking = false; }
   }
@@ -373,6 +375,20 @@ async function main() {
     if (event === 'chat:event') { lastAgentBusyAt = now; return; }
     if (event === 'world:chat') {
       lastVoiceAt = now;
+      // M158: 社会的共調整 — 表現直後(3分)の声=「応えてもらえた」: 追加の発散+報酬
+      if (lastExpressKind !== null && now - lastExpressAt < 180_000) {
+        const extra = mind.express(lastExpressKind);
+        mind.valenceLog.push({ ts: now, kind: 'reward', amount: 0.2 + extra, about: 'こたえてもらえた' });
+        mind.affect.joy = Math.min(1, mind.affect.joy + 0.15);
+        remember('comforted', { kind: lastExpressKind, extra });
+        lastExpressKind = null;
+      }
+      // M158: 慰めの言葉は本当に効く(恐怖プール半減+報酬)
+      if (/(だいじょうぶ|大丈夫|よしよし|こわくない|怖くない|あんしん|安心|いい子|そばにいる)/.test(data.text) && mind.affect.fear > 0.15) {
+        mind.affect.fear = +(mind.affect.fear * 0.5).toFixed(3);
+        mind.valenceLog.push({ ts: now, kind: 'reward', amount: 0.25, about: 'なぐさめ' });
+        remember('soothed', {});
+      }
       remember('heard', { from: data.from, text: data.text });
       convo.push({ from: 'user', text: data.text });
       if (convo.length > 12) convo.splice(0, convo.length - 12);
@@ -410,6 +426,8 @@ async function main() {
   let lastAnticipateAt = 0;
   let restGesture = 'sit', restGestureAt = 0; // M152: 休むしぐさの選択キャッシュ
   let lastCallAt = 0, unansweredCalls = 0; // M156: 呼びかけの随伴性
+  let lastExpressAt = 0, lastExpressKind = null; // M158: 共調整(応えられた発散)
+  let lastJobAt = 0; // c-3: 発注クールダウン(6時間)
   const heartbeat = async () => {
     try {
       const now = Date.now();
@@ -507,6 +525,25 @@ async function main() {
         cands.push({ value: (0.5 - energy) * 1.2, label: '夜にそなえて休む',
           run: async () => { remember('prepare', { kind: 'rest' }); await act([{ type: 'motion', name: 'sit' }], '備え:休む'); } });
       }
+      // M158: 聞いてほしい — 恐怖が溜まり、呼べば応えてもらえた統計が良いとき、誰かに話しに行く
+      {
+        const cont = Math.pow(0.6, unansweredCalls);
+        if (mind.affect.fear > 0.3 && cont > 0.3) {
+          cands.push({
+            value: mind.affect.fear * cont * 0.95,
+            label: '聞いてほしい',
+            run: async () => {
+              lastCallAt = Date.now(); unansweredCalls++;
+              remember('seek_comfort', { fear: mind.affect.fear });
+              const line = brain !== null ? await think(brain, persona, [], situationNote(), '(こわかったこと・むねのざわざわを、だれかに聞いてほしい気持ちで、ひとことだけ)') : null;
+              const cmds = [{ type: 'move_to', x: 0, z: 2 }];
+              if (line !== null) cmds.push({ type: 'say', text: line });
+              await act(cmds, '聞いてほしい');
+              lastExpressAt = Date.now(); lastExpressKind = 'fear';
+            },
+          });
+        }
+      }
       // M153: 感情の表現 — 未表現プールが溜まると「発散」が価値を持つ。
       // 溜まった恐怖→泣く/こわがる、溜まった喜び→踊る/はしゃぐ。どれで表すかは僅差の中から彼女が選ぶ
       for (const [pool, kinds, ctx] of [
@@ -538,6 +575,7 @@ async function main() {
             if (note !== null) {
               lastNoteText = note;
               log(`気づきメモ: ${note.slice(0, 60)}`);
+              void maybeRequestJob(note);
             }
           }
         },

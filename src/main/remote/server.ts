@@ -362,6 +362,18 @@ export class RemoteServer {
       await writeFile(file, Buffer.concat(chunks));
       return sendJson(res, 200, { ok: true, file });
     }
+    // c-3(ジョブキューv1): 生命体→大工(思考層)への発注。ループバック+実行キー限定。
+    // エージェント側の既存ガードレール・承認フローを全て通過する(直接の世界操作ではない)
+    if (path === '/api/world/job' && req.method === 'POST' && this.isWorldExecutor(req, url)) {
+      const body = await readJsonBody(req);
+      const text = body['text'];
+      if (typeof text !== 'string' || text.trim() === '' || text.length > 200) throw new HttpError(400, 'text(200字以内)が必要');
+      const r = this.deps.facade.chatSend(
+        `【世界の住人ヒナタからのお願い】「${text.trim()}」— 可能なら世界に作ってあげて(world_actの建築のみ。無理なら理由を世界でやさしく一言)。完成したら世界で短く報告すること。ヒナタを名乗らないこと。`,
+        'normal',
+      );
+      return sendJson(res, 200, { ok: true, sessionId: r.sessionId });
+    }
     // b案P3(知覚拡張): 生命体が世界を見る(読み取り専用)。ループバック+実行キー限定
     if (path === '/api/world/state' && req.method === 'GET' && this.isWorldExecutor(req, url)) {
       if (this.deps.world?.observe === undefined) throw new HttpError(404, 'world observe 未注入');
