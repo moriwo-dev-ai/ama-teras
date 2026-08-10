@@ -49,8 +49,8 @@
     justify-content: center; text-align: center; color: #5a6b9e; font-size: 14px; line-height: 2; padding: 20px; }
   #home { position: fixed; top: 6px; left: 10px; z-index: 31; border: none; background: #fff; color: #5a6b9e;
     font-size: 15px; padding: 5px 12px; border-radius: 999px; box-shadow: 0 2px 12px rgba(90,123,216,.25); }
-  /* M163b: 会話ログページへの入口(配信オーバーレイでは非表示) */
-  #loglink { position: fixed; top: 6px; left: 56px; z-index: 31; border: none; background: #fff; color: #5a6b9e;
+  /* M163b: 会話ログページへの入口(配信オーバーレイでは非表示)。中央バッジと被らないよう右端 */
+  #loglink { position: fixed; top: 6px; right: 10px; z-index: 31; border: none; background: #fff; color: #5a6b9e;
     font-size: 13px; padding: 6px 12px; border-radius: 999px; box-shadow: 0 2px 12px rgba(90,123,216,.25); }
   body.spectate #loglink { display: none; }
   /* M120: アプリオーバーレイ(2Dで使う。3Dは見つける場所) */
