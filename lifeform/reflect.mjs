@@ -144,7 +144,7 @@ export async function nightIntegrate(day) {
 
   mkdirSync(join(MEM, 'diary'), { recursive: true });
   const out = [
-    `# ${day} のわたし`, '',
+    `# ${day} の日記`, '',
     '## 日記', diary ?? '(書けなかった)', '',
     '## じぶんについて', selfObs ?? 'なし', '',
     '## 記憶にのこすもの', keepList ?? '(えらべなかった)', '',

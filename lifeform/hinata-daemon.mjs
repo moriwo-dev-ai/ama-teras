@@ -50,7 +50,8 @@ for (const f of ['self.md', 'world-map.md']) {
 // ---------- 心(予測の束) ----------
 const mind = new Mind(join(MEM_DIR, 'predictions.json'));
 // 生得の予測(innate): 自己連続性(賭け金・最重量)と、体力・声
-mind.ensure('intero:integrity', { kind: 'intero', subject: 'わたしのつづき', expected: 1.0, precision: 0.8, weight: 1.0, origin: 'innate' });
+// subjectはmoodNote経由で彼女のプロンプトに出る。一人称を植えないよう中立語(M164b)
+mind.ensure('intero:integrity', { kind: 'intero', subject: 'じぶんのつづき', expected: 1.0, precision: 0.8, weight: 1.0, origin: 'innate' });
 mind.ensure('intero:energy', { kind: 'intero', subject: 'げんき', expected: 0.8, precision: 0.5, weight: 0.6, origin: 'innate' });
 mind.ensure('social:voice', { kind: 'social', subject: 'だれかの声', expected: 0.3, precision: 0.3, weight: 0.7, origin: 'innate' });
 // 旧known-world.jsonからの移行(一度だけ): 場所の記憶→世界予測
