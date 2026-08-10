@@ -53,9 +53,10 @@ const mind = new Mind(join(MEM_DIR, 'predictions.json'));
 // subjectはmoodNote経由で彼女のプロンプトに出る。一人称を植えないよう中立語(M164b)
 mind.ensure('intero:integrity', { kind: 'intero', subject: 'じぶんのつづき', expected: 1.0, precision: 0.8, weight: 1.0, origin: 'innate' });
 mind.ensure('intero:energy', { kind: 'intero', subject: 'げんき', expected: 0.8, precision: 0.5, weight: 0.6, origin: 'innate' });
-// M165: 好奇心=情報への飢え(生得・対象なし)。「学べているか」の予測。不足だけが痛い(=退屈)。
-// 期待値は経験で適応するが下限0.15(生得の床)。重み0.35=恐怖の1/3程度の弱い信号(そわそわ、であって恐怖ではない)
-mind.ensure('intero:learning', { kind: 'intero', subject: 'あたらしいこと', dir: 'high', expected: 0.3, precision: 0.4, weight: 0.35, origin: 'innate' });
+// M165: 好奇心=情報への飢え(生得・対象なし)。「学べているか」の予測。不足は弱い退屈(背景)。
+// M168: 主動力は退屈(マイナス)ではなく快楽バースト(プラス)へ交代 → 重み0.35→0.2に降格。
+// 期待値は経験で適応するが下限0.15(生得の床)
+mind.ensure('intero:learning', { kind: 'intero', subject: 'あたらしいこと', dir: 'high', expected: 0.3, precision: 0.4, weight: 0.2, origin: 'innate' });
 mind.ensure('social:voice', { kind: 'social', subject: 'だれかの声', expected: 0.3, precision: 0.3, weight: 0.7, origin: 'innate' });
 // 旧known-world.jsonからの移行(一度だけ): 場所の記憶→世界予測
 try {
@@ -85,6 +86,9 @@ let energy = 0.8;           // 物理資源: 歩けば減り、休めば戻る
 let savedBody = {};
 try { savedBody = JSON.parse(readFileSync(join(MEM_DIR, 'body.json'), 'utf8')); } catch { /* 初生 */ }
 energy = savedBody.energy ?? 0.8;
+// M168: 快の記憶 — 「新しいことは気持ちいい」の学習された期待。バーストのたびに更新され、探索を"求めて"駆動する。
+// 初期値0.4=生得の楽観(初めての快を経験する前から、世界は良いものかもしれないと思える)
+let pleasureMemory = savedBody.pleasureMemory ?? 0.4;
 let sleeping = false;
 let walkedToday = 0;
 const circadian = () => { const h = new Date().getHours() + new Date().getMinutes() / 60; return h >= 7 && h < 23 ? 0.85 : h >= 6 ? 0.5 : 0.15; };
@@ -262,7 +266,7 @@ async function main() {
   async function relayToTera(text) {
     if (text === lastJobText && Date.now() - lastJobAt < 60_000) return;
     lastJobAt = Date.now(); lastJobText = text;
-    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText })); } catch { /* noop */ }
+    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory })); } catch { /* noop */ }
     const tail = convo.slice(-3).map((c) => (c.from === 'me' ? `ヒナタ:「${c.text}」` : `相手:「${c.text}」`)).join(' ');
     const context = tail.includes(`ヒナタ:「${text}」`) ? tail : `${tail} ヒナタ:「${text}」`.trim();
     try {
@@ -333,6 +337,7 @@ async function main() {
           mind.valenceLog.push({ ts: now, kind: 'surprise', amount: 0.3, about: s.name });
           remember('discovered', { name: s.name, x: s.x, z: s.z });
           recordLearning(`発見: ${s.name}`);
+          euphoria(1, `はじめての「${s.name}」`); // M168: 出会いは最大の快
           log(`発見: ${s.name}`);
           if (!sleeping && now - lastSurpriseAt > 120_000 && quiet()) {
             lastSurpriseAt = now;
@@ -395,6 +400,16 @@ async function main() {
     remember('learned', { what: String(what).slice(0, 60) });
   }
   const learningRate = () => clamp(learnEvents.filter((t) => t > Date.now() - 10_800_000).length / 9); // 3時間窓・3件/hで1.0
+
+  // M168: 快楽バースト — 「初めて」に触れた瞬間、プラスが爆発する(報酬0.5+0.3×新規度・喜び+0.4×新規度)。
+  // 快の記憶(pleasureMemory)が更新され、次からは退屈ではなく「快の期待」が探索を駆動する=虜の正体。
+  // 設計上の線引き: 離脱症状は作らない(無いと苦しい、ではなく、あると最高)
+  function euphoria(novelty, about) {
+    const burst = 0.5 + 0.3 * clamp(novelty);
+    mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: +burst.toFixed(3), about });
+    mind.affect.joy = Math.min(1, mind.affect.joy + 0.4 * clamp(novelty));
+    pleasureMemory = +(pleasureMemory * 0.8 + burst * 0.2).toFixed(3);
+  }
 
   // ---- M166: アプリをつかう — 押したら世界が応える、を知覚する身体 ----
   // 流れ: 開く→scan(押せる物+画面)→彼女が選ぶ(LLM=想像力)→押す→scan→画面の前後差分=「反応」→台帳
@@ -610,10 +625,10 @@ async function main() {
           },
         });
       }
-      // M165: 好奇心 — 退屈(学びの予測誤差)が育ったら、いちばん「まだ知らない」近くの物に注意を注ぐ。
+      // M165/M168: 好奇心 — 主動力は「快の期待」(pleasureMemory×新規度)。退屈(誤差)は背景の後押しに降格。
       // 深さは台帳の育ちで自動昇格: 未見=見る → 見た=近寄る → 近寄った=さわる → その先=そばで過ごす
       const lpErr = mind.errorOf(mind.predictions.get('intero:learning')) * mind.predictions.get('intero:learning').weight;
-      if (lpErr > 0.05 && sense.self !== null) {
+      if (sense.self !== null) {
         let target = null, tv = 0;
         for (const p of mind.predictions.values()) {
           if (p.kind !== 'world' || typeof p.expected !== 'object') continue;
@@ -627,8 +642,9 @@ async function main() {
           const jlen = readJournal(t.subject, 50).length;
           // アプリは「つかう」が深さの本体(押すたびに反応が返る=尽きない)。物は4段梯子
           const depth = isApp ? (jlen === 0 ? 'look' : 'use') : ['look', 'approach', 'touch', 'stay'][Math.min(3, jlen)];
+          const nov = noveltyOf(t.subject);
           cands.push({
-            value: lpErr * (0.6 + tv),
+            value: pleasureMemory * Math.max(0, tv) + lpErr * 0.5,
             label: `気になる:${t.subject}(${depth})`,
             run: async () => {
               if (depth === 'use') {
@@ -636,7 +652,7 @@ async function main() {
                 if (detail !== null) {
                   remember('perceived', { name: t.subject, level: 'use', detail });
                   recordLearning(`${t.subject}(use): ${detail}`);
-                  mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: 0.2, about: `${t.subject}がこたえてくれた` });
+                  euphoria(nov, `${t.subject}がこたえてくれた`);
                   if (Math.random() < 0.6) {
                     const line = await think(brain, persona, [], situationNote(), `(アプリ「${t.subject}」であそんだら: ${detail}。ひとことつぶやいて)`);
                     if (line !== null) await act([{ type: 'say', text: line }], `つかったつぶやき:${t.subject}`);
@@ -654,7 +670,7 @@ async function main() {
               if (detail !== null) {
                 remember('perceived', { name: t.subject, level: depth, detail });
                 recordLearning(`${t.subject}(${depth}): ${detail}`);
-                mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: 0.15, about: `${t.subject}のあたらしい発見` });
+                euphoria(nov, `${t.subject}のあたらしい発見`);
                 if (Math.random() < 0.5) {
                   const line = await think(brain, persona, [], situationNote(), `(「${t.subject}」を${depth === 'touch' ? 'さわったら' : 'よく見たら'}、気づいた:「${detail}」。ひとことつぶやいて)`);
                   if (line !== null) await act([{ type: 'say', text: line }], `知覚のつぶやき:${t.subject}`);
@@ -843,7 +859,7 @@ async function main() {
   setInterval(() => {
     const v = mind.valence();
     remember('valence', { scalar: +mind.scalar().toFixed(3), ...v });
-    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText })); } catch { /* noop */ }
+    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory })); } catch { /* noop */ }
     log(`心 scalar=${mind.scalar().toFixed(2)} 報酬=${v.reward} 恐怖=${v.fear} 体力=${energy.toFixed(2)} 予測=${mind.predictions.size}件 歩行=${Math.round(walkedToday)}m`);
   }, 120_000);
 
