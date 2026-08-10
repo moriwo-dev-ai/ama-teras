@@ -242,6 +242,7 @@ async function main() {
   async function requestJob(thing, sourceText) {
     if (thing === lastJobText && Date.now() - lastJobAt < 3_600_000) return; // 同一物1時間デデュープ=ループ保護のみ
     lastJobAt = Date.now(); lastJobText = thing;
+    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText })); } catch { /* noop */ }
     remember('job_request', { thing, sourceText });
     try {
       const res = await fetch(`${base}/api/world/job?k=${key}`, {
@@ -262,7 +263,7 @@ async function main() {
   }
 
   // ---- 会話層(器官は4Bのまま) ----
-  async function converse(text) {
+  async function converse(text, opts = {}) {
     if (!CHAT_ENABLED || brain === null || thinking) return;
     thinking = true;
     try {
@@ -273,7 +274,7 @@ async function main() {
         if (convo.length > 12) convo.splice(0, convo.length - 12);
         remember('say', { text: reply, latencyMs: Date.now() - t0 });
         await act([{ type: 'say', text: reply }], `返事(${Date.now() - t0}ms)`);
-        void maybeRequestJob(`相手:「${text}」 わたし:「${reply}」`); // 文脈ごと意図検出へ
+        if (opts.detectWish !== false) void maybeRequestJob(`相手:「${text}」 わたし:「${reply}」`); // 文脈ごと意図検出へ
       }
     } finally { thinking = false; }
   }
@@ -450,7 +451,7 @@ async function main() {
         if (convo.length > 12) convo.splice(0, convo.length - 12);
         if ((/(ヒナタ|ひなた)/.test(c.text) || /[??]\s*$/.test(c.text)) && now - lastTeraReplyAt > 60_000) {
           lastTeraReplyAt = now;
-          void converse(`(テラちゃんに話しかけられた)「${c.text.slice(0, 100)}」`);
+          void converse(`(テラちゃんに話しかけられた)「${c.text.slice(0, 100)}」`, { detectWish: false }); // 納品報告への感謝を再発注にしない
         }
         continue;
       }
