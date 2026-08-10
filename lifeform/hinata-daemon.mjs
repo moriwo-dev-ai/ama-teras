@@ -408,7 +408,7 @@ async function main() {
       .catch((e) => { log('知覚SSE切断→5秒後再接続', String(e).slice(0, 60)); setTimeout(connectSse, 5000); });
     return ctrl;
   }
-  let lastReflexAt = 0, lastHearAt = 0;
+  let lastReflexAt = 0, lastHearAt = 0, lastTeraReplyAt = 0;
   function onPerceive(event, data) {
     const now = Date.now();
     if (event === 'chat:event') { lastAgentBusyAt = now; return; }
@@ -441,6 +441,19 @@ async function main() {
     if (event !== 'world:event') return;
     if (now - lastOwnActAt >= 3000) lastWorldCmdAt = now;
     for (const c of data.cmds ?? []) {
+      // M162: テラちゃんの声が聞こえる(住人同士の会話)。自分の発言(speaker=hinata)は除外。
+      // 返事は「名前を呼ばれた/問いかけられた」時だけ+60秒スロットル(建築実況への相槌スパム防止)
+      if (c.type === 'say' && c.speaker !== 'hinata' && typeof c.text === 'string' && data.quiet !== true) {
+        lastVoiceAt = now; // テラちゃんの声も「ひとりじゃない」
+        remember('heard', { from: 'tera', text: c.text.slice(0, 120) });
+        convo.push({ from: 'user', text: `(テラちゃん)「${c.text.slice(0, 80)}」` });
+        if (convo.length > 12) convo.splice(0, convo.length - 12);
+        if ((/(ヒナタ|ひなた)/.test(c.text) || /[??]\s*$/.test(c.text)) && now - lastTeraReplyAt > 60_000) {
+          lastTeraReplyAt = now;
+          void converse(`(テラちゃんに話しかけられた)「${c.text.slice(0, 100)}」`);
+        }
+        continue;
+      }
       if (c.type === 'live_comment') {
         lastVoiceAt = now;
         remember('saw_comment', { author: c.author ?? '', text: (c.text ?? '').slice(0, 80) });
