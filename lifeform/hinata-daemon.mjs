@@ -347,6 +347,7 @@ async function main() {
       // 会話履歴の書式「(ヒナタ)「…」」を4Bが真似て発話に混入する事故のサニタイズ(実測: 「(ヒナタ)「うむ。」)
       if (reply !== null) {
         reply = reply.replace(/^[((]\s*(ヒナタ|ひなた|テラちゃん|わたし)\s*[))]\s*[::]?\s*/u, '').trim();
+        reply = reply.replace(/^(ヒナタ|ひなた)\s*[::]\s*/u, '').trim(); // 実測「ヒナタ: 「もりをさん?」形式
         const m = /^「([\s\S]*)」$/.exec(reply);
         if (m !== null) reply = m[1].trim();
         // 対にならない鉤括弧の混入(実測: 「うん。)も剥がす
