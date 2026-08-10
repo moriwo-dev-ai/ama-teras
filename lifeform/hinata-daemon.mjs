@@ -364,6 +364,7 @@ async function main() {
     if (r === null || /^なし/.test(r.trim())) return;
     for (const w of r.split(/[、,\s/]+/).map((s) => s.trim().replace(/[「」。、!?…]/gu, '')).filter((s) => s.length >= 2 && s.length <= 8)) {
       if (w === 'なし' || w === 'とくになし') continue; // 分類器の否定応答が言葉として漏れる実測バグ対策
+      if (!text.includes(w)) continue; // 幻覚ガード: 元の文に無い語は分類器の捏造(実測「どういたしまに」)
       if (readJournal(wordKey(w), 1).length > 0) continue; // もう台帳がある=知っている
       if (persona.includes(w)) continue;                    // 核にある言葉は既知
       if (heardWords.some((h) => h.word === w)) continue;
