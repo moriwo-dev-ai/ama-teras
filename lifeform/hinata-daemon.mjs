@@ -233,7 +233,8 @@ async function main() {
   // ---- c-3(v1): 願いの検出→大工への発注。彼女の言葉に「作ってほしい」等が現れたら運ぶ ----
   async function maybeRequestJob(text) {
     // クールダウン撤廃(オーナー判断: トークンはユーザーチャージ)。同一文の1時間デデュープのみ=ループ保護
-    if (!/(作ってほしい|つくってほしい|建ててほしい|あったらいいな|がほしいな|が欲しいな)/.test(text)) return;
+    if (/(聞いて|きいて|見て|みて|来て|きて|いて|応えて|こたえて)(ほしい|欲しい)/.test(text)) return; // 人への願いは物の発注ではない
+    if (!/(作ってほしい|つくってほしい|建ててほしい|あったらいいな|がいいな|がほしい|が欲しい|ほしいんだ|欲しいんだ|ほしいな|欲しいな)/.test(text)) return;
     if (text === lastJobText && Date.now() - lastJobAt < 3_600_000) return;
     lastJobAt = Date.now(); lastJobText = text;
     remember('job_request', { text });
@@ -364,8 +365,11 @@ async function main() {
   }, 60_000);
 
   // ---- 知覚: 観戦SSE ----
+  let sseCtrl = null;
   function connectSse() {
+    if (sseCtrl !== null) { try { sseCtrl.abort(); } catch { /* 既に死んでいる */ } }
     const ctrl = new AbortController();
+    sseCtrl = ctrl;
     fetch(`${base}/api/world/spectate`, { signal: ctrl.signal, headers: { accept: 'text/event-stream' } })
       .then(async (res) => {
         log('知覚SSE接続', res.status);

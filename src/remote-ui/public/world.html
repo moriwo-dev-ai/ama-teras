@@ -23,6 +23,10 @@
     max-width: 100%; box-shadow: 0 2px 10px rgba(90,123,216,.18); word-break: break-word; }
   .msg.user { background: rgba(238,243,255,.85); color: #34406b; align-self: flex-end; }
   .msg.agent { background: rgba(255,255,255,.85); color: #445; }
+  /* M160: 話者の見える化 — ヒナタ(住人)は暖色バブル+名札。テラ(大工)にも名札 */
+  .msg.hinata { background: rgba(255,241,235,.9); color: #6b4034; border: 1px solid rgba(255,180,150,.5); }
+  .msg.agent::before { content: '🔧 テラ'; display: block; font-size: 9px; color: #8899bb; margin-bottom: 2px; }
+  .msg.hinata::before { content: '🌙 ヒナタ'; display: block; font-size: 9px; color: #cc8866; margin-bottom: 2px; }
   .msg.sys { background: transparent; box-shadow: none; color: #99a; font-size: 11px; }
   /* M130: 社の配置コントロール(シングルタップで表示。回転・高さを1タップずつ) */
   #kioskctl { position: fixed; left: 50%; transform: translateX(-50%); bottom: 70px; z-index: 56;
@@ -721,8 +725,8 @@ function addMsg(cls, text) {
   while (chatlog.children.length > 40) chatlog.removeChild(chatlog.firstChild);
   chatlog.scrollTop = chatlog.scrollHeight;
 }
-function say(text) {
-  addMsg('agent', text);
+function say(text, speaker) {
+  addMsg(speaker === 'hinata' ? 'hinata' : 'agent', text);
   bub.textContent = text.length > 80 ? text.slice(0, 80) + '…' : text;
   bub.style.opacity = '1';
   bubUntil = performance.now() + Math.max(3000, Math.min(9000, text.length * 120));
@@ -994,7 +998,7 @@ async function runCommand(c, quiet = false) {
   switch (c.type) {
     case 'say': {
       const text = c.text ?? '';
-      say(text);
+      say(text, c.speaker);
       touchAppIdle();
       // M141: 配信画面では大きな字幕+音声読み上げ(スマホでチャットが読めない問題の対策)
       if (SPECTATE) showSubtitle(text, Math.max(3500, Math.min(20_000, text.length * 160)));
@@ -1136,8 +1140,8 @@ async function runCommand(c, quiet = false) {
       // helloは再接続のたびに走るので、二重表示しないよう洗い替えにする
       chatlog.innerHTML = '';
       for (const en of c.entries ?? []) {
-        // M154: hinata(住人)の発言はagent風バブルで表示(専用スタイルはVRM分離後に)
-        addMsg(en.from === 'agent' || en.from === 'hinata' ? 'agent' : en.from === 'user' ? 'user' : 'sys', en.text);
+        // M160: 話者ごとの表示(hinata=暖色+名札 / agent=テラ名札)
+        addMsg(en.from === 'hinata' ? 'hinata' : en.from === 'agent' ? 'agent' : en.from === 'user' ? 'user' : 'sys', en.text);
       }
       return;
     case 'app_point': await pointInApp(c.selector, c.note); touchAppIdle(); await sleep(800); return;
