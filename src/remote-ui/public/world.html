@@ -184,6 +184,7 @@ const QUERY = new URLSearchParams(location.search);
 // アプリ起動も封じる=できるのは視点操作(回転/ズーム/パン)だけ。世界に対して完全に無害
 const VISIT = QUERY.has('visit'); // M175: 招待制の訪問者(観戦+声だけ)
 const VISIT_KEY = QUERY.get('vk') ?? '';
+const WALK = QUERY.has('walk'); // M176: オーナーの歩行(神視点の全権限+地面タップで歩く)
 const VIEWER = QUERY.has('viewer') || VISIT;
 const SPECTATE = QUERY.has('spectate') || VIEWER;
 // ?executor=1&k=…: M117-B 常時実行モード(アプリ自身が開く隠しウィンドウ。世界の正実行体)
@@ -1074,6 +1075,22 @@ async function runCommand(c, quiet = false) {
       objects.delete(c.id);
       return;
     }
+    case 'visitor_sync': { // M176: 訪問者ゴーストの出現・移動(やわらかい光の人影+名札)
+      let g = visitors.get(c.id);
+      if (!g) {
+        g = makeVisitorGhost(c.name ?? 'ゲスト');
+        g.grp.position.set(c.x ?? 0, 0, c.z ?? 0);
+        scene.add(g.grp);
+        visitors.set(c.id, g);
+      }
+      g.target.set(c.x ?? 0, 0, c.z ?? 0);
+      return;
+    }
+    case 'visitor_gone': { // M176: 退場(ふわっと消える)
+      const g = visitors.get(c.id);
+      if (g) { scene.remove(g.grp); visitors.delete(c.id); }
+      return;
+    }
     case 'obj_sync': { // M169: 建築物の配置調整を全ページへ同期(再spawnせず滑らかに)
       const o = objects.get(c.id);
       if (!o) return;
@@ -1367,6 +1384,68 @@ function kioskAt(clientX, clientY) {
   }
   return null;
 }
+// ================= M176: 訪問者ゴースト(招待制の友達の姿) =================
+const visitors = new Map(); // id -> {grp, target, bob}
+function makeVisitorGhost(name) {
+  const grp = new THREE.Group();
+  // 名前から色を決める(同じ人はいつも同じ色)
+  let h = 0; for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+  const color = new THREE.Color(`hsl(${h}, 65%, 70%)`);
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.28, 0.7, 6, 12),
+    new THREE.MeshToonMaterial({ color, transparent: true, opacity: 0.75 }),
+  );
+  body.position.y = 0.85;
+  grp.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 12), new THREE.MeshToonMaterial({ color, transparent: true, opacity: 0.85 }));
+  head.position.y = 1.55;
+  grp.add(head);
+  // 名札(canvasスプライト)
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
+  const cx2 = cv.getContext('2d');
+  cx2.fillStyle = 'rgba(255,255,255,0.85)'; cx2.beginPath(); cx2.roundRect(28, 8, 200, 48, 24); cx2.fill();
+  cx2.fillStyle = '#34406b'; cx2.font = 'bold 28px sans-serif'; cx2.textAlign = 'center'; cx2.textBaseline = 'middle';
+  cx2.fillText(name, 128, 33);
+  const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true }));
+  tag.scale.set(1.6, 0.4, 1); tag.position.y = 2.1;
+  grp.add(tag);
+  return { grp, target: new THREE.Vector3(), bob: Math.random() * Math.PI * 2 };
+}
+function tickVisitors(dt, t) {
+  for (const g of visitors.values()) {
+    const p = g.grp.position;
+    p.x += (g.target.x - p.x) * Math.min(1, dt * 4);
+    p.z += (g.target.z - p.z) * Math.min(1, dt * 4);
+    g.grp.position.y = Math.sin(t * 2 + g.bob) * 0.06; // ふわふわ(幽体ではなく気配の表現)
+  }
+}
+// M176: 訪問者自身の移動 — 地面タップで歩く(300ms間引き)
+let lastPosSentAt = 0;
+let visitLastX = 8 + Math.random() * 4, visitLastZ = 8 + Math.random() * 4; // 入場位置は広場の端
+if (VISIT || WALK) {
+  // 入場の一歩(ゴースト出現)+15秒ごとの生存ピング(30秒無音で退場扱いになるため)
+  setTimeout(() => { void sendVisitorPos(visitLastX, visitLastZ); }, 1500);
+  setInterval(() => { lastPosSentAt = 0; void sendVisitorPos(visitLastX, visitLastZ); }, 15_000);
+}
+async function sendVisitorPos(x, z) {
+  if ((!VISIT && !WALK) || performance.now() - lastPosSentAt < 300) return;
+  lastPosSentAt = performance.now();
+  try {
+    if (WALK) {
+      // M176: オーナー歩行はアプリ経由(トークン認証)。ゴースト名はもりを
+      await fetch('/api/world/walk', {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
+        body: JSON.stringify({ x: +x.toFixed(1), z: +z.toFixed(1) }),
+      });
+      return;
+    }
+    await fetch('/api/world/visitor', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'pos', vk: VISIT_KEY, x: +x.toFixed(1), z: +z.toFixed(1) }),
+    });
+  } catch { /* 届かない時は次のタップで */ }
+}
+
 // M167: 建築物の「口」— ラベル付きオブジェクトもタップ対象(全建築物=アプリ、中身は後から)
 function objectAt(clientX, clientY) {
   _ndc.set((clientX / innerWidth) * 2 - 1, -(clientY / innerHeight) * 2 + 1);
@@ -1470,11 +1549,25 @@ addEventListener('pointerup', (e) => {
       return;
     }
     lastTap = { t: now2, id: oid };
+    if (VISIT) { addMsg('sys', `🌳 ${obj.name}`); return; } // 訪問者は名札だけ(配置操作なし)
     addMsg('sys', `🌳 ${obj.name}(ダブルタップで開く・長押しで移動)`);
     if (!SPECTATE) showObjCtl(obj); // M169: 建築物にも配置コントロール
     const p = new THREE.Vector3();
     _box.setFromObject(obj.o.mesh); _box.getCenter(p);
     camFocusTo(p, p.clone().add(new THREE.Vector3(3.2, 2.2, 3.2)));
+    return;
+  }
+  // M176: 訪問者・歩行オーナーは地面タップで歩く(自分のゴーストが動く)
+  if (!rec && (VISIT || WALK)) {
+    _ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+    _ray.setFromCamera(_ndc, camera);
+    const hit = new THREE.Vector3();
+    if (_ray.ray.intersectPlane(_groundPlane, hit)) {
+      const r = Math.hypot(hit.x, hit.z);
+      if (r > 18) hit.multiplyScalar(18 / r);
+      visitLastX = hit.x; visitLastZ = hit.z;
+      void sendVisitorPos(hit.x, hit.z);
+    }
     return;
   }
   if (!rec) return;
@@ -1789,6 +1882,7 @@ const tick = () => {
     if (!m.parent) { billboardPanels.splice(i, 1); continue; }
     if (m.visible) m.lookAt(camera.position);
   }
+  tickVisitors(dt, performance.now() / 1000); // M176: ゴーストの移動と浮遊
   controls.update();
   renderer.render(scene, camera);
 };

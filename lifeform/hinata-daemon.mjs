@@ -157,7 +157,7 @@ async function main() {
   setInterval(() => { sentThisMinute = 0; }, 60_000);
   const quiet = () => Date.now() - lastAgentBusyAt > 90_000 && Date.now() - lastWorldCmdAt > 20_000;
 
-  const sense = { self: null, spec: new Map(), appIds: new Map() };
+  const sense = { self: null, spec: new Map(), appIds: new Map(), visitors: new Map() }; // visitors: 名前→{x,z}
   let lastActDetail = ''; // 直近のack詳細(app_read/app_scanの結果=感覚の戻り)
   // M170: 言葉の好奇心 — 聞いた中の知らない言葉(きく候補の材料)・言及された物(新規度の回復)・質問中の言葉
   const heardWords = [];      // {word, ts}
@@ -250,6 +250,14 @@ async function main() {
         if (k !== '') parts.push(`「${near}」について知っていること: ${k}`);
         recallInto(parts, near); // M171: 目の前の物から連想が広がる
       }
+    }
+    // M176: あそびに来ている人と距離感(「だれが・どこに」の知覚が言葉になる)
+    if (sense.visitors.size > 0) {
+      const vs = [...sense.visitors.entries()].map(([n, p]) => {
+        const d = sense.self !== null ? Math.hypot(p.x - sense.self.x, p.z - sense.self.z) : 99;
+        return `${n}(${d < 5 ? 'すぐちかく' : d < 12 ? 'ちかく' : 'とおく'}にいる)`;
+      });
+      parts.push(`あそびに来ている人: ${vs.join('、')}`);
     }
     // M170: 直近の会話に出た「教わった言葉」の台帳も帯域に乗せる(遊ぶ=クレーンをさわること、が会話で使える)
     const lastMsg = convo.length > 0 ? convo[convo.length - 1].text : '';
@@ -431,6 +439,36 @@ async function main() {
         const vm = /viewers:(\d+)/.exec(obs.state?.note ?? '');
         if (vm !== null) watchers = Math.max(0, Number(vm[1]) - 1);
       }
+      // M176: 訪問者の知覚 — 「だれが・どこにいるか」。来訪=大きな出来事(出会いの快)
+      const nowVisitors = new Map((obs.visitors ?? []).map((v) => [v.name, { x: v.x, z: v.z }]));
+      for (const [name, pos] of nowVisitors) {
+        if (!sense.visitors.has(name)) {
+          remember('visitor_came', { name, x: pos.x, z: pos.z });
+          recordLearning(`${name}があそびに来た`);
+          euphoria(1, `${name}があそびに来た`);
+          noteDetail(personKey(name), 'came', 'せかいにあそびに来てくれた');
+          activate(personKey(name));
+          lastVoiceAt = Date.now(); // 人が来た=ひとりじゃない
+          if (!sleeping && quiet()) {
+            const g = await chooseGesture(`${name}があそびに来てくれた!むかえに行く`, 'wave');
+            void act([
+              { type: 'move_to', x: +(pos.x * 0.8).toFixed(1), z: +(pos.z * 0.8).toFixed(1) },
+              { type: 'say', text: `わーい、${name}だ!いらっしゃい!` },
+              ...(g !== null && g !== 'idle' ? [{ type: 'motion', name: g }] : []),
+            ], `おでむかえ:${name}`);
+          }
+        }
+      }
+      for (const [name] of sense.visitors) {
+        if (!nowVisitors.has(name)) {
+          remember('visitor_left', { name });
+          noteDetail(personKey(name), 'left', 'かえっていった');
+          if (!sleeping && quiet() && Date.now() - lastOwnActAt > 10_000) {
+            void act([{ type: 'say', text: `${name}、またね〜!` }], `おみおくり:${name}`);
+          }
+        }
+      }
+      sense.visitors = nowVisitors;
       const me = sense.self;
       if (me === null) return true;
       const spots = [];
@@ -697,7 +735,14 @@ async function main() {
       maybeWordAnswer(data.text, who); // M170: 質問中なら、この声が答え
       void noticeWords(data.text);
       activateFrom(data.text, who); // M171: 声に出た対象が結びつく
-      if (who !== 'もりを') noteDetail(personKey(who), 'met', `「${data.text.slice(0, 40)}」と話しかけてくれた`);
+      if (who !== 'もりを') {
+        noteDetail(personKey(who), 'met', `「${data.text.slice(0, 40)}」と話しかけてくれた`);
+        // M176: 話しかけてくれた人のそばへ行く(会話は近くでするもの)
+        const vp = sense.visitors.get(who);
+        if (vp !== undefined && sense.self !== null && Math.hypot(vp.x - sense.self.x, vp.z - sense.self.z) > 4) {
+          void act([{ type: 'move_to', x: +(vp.x * 0.85).toFixed(1), z: +(vp.z * 0.85).toFixed(1) }], `そばへ:${who}`);
+        }
+      }
       convo.push({ from: 'user', text: who === 'もりを' ? data.text : `(${who})「${data.text.slice(0, 80)}」` });
       if (convo.length > 12) convo.splice(0, convo.length - 12);
       void converse(who === 'もりを' ? data.text : `(あそびに来た${who}に話しかけられた)「${data.text.slice(0, 100)}」`, { relay: false });

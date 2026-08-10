@@ -450,6 +450,34 @@ export class WorldManager {
    * - ヒナタは world:chat で知覚する(who=名前。ひとの台帳が名前で生える)
    * テラ(思考層)へは中継しない=訪問者はヒナタの友達であって発注者ではない
    */
+  /** M177(配信工事): 表示専用コマンド(弾幕・HUD)をそのまま配る(ack不要・記録不要) */
+  publishQuiet(cmds: WorldCommand[]): void {
+    this.bus.publish('world:event', { seq: ++this.seq, cmds, quiet: true });
+  }
+
+  /** M177: 視聴者や外の声をヒナタの知覚にだけ届ける(表示は呼び出し側の責務) */
+  hinataHear(who: string, text: string): void {
+    this.pushChat(`guest:${who}` as 'user', text);
+    this.bus.publish('world:chat', { from: 'user', text, who });
+  }
+
+  /** M176(B v2): 訪問者ゴーストの位置を全ページへ配る(正しいseqで) */
+  visitorSync(id: string, name: string, x: number, z: number): void {
+    this.bus.publish('world:event', {
+      seq: ++this.seq,
+      cmds: [{ type: 'visitor_sync', id, name, x, z } as WorldCommand],
+      quiet: true,
+    });
+  }
+
+  visitorGone(id: string, name: string): void {
+    this.bus.publish('world:event', {
+      seq: ++this.seq,
+      cmds: [{ type: 'visitor_gone', id, name } as WorldCommand],
+      quiet: true,
+    });
+  }
+
   visitorChat(name: string, text: string): void {
     this.pushChat(`guest:${name}` as 'user', text);
     this.bus.publish('world:event', {

@@ -114,6 +114,8 @@ export interface RemoteServerDeps {
     act?(cmds: import('../../shared/types').WorldCommand[]): Promise<{ ok: boolean; detail: string }>;
     /** M163: 世界チャットの履歴(話者・時刻付き)。トークン認証APIから返す */
     chatHistory?(limit?: number): { from: string; text: string; ts?: string }[] | Promise<{ from: string; text: string; ts?: string }[]>;
+    /** M176: オーナーのアバター歩行(トークン認証・分離世界のみ) */
+    walk?(x: number, z: number): Promise<{ ok: boolean }>;
     /** b案P3(知覚拡張): 生命体が世界を「見る」ための観察スナップショット(objects/apps/avatar) */
     observe?():
       | {
@@ -573,6 +575,15 @@ export class RemoteServer {
       // M163: 世界チャットの履歴(スマホの履歴ページ world-log.html 用)
       case 'GET /api/world/chatlog':
         return sendJson(res, 200, { log: (await this.deps.world?.chatHistory?.(200)) ?? [] });
+
+      // M176: オーナーのアバター歩行(walk=1)。分離世界のみ・ゴースト名はもりを
+      case 'POST /api/world/walk': {
+        if (this.deps.world?.walk === undefined) throw new HttpError(404, '歩行は分離世界モードのみ');
+        const body = await readJsonBody(req);
+        const x = Number(body['x']), z = Number(body['z']);
+        if (!Number.isFinite(x) || !Number.isFinite(z)) throw new HttpError(400, '座標が不正');
+        return sendJson(res, 200, await this.deps.world.walk(x, z));
+      }
 
       case 'GET /api/audit': {
         const rawLimit = Number(url.searchParams.get('limit') ?? '100');

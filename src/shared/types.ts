@@ -1482,7 +1482,7 @@ export type EvolutionEvent =
  * 世界ページ(out/remote-ui/world.html)がこれを解釈して実行する。
  */
 export interface WorldCommand {
-  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'camera_to' | 'face' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_leave' | 'app_close' | 'app_point' | 'chat_restore' | 'app_state' | 'app_click' | 'app_type' | 'app_read' | 'app_scan' | 'obj_sync' | 'record' | 'live_hud' | 'live_comment' | 'avatar_state';
+  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'camera_to' | 'face' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_leave' | 'app_close' | 'app_point' | 'chat_restore' | 'app_state' | 'app_click' | 'app_type' | 'app_read' | 'app_scan' | 'obj_sync' | 'visitor_sync' | 'visitor_gone' | 'record' | 'live_hud' | 'live_comment' | 'avatar_state';
   /** M169: ユーザー配置調整(spawn定義に永続・obj_syncで全ページ同期)。テラのy/ryとは独立の加算値 */
   uy?: number;
   ury?: number;

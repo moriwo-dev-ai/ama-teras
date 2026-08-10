@@ -35,7 +35,18 @@ try {
   key = randomBytes(24).toString('hex');
   console.log('合鍵: 新規生成');
 }
-writeFileSync(cfgPath, JSON.stringify({ url: `http://127.0.0.1:${PORT}`, key }, null, 1));
+// M176: オーナー(もりを)のアバター鍵 — 訪問名簿に常設し、アプリのwalk経路が使う
+const visitorsPath = join(USERDATA, 'world-visitors.json');
+let visitors = [];
+try { visitors = JSON.parse(readFileSync(visitorsPath, 'utf8')); } catch { /* 初回 */ }
+let owner = visitors.find((v) => v.name === 'もりを');
+if (owner === undefined) {
+  owner = { name: 'もりを', key: randomBytes(12).toString('hex') };
+  visitors.push(owner);
+  writeFileSync(visitorsPath, JSON.stringify(visitors, null, 1));
+  console.log('オーナーのアバター鍵を発行');
+}
+writeFileSync(cfgPath, JSON.stringify({ url: `http://127.0.0.1:${PORT}`, key, ownerVk: owner.key }, null, 1));
 console.log(`書込: ${cfgPath}`);
 
 // 2. world-server 起動(detached=このスクリプトやClaudeセッションが死んでも生き続ける)

@@ -144,7 +144,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     if (req.method === 'GET' && path === '/api/world/state') {
       if (!keyed) { sendJson(res, 401, { error: 'unauthorized' }); return; }
       // M175: 公開面の観戦者数を気配として添える(ヒナタのwatchers知覚)
-      sendJson(res, 200, { ...world.observe(), watchers: publicSseCount });
+      // M176: 訪問者の名前と位置=「だれが・どこにいるか」をヒナタが知覚できる
+      sendJson(res, 200, {
+        ...world.observe(),
+        watchers: publicSseCount,
+        visitors: [...visitorStates.values()].map((s) => ({ name: s.name, x: s.x, z: s.z })),
+      });
       return;
     }
     if (req.method === 'GET' && path === '/api/world/chatlog') {
@@ -163,6 +168,38 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       } catch (e) {
         sendJson(res, 502, { ok: false, detail: String(e).slice(0, 100) });
       }
+      return;
+    }
+    // M177(配信工事): アプリからの配信転送 — コメント/HUDの表示・配信ガード・@ヒナタの声
+    if (req.method === 'POST' && path === '/api/world/live') {
+      if (!proxied) { sendJson(res, 401, { error: 'unauthorized' }); return; }
+      const body = await readJsonBody(req);
+      const kind = String(body['kind'] ?? '');
+      if (kind === 'cmds' && Array.isArray(body['cmds'])) {
+        world.publishQuiet(body['cmds'] as WorldCommand[]);
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+      if (kind === 'guard') {
+        world.setLiveGuard(body['on'] === true);
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+      if (kind === 'hinata-chat' && typeof body['who'] === 'string' && typeof body['text'] === 'string') {
+        // 視聴者の「@ヒナタ」— 表示(弾幕)はアプリ側が済ませているので、知覚だけ届ける
+        world.hinataHear(String(body['who']).slice(0, 20), String(body['text']).slice(0, 120));
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+      sendJson(res, 400, { error: 'kindが不正' });
+      return;
+    }
+    // M176: 訪問者口はメイン側(合鍵)でも使える — アプリ経由のオーナー歩行(walk)用
+    if (req.method === 'POST' && path === '/api/world/visitor') {
+      const body = await readJsonBody(req);
+      const kind = String(body['kind'] ?? 'chat');
+      const { code, res: r } = kind === 'pos' ? handleVisitorPos(body) : handleVisitorChat(body);
+      sendJson(res, code, r);
       return;
     }
     // アプリ(テラの身体)専用: フルコマンドのact(建築・カメラ・アプリ管理まで全部)
@@ -243,6 +280,36 @@ function loadVisitors(): Visitor[] {
 }
 const visitorLastAt = new Map<string, number>();
 let publicSseCount = 0; // M175: 公開面の観戦者数=ヒナタの「気配」になる
+
+// M176(B v2): 訪問者のアバター(ゴースト)。位置を持つ=ヒナタが「どこにいるか」を知覚できる
+type VisitorState = { name: string; x: number; z: number; lastAt: number };
+const visitorStates = new Map<string, VisitorState>(); // key=招待キー
+const vidOf = (key: string) => key.slice(0, 8); // 表示用ID(招待キーは晒さない)
+function handleVisitorPos(body: Record<string, unknown>): { code: number; res: unknown } {
+  const vk = String(body['vk'] ?? '');
+  const v = loadVisitors().find((x) => x.key === vk);
+  if (v === undefined) return { code: 401, res: { error: '招待キーが違う' } };
+  const x = Number(body['x']), z = Number(body['z']);
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return { code: 400, res: { error: '座標が不正' } };
+  const cx = Math.max(-18, Math.min(18, x)), cz = Math.max(-18, Math.min(18, z));
+  const prev = visitorStates.get(vk);
+  const isNew = prev === undefined;
+  visitorStates.set(vk, { name: v.name.slice(0, 12), x: cx, z: cz, lastAt: Date.now() });
+  world.visitorSync(vidOf(vk), v.name.slice(0, 12), cx, cz);
+  if (isNew) log(`訪問者が入場: ${v.name} (${cx.toFixed(1)}, ${cz.toFixed(1)})`);
+  return { code: 200, res: { ok: true } };
+}
+// 30秒音沙汰なし=退場(ゴーストを消し、ヒナタの知覚からも消える)
+setInterval(() => {
+  const now = Date.now();
+  for (const [vk, s] of visitorStates) {
+    if (now - s.lastAt > 30_000) {
+      visitorStates.delete(vk);
+      world.visitorGone(vidOf(vk), s.name);
+      log(`訪問者が退場: ${s.name}`);
+    }
+  }
+}, 10_000);
 const NG_WORDS = /(死ね|殺す|きもい|うざい|ばか|バカ|アホ|http|www\.|\.com|\.jp)/i;
 function handleVisitorChat(body: Record<string, unknown>): { code: number; res: unknown } {
   const vk = String(body['vk'] ?? '');
@@ -293,10 +360,11 @@ if (PUBLIC_PORT !== undefined) {
         void readJsonBody(req).then(() => sendJson(res, 200, { ok: true }));
         return;
       }
-      // M175: 訪問者の声(招待キー・レート制限・NG語つき)— 公開面で唯一の書き込み
+      // M175/M176: 訪問者の声と足(招待キー・レート制限・NG語つき)— 公開面で唯一の書き込み
       if (req.method === 'POST' && path === '/api/world/visitor') {
         void readJsonBody(req).then((body) => {
-          const { code, res: r } = handleVisitorChat(body);
+          const kind = String(body['kind'] ?? 'chat');
+          const { code, res: r } = kind === 'pos' ? handleVisitorPos(body) : handleVisitorChat(body);
           sendJson(res, code, r);
         });
         return;

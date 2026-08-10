@@ -485,13 +485,16 @@ export async function registerIpcHandlers(
   const worldManager = new WorldManager(bus);
   // M173(C工事): 分離世界モード — userData/world-server.json があれば世界はworld-serverが所有し、
   // アプリはクライアント(テラの身体)になる。アプリ再起動で世界とヒナタが死なない
-  let worldExternal: { url: string; key: string } | null = null;
+  let worldExternal: { url: string; key: string; ownerVk?: string } | null = null;
   try {
     const raw = JSON.parse(readFileSync(join(app.getPath('userData'), 'world-server.json'), 'utf8')) as {
       url?: unknown;
       key?: unknown;
+      ownerVk?: unknown;
     };
-    if (typeof raw.url === 'string' && typeof raw.key === 'string') worldExternal = { url: raw.url, key: raw.key };
+    if (typeof raw.url === 'string' && typeof raw.key === 'string') {
+      worldExternal = { url: raw.url, key: raw.key, ownerVk: typeof raw.ownerVk === 'string' ? raw.ownerVk : undefined };
+    }
   } catch {
     /* ファイルなし=従来どおり内蔵世界 */
   }
@@ -515,9 +518,26 @@ export async function registerIpcHandlers(
   const worldExecutorKey = generateToken().token;
 
   // M125: 配信モード(オーナー専用・月読方式)。視聴者コメント→建築お題のライブ司会者
+  // M177: 分離世界モードでは配信の表示・ガード・@ヒナタの声を世界サーバへ転送する
+  const livePost = (payload: Record<string, unknown>): void => {
+    if (worldExternal === null) return;
+    void fetch(`${worldExternal.url}/api/world/live?k=${worldExternal.key}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10_000),
+    }).catch((err) => console.error('[live] 世界サーバ転送失敗:', err));
+  };
   const liveDirector = new LiveDirector({
     bus,
     world: worldManager,
+    forward: worldExternal !== null
+      ? {
+          liveCmds: (cmds) => livePost({ kind: 'cmds', cmds }),
+          hinataChat: (who, text) => livePost({ kind: 'hinata-chat', who, text }),
+          liveGuard: (on) => livePost({ kind: 'guard', on }),
+        }
+      : undefined,
     dispatch: (prompt) => {
       try {
         service.chatSend(prompt, 'normal');
@@ -2003,6 +2023,21 @@ export async function registerIpcHandlers(
         observe: () => (worldClient !== null ? worldClient.observe() : worldManager.observe()),
         // M163: 会話ログの履歴(スマホ閲覧用)
         chatHistory: (limit) => (worldClient !== null ? worldClient.chatHistory(limit) : worldManager.chatHistory(limit)),
+        // M176: オーナーのアバター歩行(walk=1)。神視点の全権限に「歩く」を足す
+        walk: async (x: number, z: number) => {
+          if (worldExternal === null || worldExternal.ownerVk === undefined) return { ok: false };
+          try {
+            const r = await fetch(`${worldExternal.url}/api/world/visitor?k=${worldExternal.key}`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ kind: 'pos', vk: worldExternal.ownerVk, x, z }),
+              signal: AbortSignal.timeout(5_000),
+            });
+            return { ok: r.ok };
+          } catch {
+            return { ok: false };
+          }
+        },
       },
       // M34-6: 運営のリモートフル対応(既存トークン認証配下。オーナーモードOFF時は空を返す)
       operations: {

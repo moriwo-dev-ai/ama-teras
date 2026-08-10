@@ -36,6 +36,16 @@ interface LiveDeps {
   world: WorldManager;
   /** お題をエージェントへ投げる(service.chatSend の世界チャット経路) */
   dispatch: (prompt: string) => void;
+  /**
+   * M177(配信工事): 分離世界モードでの転送。
+   * comment/hudは世界サーバのバスにも流す(実行係・公開観戦者・ヒナタの知覚が世界サーバ側にいる)。
+   * hinataChat=「@ヒナタ」コメントを彼女の知覚(world:chat・視聴者名つき)へ届ける
+   */
+  forward?: {
+    liveCmds(cmds: import('../../shared/types').WorldCommand[]): void;
+    hinataChat(who: string, text: string): void;
+    liveGuard(on: boolean): void;
+  };
   /** エージェントがアイドルか(前のお題が終わったか) */
   isIdle: () => boolean;
   /** 配信開始時のバックアップ(world-state.json の複製) */
@@ -96,6 +106,7 @@ export class LiveDirector {
     this.lastError = null;
     const backupPath = this.deps.backup();
     this.deps.world.setLiveGuard(true);
+    this.deps.forward?.liveGuard(true); // M177: 分離世界のガードも点ける
     await this.initChat();
     this.running = true;
     const pollMs = this.deps.pollMs ?? DEFAULT_POLL_MS;
@@ -111,6 +122,7 @@ export class LiveDirector {
     this.timer = null;
     this.running = false;
     this.deps.world.setLiveGuard(false);
+    this.deps.forward?.liveGuard(false);
     this.publishHud();
     console.log('[live] 配信モード終了');
   }
@@ -184,28 +196,31 @@ export class LiveDirector {
 
   /** M141: 視聴者コメントを世界ページへ流す(表示のみ・ackなし) */
   private publishComment(author: string, text: string, adopted: boolean): void {
-    this.deps.bus.publish('world:event', {
-      seq: -1,
-      cmds: [{ type: 'live_comment', author: author.slice(0, 30), text, adopted } as never],
-      quiet: true,
-    });
+    const cmds = [{ type: 'live_comment', author: author.slice(0, 30), text, adopted } as never];
+    this.deps.bus.publish('world:event', { seq: -1, cmds, quiet: true });
+    this.deps.forward?.liveCmds(cmds as unknown as import('../../shared/types').WorldCommand[]); // M177: 世界サーバ側にも
+  }
+
+  private hudPayload(): Record<string, unknown> {
+    return {
+      live: this.running,
+      topic: this.current?.text ?? null,
+      author: this.current?.author ?? null,
+      queued: this.queue.length,
+      adopted: this.adopted,
+      budget: this.budget,
+      error: this.lastError,
+    };
   }
 
   private publishHud(): void {
+    this.deps.forward?.liveCmds([{ type: 'live_hud', hud: this.hudPayload() } as never]);
     this.deps.bus.publish('world:event', {
       seq: -1, // HUDは順序制御不要(ackも不要)
       cmds: [
         {
           type: 'live_hud',
-          hud: {
-            live: this.running,
-            topic: this.current?.text ?? null,
-            author: this.current?.author ?? null,
-            queued: this.queue.length,
-            adopted: this.adopted,
-            budget: this.budget,
-            error: this.lastError,
-          },
+          hud: this.hudPayload(),
         } as never,
       ],
       quiet: true,
@@ -254,6 +269,13 @@ export class LiveDirector {
       // NGパターン(URL・暴言・秘密系)だけは画面にも出さない
       if (!NG_PATTERNS.some((re) => re.test(m.text))) {
         this.publishComment(m.author, m.text.slice(0, MAX_TOPIC_CHARS), false);
+      }
+      // M177: 宛先の振り分け — 「@ヒナタ」or 冒頭「ヒナタ」はヒナタへ(視聴者名つきで彼女が知覚)。
+      // それ以外は従来どおりテラの建築お題キューへ
+      const hinataMatch = /^\s*@?(ヒナタ|ひなた)[、,::\s]*(.+)$/s.exec(m.text);
+      if (hinataMatch !== null && hinataMatch[2] !== undefined && !NG_PATTERNS.some((re) => re.test(m.text))) {
+        this.deps.forward?.hinataChat(m.author.slice(0, 20), hinataMatch[2].slice(0, 120));
+        continue;
       }
       this.enqueue({ author: m.author, text: m.text });
     }
