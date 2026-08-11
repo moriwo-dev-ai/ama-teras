@@ -1409,6 +1409,24 @@ let myYaw = Math.atan2(-myPos.x, -myPos.z); // 最初は広場の中心を向く
 let myPitch = -0.06;
 const joyVec = { x: 0, y: 0 };
 if (AVATAR_MODE) {
+  // M189b: スマホは横画面が操作しやすい(全画面+回転ロックはユーザー操作起点が必要=ボタン)
+  const fb = document.createElement('button');
+  fb.id = 'fsbtn';
+  fb.textContent = '⛶ 横画面';
+  fb.style.cssText = 'position:fixed;top:6px;right:170px;z-index:31;border:none;background:#fff;color:#5a6b9e;font-size:13px;padding:6px 12px;border-radius:999px;box-shadow:0 2px 12px rgba(90,123,216,.25)';
+  document.body.appendChild(fb);
+  fb.onclick = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+        await screen.orientation.lock('landscape').catch(() => { /* iOS等は非対応 */ });
+        fb.textContent = '⛶ 戻す';
+      } else {
+        await document.exitFullscreen();
+        fb.textContent = '⛶ 横画面';
+      }
+    } catch { /* 非対応環境 */ }
+  };
   // 入場の一歩(ゴースト出現)+15秒ごとの生存ピング(30秒無音で退場扱いになるため)
   setTimeout(() => { void sendVisitorPos(myPos.x, myPos.z); }, 1500);
   setInterval(() => { lastPosSentAt = 0; void sendVisitorPos(myPos.x, myPos.z); }, 15_000);
@@ -1907,8 +1925,9 @@ const tick = () => {
   if (AVATAR_MODE) {
     if (joyVec.x !== 0 || joyVec.y !== 0) {
       const sp = 2.4 * dt;
-      myPos.x += (Math.sin(myYaw) * joyVec.y + Math.cos(myYaw) * joyVec.x) * sp;
-      myPos.z += (Math.cos(myYaw) * joyVec.y - Math.sin(myYaw) * joyVec.x) * sp;
+      // 右ベクトル=(-cosY, sinY)。実測フィードバック: 左右が逆だったのを修正
+      myPos.x += (Math.sin(myYaw) * joyVec.y - Math.cos(myYaw) * joyVec.x) * sp;
+      myPos.z += (Math.cos(myYaw) * joyVec.y + Math.sin(myYaw) * joyVec.x) * sp;
       const rr = Math.hypot(myPos.x, myPos.z);
       if (rr > 18) { myPos.x *= 18 / rr; myPos.z *= 18 / rr; }
       visitLastX = myPos.x; visitLastZ = myPos.z;
