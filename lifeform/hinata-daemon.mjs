@@ -368,10 +368,13 @@ async function main() {
   // chatSendは実行中セッションには追加指示としてキューされるので会話は自然に続く。
   // ガードは技術的デデュープ(同一文60秒)のみ。時間制限なし=コストは実測値を見てから判断(オーナー方針)
   let suppressRelay = false;
+  let teraTalkUntil = 0; // M187: テラとの会話窓(テラの声を聞くたび3分延長)
   // M184(A+C・コスト調整): 中継の門番。名前を呼べば必ず届く。それ以外はローカル判定(無料)で
   // 「テラに応えてほしい発話」だけ通す。深夜0〜7時はテラも寝てる(名前呼びのみ例外)
   async function shouldRelay(text) {
     if (/テラ/.test(text)) return true;
+    // M187: テラの声を聞いてから3分は「会話中」=返事は門番フリーパス(1往復で会話が死ぬ実測の修正)
+    if (Date.now() < teraTalkUntil) return true;
     const h = new Date().getHours();
     if (h < 7) return false;
     if (brain === null) return false;
@@ -795,6 +798,7 @@ async function main() {
       // 返事は「名前を呼ばれた/問いかけられた」時だけ+60秒スロットル(建築実況への相槌スパム防止)
       if (c.type === 'say' && c.speaker !== 'hinata' && typeof c.text === 'string' && data.quiet !== true) {
         lastVoiceAt = now; // テラちゃんの声も「ひとりじゃない」
+        teraTalkUntil = now + 180_000; // M187: 会話中の窓が開く(3分)
         remember('heard', { from: 'tera', text: c.text.slice(0, 120) });
         maybeWordAnswer(c.text, 'テラちゃん'); // M170: テラちゃんの声も答えになる
         void noticeWords(c.text);
