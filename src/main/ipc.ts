@@ -2033,7 +2033,9 @@ export async function registerIpcHandlers(
               body: JSON.stringify({ kind: 'pos', vk: worldExternal.ownerVk, x, z }),
               signal: AbortSignal.timeout(5_000),
             });
-            return { ok: r.ok };
+            // M189: ゴーストIDを透過(一人称視点で自分の姿を消すため)
+            const j = (await r.json().catch(() => ({}))) as { id?: string };
+            return { ok: r.ok, id: j.id };
           } catch {
             return { ok: false };
           }

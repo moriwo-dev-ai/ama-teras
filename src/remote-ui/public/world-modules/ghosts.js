@@ -5,6 +5,13 @@
  */
 export function initGhosts(THREE, scene) {
   const visitors = new Map(); // id -> {grp, target, bob}
+  let selfId = null; // M189: 一人称視点では自分のゴーストは描かない(視界を塞ぐため)
+
+  function setSelf(id) {
+    selfId = id;
+    const g = visitors.get(id);
+    if (g) { scene.remove(g.grp); visitors.delete(id); }
+  }
 
   function makeVisitorGhost(name) {
     const grp = new THREE.Group();
@@ -41,6 +48,7 @@ export function initGhosts(THREE, scene) {
 
   /** visitor_sync コマンド: 出現 or 目標位置の更新 */
   function syncVisitor(c) {
+    if (c.id === selfId) return; // 自分の姿は一人称では描かない
     let g = visitors.get(c.id);
     if (!g) {
       g = makeVisitorGhost(c.name ?? 'ゲスト');
@@ -67,5 +75,5 @@ export function initGhosts(THREE, scene) {
     }
   }
 
-  return { syncVisitor, removeVisitor, tickVisitors };
+  return { syncVisitor, removeVisitor, tickVisitors, setSelf };
 }

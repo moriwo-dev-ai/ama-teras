@@ -322,7 +322,7 @@ function handleVisitorPos(body: Record<string, unknown>): { code: number; res: u
   visitorStates.set(vk, { name: v.name.slice(0, 12), x: cx, z: cz, lastAt: Date.now() });
   world.visitorSync(vidOf(vk), v.name.slice(0, 12), cx, cz);
   if (isNew) log(`訪問者が入場: ${v.name} (${cx.toFixed(1)}, ${cz.toFixed(1)})`);
-  return { code: 200, res: { ok: true } };
+  return { code: 200, res: { ok: true, id: vidOf(vk) } }; // M189: 自分のゴーストID(一人称視点で自分を消すため)
 }
 // 30秒音沙汰なし=退場(ゴーストを消し、ヒナタの知覚からも消える)
 setInterval(() => {

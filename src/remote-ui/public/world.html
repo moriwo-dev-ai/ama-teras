@@ -60,6 +60,13 @@
   #loglink { position: fixed; top: 6px; right: 10px; z-index: 31; border: none; background: #fff; color: #5a6b9e;
     font-size: 13px; padding: 6px 12px; border-radius: 999px; box-shadow: 0 2px 12px rgba(90,123,216,.25); }
   body.spectate #loglink { display: none; }
+  /* M189: 一人称モードの移動スティック(半透明・左下) */
+  #joy { position: fixed; left: 22px; bottom: 88px; width: 110px; height: 110px; border-radius: 50%;
+    background: rgba(255,255,255,.18); border: 2px solid rgba(255,255,255,.35); z-index: 60;
+    display: none; touch-action: none; backdrop-filter: blur(2px); }
+  #joyknob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; border-radius: 50%;
+    background: rgba(255,255,255,.55); transform: translate(-50%,-50%); pointer-events: none;
+    box-shadow: 0 2px 10px rgba(60,80,160,.3); }
   /* M188: オーナーのアバター切替(🚶歩く⇄👁神視点)。ログボタンの左隣 */
   #walkbtn { position: fixed; top: 6px; right: 86px; z-index: 31; border: none; background: #fff; color: #5a6b9e;
     font-size: 13px; padding: 6px 12px; border-radius: 999px; box-shadow: 0 2px 12px rgba(90,123,216,.25); }
@@ -138,6 +145,7 @@
 <button id="home" onclick="location.href='./'">←</button>
 <button id="loglink" onclick="location.href='world-log.html'">💬 ログ</button>
 <button id="walkbtn" style="display:none">🚶 歩く</button>
+<div id="joy"><div id="joyknob"></div></div>
 <div id="badge"><span class="dot"></span>AMA-teras WORLD <span id="bst">接続中…</span></div>
 <div id="pair"><div>🔑 ペアリングが必要です<br>リモート画面(ホーム)下部の「🌍 世界」ボタンから開くと<br>自動でペアリングされます</div></div>
 <div id="chatlog"></div>
@@ -1391,31 +1399,83 @@ function kioskAt(clientX, clientY) {
 // ================= M176: 訪問者ゴースト → world-modules/ghosts.js へ分離(M178整理・第1弾) =================
 const ghosts = initGhosts(THREE, scene);
 const tickVisitors = ghosts.tickVisitors;
-// M176: 訪問者自身の移動 — 地面タップで歩く(300ms間引き)
+// M189: 一人称アバターモード(WALK=オーナー / VISIT=訪問者)。
+// 左下スティックで歩き、画面ドラッグで見回し、タップ/ダブルタップの操作と会話はそのまま
+const AVATAR_MODE = VISIT || WALK;
 let lastPosSentAt = 0;
 let visitLastX = 8 + Math.random() * 4, visitLastZ = 8 + Math.random() * 4; // 入場位置は広場の端
-if (VISIT || WALK) {
+const myPos = { x: visitLastX, z: visitLastZ };
+let myYaw = Math.atan2(-myPos.x, -myPos.z); // 最初は広場の中心を向く
+let myPitch = -0.06;
+const joyVec = { x: 0, y: 0 };
+if (AVATAR_MODE) {
   // 入場の一歩(ゴースト出現)+15秒ごとの生存ピング(30秒無音で退場扱いになるため)
-  setTimeout(() => { void sendVisitorPos(visitLastX, visitLastZ); }, 1500);
-  setInterval(() => { lastPosSentAt = 0; void sendVisitorPos(visitLastX, visitLastZ); }, 15_000);
+  setTimeout(() => { void sendVisitorPos(myPos.x, myPos.z); }, 1500);
+  setInterval(() => { lastPosSentAt = 0; void sendVisitorPos(myPos.x, myPos.z); }, 15_000);
+  // 移動スティック
+  const joy = document.getElementById('joy');
+  const knob = document.getElementById('joyknob');
+  joy.style.display = 'block';
+  let joyPtr = null;
+  joy.addEventListener('pointerdown', (e) => {
+    joyPtr = e.pointerId;
+    joy.setPointerCapture(e.pointerId);
+    e.stopPropagation();
+  });
+  joy.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== joyPtr) return;
+    const r = joy.getBoundingClientRect();
+    let dx = e.clientX - (r.left + r.width / 2);
+    let dy = e.clientY - (r.top + r.height / 2);
+    const d = Math.hypot(dx, dy), max = 42;
+    if (d > max) { dx *= max / d; dy *= max / d; }
+    knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    joyVec.x = dx / max; joyVec.y = -dy / max; // 上=前
+  });
+  const joyEnd = (e) => {
+    if (e.pointerId !== joyPtr) return;
+    joyPtr = null; joyVec.x = 0; joyVec.y = 0;
+    knob.style.transform = 'translate(-50%,-50%)';
+  };
+  joy.addEventListener('pointerup', joyEnd);
+  joy.addEventListener('pointercancel', joyEnd);
+  // 見回し(スティック・UI以外のドラッグ)
+  let lookPtr = null;
+  addEventListener('pointerdown', (e) => {
+    if (e.target.closest('#joy') || e.target.closest('#chatbar') || e.target.closest('#chatlog') ||
+        e.target.closest('#appov') || e.target.closest('#mouth') || e.target.closest('button') || e.target.closest('#kioskctl')) return;
+    lookPtr = { id: e.pointerId, px: e.clientX, py: e.clientY };
+  });
+  addEventListener('pointermove', (e) => {
+    if (lookPtr === null || e.pointerId !== lookPtr.id) return;
+    myYaw -= (e.clientX - lookPtr.px) * 0.006;
+    myPitch = Math.max(-0.9, Math.min(0.9, myPitch - (e.clientY - lookPtr.py) * 0.004));
+    lookPtr.px = e.clientX; lookPtr.py = e.clientY;
+  });
+  addEventListener('pointerup', (e) => { if (lookPtr !== null && e.pointerId === lookPtr.id) lookPtr = null; });
 }
 async function sendVisitorPos(x, z) {
   if ((!VISIT && !WALK) || performance.now() - lastPosSentAt < 300) return;
   lastPosSentAt = performance.now();
   try {
+    let j = null;
     if (WALK) {
       // M176: オーナー歩行はアプリ経由(トークン認証)。ゴースト名はもりを
-      await fetch('/api/world/walk', {
+      const r = await fetch('/api/world/walk', {
         method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
         body: JSON.stringify({ x: +x.toFixed(1), z: +z.toFixed(1) }),
       });
-      return;
+      j = await r.json().catch(() => null);
+    } else {
+      const r = await fetch('/api/world/visitor', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ kind: 'pos', vk: VISIT_KEY, x: +x.toFixed(1), z: +z.toFixed(1) }),
+      });
+      j = await r.json().catch(() => null);
     }
-    await fetch('/api/world/visitor', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ kind: 'pos', vk: VISIT_KEY, x: +x.toFixed(1), z: +z.toFixed(1) }),
-    });
-  } catch { /* 届かない時は次のタップで */ }
+    // M189: 自分のゴーストIDを覚えて一人称視界から自分を消す
+    if (j?.id) ghosts.setSelf(j.id);
+  } catch { /* 届かない時は次で */ }
 }
 
 // M167: 建築物の「口」— ラベル付きオブジェクトもタップ対象(全建築物=アプリ、中身は後から)
@@ -1447,7 +1507,7 @@ let lastTap = { t: 0, id: null };
 let dragging = null; // {rec}
 let holdTimer = null;
 addEventListener('pointerdown', (e) => {
-  if (e.target.closest('#chatbar') || e.target.closest('#chatlog') || e.target.closest('#appov') || e.target.closest('#kioskctl')) return;
+  if (e.target.closest('#chatbar') || e.target.closest('#chatlog') || e.target.closest('#appov') || e.target.closest('#kioskctl') || e.target.closest('#joy')) return;
   const rec = kioskAt(e.clientX, e.clientY);
   const obj = rec === null ? objectAt(e.clientX, e.clientY) : null; // 社が優先(手前の看板を邪魔しない)
   tapStart = { x: e.clientX, y: e.clientY, t: performance.now(), kiosk: rec, obj };
@@ -1529,19 +1589,7 @@ addEventListener('pointerup', (e) => {
     camFocusTo(p, p.clone().add(new THREE.Vector3(3.2, 2.2, 3.2)));
     return;
   }
-  // M176: 訪問者・歩行オーナーは地面タップで歩く(自分のゴーストが動く)
-  if (!rec && (VISIT || WALK)) {
-    _ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
-    _ray.setFromCamera(_ndc, camera);
-    const hit = new THREE.Vector3();
-    if (_ray.ray.intersectPlane(_groundPlane, hit)) {
-      const r = Math.hypot(hit.x, hit.z);
-      if (r > 18) hit.multiplyScalar(18 / r);
-      visitLastX = hit.x; visitLastZ = hit.z;
-      void sendVisitorPos(hit.x, hit.z);
-    }
-    return;
-  }
+  // M189: 移動はスティックに一本化(地面タップは選択・観察に専念)
   if (!rec) return;
   const now = performance.now();
   if (lastTap.id === rec.def.id && now - lastTap.t < 450) {
@@ -1855,7 +1903,27 @@ const tick = () => {
     if (m.visible) m.lookAt(camera.position);
   }
   tickVisitors(dt, performance.now() / 1000); // M176: ゴーストの移動と浮遊
-  controls.update();
+  // M189: 一人称アバターモード — スティックで歩き、目線の高さから世界を見る
+  if (AVATAR_MODE) {
+    if (joyVec.x !== 0 || joyVec.y !== 0) {
+      const sp = 2.4 * dt;
+      myPos.x += (Math.sin(myYaw) * joyVec.y + Math.cos(myYaw) * joyVec.x) * sp;
+      myPos.z += (Math.cos(myYaw) * joyVec.y - Math.sin(myYaw) * joyVec.x) * sp;
+      const rr = Math.hypot(myPos.x, myPos.z);
+      if (rr > 18) { myPos.x *= 18 / rr; myPos.z *= 18 / rr; }
+      visitLastX = myPos.x; visitLastZ = myPos.z;
+      if (performance.now() - lastPosSentAt > 300) void sendVisitorPos(myPos.x, myPos.z);
+    }
+    controls.enabled = false;
+    camera.position.set(myPos.x, 1.55, myPos.z);
+    camera.lookAt(
+      myPos.x + Math.sin(myYaw) * Math.cos(myPitch),
+      1.55 + Math.sin(myPitch),
+      myPos.z + Math.cos(myYaw) * Math.cos(myPitch),
+    );
+  } else {
+    controls.update();
+  }
   renderer.render(scene, camera);
 };
 renderer.setAnimationLoop(tick);
