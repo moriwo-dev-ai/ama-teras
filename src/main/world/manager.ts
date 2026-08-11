@@ -502,11 +502,12 @@ export class WorldManager {
     this.bus.publish('world:chat', { from: 'user', text, who });
   }
 
-  /** M176(B v2): 訪問者ゴーストの位置を全ページへ配る(正しいseqで) */
-  visitorSync(id: string, name: string, x: number, z: number, stance?: string): void {
+  /** M176(B v2): 訪問者ゴーストの位置を全ページへ配る(正しいseqで)。
+   *  M198: traits=個体の見た目(胸の紋・色相・色名)。名前が同じでも世界の解像度で区別できる */
+  visitorSync(id: string, name: string, x: number, z: number, stance?: string, traits?: { mark: string; hue: number; colorName: string }): void {
     this.bus.publish('world:event', {
       seq: ++this.seq,
-      cmds: [{ type: 'visitor_sync', id, name, x, z, stance } as unknown as WorldCommand],
+      cmds: [{ type: 'visitor_sync', id, name, x, z, stance, ...traits } as unknown as WorldCommand],
       quiet: true,
     });
   }

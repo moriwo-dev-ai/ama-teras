@@ -75,12 +75,33 @@ export function initGhosts(THREE, scene, loaders) {
     return new THREE.Color(`hsl(${h}, 65%, 62%)`);
   }
 
+  // M198: 個体の見た目 — 色相は個体(紋の前半)から。名前が同じでも色が違う=世界の解像度
+  function tintOf(g) {
+    if (typeof g.hue === 'number') return new THREE.Color(`hsl(${g.hue}, 65%, 62%)`);
+    return colorOf(g.name);
+  }
+
+  // M198: 胸の紋(4桁)。個体の物理的な印=見る人みんなに同じものが見える
+  function makeMark(mark, hue) {
+    const cv = document.createElement('canvas');
+    cv.width = 128; cv.height = 48;
+    const cx2 = cv.getContext('2d');
+    cx2.fillStyle = typeof hue === 'number' ? `hsla(${hue}, 60%, 70%, 0.9)` : 'rgba(255,255,255,0.8)';
+    cx2.beginPath(); cx2.roundRect(14, 6, 100, 36, 12); cx2.fill();
+    cx2.fillStyle = '#2c3350'; cx2.font = 'bold 24px monospace';
+    cx2.textAlign = 'center'; cx2.textBaseline = 'middle';
+    cx2.fillText(mark, 64, 25);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true }));
+    sp.scale.set(0.5, 0.19, 1);
+    return sp;
+  }
+
   function buildBody(g) {
     if (rig) {
       const model = skClone(rig.base);
       model.scale.setScalar(0.01); // Mixamoはcm単位 → 約1.8m
-      // Y Botの白グレー基調は保ち、名前色はemissiveでうっすら
-      const tint = colorOf(g.name);
+      // Y Botの基調は保ち、個体色はemissiveでうっすら(M198: 色は個体から)
+      const tint = tintOf(g);
       const tintMat = (m) => {
         const c = m.clone();
         if (c.emissive) { c.emissive.copy(tint); c.emissiveIntensity = 0.14; }
@@ -100,9 +121,12 @@ export function initGhosts(THREE, scene, loaders) {
       }
       playAnim(g, 'Idle');
       const t = makeTag(g.name); t.position.y = 2.05; g.grp.add(t);
+      if (typeof g.mark === 'string' && g.mark !== '') {
+        const m = makeMark(g.mark, g.hue); m.position.set(0, 1.32, 0.14); g.grp.add(m);
+      }
     } else {
       // フォールバック: 旧カプセルゴースト
-      const color = colorOf(g.name);
+      const color = tintOf(g);
       const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.7, 6, 12), new THREE.MeshToonMaterial({ color, transparent: true, opacity: 0.75 }));
       body.position.y = 0.85; g.grp.add(body);
       const t = makeTag(g.name); t.position.y = 2.0; g.grp.add(t);
@@ -131,14 +155,14 @@ export function initGhosts(THREE, scene, loaders) {
   function syncVisitor(c) {
     if (c.id === selfId) return;
     let g = visitors.get(c.id);
-    // M196c: 改名(観戦者の名前変更)は作り直しで名札・色を更新する
-    if (g && typeof c.name === 'string' && c.name !== '' && c.name !== g.name) {
+    // M196c/M198: 改名・紋の変化は作り直しで名札・色・紋を更新する
+    if (g && ((typeof c.name === 'string' && c.name !== '' && c.name !== g.name) || (typeof c.mark === 'string' && c.mark !== g.mark))) {
       scene.remove(g.grp);
       visitors.delete(c.id);
       g = undefined;
     }
     if (!g) {
-      g = { grp: new THREE.Group(), target: new THREE.Vector3(c.x ?? 0, 0, c.z ?? 0), name: c.name ?? 'ゲスト', stance: 'stand', current: undefined };
+      g = { grp: new THREE.Group(), target: new THREE.Vector3(c.x ?? 0, 0, c.z ?? 0), name: c.name ?? 'ゲスト', mark: c.mark, hue: c.hue, stance: 'stand', current: undefined };
       g.grp.position.set(c.x ?? 0, 0, c.z ?? 0);
       scene.add(g.grp);
       visitors.set(c.id, g);

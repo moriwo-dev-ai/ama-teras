@@ -165,7 +165,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       sendJson(res, 200, {
         ...world.observe(),
         watchers: publicSseCount,
-        visitors: allGhosts().map((g) => ({ name: g.name, x: g.x, z: g.z, stance: g.stance })),
+        // M198: id接頭辞sp_=立ち見客。mark/colorName=個体の見た目(ヒナタには見た目値として渡る)
+        visitors: allGhosts().map((g) => ({ id: g.id, name: g.name, x: g.x, z: g.z, stance: g.stance, mark: g.mark, colorName: g.colorName })),
       });
       return;
     }
@@ -320,6 +321,26 @@ let publicSseCount = 0; // M175: 公開面の観戦者数=ヒナタの「気配�
 type VisitorState = { name: string; x: number; z: number; stance: string; lastAt: number };
 const visitorStates = new Map<string, VisitorState>(); // key=招待キー
 const vidOf = (key: string) => key.slice(0, 8); // 表示用ID(招待キーは晒さない)
+
+// M198: 個体の見た目(世界の解像度)。胸の紋=個体キー先頭4桁・色相=紋の前半から導出
+// =紋と色は本当に相関している(ヒナタがその法則を自分で見つけられる)。名前と独立・再来訪でも同じ
+const TRAD_COLORS: { name: string; h: number }[] = [
+  { name: 'くれない', h: 0 }, { name: 'やまぶき', h: 40 }, { name: 'たまご', h: 55 },
+  { name: 'わかくさ', h: 90 }, { name: 'ときわ', h: 140 }, { name: 'あさぎ', h: 175 },
+  { name: 'あいいろ', h: 210 }, { name: 'るり', h: 235 }, { name: 'ふじ', h: 265 },
+  { name: 'あやめ', h: 290 }, { name: 'つつじ', h: 320 }, { name: 'さくら', h: 345 },
+];
+function traitsOf(seed: string): { mark: string; hue: number; colorName: string } {
+  const mark = seed.slice(0, 4).toUpperCase();
+  const hue = Math.round((parseInt(seed.slice(0, 2), 16) / 256) * 360) % 360;
+  let best = TRAD_COLORS[0] as { name: string; h: number };
+  let bd = 999;
+  for (const c of TRAD_COLORS) {
+    const d = Math.min(Math.abs(c.h - hue), 360 - Math.abs(c.h - hue));
+    if (d < bd) { bd = d; best = c; }
+  }
+  return { mark, hue, colorName: best.name };
+}
 function handleVisitorPos(body: Record<string, unknown>): { code: number; res: unknown } {
   const vk = String(body['vk'] ?? '');
   const v = loadVisitors().find((x) => x.key === vk);
@@ -331,7 +352,7 @@ function handleVisitorPos(body: Record<string, unknown>): { code: number; res: u
   const isNew = prev === undefined;
   const stance = ['stand','sit','crouch'].includes(String(body['stance'])) ? String(body['stance']) : 'stand';
   visitorStates.set(vk, { name: v.name.slice(0, 12), x: cx, z: cz, stance, lastAt: Date.now() });
-  world.visitorSync(vidOf(vk), v.name.slice(0, 12), cx, cz, stance);
+  world.visitorSync(vidOf(vk), v.name.slice(0, 12), cx, cz, stance, traitsOf(vk));
   if (isNew) log(`訪問者が入場: ${v.name} (${cx.toFixed(1)}, ${cz.toFixed(1)})`);
   return { code: 200, res: { ok: true, id: vidOf(vk) } }; // M189: 自分のゴーストID(一人称視点で自分を消すため)
 }
@@ -396,12 +417,12 @@ function handleSpectatorBeat(body: Record<string, unknown>): { code: number; res
     recordSpectator(sid, name, true);
     const rec = specLog[sid];
     log(`立ち見客が入場: ${s.name} [${sid.slice(0, 8)}] ${rec !== undefined ? `${rec.visits}回目` : ''}`);
-    world.visitorSync(s.id, s.name, s.x, s.z, 'stand');
+    world.visitorSync(s.id, s.name, s.x, s.z, 'stand', traitsOf(sid));
   } else if (s.name !== name) {
     log(`立ち見客が改名: ${s.name} → ${name} [${sid.slice(0, 8)}]`);
     s.name = name;
     recordSpectator(sid, name, false);
-    world.visitorSync(s.id, s.name, s.x, s.z, 'stand');
+    world.visitorSync(s.id, s.name, s.x, s.z, 'stand', traitsOf(sid));
   } else {
     recordSpectator(sid, name, false);
   }
@@ -418,11 +439,11 @@ setInterval(() => {
     }
   }
 }, 10_000);
-/** 訪問者+立ち見客(ヒナタの知覚・poll・観戦ページの全員に見える) */
-function allGhosts(): { id: string; name: string; x: number; z: number; stance: string }[] {
+/** 訪問者+立ち見客(ヒナタの知覚・poll・観戦ページの全員に見える)。M198: 個体の見た目つき */
+function allGhosts(): { id: string; name: string; x: number; z: number; stance: string; mark: string; hue: number; colorName: string }[] {
   return [
-    ...[...visitorStates.entries()].map(([k, s]) => ({ id: vidOf(k), name: s.name, x: s.x, z: s.z, stance: s.stance })),
-    ...[...spectators.values()].map((s) => ({ id: s.id, name: s.name, x: s.x, z: s.z, stance: 'stand' })),
+    ...[...visitorStates.entries()].map(([k, s]) => ({ id: vidOf(k), name: s.name, x: s.x, z: s.z, stance: s.stance, ...traitsOf(k) })),
+    ...[...spectators.entries()].map(([sid, s]) => ({ id: s.id, name: s.name, x: s.x, z: s.z, stance: 'stand', ...traitsOf(sid) })),
   ];
 }
 

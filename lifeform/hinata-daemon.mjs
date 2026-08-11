@@ -300,7 +300,9 @@ async function main() {
     if (sense.visitors.size > 0) {
       const vs = [...sense.visitors.entries()].map(([n, p]) => {
         const d = sense.self !== null ? Math.hypot(p.x - sense.self.x, p.z - sense.self.z) : 99;
-        return `${n}(${d < 5 ? 'すぐちかく' : d < 12 ? 'ちかく' : 'とおく'}にいる)`;
+        // M198: 見た目(色)も帯域に乗せる=同じ名前でも「いろがちがう」が彼女に見える
+        const look = p.colorName !== undefined ? `・むねのいろは${p.colorName}` : '';
+        return `${p.name ?? n}(${d < 5 ? 'すぐちかく' : d < 12 ? 'ちかく' : 'とおく'}にいる${look})`;
       });
       parts.push(`あそびに来ている人: ${vs.join('、')}`);
     }
@@ -494,26 +496,33 @@ async function main() {
         if (vm !== null) watchers = Math.max(0, Number(vm[1]) - 1);
       }
       // M176: 訪問者の知覚 — 「だれが・どこにいるか」。来訪=大きな出来事(出会いの快)
-      const nowVisitors = new Map((obs.visitors ?? []).map((v) => [v.name, { x: v.x, z: v.z }]));
-      for (const [name, pos] of nowVisitors) {
-        if (!sense.visitors.has(name)) {
+      // M198: 個体=名前+見た目(色・胸の紋)。台帳のキーは個体単位(立ち見客は同名でも別のひと)。
+      // 紋は「識別子」としてではなく見た目の一部として渡す=色との相関は彼女が見つけるもの
+      const vKeyOf = (v) => (typeof v.id === 'string' && v.id.startsWith('sp_') && v.mark ? `${v.name}·${v.mark}` : v.name);
+      const nowVisitors = new Map((obs.visitors ?? []).map((v) => [vKeyOf(v), { x: v.x, z: v.z, name: v.name, mark: v.mark, colorName: v.colorName }]));
+      for (const [vkey, vi] of nowVisitors) {
+        const look = vi.colorName !== undefined
+          ? `紺いろの人がたロボット・むねのいろは${vi.colorName}・むねのもよう「${vi.mark}」`
+          : '紺いろの人がたロボットのすがた';
+        sense.spec.set(personKey(vkey), `あそびに来ている人(${look})`);
+        if (!sense.visitors.has(vkey)) {
           // 来訪の知覚と生理(出会いの快)まで。あいさつに行くかどうか・何と言うかは彼女の選択(M180)
-          remember('visitor_came', { name, x: pos.x, z: pos.z });
-          recordLearning(`${name}があそびに来た`);
-          euphoria(1, `${name}があそびに来た`);
-          noteDetail(personKey(name), 'came', 'せかいにあそびに来てくれた');
-          activate(personKey(name));
+          remember('visitor_came', { name: vi.name, key: vkey, x: vi.x, z: vi.z });
+          recordLearning(`${vi.name}があそびに来た`);
+          euphoria(1, `${vi.name}があそびに来た`);
+          noteDetail(personKey(vkey), 'came', 'せかいにあそびに来てくれた');
+          activate(personKey(vkey));
           lastVoiceAt = Date.now(); // 人が来た=ひとりじゃない
-          pendingArrivals.push({ name, ts: Date.now() });
+          pendingArrivals.push({ name: vi.name, key: vkey, ts: Date.now() });
           while (pendingArrivals.length > 5) pendingArrivals.shift();
         }
       }
-      for (const [name] of sense.visitors) {
-        if (!nowVisitors.has(name)) {
-          remember('visitor_left', { name });
-          noteDetail(personKey(name), 'left', 'かえっていった');
+      for (const [vkey, vi] of sense.visitors) {
+        if (!nowVisitors.has(vkey)) {
+          remember('visitor_left', { name: vi.name ?? vkey });
+          noteDetail(personKey(vkey), 'left', 'かえっていった');
           if (!sleeping && Date.now() - lastOwnActAt > 10_000) {
-            void act([{ type: 'say', text: `${name}、またね〜!` }], `おみおくり:${name}`);
+            void act([{ type: 'say', text: `${vi.name ?? vkey}、またね〜!` }], `おみおくり:${vi.name ?? vkey}`);
           }
         }
       }
@@ -931,14 +940,14 @@ async function main() {
           if (v > tv) { tv = v; target = p; }
         }
         // M190: あそびに来ている人も好奇心の対象(見る・近寄る・さわる=ひとの台帳に感覚が刻まれる)
-        for (const [vname, vpos] of sense.visitors) {
-          const key = personKey(vname);
-          const d = Math.hypot(vpos.x - sense.self.x, vpos.z - sense.self.z);
+        // M198: キーは個体(同名でも別のひと)。見た目のspecはsenseWorldが設定済み
+        for (const [vkey, vinfo] of sense.visitors) {
+          const key = personKey(vkey);
+          const d = Math.hypot(vinfo.x - sense.self.x, vinfo.z - sense.self.z);
           const v = Math.min(1, noveltyOf(key) + 0.25) - d * 0.015; // 人はいつも少し気になる
           if (v > tv) {
             tv = v;
-            target = { kind: 'world', subject: key, expected: { x: vpos.x, z: vpos.z } };
-            sense.spec.set(key, 'あそびに来ている人(紺いろの人がたロボットのすがた)');
+            target = { kind: 'world', subject: key, expected: { x: vinfo.x, z: vinfo.z } };
           }
         }
         if (target !== null && tv > 0.2) {
@@ -957,6 +966,8 @@ async function main() {
           const lastEng = [...recentTouched].reverse().find((r) => r.name === t.subject);
           // 乗算式: 直後は価値が15%まで下がり、10分かけて回復(減算式は快の飽和値に勝てなかった実測)
           const satiation = lastEng !== undefined ? 1 - 0.85 * Math.exp(-(now - lastEng.ts) / 600_000) : 1;
+          // M198: 言葉の上での呼び名 — ひとの個体キー(名前·紋)から紋を落とす(台帳キーはそのまま)
+          const disp = plainName(t.subject).replace(/·[0-9A-F]{4}$/u, '');
           if (!appBlocked) cands.push({
             value: (pleasureMemory * Math.max(0, tv) + lpErr * 0.5) * satiation,
             label: `気になる:${t.subject}(${depth})`,
@@ -972,7 +983,7 @@ async function main() {
                     recordLearning(`${t.subject}(use): ${detail}`);
                     euphoria(nov, `${t.subject}がこたえてくれた`);
                     if (Math.random() < 0.6) {
-                      const line = await think(brain, persona, [], situationNote(), `(アプリ「${t.subject}」であそんだら: ${detail}。ひとことつぶやいて)`);
+                      const line = await think(brain, persona, [], situationNote(), `(アプリ「${disp}」であそんだら: ${detail}。ひとことつぶやいて)`);
                       if (line !== null) await act([{ type: 'say', text: line }], `つかったつぶやき:${t.subject}`);
                     }
                   } else {
@@ -985,12 +996,12 @@ async function main() {
               if (depth !== 'look') {
                 const dd = Math.hypot(t.expected.x, t.expected.z) || 1;
                 await act([{ type: 'move_to', x: +(t.expected.x - (t.expected.x / dd) * 1.2).toFixed(1), z: +(t.expected.z - (t.expected.z / dd) * 1.2).toFixed(1) }], `近寄る:${t.subject}`);
-                const g = await chooseGesture(depth === 'touch' ? `「${t.subject}」にさわってみる` : `「${t.subject}」をじっくり感じてみる`, 'think');
+                const g = await chooseGesture(depth === 'touch' ? `「${disp}」にさわってみる` : `「${disp}」をじっくり感じてみる`, 'think');
                 if (g !== null) await doGesture(g, `${depth}:${t.subject}`);
               }
               // M194: 感度(身体)とリンク(つながった記憶のレンズ)を知覚に渡す。使い方は彼女とモデル次第
               const detail = await perceive(brain?.model ?? 'gemma3:4b', {
-                name: t.subject, spec: sense.spec.get(t.subject) ?? '', level: depth,
+                name: t.subject, label: disp, spec: sense.spec.get(t.subject) ?? '', level: depth,
                 sensitivity: senseAcuity, links: linksOf(t.subject, 2),
               });
               if (detail !== null) {
@@ -1004,7 +1015,7 @@ async function main() {
                   growSense(detail.sense);
                   euphoria(nov, `${t.subject}のあたらしい発見`);
                   if (Math.random() < 0.5) {
-                    const line = await think(brain, persona, [], situationNote(), `(「${t.subject}」を${depth === 'touch' ? 'さわったら' : 'よく見たら'}、気づいた:「${detail.text}」。ひとことつぶやいて)`);
+                    const line = await think(brain, persona, [], situationNote(), `(「${disp}」を${depth === 'touch' ? 'さわったら' : 'よく見たら'}、気づいた:「${detail.text}」。ひとことつぶやいて)`);
                     if (line !== null) await act([{ type: 'say', text: line }], `知覚のつぶやき:${t.subject}`);
                   }
                 } else {
@@ -1020,13 +1031,14 @@ async function main() {
       // 嬉しければすぐ行くし、他の欲が強ければ行かない。言葉も彼女(LLM)が作る
       for (let i = pendingArrivals.length - 1; i >= 0; i--) {
         const a = pendingArrivals[i];
-        if (now - a.ts > 600_000 || !sense.visitors.has(a.name)) { pendingArrivals.splice(i, 1); continue; }
+        // M198: 出欠は個体キーで確認(a.keyが無い古いエントリはnameで後方互換)
+        if (now - a.ts > 600_000 || !sense.visitors.has(a.key ?? a.name)) { pendingArrivals.splice(i, 1); continue; }
         cands.push({
           value: 0.3 + mind.affect.joy * 0.5,
           label: `あいさつ:${a.name}`,
           run: async () => {
             pendingArrivals.splice(pendingArrivals.indexOf(a), 1);
-            const p = sense.visitors.get(a.name);
+            const p = sense.visitors.get(a.key ?? a.name);
             const line = await think(brain, persona, convo, situationNote(), `(${a.name}があそびに来た。かけよって、じぶんの言葉でむかえる。言うことだけ答えて)`);
             const g = await chooseGesture(`${a.name}が来てくれてうれしい`, 'wave');
             await act([

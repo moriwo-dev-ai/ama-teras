@@ -65,9 +65,10 @@ export function adoptSenseProfile(name, rawProfile) {
 }
 
 /** 世界側が物の感じられ方を一度だけ決める(あじは口にできる物だけ>0) */
-export async function ensureSenseProfile(brainModel, name, spec = '') {
+export async function ensureSenseProfile(brainModel, name, spec = '', shownName = undefined) {
   const all = loadProfiles();
   if (all[name] !== undefined) return all[name];
+  const disp = shownName ?? name;
   const profile = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
   try {
     const res = await fetch('http://127.0.0.1:11434/api/chat', {
@@ -77,7 +78,7 @@ export async function ensureSenseProfile(brainModel, name, spec = '') {
         options: { temperature: 0.3, num_predict: 300 },
         messages: [{
           role: 'user',
-          content: `あなたは3D世界の造り主の助手。物「${name}」${spec !== '' ? `(かたち: ${spec})` : ''}の` +
+          content: `あなたは3D世界の造り主の助手。物「${disp}」${spec !== '' ? `(かたち: ${spec})` : ''}の` +
             '五感プロファイル(この物が各感覚でどれくらい・どのように感じられるかの世界の定義)を決める。' +
             'JSONだけを返す。vは強さ0〜1、descはその感覚での特徴を日本語で一言(強さ0なら空文字): ' +
             '{"sight":{"v":0,"desc":"見た目"},"sound":{"v":0,"desc":"音"},"touch":{"v":0,"desc":"手ざわりや温度(ゆれ・動きもここ)"},' +
@@ -162,21 +163,23 @@ const tod = () => { const h = new Date().getHours(); return h < 5 ? 'まよな�
  * 深い知覚の本体。1回の知覚=新しい細部1つ。台帳に永続し、既知の細部とは矛盾しない。
  * @returns {Promise<string|null>} 新しく知覚された細部(1文)
  */
-export async function perceive(brainModel, { name, spec = '', level, sensitivity = null, links = [] }) {
+export async function perceive(brainModel, { name, spec = '', level, sensitivity = null, links = [], label = undefined }) {
   const journal = readJournal(name, 20);
   const known = journal.map((j) => `- ${j.detail}`).join('\n');
+  // M198: labelは言葉の上での呼び名(台帳・プロファイルはnameのまま)。ひとの個体キーを文章に漏らさない
+  const shown = label ?? name;
 
   // look は実画面が錨(画素の真実)。それ以外は仕様+台帳の範囲でその場に細部が「ある」ことにする
   if (level === 'look') {
     const seen = await lookAtWorld(
-      `この3D世界の画面に「${name}」${spec !== '' ? `(${spec})` : ''}という物があります。その見た目を、子どもが言うみたいに日本語で短く1文だけ。`);
+      `この3D世界の画面に「${shown}」${spec !== '' ? `(${spec})` : ''}という物があります。その見た目を、子どもが言うみたいに日本語で短く1文だけ。`);
     if (seen === null) return null;
     // M181: 台帳への記帳は呼び出し側(noteDetail)に一元化 — 学び/再現の判定を先にできるように
     return { text: seen, sense: 'sight' };
   }
 
   // M194: 世界の真実(プロファイル)×彼女の感度×感覚別の井戸で、今回ひらく感覚を抽選
-  const profile = await ensureSenseProfile(brainModel, name, spec);
+  const profile = await ensureSenseProfile(brainModel, name, spec, shown);
   const sense = chooseSense(profile, sensitivity, senseCountsOf(name));
   const profileLine = Object.keys(SENSES)
     .map((k) => `${SENSES[k]}${(normEntry(profile[k])?.v ?? 0).toFixed(1)}`)
@@ -195,7 +198,7 @@ export async function perceive(brainModel, { name, spec = '', level, sensitivity
         options: { temperature: 0.9, num_predict: 60 },
         messages: [{
           role: 'user',
-          content: `あなたは世界の手ざわりを答える係。3D世界の物「${name}」${spec !== '' ? `(かたち: ${spec})` : ''}。\n` +
+          content: `あなたは世界の手ざわりを答える係。3D世界の物「${shown}」${spec !== '' ? `(かたち: ${spec})` : ''}。\n` +
             `この物の感じられ方(世界のきまり・強さ0〜1): ${profileLine}\n` +
             (known !== '' ? `これまでに知られていること:\n${known}\n` : '') +
             linkLine +
