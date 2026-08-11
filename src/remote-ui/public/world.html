@@ -1322,6 +1322,54 @@ function connect() {
     void post({ kind: 'hello', state: snapshot() });
   };
   es.onerror = () => { badge.classList.remove('on'); bst.textContent = '再接続中…'; };
+  // M195: トンネル等でSSEが堰き止められる回線のフォールバック(観戦/訪問のみ)。
+  // 健全なら接続直後にrestoreが必ず届く=8秒沈黙はこの回線でSSEが通らない証拠
+  if (SPECTATE && !EXECUTOR && !pollMode) {
+    const openedAt = lastSseAt;
+    setTimeout(() => {
+      if (pollMode || lastSseAt > openedAt) return;
+      try { es.close(); } catch { /* 既に死んでいる */ }
+      startPolling();
+    }, 8000);
+  }
+}
+
+// M195: ポーリング窓 — 3秒毎に /api/world/poll。構造はstamp差分・チャット/アバター/訪問者は毎回
+let pollMode = false;
+function startPolling() {
+  if (pollMode) return;
+  pollMode = true;
+  badge.classList.add('on');
+  bst.textContent = (VISIT ? 'あそびに来た' : '観戦モード') + '·低速線';
+  let stamp = '';
+  let lastChatJson = '';
+  let lastVisitorIds = new Set();
+  const tick = async () => {
+    if (document.visibilityState !== 'visible') return;
+    try {
+      const r = await fetch('/api/world/poll?stamp=' + encodeURIComponent(stamp));
+      if (!r.ok) return;
+      const j = await r.json();
+      if (j.stamp !== stamp) {
+        stamp = j.stamp;
+        if (Array.isArray(j.cmds) && j.cmds.length > 0) { cmdQueue.push({ cmds: j.cmds, quiet: true }); void pump(); }
+      }
+      const cj = JSON.stringify(j.chat ?? []);
+      if (cj !== lastChatJson) {
+        lastChatJson = cj;
+        cmdQueue.push({ cmds: [{ type: 'chat_restore', entries: j.chat ?? [] }], quiet: true });
+        void pump();
+      }
+      if (j.avatar) { cmdQueue.push({ cmds: [j.avatar], quiet: true }); void pump(); }
+      const now = new Set();
+      for (const v of j.visitors ?? []) { now.add(v.id); ghosts.syncVisitor(v); }
+      for (const id of lastVisitorIds) if (!now.has(id)) ghosts.removeVisitor({ id });
+      lastVisitorIds = now;
+      lastSseAt = Date.now(); // M145の張り直しを黙らせる(この回線ではSSEに戻さない)
+    } catch { /* 次のtickで再挑戦 */ }
+  };
+  void tick();
+  setInterval(tick, 3000);
 }
 if (TOKEN || SPECTATE || EXECUTOR) {
   connect();

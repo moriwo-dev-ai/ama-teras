@@ -363,7 +363,8 @@ if (PUBLIC_PORT !== undefined) {
     try {
       const url = new URL(req.url ?? '/', `http://localhost`);
       const path = url.pathname;
-      if (req.method === 'GET' && (path === '/' || path === '/world.html') && url.searchParams.get('viewer') !== '1') {
+      // M195: visit(招待)のクエリを剥がさない — viewer/visitどちらでもないときだけ観戦へ誘導
+      if (req.method === 'GET' && (path === '/' || path === '/world.html') && url.searchParams.get('viewer') !== '1' && url.searchParams.get('visit') !== '1') {
         res.writeHead(302, { location: '/world.html?viewer=1' });
         res.end();
         return;
@@ -381,6 +382,25 @@ if (PUBLIC_PORT !== undefined) {
         const offEvent = bus.subscribe('world:event', (payload) => res.write(`event: world:event\ndata: ${JSON.stringify(payload)}\n\n`));
         const ping = setInterval(() => res.write('event: ping\ndata: {}\n\n'), 20_000);
         req.on('close', () => { clearInterval(ping); offEvent(); publicSseCount--; });
+        return;
+      }
+      // M195: SSEが堰き止められる回線(cloudflaredトンネル実測)向けのポーリング窓。読み取り専用。
+      // stampは構造コマンドの内容ハッシュ=変化した時だけcmdsを返す(チャット・アバターは毎回)
+      if (req.method === 'GET' && path === '/api/world/poll') {
+        const restore = world.restorePayload();
+        const structural = (restore?.cmds ?? []).filter((c) => c.type !== 'chat_restore' && c.type !== 'avatar_state');
+        const json = JSON.stringify(structural);
+        let h = 5381;
+        for (let i = 0; i < json.length; i++) h = ((h * 33) ^ json.charCodeAt(i)) >>> 0;
+        const stamp = `${h}:${structural.length}`;
+        const av = restore?.cmds.find((c) => c.type === 'avatar_state');
+        sendJson(res, 200, {
+          stamp,
+          cmds: url.searchParams.get('stamp') === stamp ? [] : structural,
+          chat: world.chatHistory(20),
+          avatar: av ?? null,
+          visitors: [...visitorStates.entries()].map(([k, s]) => ({ id: vidOf(k), name: s.name, x: s.x, z: s.z, stance: s.stance })),
+        });
         return;
       }
       // 観戦ページのhello/state報告は受けるふりだけして捨てる(書き込み経路は公開面に存在しない)
