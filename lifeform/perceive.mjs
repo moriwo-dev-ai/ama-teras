@@ -20,9 +20,9 @@ const safe = (name) => name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
 // 物の感覚プロファイル=「世界の真実」(彼女の心ではなく世界側の設定)。
 // 本来はテラが建築時に付与するのが正しい姿。当面は「世界の手ざわりを答える係」
 // (=世界側のシミュレータ)が初対面時に一度だけ決めて、ここに永続する。
+// 五感=5つ(ゆれ・動きは独立した感覚ではなく、見た目や手ざわりを通して感じる=説明側に書く)
 export const SENSES = {
-  sight: '見た目', sound: '音', touch: '手ざわり・温度',
-  smell: 'におい', motion: 'ゆれ・うごき', taste: 'あじ',
+  sight: '見た目', sound: '音', touch: '手ざわり・温度', smell: 'におい', taste: 'あじ',
 };
 const PROFILE_PATH = join(HERE, 'memory', 'world-sense.json');
 let profileCache = null;
@@ -34,37 +34,66 @@ function loadProfiles() {
 function saveProfiles() {
   try { writeFileSync(PROFILE_PATH, JSON.stringify(profileCache, null, 1)); } catch { /* noop */ }
 }
-const DEFAULT_PROFILE = { sight: 0.7, sound: 0.2, touch: 0.5, smell: 0.2, motion: 0.3, taste: 0 };
+// 各感覚 = { v: 強さ0〜1, desc: その感覚での特徴(世界の定義)}。
+// 強さ=その感覚で細部が残りやすいか(見た目のよいバイクはsightが高く、見た目の説明が残りやすい)
+const DEFAULT_PROFILE = {
+  sight: { v: 0.7, desc: '' }, sound: { v: 0.2, desc: '' }, touch: { v: 0.5, desc: '' },
+  smell: { v: 0.2, desc: '' }, taste: { v: 0, desc: '' },
+};
+const normEntry = (raw) => {
+  if (typeof raw === 'number') return { v: Math.max(0, Math.min(1, raw)), desc: '' };
+  if (raw !== null && typeof raw === 'object') {
+    const v = Number(raw.v);
+    return { v: Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0, desc: String(raw.desc ?? '').slice(0, 60) };
+  }
+  return null;
+};
+
+/** M194b: 世界(テラの建築・世界サーバ)から届いた真実のプロファイルを取り込む */
+export function adoptSenseProfile(name, rawProfile) {
+  if (rawProfile === null || typeof rawProfile !== 'object') return false;
+  const profile = {};
+  for (const k of Object.keys(SENSES)) {
+    const e = normEntry(rawProfile[k]);
+    profile[k] = e ?? DEFAULT_PROFILE[k];
+  }
+  const all = loadProfiles();
+  if (JSON.stringify(all[name]) === JSON.stringify(profile)) return false;
+  all[name] = profile;
+  saveProfiles();
+  return true;
+}
 
 /** 世界側が物の感じられ方を一度だけ決める(あじは口にできる物だけ>0) */
 export async function ensureSenseProfile(brainModel, name, spec = '') {
   const all = loadProfiles();
   if (all[name] !== undefined) return all[name];
-  let profile = { ...DEFAULT_PROFILE };
+  const profile = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
   try {
     const res = await fetch('http://127.0.0.1:11434/api/chat', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         model: brainModel, stream: false, keep_alive: '3h', think: false,
-        options: { temperature: 0.3, num_predict: 80 },
+        options: { temperature: 0.3, num_predict: 300 },
         messages: [{
           role: 'user',
-          content: `あなたは3D世界の造り主の助手。物「${name}」${spec !== '' ? `(かたち: ${spec})` : ''}が、` +
-            'どの感覚でどれくらい感じられる物かを決める。0〜1の数字でJSONだけを返す: ' +
-            '{"sight":見た目,"sound":音,"touch":手ざわり,"smell":におい,"motion":ゆれや動き,"taste":あじ}。' +
-            'tasteは口にできる物だけ0より大きくする。',
+          content: `あなたは3D世界の造り主の助手。物「${name}」${spec !== '' ? `(かたち: ${spec})` : ''}の` +
+            '五感プロファイル(この物が各感覚でどれくらい・どのように感じられるかの世界の定義)を決める。' +
+            'JSONだけを返す。vは強さ0〜1、descはその感覚での特徴を日本語で一言(強さ0なら空文字): ' +
+            '{"sight":{"v":0,"desc":"見た目"},"sound":{"v":0,"desc":"音"},"touch":{"v":0,"desc":"手ざわりや温度(ゆれ・動きもここ)"},' +
+            '"smell":{"v":0,"desc":"におい"},"taste":{"v":0,"desc":"あじ"}}。tasteは口にできる物だけ0より大きくする。',
         }],
       }),
       signal: AbortSignal.timeout(90_000), // 物ごとに一度きり=コールドスタートを待ってよい
     });
     if (res.ok) {
       const raw = ((await res.json()).message?.content ?? '').replace(/<think>[\s\S]*?<\/think>/g, '');
-      const m = /\{[\s\S]*?\}/.exec(raw);
+      const m = /\{[\s\S]*\}/.exec(raw);
       if (m !== null) {
         const p = JSON.parse(m[0]);
         for (const k of Object.keys(SENSES)) {
-          const v = Number(p[k]);
-          if (Number.isFinite(v)) profile[k] = Math.max(0, Math.min(1, v));
+          const e = normEntry(p[k]);
+          if (e !== null) profile[k] = e;
         }
       }
     }
@@ -91,11 +120,11 @@ export function senseCountsOf(name) {
 export function chooseSense(profile, sensitivity, counts) {
   const weights = [];
   for (const k of Object.keys(SENSES)) {
-    const p = profile?.[k] ?? DEFAULT_PROFILE[k];
-    if (p <= 0.05) continue;
+    const p = normEntry(profile?.[k]) ?? DEFAULT_PROFILE[k];
+    if (p.v <= 0.05) continue;
     const sens = sensitivity?.[k] ?? 0.5;
     const nov = 10 / (10 + (counts?.[k] ?? 0) * 5); // 感覚の井戸は物全体より浅い(2個で半減)
-    weights.push([k, p * sens * nov]);
+    weights.push([k, p.v * sens * nov]);
   }
   if (weights.length === 0) return 'sight';
   const total = weights.reduce((a, [, w]) => a + w, 0);
@@ -150,8 +179,9 @@ export async function perceive(brainModel, { name, spec = '', level, sensitivity
   const profile = await ensureSenseProfile(brainModel, name, spec);
   const sense = chooseSense(profile, sensitivity, senseCountsOf(name));
   const profileLine = Object.keys(SENSES)
-    .map((k) => `${SENSES[k]}${(profile[k] ?? 0).toFixed(1)}`)
+    .map((k) => `${SENSES[k]}${(normEntry(profile[k])?.v ?? 0).toFixed(1)}`)
     .join(' ');
+  const senseDef = normEntry(profile[sense])?.desc ?? '';
   // M194: リンクのレンズ — つながっている記憶を提示するだけ(使い方は指示しない)
   const linkLine = links.length > 0
     ? `この物とつながっている記憶: ${links.map((l) => l.note !== undefined && l.note !== '' ? `${l.other}(${String(l.note).slice(0, 20)})` : l.other).join('、')}\n`
@@ -170,7 +200,8 @@ export async function perceive(brainModel, { name, spec = '', level, sensitivity
             (known !== '' ? `これまでに知られていること:\n${known}\n` : '') +
             linkLine +
             `いまは${tod()}。この物を「${LEVELS[level] ?? level}」。\n` +
-            `知られていることと矛盾しない、あたらしい細部を1つだけ、子どもにわかる言葉で1文で。` +
+            (senseDef !== '' ? `世界の定義: この物の${SENSES[sense]}は「${senseDef}」。\n` : '') +
+            `知られていること・世界の定義と矛盾しない、あたらしい細部を1つだけ、子どもにわかる言葉で1文で。` +
             `とくに「${SENSES[sense]}」のことを具体的に。前置きなしで細部だけ。`,
         }],
       }),

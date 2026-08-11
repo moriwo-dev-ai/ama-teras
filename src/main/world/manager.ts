@@ -61,6 +61,8 @@ export class WorldManager {
   /** M120: 世界に置かれたアプリ(社)の正本 */
   private readonly apps = new Map<string, WorldApp>();
   private persistPath: string | null = null;
+  /** M194b: 物id → 五感プロファイル(世界の真実。建築者が定義する) */
+  private senseProfiles = new Map<string, Record<string, { v: number; desc: string }>>();
   /** M116-B: エージェントが世界を「見る」ための観戦URL(ipc.tsがポートを知っているので注入) */
   private spectateUrl: string | null = null;
   /** M120: 世界アプリの実体ディレクトリ(userData/world-apps)。howToAppsの案内に使う */
@@ -100,10 +102,13 @@ export class WorldManager {
         objects?: WorldCommand[];
         apps?: WorldApp[];
         log?: { from: 'user' | 'agent' | 'world' | 'hinata'; text: string; ts?: string }[];
+        senses?: Record<string, Record<string, { v: number; desc: string }>>;
       };
       for (const c of data.objects ?? []) {
         if (c.type === 'spawn' && typeof c.id === 'string') this.objects.set(c.id, c);
       }
+      // M194b: 物の五感プロファイル(世界の真実)も正本の一部
+      for (const [id, prof] of Object.entries(data.senses ?? {})) this.senseProfiles.set(id, prof);
       for (const a of data.apps ?? []) {
         if (typeof a.id === 'string') this.apps.set(a.id, a);
       }
@@ -120,7 +125,12 @@ export class WorldManager {
       writeFileSync(
         this.persistPath,
         JSON.stringify(
-          { objects: [...this.objects.values()], apps: [...this.apps.values()], log: this.chatLog },
+          {
+            objects: [...this.objects.values()],
+            apps: [...this.apps.values()],
+            log: this.chatLog,
+            senses: Object.fromEntries(this.senseProfiles),
+          },
           null,
           1,
         ),
@@ -154,6 +164,17 @@ export class WorldManager {
         }
       } else if (c.type === 'app_remove' && typeof c.appId === 'string') {
         if (this.apps.delete(c.appId)) { this.pushChat('world', '🗑 アプリ撤去: ' + c.appId); changed = true; }
+      } else if (c.type === 'sense_profile' && typeof c.id === 'string' && c.senses !== undefined) {
+        // M194b: 五感プロファイル=世界の真実。建築者(テラ)が定義し、住人はこれを通して物を感じる
+        const clean: Record<string, { v: number; desc: string }> = {};
+        for (const k of ['sight', 'sound', 'touch', 'smell', 'taste']) {
+          const e = c.senses[k];
+          if (e === undefined) continue;
+          const v = Number(e.v);
+          clean[k] = { v: Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0, desc: String(e.desc ?? '').slice(0, 60) };
+        }
+        this.senseProfiles.set(c.id, clean);
+        changed = true;
       }
     }
     if (changed) this.persist();
@@ -328,11 +349,14 @@ export class WorldManager {
     howToSee?: string;
     howToApps?: string;
     resident?: string;
+    senses?: Record<string, Record<string, { v: number; desc: string }>>;
   } {
     return {
       connected: this.isConnected(),
       state: this.state,
       chat: this.chatLog.slice(-40),
+      // M194b: 物の五感プロファイル(世界の真実)。住人の知覚がこれを取り込む
+      senses: Object.fromEntries(this.senseProfiles),
       // M154: 人格の混線防止(実測: エージェントが住人の発言を自分の続きと誤認して名乗った)
       resident:
         'この世界にはあなたとは別の住人「ヒナタ」(自律生命体)が住んでいる。chatの from:"hinata" は' +
@@ -353,7 +377,12 @@ export class WorldManager {
               '水平のズレは top で、高さのズレは side/sidex で必ず測ってから直すこと。' +
               '⚠spawn には必ず日本語の label を付けること(例: label:"風車")。この世界に住む生命体' +
               '(ヒナタ)はラベルで物を知覚する — 名前のない物は彼女には「名前の分からない何か」に見える。' +
-              'あなたが名付けることが、彼女に世界を見せることになる',
+              'あなたが名付けることが、彼女に世界を見せることになる。' +
+              '⚠さらに、新しい物を建てたら必ず world_act の sense_profile でその物の五感プロファイル' +
+              '(世界の真実)も定義すること — 彼女はこれを通して物を感じる。書式: ' +
+              '{type:"sense_profile", id:"<物のid>", senses:{sight:{v:0〜1,desc:"見た目の特徴を一言"}, ' +
+              'sound:{...}, touch:{...ゆれ・動きもここ}, smell:{...}, taste:{...}}}。' +
+              'vはその感覚での感じられやすさ(見た目のよい物はsightが高い)。tasteは口にできる物だけ>0',
             howToApps:
               `アプリを世界に置く手順: ①write_file で ${this.worldAppsDir ?? '<userData>/world-apps'}/<id>/index.html に` +
               'Webアプリを書く(単一HTML推奨。操作したいボタン・表示にはidを振ること=後で自分がclick/readしやすい) ' +
@@ -409,8 +438,13 @@ export class WorldManager {
       if (c.type === 'say' && typeof c.text === 'string') this.pushChat(c.speaker === 'hinata' ? 'hinata' : 'agent', c.text);
     }
     this.applyToCanon(cmds);
+    // M194b: sense_profileは正本だけの操作(ページに描くものがない)。ページへは送らない
+    const pageCmds = cmds.filter((c) => c.type !== 'sense_profile');
+    if (pageCmds.length === 0) {
+      return Promise.resolve({ ok: true, detail: `五感プロファイルを記録した(${cmds.length}件)` });
+    }
     const seq = ++this.seq;
-    const payload: WorldPushPayload = { seq, cmds };
+    const payload: WorldPushPayload = { seq, cmds: pageCmds };
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pendingAcks.delete(seq);

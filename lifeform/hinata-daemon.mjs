@@ -19,7 +19,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { classify, detectBrain, think } from './brain.mjs';
-import { isKnownDetail, knownAbout, knownWords, noteDetail, noveltyOf, perceive, personKey, plainName, readJournal, wordKey } from './perceive.mjs';
+import { adoptSenseProfile, isKnownDetail, knownAbout, knownWords, noteDetail, noveltyOf, perceive, personKey, plainName, readJournal, wordKey } from './perceive.mjs';
 import { linksOf, strengthen } from './links.mjs';
 import { Mind } from './mind.mjs';
 import { microReflect, nightIntegrate, fadeMemories } from './reflect.mjs';
@@ -100,8 +100,11 @@ let sleeping = savedBody.sleeping === true; // M194: 停止は睡眠と同型(§
 
 // M194: 彼女の五感の感度(身体側)。初期はフラット、新発見した感覚が少しずつ育つ
 const SENSES_PATH = join(MEM_DIR, 'senses.json');
-let senseAcuity = { sight: 0.5, sound: 0.5, touch: 0.5, smell: 0.5, motion: 0.5, taste: 0.5 };
-try { senseAcuity = { ...senseAcuity, ...JSON.parse(readFileSync(SENSES_PATH, 'utf8')) }; } catch { /* 初生 */ }
+let senseAcuity = { sight: 0.5, sound: 0.5, touch: 0.5, smell: 0.5, taste: 0.5 };
+try {
+  const saved = JSON.parse(readFileSync(SENSES_PATH, 'utf8'));
+  for (const k of Object.keys(senseAcuity)) if (typeof saved[k] === 'number') senseAcuity[k] = saved[k];
+} catch { /* 初生 */ }
 function growSense(sense) {
   if (typeof sense !== 'string' || senseAcuity[sense] === undefined) return;
   senseAcuity[sense] = Math.min(1, +(senseAcuity[sense] + 0.03).toFixed(3));
@@ -523,6 +526,10 @@ async function main() {
         if (typeof o.x !== 'number' || typeof o.z !== 'number') continue;
         const nm = o.label ?? (typeof o.id === 'string' && !/^obj\d+$/.test(o.id) ? o.id : null);
         spots.push({ name: nm ?? '名前の分からない何か', x: o.x, z: o.z, spec: o.shape ?? '' });
+        // M194b: 世界(テラの定義)が持つ五感プロファイルは真実として取り込む(彼女の名前空間=label優先)
+        if (nm !== null && obs.senses !== undefined && obs.senses[o.id] !== undefined) {
+          adoptSenseProfile(nm, obs.senses[o.id]);
+        }
       }
       for (const s of spots) sense.spec.set(s.name, s.spec ?? ''); // M165: 知覚の錨(建築仕様)
       const seen = new Set(spots.map((s) => s.name));

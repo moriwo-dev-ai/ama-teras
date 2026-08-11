@@ -1482,7 +1482,10 @@ export type EvolutionEvent =
  * 世界ページ(out/remote-ui/world.html)がこれを解釈して実行する。
  */
 export interface WorldCommand {
-  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'camera_to' | 'face' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_leave' | 'app_close' | 'app_point' | 'chat_restore' | 'app_state' | 'app_click' | 'app_type' | 'app_read' | 'app_scan' | 'obj_sync' | 'visitor_sync' | 'visitor_gone' | 'record' | 'live_hud' | 'live_comment' | 'avatar_state';
+  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'camera_to' | 'face' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_leave' | 'app_close' | 'app_point' | 'chat_restore' | 'app_state' | 'app_click' | 'app_type' | 'app_read' | 'app_scan' | 'obj_sync' | 'visitor_sync' | 'visitor_gone' | 'record' | 'live_hud' | 'live_comment' | 'avatar_state' | 'sense_profile';
+  /** M194b sense_profile: 物の五感プロファイル(世界の真実)。建築者が定義する。idで対象を指す。
+   * 各感覚 = { v: 強さ0〜1, desc: その感覚での特徴を一言 }。キーは sight/sound/touch/smell/taste */
+  senses?: Record<string, { v: number; desc: string }>;
   /** M169: ユーザー配置調整(spawn定義に永続・obj_syncで全ページ同期)。テラのy/ryとは独立の加算値 */
   uy?: number;
   ury?: number;
