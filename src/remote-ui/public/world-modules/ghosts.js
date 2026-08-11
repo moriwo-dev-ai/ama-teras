@@ -1,23 +1,53 @@
 /**
- * M190: 訪問者アバター v2 — RobotExpressive(three.js公式・MIT)。
- * モーション内蔵(Idle/Walking/Running/Sitting/Wave等)。移動速度で歩き/走りを自動切替、
- * スタンス(立つ/すわる/しゃがむ)を同期。読込失敗時は旧カプセルゴーストにフォールバック。
+ * M191: 訪問者アバター v3 — Mixamo Y Bot + 既存モーション資産(assets-lab)。
+ * Y Botとassets-labのFBXは同一Mixamo骨格なのでリターゲット不要でそのまま再生できる。
+ * 移動速度で歩き/走りを自動切替、スタンス(立つ/すわる/しゃがむ)を同期。
+ * 読込失敗時は旧カプセルゴーストにフォールバック。
  */
 import { clone as skClone } from 'three/addons/utils/SkeletonUtils.js';
 
-export function initGhosts(THREE, scene, loadGltf) {
+export function initGhosts(THREE, scene, loaders) {
   const visitors = new Map(); // id -> ghost
   let selfId = null;
-  let robot = null; // gltf | false(失敗)
+  let rig = null; // {base, clips} | false(失敗→カプセル)
   const pendingMakes = [];
 
-  loadGltf('./avatars/robot.glb')
-    .then((g) => {
-      robot = g;
+  // M191: Y Bot(Mixamo)+既存モーション資産(同じMixamo骨格なのでそのまま動く)
+  // 歩き/走りは前進成分(Hipsの水平移動)を初期位置に固定してその場再生にする。
+  // 上下動(y)と座りの腰下げは残したいので、トラック削除ではなく値の上書きで対応
+  const stripRootMove = (clip) => {
+    if (!clip) return clip;
+    for (const t of clip.tracks) {
+      if (/Hips\.position/.test(t.name)) {
+        for (let i = 3; i < t.values.length; i += 3) {
+          t.values[i] = t.values[0];
+          t.values[i + 2] = t.values[2];
+        }
+      }
+    }
+    return clip;
+  };
+  Promise.all([
+    loaders.fbx('./avatars/ybot.fbx'),
+    loaders.fbx('./assets-lab/Breathing Idle.fbx'),
+    loaders.fbx('./assets-lab/Walking.fbx'),
+    loaders.fbx('./assets-lab/Fast Run.fbx'),
+    loaders.fbx('./assets-lab/Sitting Idle.fbx'),
+  ])
+    .then(([base, idle, walk, run, sit]) => {
+      rig = {
+        base,
+        clips: {
+          Idle: stripRootMove(idle.animations[0]),
+          Walking: stripRootMove(walk.animations[0]),
+          Running: stripRootMove(run.animations[0]),
+          Sitting: stripRootMove(sit.animations[0]),
+        },
+      };
       for (const f of pendingMakes) f();
       pendingMakes.length = 0;
     })
-    .catch(() => { robot = false; for (const f of pendingMakes) f(); pendingMakes.length = 0; });
+    .catch((e) => { console.warn('[ghosts] Y Bot読込失敗', e); rig = false; for (const f of pendingMakes) f(); pendingMakes.length = 0; });
 
   function setSelf(id) {
     selfId = id;
@@ -46,24 +76,30 @@ export function initGhosts(THREE, scene, loadGltf) {
   }
 
   function buildBody(g) {
-    if (robot) {
-      const model = skClone(robot.scene);
-      model.scale.setScalar(0.5); // 素の背丈約3.1 → 約1.55m
-      // 名前色をワンポイントに(頭部などの主要メッシュへ薄く着色)
+    if (rig) {
+      const model = skClone(rig.base);
+      model.scale.setScalar(0.01); // Mixamoはcm単位 → 約1.8m
+      // Y Botの白グレー基調は保ち、名前色はemissiveでうっすら
       const tint = colorOf(g.name);
+      const tintMat = (m) => {
+        const c = m.clone();
+        if (c.emissive) { c.emissive.copy(tint); c.emissiveIntensity = 0.14; }
+        return c;
+      };
       model.traverse((o) => {
-        if (o.isMesh && o.material && o.material.name === 'Main') {
-          o.material = o.material.clone();
-          o.material.color.lerp(tint, 0.55);
+        if (o.isMesh && o.material) {
+          o.material = Array.isArray(o.material) ? o.material.map(tintMat) : tintMat(o.material);
         }
       });
       g.grp.add(model);
       g.model = model;
       g.mixer = new THREE.AnimationMixer(model);
       g.actions = {};
-      for (const clip of robot.animations) g.actions[clip.name] = g.mixer.clipAction(clip);
+      for (const [name, clip] of Object.entries(rig.clips)) {
+        if (clip) g.actions[name] = g.mixer.clipAction(clip);
+      }
       playAnim(g, 'Idle');
-      const t = makeTag(g.name); t.position.y = 2.0; g.grp.add(t);
+      const t = makeTag(g.name); t.position.y = 2.05; g.grp.add(t);
     } else {
       // フォールバック: 旧カプセルゴースト
       const color = colorOf(g.name);
@@ -79,7 +115,6 @@ export function initGhosts(THREE, scene, loadGltf) {
     if (!next) return;
     const prev = g.current !== undefined ? g.actions[g.current] : undefined;
     next.reset();
-    if (name === 'Sitting') { next.setLoop(THREE.LoopOnce); next.clampWhenFinished = true; }
     next.fadeIn(fade).play();
     if (prev) prev.fadeOut(fade);
     g.current = name;
@@ -101,7 +136,7 @@ export function initGhosts(THREE, scene, loadGltf) {
       g.grp.position.set(c.x ?? 0, 0, c.z ?? 0);
       scene.add(g.grp);
       visitors.set(c.id, g);
-      if (robot === null) pendingMakes.push(() => buildBody(g));
+      if (rig === null) pendingMakes.push(() => buildBody(g));
       else buildBody(g);
     }
     g.target.set(c.x ?? 0, 0, c.z ?? 0);

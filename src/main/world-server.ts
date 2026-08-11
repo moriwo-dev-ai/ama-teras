@@ -79,6 +79,8 @@ function sendJson(res: ServerResponse, code: number, body: unknown): void {
 }
 
 function serveStatic(root: string, rel: string, res: ServerResponse, inject: boolean): void {
+  // URLの%20等をファイル名へ戻す(スペース入りFBXが全404になっていた)。デコード後に脱出判定
+  try { rel = decodeURIComponent(rel); } catch { res.writeHead(400); res.end(); return; }
   const full = resolve(join(root, rel));
   if (!full.startsWith(resolve(root) + sep) && full !== resolve(root)) { res.writeHead(403); res.end(); return; }
   readFile(full, (err, data) => {

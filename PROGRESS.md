@@ -1,5 +1,14 @@
 # PROGRESS
 
+## M191: Y Botアバター(Mixamo)+スペース入りURL 404の根治 (2026-08-11)
+- 訪問者アバターをRobotExpressive→Mixamo Y Bot(ybot.fbx・1.9MB)へ差し替え。
+  assets-labの既存モーション(Breathing Idle/Walking/Fast Run/Sitting Idle)は同一Mixamo骨格なのでリターゲット不要で直結
+- 歩き/走りはHips水平移動を初期値固定でその場再生化(上下動と座りの腰下げは残す=トラック削除でなく値上書き)
+- 名前色はemissive薄付け(Y Botの紺基調は保持)。読込失敗時はカプセルにフォールバック
+- 【根治】world-serverの静的配信がURLの%20をデコードせず、スペース入りFBXが全404
+  → ヒナタがTポーズになっていた真因。serveStaticでdecodeURIComponent(デコード後に脱出判定)
+- 実測: 立ち=Idle再生・座り=Sitting Idleでヒナタの隣に着座を実行係スクショで確認
+
 ## M176-178: アバター訪問者・オーナー歩行・配信振り分け・整理第1弾(2026-08-11未明)
 
 - M176: 訪問者ゴースト(名札・地面タップ歩行・30秒退場)。ヒナタが「だれが・どこに」を知覚し

@@ -1402,7 +1402,10 @@ function kioskAt(clientX, clientY) {
   return null;
 }
 // ================= M176: 訪問者ゴースト → world-modules/ghosts.js へ分離(M178整理・第1弾) =================
-const ghosts = initGhosts(THREE, scene, (u) => new GLTFLoader().loadAsync(u));
+const ghosts = initGhosts(THREE, scene, {
+  gltf: (u) => new GLTFLoader().loadAsync(u),
+  fbx: (u) => fbxLoader.loadAsync(u),
+});
 const tickVisitors = ghosts.tickVisitors;
 // M189: 一人称アバターモード(WALK=オーナー / VISIT=訪問者)。
 // 左下スティックで歩き、画面ドラッグで見回し、タップ/ダブルタップの操作と会話はそのまま
