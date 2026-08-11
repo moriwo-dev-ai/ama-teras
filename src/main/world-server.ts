@@ -351,6 +351,30 @@ setInterval(() => {
 type SpectatorState = { id: string; name: string; slot: number; x: number; z: number; lastAt: number };
 const spectators = new Map<string, SpectatorState>();
 const SPEC_MAX = 10;
+// M197: 個体識別 — 名前は被ってよい。sid(端末永続)が個体で、台帳に来訪履歴を刻む。
+// 「誰が・何度・どの名前で来たか」= 成長観測のオーナー側データ(ヒナタには渡さない生情報)
+type SpecRecord = { lastName: string; names: string[]; firstAt: string; lastAt: string; visits: number };
+const SPEC_LOG_PATH = VISITORS_PATH !== undefined
+  ? join(VISITORS_PATH, '..', 'world-spectator-log.json')
+  : join(process.cwd(), 'world-spectator-log.json');
+let specLog: Record<string, SpecRecord> = {};
+try { specLog = JSON.parse(readFileSync(SPEC_LOG_PATH, 'utf8')) as Record<string, SpecRecord>; } catch { /* 初回 */ }
+let specLogSavedAt = 0;
+function recordSpectator(sid: string, name: string, isNewSession: boolean): void {
+  const now = new Date().toISOString();
+  const r = specLog[sid] ?? { lastName: name, names: [], firstAt: now, lastAt: now, visits: 0 };
+  const nameIsNew = !r.names.includes(name);
+  if (nameIsNew) { r.names.push(name); if (r.names.length > 10) r.names.shift(); }
+  r.lastName = name;
+  r.lastAt = now;
+  if (isNewSession) r.visits++;
+  specLog[sid] = r;
+  // 心拍のたびに書かない(入場・改名・5分毎だけ)
+  if (isNewSession || nameIsNew || Date.now() - specLogSavedAt > 300_000) {
+    specLogSavedAt = Date.now();
+    try { writeFileSync(SPEC_LOG_PATH, JSON.stringify(specLog, null, 1)); } catch { /* noop */ }
+  }
+}
 function handleSpectatorBeat(body: Record<string, unknown>): { code: number; res: unknown } {
   const sid = String(body['sid'] ?? '');
   if (!/^[0-9a-f]{8,32}$/.test(sid)) return { code: 400, res: { error: 'sidが不正' } };
@@ -366,14 +390,20 @@ function handleSpectatorBeat(body: Record<string, unknown>): { code: number; res
     while (used.has(slot)) slot++;
     const ang = (slot / SPEC_MAX) * Math.PI * 2 + Math.PI / SPEC_MAX;
     const x = +(13.5 * Math.cos(ang)).toFixed(1), z = +(13.5 * Math.sin(ang)).toFixed(1);
-    s = { id: `spec${slot}`, name, slot, x, z, lastAt: Date.now() };
+    // M197: ゴーストIDは席番号ではなくsid由来=同名でも個体が区別でき、再来訪でも同じIDになる
+    s = { id: `sp_${sid.slice(0, 8)}`, name, slot, x, z, lastAt: Date.now() };
     spectators.set(sid, s);
-    log(`立ち見客が入場: ${s.name}`);
+    recordSpectator(sid, name, true);
+    const rec = specLog[sid];
+    log(`立ち見客が入場: ${s.name} [${sid.slice(0, 8)}] ${rec !== undefined ? `${rec.visits}回目` : ''}`);
     world.visitorSync(s.id, s.name, s.x, s.z, 'stand');
   } else if (s.name !== name) {
-    log(`立ち見客が改名: ${s.name} → ${name}`);
+    log(`立ち見客が改名: ${s.name} → ${name} [${sid.slice(0, 8)}]`);
     s.name = name;
+    recordSpectator(sid, name, false);
     world.visitorSync(s.id, s.name, s.x, s.z, 'stand');
+  } else {
+    recordSpectator(sid, name, false);
   }
   s.lastAt = Date.now();
   return { code: 200, res: { ok: true, id: s.id, name: s.name } };
