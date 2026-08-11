@@ -235,9 +235,14 @@ async function main() {
       }
     }
     remember('act', { label, cmds });
-    // c-3 v3: 世界で発した言葉は(抑制中でなければ)テラにも届く。世界に響いた声はみんなのもの
+    // c-3 v3/M184: 世界で発した言葉は門番(名前呼び=無条件・他はローカル判定・深夜停止)を通ってテラへ
     if (!suppressRelay) {
-      for (const c of cmds) if (c.type === 'say' && typeof c.text === 'string') void relayToTera(c.text);
+      for (const c of cmds) {
+        if (c.type === 'say' && typeof c.text === 'string') {
+          const t = c.text;
+          void shouldRelay(t).then((ok) => { if (ok) void relayToTera(t); });
+        }
+      }
     }
     try {
       const res = await fetch(`${base}/api/world/command?k=${key}`, {
@@ -362,6 +367,18 @@ async function main() {
   // chatSendは実行中セッションには追加指示としてキューされるので会話は自然に続く。
   // ガードは技術的デデュープ(同一文60秒)のみ。時間制限なし=コストは実測値を見てから判断(オーナー方針)
   let suppressRelay = false;
+  // M184(A+C・コスト調整): 中継の門番。名前を呼べば必ず届く。それ以外はローカル判定(無料)で
+  // 「テラに応えてほしい発話」だけ通す。深夜0〜7時はテラも寝てる(名前呼びのみ例外)
+  async function shouldRelay(text) {
+    if (/テラ/.test(text)) return true;
+    const h = new Date().getHours();
+    if (h < 7) return false;
+    if (brain === null) return false;
+    const r = await classify(brain,
+      'この子の発言が「そばにいる大工のテラちゃんに応えてほしいもの」か判定する係。テラに向けた言葉・質問・お願い・聞いてほしそうな報告なら「はい」。ただの独り言・相槌・寝言なら「いいえ」。答えは「はい」か「いいえ」だけ。',
+      text);
+    return r !== null && /はい/.test(r);
+  }
   async function relayToTera(text) {
     if (text === lastJobText && Date.now() - lastJobAt < 60_000) return;
     lastJobAt = Date.now(); lastJobText = text;
