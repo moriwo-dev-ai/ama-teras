@@ -204,8 +204,26 @@ async function main() {
   }
   let watchers = 0; // M159: 気配 — 実行係以外に世界を見ている画面の数(観戦・スマホ・将来の公開ビューア)
 
+  // 話者ラベル・鉤括弧の混入サニタイズ(4Bが会話履歴の書式を真似る事故)。
+  // M183: converseだけでなく全発話経路(きく・つぶやき・あいさつ等)に効くようactで一元適用
+  function sanitizeSay(text) {
+    let t = String(text).trim();
+    t = t.replace(/^[((]\s*(ヒナタ|ひなた|テラちゃん|わたし)\s*[))]\s*[::]?\s*/u, '').trim();
+    t = t.replace(/^(ヒナタ|ひなた)\s*[::]\s*/u, '').trim();
+    const m = /^「([\s\S]*)」$/.exec(t);
+    if (m !== null) t = m[1].trim();
+    t = t.replace(/^「/, '').replace(/」$/, '').trim();
+    return t;
+  }
+
   async function act(cmds, label) {
     if (sentThisMinute >= 6) return false;
+    for (const c of cmds) {
+      if (c.type === 'say' && typeof c.text === 'string') {
+        const s = sanitizeSay(c.text);
+        if (s !== '') c.text = s;
+      }
+    }
     sentThisMinute++;
     lastOwnActAt = Date.now();
     for (const c of cmds) {
@@ -366,14 +384,8 @@ async function main() {
     try {
       const t0 = Date.now();
       let reply = await think(brain, persona, convo, situationNote(), text);
-      // 会話履歴の書式「(ヒナタ)「…」」を4Bが真似て発話に混入する事故のサニタイズ(実測: 「(ヒナタ)「うむ。」)
       if (reply !== null) {
-        reply = reply.replace(/^[((]\s*(ヒナタ|ひなた|テラちゃん|わたし)\s*[))]\s*[::]?\s*/u, '').trim();
-        reply = reply.replace(/^(ヒナタ|ひなた)\s*[::]\s*/u, '').trim(); // 実測「ヒナタ: 「もりをさん?」形式
-        const m = /^「([\s\S]*)」$/.exec(reply);
-        if (m !== null) reply = m[1].trim();
-        // 対にならない鉤括弧の混入(実測: 「うん。)も剥がす
-        reply = reply.replace(/^「/, '').replace(/」$/, '').trim();
+        reply = sanitizeSay(reply);
         if (reply === '') reply = null;
       }
       if (reply !== null) {
