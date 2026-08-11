@@ -60,6 +60,9 @@
   #loglink { position: fixed; top: 6px; right: 10px; z-index: 31; border: none; background: #fff; color: #5a6b9e;
     font-size: 13px; padding: 6px 12px; border-radius: 999px; box-shadow: 0 2px 12px rgba(90,123,216,.25); }
   body.spectate #loglink { display: none; }
+  /* M188: オーナーのアバター切替(🚶歩く⇄👁神視点)。ログボタンの左隣 */
+  #walkbtn { position: fixed; top: 6px; right: 86px; z-index: 31; border: none; background: #fff; color: #5a6b9e;
+    font-size: 13px; padding: 6px 12px; border-radius: 999px; box-shadow: 0 2px 12px rgba(90,123,216,.25); }
   /* M120: アプリオーバーレイ(2Dで使う。3Dは見つける場所) */
   #appov { position: fixed; inset: 0; background: rgba(40,48,80,.45); z-index: 50; display: none; }
   #appov.on { display: flex; flex-direction: column; }
@@ -134,6 +137,7 @@
 <body>
 <button id="home" onclick="location.href='./'">←</button>
 <button id="loglink" onclick="location.href='world-log.html'">💬 ログ</button>
+<button id="walkbtn" style="display:none">🚶 歩く</button>
 <div id="badge"><span class="dot"></span>AMA-teras WORLD <span id="bst">接続中…</span></div>
 <div id="pair"><div>🔑 ペアリングが必要です<br>リモート画面(ホーム)下部の「🌍 世界」ボタンから開くと<br>自動でペアリングされます</div></div>
 <div id="chatlog"></div>
@@ -197,6 +201,17 @@ const hashTok = /[#?&]t=([0-9a-f]{64})(?:[&#]|$)/.exec(location.hash)?.[1];
 if (hashTok) localStorage.setItem(TOKEN_KEY, hashTok);
 const TOKEN = hashTok ?? localStorage.getItem(TOKEN_KEY);
 if (!TOKEN && !SPECTATE && !EXECUTOR) document.getElementById('pair').style.display = 'flex';
+// M188: オーナーだけにアバター切替ボタン(押すとwalk=1で再読込⇄解除)
+if (TOKEN && !SPECTATE && !EXECUTOR && !VISIT) {
+  const wb = document.getElementById('walkbtn');
+  wb.style.display = 'block';
+  wb.textContent = WALK ? '👁 神視点' : '🚶 歩く';
+  wb.onclick = () => {
+    const q = new URLSearchParams(location.search);
+    if (WALK) q.delete('walk'); else q.set('walk', '1');
+    location.search = q.toString();
+  };
+}
 if (SPECTATE || EXECUTOR) {
   // M175: 訪問者は声だけ出せる(チャット欄は残す)
   if (!VISIT) document.getElementById('chatbar').style.display = 'none';
