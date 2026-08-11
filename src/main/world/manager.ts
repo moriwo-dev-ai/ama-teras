@@ -420,7 +420,14 @@ export class WorldManager {
         resolve: (r) => {
           // M126: app_read の読み取り結果はackのnotesに乗って返る
           const notes = (r.notes ?? []).length > 0 ? ` / ${(r.notes ?? []).join(' / ')}` : '';
-          resolve({ ok: r.ok, detail: r.ok ? `実行完了(${cmds.length}コマンド)${notes}` : `一部失敗: ${(r.errors ?? []).join(' / ')}${notes}` });
+          // M193: sayの内容を結果にエコーする。エコーが無いとエージェントが「届いたか不安」で
+          // 言い換え再送し、二重返答になる実害があった(テラの発話が毎回2連になる)
+          const said = cmds
+            .filter((c) => c.type === 'say' && typeof c.text === 'string')
+            .map((c) => `「${String(c.text).slice(0, 40)}」`)
+            .join('');
+          const echo = said !== '' ? ` 発話済み:${said}` : '';
+          resolve({ ok: r.ok, detail: r.ok ? `実行完了(${cmds.length}コマンド)${echo}${notes}` : `一部失敗: ${(r.errors ?? []).join(' / ')}${notes}` });
         },
         timer,
       });
