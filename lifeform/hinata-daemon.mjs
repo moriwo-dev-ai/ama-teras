@@ -920,7 +920,7 @@ async function main() {
           if (v > tv) {
             tv = v;
             target = { kind: 'world', subject: key, expected: { x: vpos.x, z: vpos.z } };
-            sense.spec.set(key, 'あそびに来ている人(小さな白いロボットのすがた)');
+            sense.spec.set(key, 'あそびに来ている人(紺いろの人がたロボットのすがた)');
           }
         }
         if (target !== null && tv > 0.2) {
@@ -928,7 +928,9 @@ async function main() {
           const isApp = sense.appIds.has(t.subject);
           // M186: アプリ画面は世界に1枚なので、テラのアプリ実演中だけは使わない(唯一残す衝突ガード)
           const appBlocked = isApp && !quiet();
-          const jlen = readJournal(t.subject, 50).length;
+          // M192: 梯子の段は「自分で確かめた記録」だけで数える。ひとの台帳はcame/left(出入り)が
+          // 大量に積もるため、全件数だと初対面でもstay扱いになり「さわる」の段を永遠に素通りしていた
+          const jlen = readJournal(t.subject, 50).filter((e) => ['look', 'approach', 'touch', 'stay', 'use'].includes(e.level)).length;
           // アプリは「つかう」が深さの本体(押すたびに反応が返る=尽きない)。物は4段梯子
           const depth = isApp ? (jlen === 0 ? 'look' : 'use') : ['look', 'approach', 'touch', 'stay'][Math.min(3, jlen)];
           const nov = noveltyOf(t.subject);
