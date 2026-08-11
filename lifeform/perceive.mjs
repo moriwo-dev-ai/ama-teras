@@ -6,7 +6,7 @@
  * 錨(デタラメ防止): 実スクリーンショット(look)・建築仕様(shape/label)・観察台帳(過去の全細部)。
  * 台帳は lifeform/memory/objects/<name>.jsonl に永続し、世界は二度と自分と矛盾しない。
  */
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lookAtWorld } from './eyes.mjs';
@@ -15,6 +15,94 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const OBJ_DIR = join(HERE, 'memory', 'objects');
 
 const safe = (name) => name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
+
+// ---- M194: 五感 ----
+// 物の感覚プロファイル=「世界の真実」(彼女の心ではなく世界側の設定)。
+// 本来はテラが建築時に付与するのが正しい姿。当面は「世界の手ざわりを答える係」
+// (=世界側のシミュレータ)が初対面時に一度だけ決めて、ここに永続する。
+export const SENSES = {
+  sight: '見た目', sound: '音', touch: '手ざわり・温度',
+  smell: 'におい', motion: 'ゆれ・うごき', taste: 'あじ',
+};
+const PROFILE_PATH = join(HERE, 'memory', 'world-sense.json');
+let profileCache = null;
+function loadProfiles() {
+  if (profileCache !== null) return profileCache;
+  try { profileCache = JSON.parse(readFileSync(PROFILE_PATH, 'utf8')); } catch { profileCache = {}; }
+  return profileCache;
+}
+function saveProfiles() {
+  try { writeFileSync(PROFILE_PATH, JSON.stringify(profileCache, null, 1)); } catch { /* noop */ }
+}
+const DEFAULT_PROFILE = { sight: 0.7, sound: 0.2, touch: 0.5, smell: 0.2, motion: 0.3, taste: 0 };
+
+/** 世界側が物の感じられ方を一度だけ決める(あじは口にできる物だけ>0) */
+export async function ensureSenseProfile(brainModel, name, spec = '') {
+  const all = loadProfiles();
+  if (all[name] !== undefined) return all[name];
+  let profile = { ...DEFAULT_PROFILE };
+  try {
+    const res = await fetch('http://127.0.0.1:11434/api/chat', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: brainModel, stream: false, keep_alive: '3h', think: false,
+        options: { temperature: 0.3, num_predict: 80 },
+        messages: [{
+          role: 'user',
+          content: `あなたは3D世界の造り主の助手。物「${name}」${spec !== '' ? `(かたち: ${spec})` : ''}が、` +
+            'どの感覚でどれくらい感じられる物かを決める。0〜1の数字でJSONだけを返す: ' +
+            '{"sight":見た目,"sound":音,"touch":手ざわり,"smell":におい,"motion":ゆれや動き,"taste":あじ}。' +
+            'tasteは口にできる物だけ0より大きくする。',
+        }],
+      }),
+      signal: AbortSignal.timeout(90_000), // 物ごとに一度きり=コールドスタートを待ってよい
+    });
+    if (res.ok) {
+      const raw = ((await res.json()).message?.content ?? '').replace(/<think>[\s\S]*?<\/think>/g, '');
+      const m = /\{[\s\S]*?\}/.exec(raw);
+      if (m !== null) {
+        const p = JSON.parse(m[0]);
+        for (const k of Object.keys(SENSES)) {
+          const v = Number(p[k]);
+          if (Number.isFinite(v)) profile[k] = Math.max(0, Math.min(1, v));
+        }
+      }
+    }
+  } catch { /* 既定値で続行 */ }
+  all[name] = profile;
+  saveProfiles();
+  return profile;
+}
+
+/** 物×感覚ごとの発見数(感覚別の井戸の水位) */
+export function senseCountsOf(name) {
+  const counts = {};
+  for (const e of readJournal(name, 50)) {
+    if (typeof e.sense === 'string') counts[e.sense] = (counts[e.sense] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/**
+ * 感覚の選択 — 命令ではなく重み付き抽選。
+ * 重み = 物の性質(世界の真実) × 彼女の感度(経験で育つ) × 感覚別の新規度(涸れた井戸は軽い)。
+ * 涸れた感覚の重みが下がることで「見飽きたら触る」が報酬勾配から自然に出る
+ */
+export function chooseSense(profile, sensitivity, counts) {
+  const weights = [];
+  for (const k of Object.keys(SENSES)) {
+    const p = profile?.[k] ?? DEFAULT_PROFILE[k];
+    if (p <= 0.05) continue;
+    const sens = sensitivity?.[k] ?? 0.5;
+    const nov = 10 / (10 + (counts?.[k] ?? 0) * 5); // 感覚の井戸は物全体より浅い(2個で半減)
+    weights.push([k, p * sens * nov]);
+  }
+  if (weights.length === 0) return 'sight';
+  const total = weights.reduce((a, [, w]) => a + w, 0);
+  let r = Math.random() * total;
+  for (const [k, w] of weights) { r -= w; if (r <= 0) return k; }
+  return weights[weights.length - 1][0];
+}
 
 export function readJournal(name, limit = 12) {
   const f = join(OBJ_DIR, `${safe(name)}.jsonl`);
@@ -45,7 +133,7 @@ const tod = () => { const h = new Date().getHours(); return h < 5 ? 'まよな�
  * 深い知覚の本体。1回の知覚=新しい細部1つ。台帳に永続し、既知の細部とは矛盾しない。
  * @returns {Promise<string|null>} 新しく知覚された細部(1文)
  */
-export async function perceive(brainModel, { name, spec = '', level }) {
+export async function perceive(brainModel, { name, spec = '', level, sensitivity = null, links = [] }) {
   const journal = readJournal(name, 20);
   const known = journal.map((j) => `- ${j.detail}`).join('\n');
 
@@ -55,8 +143,19 @@ export async function perceive(brainModel, { name, spec = '', level }) {
       `この3D世界の画面に「${name}」${spec !== '' ? `(${spec})` : ''}という物があります。その見た目を、子どもが言うみたいに日本語で短く1文だけ。`);
     if (seen === null) return null;
     // M181: 台帳への記帳は呼び出し側(noteDetail)に一元化 — 学び/再現の判定を先にできるように
-    return seen;
+    return { text: seen, sense: 'sight' };
   }
+
+  // M194: 世界の真実(プロファイル)×彼女の感度×感覚別の井戸で、今回ひらく感覚を抽選
+  const profile = await ensureSenseProfile(brainModel, name, spec);
+  const sense = chooseSense(profile, sensitivity, senseCountsOf(name));
+  const profileLine = Object.keys(SENSES)
+    .map((k) => `${SENSES[k]}${(profile[k] ?? 0).toFixed(1)}`)
+    .join(' ');
+  // M194: リンクのレンズ — つながっている記憶を提示するだけ(使い方は指示しない)
+  const linkLine = links.length > 0
+    ? `この物とつながっている記憶: ${links.map((l) => l.note !== undefined && l.note !== '' ? `${l.other}(${String(l.note).slice(0, 20)})` : l.other).join('、')}\n`
+    : '';
 
   try {
     const res = await fetch('http://127.0.0.1:11434/api/chat', {
@@ -67,10 +166,12 @@ export async function perceive(brainModel, { name, spec = '', level }) {
         messages: [{
           role: 'user',
           content: `あなたは世界の手ざわりを答える係。3D世界の物「${name}」${spec !== '' ? `(かたち: ${spec})` : ''}。\n` +
+            `この物の感じられ方(世界のきまり・強さ0〜1): ${profileLine}\n` +
             (known !== '' ? `これまでに知られていること:\n${known}\n` : '') +
+            linkLine +
             `いまは${tod()}。この物を「${LEVELS[level] ?? level}」。\n` +
-            '知られていることと矛盾しない、あたらしい細部を1つだけ、子どもにわかる言葉で1文で。' +
-            '感覚(見た目・音・手ざわり・温度・におい・ゆれ)のどれかを具体的に。前置きなしで細部だけ。',
+            `知られていることと矛盾しない、あたらしい細部を1つだけ、子どもにわかる言葉で1文で。` +
+            `とくに「${SENSES[sense]}」のことを具体的に。前置きなしで細部だけ。`,
         }],
       }),
       signal: AbortSignal.timeout(45_000),
@@ -80,7 +181,7 @@ export async function perceive(brainModel, { name, spec = '', level }) {
     text = text.split('\n')[0].slice(0, 90);
     if (text === '') return null;
     // M181: 記帳は呼び出し側に一元化(noteDetail)
-    return text;
+    return { text, sense };
   } catch { return null; }
 }
 
@@ -110,8 +211,10 @@ export function isKnownDetail(name, detail) {
 }
 
 /** 外から観測した細部を台帳に記す(アプリ操作の反応など、生成ではなく実測の知覚) */
-export function noteDetail(name, level, detail) {
-  appendJournal(name, { ts: new Date().toISOString(), level, tod: tod(), detail: String(detail).slice(0, 120) });
+export function noteDetail(name, level, detail, sense = undefined) {
+  const entry = { ts: new Date().toISOString(), level, tod: tod(), detail: String(detail).slice(0, 120) };
+  if (typeof sense === 'string') entry.sense = sense; // M194: 感覚別の井戸の水位に使う
+  appendJournal(name, entry);
 }
 
 /** 会話・内省用: この物について知っていることの要約(狭い帯域に収まる形) */

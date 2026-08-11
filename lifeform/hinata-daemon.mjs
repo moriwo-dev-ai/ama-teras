@@ -96,7 +96,17 @@ energy = savedBody.energy ?? 0.8;
 let pleasureMemory = savedBody.pleasureMemory ?? 0.4;
 // M182: 統合済みの経験量(眠気圧の底)。眠りの中の統合で上がる=圧が抜ける
 let epsBaseline = savedBody.epsBaseline ?? 0;
-let sleeping = false;
+let sleeping = savedBody.sleeping === true; // M194: 停止は睡眠と同型(§9)=眠りは再起動をまたぐ
+
+// M194: 彼女の五感の感度(身体側)。初期はフラット、新発見した感覚が少しずつ育つ
+const SENSES_PATH = join(MEM_DIR, 'senses.json');
+let senseAcuity = { sight: 0.5, sound: 0.5, touch: 0.5, smell: 0.5, motion: 0.5, taste: 0.5 };
+try { senseAcuity = { ...senseAcuity, ...JSON.parse(readFileSync(SENSES_PATH, 'utf8')) }; } catch { /* 初生 */ }
+function growSense(sense) {
+  if (typeof sense !== 'string' || senseAcuity[sense] === undefined) return;
+  senseAcuity[sense] = Math.min(1, +(senseAcuity[sense] + 0.03).toFixed(3));
+  try { writeFileSync(SENSES_PATH, JSON.stringify(senseAcuity, null, 1)); } catch { /* noop */ }
+}
 let walkedToday = 0;
 const circadian = () => { const h = new Date().getHours() + new Date().getMinutes() / 60; return h >= 7 && h < 23 ? 0.85 : h >= 6 ? 0.5 : 0.15; };
 
@@ -386,7 +396,7 @@ async function main() {
   async function relayToTera(text) {
     if (text === lastJobText && Date.now() - lastJobAt < 60_000) return;
     lastJobAt = Date.now(); lastJobText = text;
-    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory, epsBaseline })); } catch { /* noop */ }
+    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory, epsBaseline, sleeping, lastIntegratedDay })); } catch { /* noop */ }
     const tail = convo.slice(-3).map((c) => (c.from === 'me' ? `ヒナタ:「${c.text}」` : `相手:「${c.text}」`)).join(' ');
     const context = tail.includes(`ヒナタ:「${text}」`) ? tail : `${tail} ヒナタ:「${text}」`.trim();
     try {
@@ -574,14 +584,15 @@ async function main() {
       await act([{ type: 'motion', name: 'think' }], 'じっと見る');
       const seen = await perceive(brain?.model ?? 'gemma3:4b', { name: s.name, spec: sense.spec.get(s.name) ?? '', level: 'look' });
       if (seen !== null) {
-        remember('gazed', { name: s.name, seen });
+        remember('gazed', { name: s.name, seen: seen.text });
         // M181: 予測できるものは学びではない。新しい細部だけが台帳と学びになる
-        if (!isKnownDetail(s.name, seen)) {
-          noteDetail(s.name, 'look', seen);
-          recordLearning(`${s.name}: ${seen}`);
+        if (!isKnownDetail(s.name, seen.text)) {
+          noteDetail(s.name, 'look', seen.text, seen.sense);
+          recordLearning(`${s.name}: ${seen.text}`);
+          growSense(seen.sense);
         }
         touchedThing(s.name);
-        const line = await think(brain, persona, [], situationNote(), `(「${s.name}」をじっと見たら、こう見えた:「${seen}」。ひとことつぶやいて)`);
+        const line = await think(brain, persona, [], situationNote(), `(「${s.name}」をじっと見たら、こう見えた:「${seen.text}」。ひとことつぶやいて)`);
         if (line !== null) await act([{ type: 'say', text: line }], '視覚のつぶやき');
       }
     }
@@ -970,18 +981,23 @@ async function main() {
                 const g = await chooseGesture(depth === 'touch' ? `「${t.subject}」にさわってみる` : `「${t.subject}」をじっくり感じてみる`, 'think');
                 if (g !== null) await doGesture(g, `${depth}:${t.subject}`);
               }
-              const detail = await perceive(brain?.model ?? 'gemma3:4b', { name: t.subject, spec: sense.spec.get(t.subject) ?? '', level: depth });
+              // M194: 感度(身体)とリンク(つながった記憶のレンズ)を知覚に渡す。使い方は彼女とモデル次第
+              const detail = await perceive(brain?.model ?? 'gemma3:4b', {
+                name: t.subject, spec: sense.spec.get(t.subject) ?? '', level: depth,
+                sensitivity: senseAcuity, links: linksOf(t.subject, 2),
+              });
               if (detail !== null) {
                 activate(t.subject);
                 touchedThing(t.subject);
                 // M181: 学びの快(大・新規のみ) vs 再現の快(小・予測どおり=能力の棚卸しの悦)
-                if (!isKnownDetail(t.subject, detail)) {
-                  noteDetail(t.subject, depth, detail);
-                  remember('perceived', { name: t.subject, level: depth, detail });
-                  recordLearning(`${t.subject}(${depth}): ${detail}`);
+                if (!isKnownDetail(t.subject, detail.text)) {
+                  noteDetail(t.subject, depth, detail.text, detail.sense);
+                  remember('perceived', { name: t.subject, level: depth, detail: detail.text, sense: detail.sense });
+                  recordLearning(`${t.subject}(${depth}): ${detail.text}`);
+                  growSense(detail.sense);
                   euphoria(nov, `${t.subject}のあたらしい発見`);
                   if (Math.random() < 0.5) {
-                    const line = await think(brain, persona, [], situationNote(), `(「${t.subject}」を${depth === 'touch' ? 'さわったら' : 'よく見たら'}、気づいた:「${detail}」。ひとことつぶやいて)`);
+                    const line = await think(brain, persona, [], situationNote(), `(「${t.subject}」を${depth === 'touch' ? 'さわったら' : 'よく見たら'}、気づいた:「${detail.text}」。ひとことつぶやいて)`);
                     if (line !== null) await act([{ type: 'say', text: line }], `知覚のつぶやき:${t.subject}`);
                   }
                 } else {
@@ -1170,7 +1186,7 @@ async function main() {
   setTimeout(heartbeat, 8000);
 
   // ---- 夜の統合(4時台・営み=自己保存)+記憶の実減衰 ----
-  let lastIntegratedDay = '';
+  let lastIntegratedDay = typeof savedBody.lastIntegratedDay === 'string' ? savedBody.lastIntegratedDay : ''; // M194: 再起動で統合が二重に走らない
   setInterval(() => {
     const now = new Date();
     if (now.getHours() !== 4) return;
@@ -1209,7 +1225,7 @@ async function main() {
   setInterval(() => {
     const v = mind.valence();
     remember('valence', { scalar: +mind.scalar().toFixed(3), ...v });
-    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory, epsBaseline })); } catch { /* noop */ }
+    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory, epsBaseline, sleeping, lastIntegratedDay })); } catch { /* noop */ }
     log(`心 scalar=${mind.scalar().toFixed(2)} 報酬=${v.reward} 恐怖=${v.fear} 体力=${energy.toFixed(2)} 予測=${mind.predictions.size}件 歩行=${Math.round(walkedToday)}m`);
   }, 120_000);
 
