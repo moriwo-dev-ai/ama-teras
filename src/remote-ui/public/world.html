@@ -231,6 +231,21 @@ if (SPECTATE || EXECUTOR) {
   document.getElementById('bst').textContent = VISIT ? 'あそびに来た' : VIEWER ? '見学モード' : SPECTATE ? '観戦モード' : '実行係';
   if (VISIT) document.getElementById('chatin').placeholder = 'ヒナタに話しかける…';
 }
+// M196: 観戦者(見学)も立ち見客としてY Botで広場の縁に立つ(声なし・15秒心拍・40秒で退場)
+if (VIEWER && !VISIT && !EXECUTOR) {
+  let sid = localStorage.getItem('ama-spec-sid');
+  if (!sid || !/^[0-9a-f]{16}$/.test(sid)) {
+    sid = [...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    localStorage.setItem('ama-spec-sid', sid);
+  }
+  const beat = () => {
+    void fetch('/api/world/spectator', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sid }),
+    }).catch(() => { /* 世界が留守でも観戦は続く */ });
+  };
+  beat();
+  setInterval(beat, 15_000);
+}
 // M141: 観戦(=OBS配信画面)は専用レイアウト(実況ボード大・アプリ右6割・字幕)。
 // 見学(viewer)は素の世界ビュー(配信オーバーレイなし=覗き窓に徹する)
 if (SPECTATE && !VIEWER) document.body.classList.add('spectate');
@@ -1322,16 +1337,56 @@ function connect() {
     void post({ kind: 'hello', state: snapshot() });
   };
   es.onerror = () => { badge.classList.remove('on'); bst.textContent = '再接続中…'; };
-  // M195: トンネル等でSSEが堰き止められる回線のフォールバック(観戦/訪問のみ)。
-  // 健全なら接続直後にrestoreが必ず届く=8秒沈黙はこの回線でSSEが通らない証拠
-  if (SPECTATE && !EXECUTOR && !pollMode) {
+  // M195/M196b: トンネル等でSSEが堰き止められる回線のフォールバック(観戦/訪問のみ)。
+  // 健全なら接続直後にrestoreが必ず届く=8秒沈黙はこの回線でSSEが通らない証拠。
+  // 梯子: SSE →(不通)→ WebSocket(リアルタイム) →(それも不通)→ ポーリング(3秒・最後の保険)
+  if (SPECTATE && !EXECUTOR && !pollMode && !wsMode) {
     const openedAt = lastSseAt;
     setTimeout(() => {
-      if (pollMode || lastSseAt > openedAt) return;
+      if (pollMode || wsMode || lastSseAt > openedAt) return;
       try { es.close(); } catch { /* 既に死んでいる */ }
-      startPolling();
+      void fallbackLadder();
     }, 8000);
   }
+}
+
+// M196b: WebSocket接続(サーバ→クライアント一方通行)。5秒以内に最初のイベントが来なければ不通
+let wsMode = false;
+function startWs() {
+  return new Promise((resolve) => {
+    let settled = false;
+    let w;
+    try { w = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/api/world/ws'); }
+    catch { resolve(false); return; }
+    const bail = setTimeout(() => { if (!settled) { settled = true; try { w.close(); } catch { /* noop */ } resolve(false); } }, 5000);
+    w.onmessage = (ev) => {
+      lastSseAt = Date.now();
+      if (!settled) {
+        settled = true; clearTimeout(bail); wsMode = true;
+        badge.classList.add('on');
+        bst.textContent = (VISIT ? 'あそびに来た' : '観戦モード') + '·実況線';
+        resolve(true);
+      }
+      try {
+        const m = JSON.parse(ev.data);
+        if (m.event === 'world:event') { cmdQueue.push(m.data); void pump(); }
+      } catch { /* pingなど */ }
+    };
+    w.onerror = () => { if (!settled) { settled = true; clearTimeout(bail); resolve(false); } };
+    w.onclose = () => {
+      if (!settled) { settled = true; clearTimeout(bail); resolve(false); return; }
+      if (pollMode) return;
+      wsMode = false;
+      badge.classList.remove('on');
+      bst.textContent = '再接続中…';
+      setTimeout(() => { void fallbackLadder(); }, 2000);
+    };
+  });
+}
+async function fallbackLadder() {
+  if (pollMode || wsMode) return;
+  const ok = await startWs();
+  if (!ok && !pollMode) startPolling();
 }
 
 // M195: ポーリング窓 — 3秒毎に /api/world/poll。構造はstamp差分・チャット/アバター/訪問者は毎回

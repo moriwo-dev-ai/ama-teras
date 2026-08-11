@@ -13,7 +13,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, readFile, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, resolve, sep } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { EventBus } from './core/events';
 import { WorldManager } from './world/manager';
 import { WORLD_APP_HELPER } from './world/appHelper';
@@ -165,7 +165,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       sendJson(res, 200, {
         ...world.observe(),
         watchers: publicSseCount,
-        visitors: [...visitorStates.values()].map((s) => ({ name: s.name, x: s.x, z: s.z, stance: s.stance })),
+        visitors: allGhosts().map((g) => ({ name: g.name, x: g.x, z: g.z, stance: g.stance })),
       });
       return;
     }
@@ -216,6 +216,14 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       const body = await readJsonBody(req);
       const kind = String(body['kind'] ?? 'chat');
       const { code, res: r } = kind === 'pos' ? handleVisitorPos(body) : handleVisitorChat(body);
+      sendJson(res, code, r);
+      return;
+    }
+    // M196: ローカル観戦(開発機ビューア)も立ち見客になれる
+    if (req.method === 'POST' && path === '/api/world/spectator') {
+      if (!isLoopback(req)) { res.writeHead(403); res.end(); return; }
+      const body = await readJsonBody(req);
+      const { code, res: r } = handleSpectatorBeat(body);
       sendJson(res, code, r);
       return;
     }
@@ -338,6 +346,48 @@ setInterval(() => {
     }
   }
 }, 10_000);
+// M196: 観戦者も「立ち見客」としてY Botで立つ(声なし・広場の縁の定位置・上限10)。
+// 招待キー不要=ページが自分で発行したsidだけ。声とアバター操作は引き続き招待制のまま
+type SpectatorState = { id: string; name: string; slot: number; x: number; z: number; lastAt: number };
+const spectators = new Map<string, SpectatorState>();
+const SPEC_MAX = 10;
+function handleSpectatorBeat(body: Record<string, unknown>): { code: number; res: unknown } {
+  const sid = String(body['sid'] ?? '');
+  if (!/^[0-9a-f]{8,32}$/.test(sid)) return { code: 400, res: { error: 'sidが不正' } };
+  let s = spectators.get(sid);
+  if (s === undefined) {
+    if (spectators.size >= SPEC_MAX) return { code: 200, res: { ok: false, full: true } };
+    const used = new Set([...spectators.values()].map((v) => v.slot));
+    let slot = 0;
+    while (used.has(slot)) slot++;
+    const ang = (slot / SPEC_MAX) * Math.PI * 2 + Math.PI / SPEC_MAX;
+    const x = +(13.5 * Math.cos(ang)).toFixed(1), z = +(13.5 * Math.sin(ang)).toFixed(1);
+    s = { id: `spec${slot}`, name: `見学者${slot + 1}`, slot, x, z, lastAt: Date.now() };
+    spectators.set(sid, s);
+    log(`立ち見客が入場: ${s.name}`);
+    world.visitorSync(s.id, s.name, s.x, s.z, 'stand');
+  }
+  s.lastAt = Date.now();
+  return { code: 200, res: { ok: true, id: s.id, name: s.name } };
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [sid, s] of spectators) {
+    if (now - s.lastAt > 40_000) {
+      spectators.delete(sid);
+      world.visitorGone(s.id, s.name);
+      log(`立ち見客が退場: ${s.name}`);
+    }
+  }
+}, 10_000);
+/** 訪問者+立ち見客(ヒナタの知覚・poll・観戦ページの全員に見える) */
+function allGhosts(): { id: string; name: string; x: number; z: number; stance: string }[] {
+  return [
+    ...[...visitorStates.entries()].map(([k, s]) => ({ id: vidOf(k), name: s.name, x: s.x, z: s.z, stance: s.stance })),
+    ...[...spectators.values()].map((s) => ({ id: s.id, name: s.name, x: s.x, z: s.z, stance: 'stand' })),
+  ];
+}
+
 const NG_WORDS = /(死ね|殺す|きもい|うざい|ばか|バカ|アホ|http|www\.|\.com|\.jp)/i;
 function handleVisitorChat(body: Record<string, unknown>): { code: number; res: unknown } {
   const vk = String(body['vk'] ?? '');
@@ -399,7 +449,15 @@ if (PUBLIC_PORT !== undefined) {
           cmds: url.searchParams.get('stamp') === stamp ? [] : structural,
           chat: world.chatHistory(20),
           avatar: av ?? null,
-          visitors: [...visitorStates.entries()].map(([k, s]) => ({ id: vidOf(k), name: s.name, x: s.x, z: s.z, stance: s.stance })),
+          visitors: allGhosts(),
+        });
+        return;
+      }
+      // M196: 立ち見客の入場/心拍(15秒毎)。声は出せない(chatはvk必須のまま)
+      if (req.method === 'POST' && path === '/api/world/spectator') {
+        void readJsonBody(req).then((body) => {
+          const { code, res: r } = handleSpectatorBeat(body);
+          sendJson(res, code, r);
         });
         return;
       }
@@ -421,6 +479,49 @@ if (PUBLIC_PORT !== undefined) {
     } catch {
       res.writeHead(500); res.end();
     }
+  });
+  // M196b: WebSocket押し出し口(サーバ→クライアントの一方通行)。cloudflaredトンネルは
+  // SSEを堰き止めるがWebSocketは通す=トンネル観戦のリアルタイム化。クライアントの
+  // フレームは一切読まない(声も操作も受け付けない=読み取り専用の原則は維持)
+  const wsFrame = (data: string): Buffer => {
+    const payload = Buffer.from(data, 'utf8');
+    const len = payload.length;
+    let header: Buffer;
+    if (len < 126) header = Buffer.from([0x81, len]);
+    else if (len < 65_536) { header = Buffer.alloc(4); header[0] = 0x81; header[1] = 126; header.writeUInt16BE(len, 2); }
+    else { header = Buffer.alloc(10); header[0] = 0x81; header[1] = 127; header.writeBigUInt64BE(BigInt(len), 2); }
+    return Buffer.concat([header, payload]);
+  };
+  pub.on('upgrade', (req, socket) => {
+    try {
+      const u = new URL(req.url ?? '/', 'http://localhost');
+      const key = String(req.headers['sec-websocket-key'] ?? '');
+      if (u.pathname !== '/api/world/ws' || key === '' || publicSseCount >= 25) { socket.destroy(); return; }
+      const accept = createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+      socket.write(
+        'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n' +
+        `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
+      );
+      publicSseCount++;
+      const send = (event: string, payload: unknown): void => {
+        try { socket.write(wsFrame(JSON.stringify({ event, data: payload }))); } catch { /* 切断済み */ }
+      };
+      const restore = world.restorePayload();
+      if (restore !== null) send('world:event', restore);
+      const offEvent = bus.subscribe('world:event', (payload) => send('world:event', payload));
+      const ping = setInterval(() => send('ping', {}), 20_000);
+      let done = false;
+      const cleanup = (): void => {
+        if (done) return;
+        done = true;
+        clearInterval(ping);
+        offEvent();
+        publicSseCount--;
+      };
+      socket.on('close', cleanup);
+      socket.on('error', cleanup);
+      socket.on('data', () => { /* クライアントからは何も受け付けない */ });
+    } catch { socket.destroy(); }
   });
   pub.listen(Number(PUBLIC_PORT), '127.0.0.1', () => log(`公開観戦面(読み取り専用) http://127.0.0.1:${PUBLIC_PORT}/world.html?viewer=1`));
 }
