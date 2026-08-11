@@ -235,13 +235,14 @@ async function main() {
       }
     }
     remember('act', { label, cmds });
-    // c-3 v3/M184: 世界で発した言葉は門番(名前呼び=無条件・他はローカル判定・深夜停止)を通ってテラへ
-    if (!suppressRelay) {
-      for (const c of cmds) {
-        if (c.type === 'say' && typeof c.text === 'string') {
-          const t = c.text;
-          void shouldRelay(t).then((ok) => { if (ok) void relayToTera(t); });
-        }
+    // c-3 v3/M184: 世界で発した言葉は門番(名前呼び=無条件・他はローカル判定・深夜停止)を通ってテラへ。
+    // M185: もりをとの会話中でも「テラ」と名前を呼べば召喚される(3人の会話。うるさければ
+    // もりをが「少し黙ってて」と言えばテラは従う)
+    for (const c of cmds) {
+      if (c.type === 'say' && typeof c.text === 'string') {
+        const t = c.text;
+        if (suppressRelay && !/テラ/.test(t)) continue;
+        void shouldRelay(t).then((ok) => { if (ok) void relayToTera(t); });
       }
     }
     try {
