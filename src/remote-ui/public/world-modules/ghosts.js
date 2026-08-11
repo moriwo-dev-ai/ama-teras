@@ -131,6 +131,12 @@ export function initGhosts(THREE, scene, loaders) {
   function syncVisitor(c) {
     if (c.id === selfId) return;
     let g = visitors.get(c.id);
+    // M196c: 改名(観戦者の名前変更)は作り直しで名札・色を更新する
+    if (g && typeof c.name === 'string' && c.name !== '' && c.name !== g.name) {
+      scene.remove(g.grp);
+      visitors.delete(c.id);
+      g = undefined;
+    }
     if (!g) {
       g = { grp: new THREE.Group(), target: new THREE.Vector3(c.x ?? 0, 0, c.z ?? 0), name: c.name ?? 'ゲスト', stance: 'stand', current: undefined };
       g.grp.position.set(c.x ?? 0, 0, c.z ?? 0);

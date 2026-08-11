@@ -354,6 +354,10 @@ const SPEC_MAX = 10;
 function handleSpectatorBeat(body: Record<string, unknown>): { code: number; res: unknown } {
   const sid = String(body['sid'] ?? '');
   if (!/^[0-9a-f]{8,32}$/.test(sid)) return { code: 400, res: { error: 'sidが不正' } };
+  // M196c: 観戦もユーザーネーム必須(名札とヒナタの知覚に乗る)。NG語・長さはここで守る
+  const name = String(body['name'] ?? '').trim().slice(0, 12);
+  if (name === '') return { code: 400, res: { error: '名前が必要' } };
+  if (NG_WORDS.test(name)) return { code: 400, res: { error: 'その名前は世界に持ち込めない' } };
   let s = spectators.get(sid);
   if (s === undefined) {
     if (spectators.size >= SPEC_MAX) return { code: 200, res: { ok: false, full: true } };
@@ -362,9 +366,13 @@ function handleSpectatorBeat(body: Record<string, unknown>): { code: number; res
     while (used.has(slot)) slot++;
     const ang = (slot / SPEC_MAX) * Math.PI * 2 + Math.PI / SPEC_MAX;
     const x = +(13.5 * Math.cos(ang)).toFixed(1), z = +(13.5 * Math.sin(ang)).toFixed(1);
-    s = { id: `spec${slot}`, name: `見学者${slot + 1}`, slot, x, z, lastAt: Date.now() };
+    s = { id: `spec${slot}`, name, slot, x, z, lastAt: Date.now() };
     spectators.set(sid, s);
     log(`立ち見客が入場: ${s.name}`);
+    world.visitorSync(s.id, s.name, s.x, s.z, 'stand');
+  } else if (s.name !== name) {
+    log(`立ち見客が改名: ${s.name} → ${name}`);
+    s.name = name;
     world.visitorSync(s.id, s.name, s.x, s.z, 'stand');
   }
   s.lastAt = Date.now();
