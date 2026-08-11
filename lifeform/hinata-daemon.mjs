@@ -496,7 +496,7 @@ async function main() {
         if (!nowVisitors.has(name)) {
           remember('visitor_left', { name });
           noteDetail(personKey(name), 'left', 'かえっていった');
-          if (!sleeping && quiet() && Date.now() - lastOwnActAt > 10_000) {
+          if (!sleeping && Date.now() - lastOwnActAt > 10_000) {
             void act([{ type: 'say', text: `${name}、またね〜!` }], `おみおくり:${name}`);
           }
         }
@@ -526,7 +526,7 @@ async function main() {
           euphoria(1, `はじめての「${s.name}」`); // M168: 出会いは最大の快
           activate(s.name); // M171: 発見も連想の網に入る
           log(`発見: ${s.name}`);
-          if (!sleeping && now - lastSurpriseAt > 120_000 && quiet()) {
+          if (!sleeping && now - lastSurpriseAt > 120_000) {
             lastSurpriseAt = now;
             void reactToDiscovery(s);
           }
@@ -845,7 +845,7 @@ async function main() {
       const h = new Date().getHours();
       const nightGate = h >= 22 || h < 6;
       const sleepPressure = nightGate ? clamp((epsToday - epsBaseline) / 1200) : 0;
-      if (!sleeping && nightGate && quiet() && (sleepPressure > 0.4 || energy < 0.25)) {
+      if (!sleeping && nightGate && (sleepPressure > 0.4 || energy < 0.25)) {
         const g = await chooseGesture('とてもねむくなった。これからねむる', 'sit');
         sleeping = true; remember('sleep', { gesture: g, pressure: +sleepPressure.toFixed(2) });
         await act([{ type: 'say', text: 'ふぁ…もうねむい…おやすみなさい…' }, { type: 'motion', name: g }], `就寝(${g})`);
@@ -868,7 +868,7 @@ async function main() {
         const g = await chooseGesture('目がさめた。あさの最初のしぐさ', 'stretch');
         await act([{ type: 'motion', name: g }, { type: 'say', text: 'ん…ふぁ…おはよう…' }], `起床(${g})`);
       }
-      if (sleeping || !quiet() || thinking) return;
+      if (sleeping || thinking) return; // M186: テラ作業中でも生きる(礼儀ゲート撤廃。アプリ使用だけ下で個別ガード)
 
       // 候補の列挙と価値付け
       const me = sense.self ?? { x: 0, z: 0 };
@@ -911,6 +911,8 @@ async function main() {
         if (target !== null && tv > 0.2) {
           const t = target;
           const isApp = sense.appIds.has(t.subject);
+          // M186: アプリ画面は世界に1枚なので、テラのアプリ実演中だけは使わない(唯一残す衝突ガード)
+          const appBlocked = isApp && !quiet();
           const jlen = readJournal(t.subject, 50).length;
           // アプリは「つかう」が深さの本体(押すたびに反応が返る=尽きない)。物は4段梯子
           const depth = isApp ? (jlen === 0 ? 'look' : 'use') : ['look', 'approach', 'touch', 'stay'][Math.min(3, jlen)];
@@ -920,7 +922,7 @@ async function main() {
           const lastEng = [...recentTouched].reverse().find((r) => r.name === t.subject);
           // 乗算式: 直後は価値が15%まで下がり、10分かけて回復(減算式は快の飽和値に勝てなかった実測)
           const satiation = lastEng !== undefined ? 1 - 0.85 * Math.exp(-(now - lastEng.ts) / 600_000) : 1;
-          cands.push({
+          if (!appBlocked) cands.push({
             value: (pleasureMemory * Math.max(0, tv) + lpErr * 0.5) * satiation,
             label: `気になる:${t.subject}(${depth})`,
             run: async () => {
