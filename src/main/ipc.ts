@@ -2024,13 +2024,13 @@ export async function registerIpcHandlers(
         // M163: 会話ログの履歴(スマホ閲覧用)
         chatHistory: (limit) => (worldClient !== null ? worldClient.chatHistory(limit) : worldManager.chatHistory(limit)),
         // M176: オーナーのアバター歩行(walk=1)。神視点の全権限に「歩く」を足す
-        walk: async (x: number, z: number) => {
+        walk: async (x: number, z: number, stance?: string) => {
           if (worldExternal === null || worldExternal.ownerVk === undefined) return { ok: false };
           try {
             const r = await fetch(`${worldExternal.url}/api/world/visitor?k=${worldExternal.key}`, {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ kind: 'pos', vk: worldExternal.ownerVk, x, z }),
+              body: JSON.stringify({ kind: 'pos', vk: worldExternal.ownerVk, x, z, stance }),
               signal: AbortSignal.timeout(5_000),
             });
             // M189: ゴーストIDを透過(一人称視点で自分の姿を消すため)

@@ -115,7 +115,7 @@ export interface RemoteServerDeps {
     /** M163: 世界チャットの履歴(話者・時刻付き)。トークン認証APIから返す */
     chatHistory?(limit?: number): { from: string; text: string; ts?: string }[] | Promise<{ from: string; text: string; ts?: string }[]>;
     /** M176: オーナーのアバター歩行(トークン認証・分離世界のみ) */
-    walk?(x: number, z: number): Promise<{ ok: boolean }>;
+    walk?(x: number, z: number, stance?: string): Promise<{ ok: boolean }>;
     /** b案P3(知覚拡張): 生命体が世界を「見る」ための観察スナップショット(objects/apps/avatar) */
     observe?():
       | {
@@ -582,7 +582,7 @@ export class RemoteServer {
         const body = await readJsonBody(req);
         const x = Number(body['x']), z = Number(body['z']);
         if (!Number.isFinite(x) || !Number.isFinite(z)) throw new HttpError(400, '座標が不正');
-        return sendJson(res, 200, await this.deps.world.walk(x, z));
+        return sendJson(res, 200, await this.deps.world.walk(x, z, typeof body['stance'] === 'string' ? String(body['stance']) : undefined));
       }
 
       case 'GET /api/audit': {

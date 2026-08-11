@@ -62,11 +62,15 @@
   body.spectate #loglink { display: none; }
   /* M189: 一人称モードの移動スティック(半透明・左下) */
   #joy { position: fixed; left: 22px; bottom: 88px; width: 110px; height: 110px; border-radius: 50%;
-    background: rgba(255,255,255,.18); border: 2px solid rgba(255,255,255,.35); z-index: 60;
-    display: none; touch-action: none; backdrop-filter: blur(2px); }
+    background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.16); z-index: 60;
+    display: none; touch-action: none; }
   #joyknob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; border-radius: 50%;
-    background: rgba(255,255,255,.55); transform: translate(-50%,-50%); pointer-events: none;
-    box-shadow: 0 2px 10px rgba(60,80,160,.3); }
+    background: rgba(255,255,255,.28); transform: translate(-50%,-50%); pointer-events: none; }
+  /* M190: スタンス切替(立/座/屈)。右下・半透明 */
+  #stancebar { position: fixed; right: 18px; bottom: 96px; z-index: 60; display: none; flex-direction: column; gap: 8px; }
+  #stancebar button { width: 46px; height: 46px; border-radius: 50%; border: none; font-size: 20px;
+    background: rgba(255,255,255,.22); color: #34406b; }
+  #stancebar button.on { background: rgba(255,255,255,.7); }
   /* M188: オーナーのアバター切替(🚶歩く⇄👁神視点)。ログボタンの左隣 */
   #walkbtn { position: fixed; top: 6px; right: 86px; z-index: 31; border: none; background: #fff; color: #5a6b9e;
     font-size: 13px; padding: 6px 12px; border-radius: 999px; box-shadow: 0 2px 12px rgba(90,123,216,.25); }
@@ -146,6 +150,7 @@
 <button id="loglink" onclick="location.href='world-log.html'">💬 ログ</button>
 <button id="walkbtn" style="display:none">🚶 歩く</button>
 <div id="joy"><div id="joyknob"></div></div>
+<div id="stancebar"><button data-s="stand" class="on">🧍</button><button data-s="crouch">🧎</button><button data-s="sit">🪑</button></div>
 <div id="badge"><span class="dot"></span>AMA-teras WORLD <span id="bst">接続中…</span></div>
 <div id="pair"><div>🔑 ペアリングが必要です<br>リモート画面(ホーム)下部の「🌍 世界」ボタンから開くと<br>自動でペアリングされます</div></div>
 <div id="chatlog"></div>
@@ -1397,7 +1402,7 @@ function kioskAt(clientX, clientY) {
   return null;
 }
 // ================= M176: 訪問者ゴースト → world-modules/ghosts.js へ分離(M178整理・第1弾) =================
-const ghosts = initGhosts(THREE, scene);
+const ghosts = initGhosts(THREE, scene, (u) => new GLTFLoader().loadAsync(u));
 const tickVisitors = ghosts.tickVisitors;
 // M189: 一人称アバターモード(WALK=オーナー / VISIT=訪問者)。
 // 左下スティックで歩き、画面ドラッグで見回し、タップ/ダブルタップの操作と会話はそのまま
@@ -1408,25 +1413,20 @@ const myPos = { x: visitLastX, z: visitLastZ };
 let myYaw = Math.atan2(-myPos.x, -myPos.z); // 最初は広場の中心を向く
 let myPitch = -0.06;
 const joyVec = { x: 0, y: 0 };
+// M190: スタンス(立/屈/座)。視点の高さと姿勢の同期
+let myStance = 'stand';
+const STANCE_H = { stand: 1.55, crouch: 0.95, sit: 0.75 };
 if (AVATAR_MODE) {
-  // M189b: スマホは横画面が操作しやすい(全画面+回転ロックはユーザー操作起点が必要=ボタン)
-  const fb = document.createElement('button');
-  fb.id = 'fsbtn';
-  fb.textContent = '⛶ 横画面';
-  fb.style.cssText = 'position:fixed;top:6px;right:170px;z-index:31;border:none;background:#fff;color:#5a6b9e;font-size:13px;padding:6px 12px;border-radius:999px;box-shadow:0 2px 12px rgba(90,123,216,.25)';
-  document.body.appendChild(fb);
-  fb.onclick = async () => {
-    try {
-      if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
-        await screen.orientation.lock('landscape').catch(() => { /* iOS等は非対応 */ });
-        fb.textContent = '⛶ 戻す';
-      } else {
-        await document.exitFullscreen();
-        fb.textContent = '⛶ 横画面';
-      }
-    } catch { /* 非対応環境 */ }
-  };
+  const sb = document.getElementById('stancebar');
+  sb.style.display = 'flex';
+  sb.addEventListener('click', (e) => {
+    const s = e.target.closest('button')?.dataset.s;
+    if (!s) return;
+    myStance = s;
+    for (const b of sb.querySelectorAll('button')) b.classList.toggle('on', b.dataset.s === s);
+    lastPosSentAt = 0;
+    void sendVisitorPos(myPos.x, myPos.z);
+  });
   // 入場の一歩(ゴースト出現)+15秒ごとの生存ピング(30秒無音で退場扱いになるため)
   setTimeout(() => { void sendVisitorPos(myPos.x, myPos.z); }, 1500);
   setInterval(() => { lastPosSentAt = 0; void sendVisitorPos(myPos.x, myPos.z); }, 15_000);
@@ -1481,13 +1481,13 @@ async function sendVisitorPos(x, z) {
       // M176: オーナー歩行はアプリ経由(トークン認証)。ゴースト名はもりを
       const r = await fetch('/api/world/walk', {
         method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
-        body: JSON.stringify({ x: +x.toFixed(1), z: +z.toFixed(1) }),
+        body: JSON.stringify({ x: +x.toFixed(1), z: +z.toFixed(1), stance: myStance }),
       });
       j = await r.json().catch(() => null);
     } else {
       const r = await fetch('/api/world/visitor', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ kind: 'pos', vk: VISIT_KEY, x: +x.toFixed(1), z: +z.toFixed(1) }),
+        body: JSON.stringify({ kind: 'pos', vk: VISIT_KEY, x: +x.toFixed(1), z: +z.toFixed(1), stance: myStance }),
       });
       j = await r.json().catch(() => null);
     }
@@ -1924,7 +1924,11 @@ const tick = () => {
   // M189: 一人称アバターモード — スティックで歩き、目線の高さから世界を見る
   if (AVATAR_MODE) {
     if (joyVec.x !== 0 || joyVec.y !== 0) {
-      const sp = 2.4 * dt;
+      if (myStance === 'sit') { // すわり中に歩けば自然に立つ
+        myStance = 'stand';
+        for (const b of document.querySelectorAll('#stancebar button')) b.classList.toggle('on', b.dataset.s === 'stand');
+      }
+      const sp = (myStance === 'crouch' ? 1.1 : 2.4) * dt;
       // 右ベクトル=(-cosY, sinY)。実測フィードバック: 左右が逆だったのを修正
       myPos.x += (Math.sin(myYaw) * joyVec.y - Math.cos(myYaw) * joyVec.x) * sp;
       myPos.z += (Math.cos(myYaw) * joyVec.y + Math.sin(myYaw) * joyVec.x) * sp;
@@ -1934,10 +1938,11 @@ const tick = () => {
       if (performance.now() - lastPosSentAt > 300) void sendVisitorPos(myPos.x, myPos.z);
     }
     controls.enabled = false;
-    camera.position.set(myPos.x, 1.55, myPos.z);
+    const eyeH = STANCE_H[myStance] ?? 1.55; // M190: 座る/しゃがむで目線が下がる
+    camera.position.set(myPos.x, eyeH, myPos.z);
     camera.lookAt(
       myPos.x + Math.sin(myYaw) * Math.cos(myPitch),
-      1.55 + Math.sin(myPitch),
+      eyeH + Math.sin(myPitch),
       myPos.z + Math.cos(myYaw) * Math.cos(myPitch),
     );
   } else {

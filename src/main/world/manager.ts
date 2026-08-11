@@ -462,10 +462,10 @@ export class WorldManager {
   }
 
   /** M176(B v2): 訪問者ゴーストの位置を全ページへ配る(正しいseqで) */
-  visitorSync(id: string, name: string, x: number, z: number): void {
+  visitorSync(id: string, name: string, x: number, z: number, stance?: string): void {
     this.bus.publish('world:event', {
       seq: ++this.seq,
-      cmds: [{ type: 'visitor_sync', id, name, x, z } as WorldCommand],
+      cmds: [{ type: 'visitor_sync', id, name, x, z, stance } as unknown as WorldCommand],
       quiet: true,
     });
   }

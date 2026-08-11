@@ -163,7 +163,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       sendJson(res, 200, {
         ...world.observe(),
         watchers: publicSseCount,
-        visitors: [...visitorStates.values()].map((s) => ({ name: s.name, x: s.x, z: s.z })),
+        visitors: [...visitorStates.values()].map((s) => ({ name: s.name, x: s.x, z: s.z, stance: s.stance })),
       });
       return;
     }
@@ -307,7 +307,7 @@ const visitorLastAt = new Map<string, number>();
 let publicSseCount = 0; // M175: 公開面の観戦者数=ヒナタの「気配」になる
 
 // M176(B v2): 訪問者のアバター(ゴースト)。位置を持つ=ヒナタが「どこにいるか」を知覚できる
-type VisitorState = { name: string; x: number; z: number; lastAt: number };
+type VisitorState = { name: string; x: number; z: number; stance: string; lastAt: number };
 const visitorStates = new Map<string, VisitorState>(); // key=招待キー
 const vidOf = (key: string) => key.slice(0, 8); // 表示用ID(招待キーは晒さない)
 function handleVisitorPos(body: Record<string, unknown>): { code: number; res: unknown } {
@@ -319,8 +319,9 @@ function handleVisitorPos(body: Record<string, unknown>): { code: number; res: u
   const cx = Math.max(-18, Math.min(18, x)), cz = Math.max(-18, Math.min(18, z));
   const prev = visitorStates.get(vk);
   const isNew = prev === undefined;
-  visitorStates.set(vk, { name: v.name.slice(0, 12), x: cx, z: cz, lastAt: Date.now() });
-  world.visitorSync(vidOf(vk), v.name.slice(0, 12), cx, cz);
+  const stance = ['stand','sit','crouch'].includes(String(body['stance'])) ? String(body['stance']) : 'stand';
+  visitorStates.set(vk, { name: v.name.slice(0, 12), x: cx, z: cz, stance, lastAt: Date.now() });
+  world.visitorSync(vidOf(vk), v.name.slice(0, 12), cx, cz, stance);
   if (isNew) log(`訪問者が入場: ${v.name} (${cx.toFixed(1)}, ${cz.toFixed(1)})`);
   return { code: 200, res: { ok: true, id: vidOf(vk) } }; // M189: 自分のゴーストID(一人称視点で自分を消すため)
 }

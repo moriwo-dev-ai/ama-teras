@@ -912,6 +912,17 @@ async function main() {
           const v = Math.min(1, noveltyOf(p.subject) + mb) - d * 0.015; // 遠さは注意のコスト
           if (v > tv) { tv = v; target = p; }
         }
+        // M190: あそびに来ている人も好奇心の対象(見る・近寄る・さわる=ひとの台帳に感覚が刻まれる)
+        for (const [vname, vpos] of sense.visitors) {
+          const key = personKey(vname);
+          const d = Math.hypot(vpos.x - sense.self.x, vpos.z - sense.self.z);
+          const v = Math.min(1, noveltyOf(key) + 0.25) - d * 0.015; // 人はいつも少し気になる
+          if (v > tv) {
+            tv = v;
+            target = { kind: 'world', subject: key, expected: { x: vpos.x, z: vpos.z } };
+            sense.spec.set(key, 'あそびに来ている人(小さな白いロボットのすがた)');
+          }
+        }
         if (target !== null && tv > 0.2) {
           const t = target;
           const isApp = sense.appIds.has(t.subject);
