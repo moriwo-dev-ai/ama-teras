@@ -181,6 +181,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       });
       return;
     }
+    // M201: 世界の復元スナップショット(アプリのクライアントが常時キャッシュし、
+    // アプリ経由で開いた全ページへ即返せるようにする=単独で開いても世界が空にならない)
+    if (req.method === 'GET' && path === '/api/world/restore') {
+      if (!keyed) { sendJson(res, 401, { error: 'unauthorized' }); return; }
+      sendJson(res, 200, { restore: world.restorePayload() });
+      return;
+    }
     if (req.method === 'GET' && path === '/api/world/chatlog') {
       if (!keyed) { sendJson(res, 401, { error: 'unauthorized' }); return; }
       sendJson(res, 200, { log: world.chatHistory(200) });

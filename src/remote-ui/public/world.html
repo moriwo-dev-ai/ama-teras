@@ -175,11 +175,13 @@
 <div id="subtitle"></div>
 <script type="importmap">
 { "imports": {
-  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-  "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.1/lib/three-vrm.module.min.js"
+  "three": "./vendor/three.module.js",
+  "three/addons/": "./vendor/addons/",
+  "@pixiv/three-vrm": "./vendor/three-vrm.module.min.js"
 } }
 </script>
+<!-- M201: 3D基盤は同梱(CDN不使用)。外に出られない回線(LAN限定・機内・トンネル)でも
+     世界が真っ白にならない。更新は scripts/vendor-three.mjs で取り直す -->
 <script>
 // QA: ロード時エラーの取りこぼし防止(コンソール追跡はナビゲーションでリセットされるため)
 window.__errs = [];

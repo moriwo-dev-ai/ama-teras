@@ -25,6 +25,9 @@ export interface WorldObserveResult {
 export class WorldRemoteClient {
   private sseAlive = false;
   private stopped = false;
+  /** M201: 世界の復元スナップショット(15秒ごとに取り直す)。新規ページへ即渡す */
+  private lastRestore: WorldPushPayload | null = null;
+  private restoreTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly base: string,
@@ -35,10 +38,13 @@ export class WorldRemoteClient {
 
   start(): void {
     void this.connectSse();
+    void this.refreshRestore();
+    this.restoreTimer = setInterval(() => { void this.refreshRestore(); }, 15_000);
   }
 
   stop(): void {
     this.stopped = true;
+    if (this.restoreTimer !== null) { clearInterval(this.restoreTimer); this.restoreTimer = null; }
   }
 
   isConnected(): boolean {
@@ -132,9 +138,21 @@ export class WorldRemoteClient {
     }
   }
 
-  /** 初期復元はブリッジ経由(ページのhello→world-serverがworld:eventで押し出す)ので常にnull */
-  restorePayload(): null {
-    return null;
+  /**
+   * M201: 世界の復元スナップショット。以前はnullを返していたため、アプリ経由で開いたページは
+   * 「他の誰かがhelloを送って押し出しが起きる」まで空の世界のままだった(実測: スマホで建物が出ない)。
+   * world-serverから定期取得してキャッシュし、接続の瞬間に必ず世界を渡す
+   */
+  restorePayload(): WorldPushPayload | null {
+    return this.lastRestore;
+  }
+
+  private async refreshRestore(): Promise<void> {
+    try {
+      const res = await fetch(`${this.base}/api/world/restore?k=${this.key}`, { signal: AbortSignal.timeout(10_000) });
+      const j = (await res.json()) as { restore?: WorldPushPayload | null };
+      if (j.restore !== null && j.restore !== undefined) this.lastRestore = j.restore;
+    } catch { /* 次の周期で取り直す */ }
   }
 
   /** 世界へのお知らせ(承認待ち等)。テラの声として世界に出す */
