@@ -221,8 +221,9 @@ async function main() {
   // M183: converseだけでなく全発話経路(きく・つぶやき・あいさつ等)に効くようactで一元適用
   function sanitizeSay(text) {
     let t = String(text).trim();
-    t = t.replace(/^[((]\s*(ヒナタ|ひなた|テラちゃん|わたし)\s*[))]\s*[::]?\s*/u, '').trim();
-    t = t.replace(/^(ヒナタ|ひなた)\s*[::]\s*/u, '').trim();
+    // M199b: 全角括弧（）・全角コロン：もラベルに使われる(実測: 「（ヒナタ）「おひるの気持ち。」が素通り)
+    t = t.replace(/^[(（]\s*(ヒナタ|ひなた|テラちゃん|わたし)\s*[)）]\s*[:：:]?\s*/u, '').trim();
+    t = t.replace(/^(ヒナタ|ひなた)\s*[:：:]\s*/u, '').trim();
     const m = /^「([\s\S]*)」$/.exec(t);
     if (m !== null) t = m[1].trim();
     t = t.replace(/^「/, '').replace(/」$/, '').trim();
