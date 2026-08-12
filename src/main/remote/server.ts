@@ -1067,6 +1067,10 @@ export class RemoteServer {
     };
     // 接続直後に現在状態を送る(再接続時の状態回復。Last-Event-ID は初版では未対応)
     write('snapshot', this.buildSnapshot());
+    // M201b: 世界の復元もここで渡す。観戦SSEだけが世界を送っていたため、トークンで開いた
+    // 世界ページ(スマホ)は「他の誰かのhello待ち」で空のままだった(実測: 建物が出ない)
+    const worldRestore = this.deps.world?.restorePayload?.() ?? null;
+    if (worldRestore !== null) write('world:event', worldRestore);
 
     const unsubscribe = this.deps.bus.subscribeAll((channel, payload) => write(channel, payload));
     const heartbeat = setInterval(() => {
