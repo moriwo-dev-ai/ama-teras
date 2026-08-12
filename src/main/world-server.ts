@@ -420,9 +420,9 @@ let specLogSavedAt = 0;
 function recordSpectator(sid: string, name: string, isNewSession: boolean): void {
   const now = new Date().toISOString();
   const r = specLog[sid] ?? { lastName: name, names: [], firstAt: now, lastAt: now, visits: 0 };
-  const nameIsNew = !r.names.includes(name);
+  const nameIsNew = name !== '' && !r.names.includes(name);
   if (nameIsNew) { r.names.push(name); if (r.names.length > 10) r.names.shift(); }
-  r.lastName = name;
+  if (name !== '') r.lastName = name;
   r.lastAt = now;
   if (isNewSession) r.visits++;
   specLog[sid] = r;
@@ -437,6 +437,12 @@ function handleSpectatorBeat(body: Record<string, unknown>): { code: number; res
   if (!/^[0-9a-f]{8,32}$/.test(sid)) return { code: 400, res: { error: 'sidが不正' } };
   // M196c: 観戦もユーザーネーム必須(名札とヒナタの知覚に乗る)。NG語・長さはここで守る
   const name = String(body['name'] ?? '').trim().slice(0, 12);
+  // M202: 名前を入れずに見ているだけの人も「来た人」として数える(世界には現れない)。
+  // 動画やSNSから何人が実際に覗きに来たかは、名乗った人だけでは分からない
+  if (name === '' && body['anon'] === true) {
+    recordSpectator(sid, '', !spectators.has(sid) && specLog[sid] === undefined);
+    return { code: 200, res: { ok: true, anon: true } };
+  }
   if (name === '') return { code: 400, res: { error: '名前が必要' } };
   if (NG_WORDS.test(name)) return { code: 400, res: { error: 'その名前は世界に持ち込めない' } };
   let s = spectators.get(sid);

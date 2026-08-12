@@ -244,11 +244,12 @@ if (VIEWER && !VISIT && !EXECUTOR) {
   const NAME_KEY = 'ama-spec-name';
   const beat = () => {
     const name = localStorage.getItem(NAME_KEY) ?? '';
-    if (name === '') return;
+    // M202: 名前がまだでも「来たこと」は数える(世界には現れない・匿名の来訪カウントのみ)
     void fetch('/api/world/spectator', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sid, name }),
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(name === '' ? { sid, anon: true } : { sid, name }),
     }).then((r) => {
-      if (r.status === 400) { localStorage.removeItem(NAME_KEY); showNameDialog(); } // NG語など=入れ直し
+      if (name !== '' && r.status === 400) { localStorage.removeItem(NAME_KEY); showNameDialog(); } // NG語など=入れ直し
     }).catch(() => { /* 世界が留守でも観戦は続く */ });
   };
   function showNameDialog() {
@@ -287,7 +288,8 @@ if (VIEWER && !VISIT && !EXECUTOR) {
   nb.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:40;width:40px;height:40px;border:0;border-radius:50%;background:rgba(255,255,255,.85);font-size:18px;box-shadow:0 2px 10px rgba(0,0,0,.12);';
   nb.onclick = showNameDialog;
   document.body.appendChild(nb);
-  if (localStorage.getItem(NAME_KEY)) beat(); else showNameDialog();
+  beat(); // 名前の有無に関わらず来訪を記録(名前があれば同時に立ち見客として世界に立つ)
+  if (!localStorage.getItem(NAME_KEY)) showNameDialog();
   setInterval(beat, 15_000);
 }
 // M141: 観戦(=OBS配信画面)は専用レイアウト(実況ボード大・アプリ右6割・字幕)。
