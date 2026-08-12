@@ -1482,7 +1482,7 @@ export type EvolutionEvent =
  * 世界ページ(out/remote-ui/world.html)がこれを解釈して実行する。
  */
 export interface WorldCommand {
-  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'camera_to' | 'face' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_leave' | 'app_close' | 'app_point' | 'chat_restore' | 'app_state' | 'app_click' | 'app_type' | 'app_read' | 'app_scan' | 'obj_sync' | 'visitor_sync' | 'visitor_gone' | 'record' | 'live_hud' | 'live_comment' | 'avatar_state' | 'sense_profile';
+  type: 'say' | 'motion' | 'move_to' | 'spawn' | 'remove' | 'camera' | 'camera_to' | 'face' | 'app_add' | 'app_move' | 'app_remove' | 'app_open' | 'app_leave' | 'app_close' | 'app_point' | 'chat_restore' | 'app_state' | 'app_click' | 'app_type' | 'app_read' | 'app_scan' | 'obj_sync' | 'visitor_sync' | 'visitor_gone' | 'record' | 'live_hud' | 'live_comment' | 'avatar_state' | 'sense_profile' | 'affect' | 'affect_burst';
   /** M194b sense_profile: 物の五感プロファイル(世界の真実)。建築者が定義する。idで対象を指す。
    * 各感覚 = { v: 強さ0〜1, desc: その感覚での特徴を一言 }。キーは sight/sound/touch/smell/taste */
   senses?: Record<string, { v: number; desc: string }>;
@@ -1526,6 +1526,17 @@ export interface WorldCommand {
   op?: 'start' | 'stop';
   /** record(start): ビットレート指定(M199リングバッファ用・省略時8Mbps) */
   bps?: number;
+  /** M200 affect: 生命体の内部状態→表情の無意識層(L0)。ページ側で連続ブレンドに変換 */
+  affect?: { joy: number; fear: number; sleepy: number; arousal: number };
+  /** M200 affect_burst: 瞬間の大表情(L2)。快楽バースト・驚き・恐怖 */
+  burst?: { kind: 'joy' | 'surprise' | 'fear'; power: number };
+  /** M200 say(hinata): 声(猫使ビィ)。audio=音声URL・mouth=[開始秒,母音,長さ]の口パク時系列・
+   *  emph=強調語・emphAt/emphDur=強調の時刻(目を見開く・ピッチ上昇と同期) */
+  audio?: string;
+  mouth?: [number, string, number][];
+  emph?: string;
+  emphAt?: number;
+  emphDur?: number;
   /** M128 chat_restore: 再入場ページへの直近チャット復元(restorePayload専用・world_actからは使えない) */
   entries?: { from: string; text: string }[];
   /** M129b app_state: アプリのpublish状態を全ページへ配る(main発・world_actからは使えない) */

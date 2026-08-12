@@ -236,6 +236,15 @@ async function main() {
       if (c.type === 'say' && typeof c.text === 'string') {
         const s = sanitizeSay(c.text);
         if (s !== '') c.text = s;
+        // M200 L1: 強調=伝達意図。「いちばん伝えたい言葉」を彼女の言語野が選ぶ(声のピッチと
+        // 目の見開きがその語に同期する)。短文・脳なしなら強調なし=平坦に話す
+        if (brain !== null && c.text.length >= 8) {
+          try {
+            const w = await classify(brain, 'この文でいちばん伝えたい言葉を、文中の表記そのままで1つだけ答える係。答えは言葉だけ。', c.text);
+            const t = (w ?? '').trim().replace(/[「」。、!?!?]/g, '');
+            if (t !== '' && t.length <= 12 && c.text.includes(t)) c.emph = t;
+          } catch { /* 強調なしで話す */ }
+        }
       }
     }
     sentThisMinute++;
@@ -632,7 +641,32 @@ async function main() {
     mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: +burst.toFixed(3), about });
     mind.affect.joy = Math.min(1, mind.affect.joy + 0.4 * clamp(novelty));
     pleasureMemory = +(pleasureMemory * 0.8 + burst * 0.2).toFixed(3);
+    // M200 L2: 快の瞬間は顔に出る(内面→表情バースト)。失敗しても本体の快は成立済み
+    void fetch(`${base}/api/world/command?k=${key}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cmds: [{ type: 'affect_burst', burst: { kind: 'joy', power: +Math.min(1, 0.4 + 0.6 * clamp(novelty)).toFixed(2) } }] }),
+      signal: AbortSignal.timeout(5000),
+    }).catch(() => {});
   }
+  // M200 L0: 内部状態→表情の無意識層。25秒ごとに顔へ流す(act経由にしない=記憶を汚さない)
+  function affectVector() {
+    const h = new Date().getHours();
+    const nightish = h >= 21 || h < 7;
+    const sleepy = sleeping ? 1 : clamp((nightish ? clamp((epsToday - epsBaseline) / 1500) : 0) * 0.7 + Math.max(0, 0.35 - energy) * 1.6);
+    return {
+      joy: +clamp(mind.affect.joy).toFixed(2),
+      fear: +clamp(mind.affect.fear).toFixed(2),
+      sleepy: +sleepy.toFixed(2),
+      arousal: +clamp(Math.abs(mind.scalar()) * 2 + mind.affect.joy * 0.4).toFixed(2),
+    };
+  }
+  setInterval(() => {
+    void fetch(`${base}/api/world/command?k=${key}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cmds: [{ type: 'affect', affect: affectVector() }] }),
+      signal: AbortSignal.timeout(5000),
+    }).catch(() => {});
+  }, 25_000);
 
   // ---- M166: アプリをつかう — 押したら世界が応える、を知覚する身体 ----
   // 流れ: 開く→scan(押せる物+画面)→彼女が選ぶ(LLM=想像力)→押す→scan→画面の前後差分=「反応」→台帳

@@ -10,7 +10,7 @@
  * electronに依存しない(プレーンNode)。
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, readFile, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFile, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, resolve, sep } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
@@ -109,6 +109,11 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   const proxied = isLoopback(req) && PROXY_KEY !== undefined && key === PROXY_KEY;
   try {
     // 静的: 世界ページ+資産(ループバック限定。公開面(A工事)は別途read-only surfaceで)
+    if (req.method === 'GET' && path.startsWith('/tts/')) {
+      if (!isLoopback(req)) { res.writeHead(403); res.end(); return; }
+      serveStatic(TTS_DIR, path.slice('/tts/'.length), res, false);
+      return;
+    }
     if (req.method === 'GET' && (path === '/world.html' || path.startsWith('/assets') || path.startsWith('/motions') || path.startsWith('/avatars') || /\.(js|css|png|svg|vrm|glb|fbx|webmanifest|ico|mp3|wav)$/.test(path))) {
       if (!isLoopback(req)) { res.writeHead(403); res.end(); return; }
       serveStatic(STATIC_DIR!, path === '/' ? 'world.html' : path.slice(1), res, false);
@@ -145,16 +150,22 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       req.on('close', () => { clearInterval(ping); offEvent(); offChat(); offAgent(); });
       return;
     }
-    // 生命体の身体(say/motion/move_to/face+アプリの手)
+    // 生命体の身体(say/motion/move_to/face+アプリの手)。M200: affect(表情)+声の合成
     if (req.method === 'POST' && path === '/api/world/command') {
       if (!keyed) { sendJson(res, 401, { error: 'unauthorized' }); return; }
       const body = await readJsonBody(req);
       const cmds = body['cmds'];
       if (!Array.isArray(cmds) || cmds.length === 0 || cmds.length > 10) { sendJson(res, 400, { error: 'cmds(1〜10件)が必要' }); return; }
-      const allowed = new Set(['say', 'motion', 'move_to', 'face', 'app_open', 'app_scan', 'app_click', 'app_type', 'app_read', 'app_leave']);
+      const allowed = new Set(['say', 'motion', 'move_to', 'face', 'app_open', 'app_scan', 'app_click', 'app_type', 'app_read', 'app_leave', 'affect', 'affect_burst']);
       const banned = (cmds as { type?: unknown }[]).find((c) => typeof c.type !== 'string' || !allowed.has(c.type));
       if (banned !== undefined) { sendJson(res, 400, { error: '許可外コマンド' }); return; }
-      for (const c of cmds as WorldCommand[]) { if (c.type === 'say' && c.speaker === undefined) c.speaker = 'hinata'; }
+      for (const c of cmds as WorldCommand[]) {
+        if (c.type === 'affect' && c.affect !== undefined) lastAffect = sanitizeAffect(c.affect);
+        if (c.type === 'say' && c.speaker === undefined) c.speaker = 'hinata';
+        if (c.type === 'say' && c.speaker === 'hinata' && typeof c.text === 'string') {
+          await hinataVoice(c).catch((e) => log('声の合成失敗(声なしで続行):', String(e).slice(0, 80)));
+        }
+      }
       sendJson(res, 200, await world.act(cmds as WorldCommand[]));
       return;
     }
@@ -465,6 +476,94 @@ function allGhosts(): { id: string; name: string; x: number; z: number; stance: 
   ];
 }
 
+// ---- M200: ヒナタの声(VOICEVOX 猫使ビィ)と表情の無意識層 ----
+// クレジット表記「VOICEVOX:猫使ビィ」は配信概要欄・動画説明に必要
+const VV = 'http://127.0.0.1:50021';
+const BII = { normal: 58, calm: 59, shy: 60 }; // ノーマル/おちつき/人見知り
+const TTS_DIR = VISITORS_PATH !== undefined ? join(VISITORS_PATH, '..', 'tts-cache') : join(process.cwd(), 'tts-cache');
+try { mkdirSync(TTS_DIR, { recursive: true }); } catch { /* 既存 */ }
+type Affect = { joy: number; fear: number; sleepy: number; arousal: number };
+let lastAffect: Affect = { joy: 0, fear: 0, sleepy: 0, arousal: 0 };
+const cl01 = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0; };
+function sanitizeAffect(a: Record<string, unknown>): Affect {
+  return { joy: cl01(a['joy']), fear: cl01(a['fear']), sleepy: cl01(a['sleepy']), arousal: cl01(a['arousal']) };
+}
+type VvMora = { text: string; vowel: string; consonant_length?: number | null; vowel_length: number; pitch: number };
+type VvQuery = {
+  accent_phrases: { moras: VvMora[]; pause_mora?: VvMora | null }[];
+  speedScale: number; pitchScale: number; intonationScale: number; prePhonemeLength: number; postPhonemeLength: number;
+};
+async function vvQuery(text: string, speaker: number): Promise<VvQuery> {
+  const r = await fetch(`${VV}/audio_query?speaker=${speaker}&text=${encodeURIComponent(text)}`, { method: 'POST', signal: AbortSignal.timeout(8_000) });
+  if (!r.ok) throw new Error(`audio_query ${r.status}`);
+  return (await r.json()) as VvQuery;
+}
+/** 声の合成: L0=内部状態がベースの声色(スタイル+韻律)・L1=強調語のピッチ上昇。
+ *  口パク時系列(モーラ→母音)と強調タイミングをsayコマンドに同梱=顔と声がミリ秒同期する */
+async function hinataVoice(c: WorldCommand): Promise<void> {
+  const text = String(c.text ?? '').trim();
+  if (text === '' || text.length > 200) return;
+  const a = lastAffect;
+  const style = a.fear > 0.45 ? BII.shy : a.sleepy > 0.55 ? BII.calm : BII.normal;
+  const q = await vvQuery(text, style);
+  q.pitchScale = Math.max(-0.06, Math.min(0.1, a.joy * 0.05 - a.sleepy * 0.03));
+  q.intonationScale = Math.max(0.7, Math.min(1.6, 1 + a.joy * 0.35 + a.arousal * 0.1 - a.sleepy * 0.3));
+  q.speedScale = Math.max(0.82, Math.min(1.18, 1 + a.arousal * 0.07 - a.sleepy * 0.13));
+  // L1: 強調語のモーラを特定してピッチを持ち上げる(語の読みは単体queryで得る)
+  let emphRange: [number, number] | null = null;
+  if (typeof c.emph === 'string' && c.emph.trim() !== '' && text.includes(c.emph.trim())) {
+    try {
+      const wq = await vvQuery(c.emph.trim(), style);
+      const wKana = wq.accent_phrases.flatMap((p) => p.moras.map((m) => m.text)).join('');
+      const all = q.accent_phrases.flatMap((p) => p.moras);
+      const seq = all.map((m) => m.text).join('');
+      const at = seq.indexOf(wKana);
+      if (at >= 0 && wKana.length > 0) {
+        // 何モーラ目から始まるか(結合文字列の位置→モーラ位置へ変換)
+        let pos = 0, startIdx = -1, endIdx = -1;
+        for (let i = 0; i < all.length; i++) {
+          if (pos === at && startIdx === -1) startIdx = i;
+          pos += (all[i] as VvMora).text.length;
+          if (pos === at + wKana.length && startIdx !== -1) { endIdx = i; break; }
+        }
+        if (startIdx >= 0 && endIdx >= startIdx) {
+          for (let i = startIdx; i <= endIdx; i++) (all[i] as VvMora).pitch = Math.min(6.5, (all[i] as VvMora).pitch + 0.32);
+          emphRange = [startIdx, endIdx];
+        }
+      }
+    } catch { /* 強調なしで続行 */ }
+  }
+  // 口パク時系列+強調タイミング(モーラ長を積算)
+  const mouth: [number, string, number][] = [];
+  let t = q.prePhonemeLength / q.speedScale;
+  let idx = 0;
+  for (const p of q.accent_phrases) {
+    for (const m of p.moras) {
+      const dur = (((m.consonant_length ?? 0) + m.vowel_length)) / q.speedScale;
+      mouth.push([+t.toFixed(3), m.vowel, +dur.toFixed(3)]);
+      if (emphRange !== null && idx === emphRange[0]) { c.emphAt = +t.toFixed(3); }
+      if (emphRange !== null && idx === emphRange[1]) { c.emphDur = +(t + dur - (c.emphAt ?? 0)).toFixed(3); }
+      t += dur;
+      idx++;
+    }
+    if (p.pause_mora != null) t += p.pause_mora.vowel_length / q.speedScale;
+  }
+  const sr = await fetch(`${VV}/synthesis?speaker=${style}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(q), signal: AbortSignal.timeout(15_000),
+  });
+  if (!sr.ok) throw new Error(`synthesis ${sr.status}`);
+  const wav = Buffer.from(await sr.arrayBuffer());
+  const file = `v-${Date.now()}-${randomBytes(3).toString('hex')}.wav`;
+  writeFileSync(join(TTS_DIR, file), wav);
+  c.audio = `/tts/${file}`;
+  c.mouth = mouth;
+  // 掃除: 200本を超えたら古い順に消す
+  try {
+    const files = readdirSync(TTS_DIR).filter((f) => f.startsWith('v-')).sort();
+    while (files.length > 200) { const f = files.shift(); if (f !== undefined) unlinkSync(join(TTS_DIR, f)); }
+  } catch { /* noop */ }
+}
+
 const NG_WORDS = /(死ね|殺す|きもい|うざい|ばか|バカ|アホ|http|www\.|\.com|\.jp)/i;
 function handleVisitorChat(body: Record<string, unknown>): { code: number; res: unknown } {
   const vk = String(body['vk'] ?? '');
@@ -494,6 +593,10 @@ if (PUBLIC_PORT !== undefined) {
       if (req.method === 'GET' && (path === '/' || path === '/world.html') && url.searchParams.get('viewer') !== '1' && url.searchParams.get('visit') !== '1') {
         res.writeHead(302, { location: '/world.html?viewer=1' });
         res.end();
+        return;
+      }
+      if (req.method === 'GET' && path.startsWith('/tts/')) {
+        serveStatic(TTS_DIR, path.slice('/tts/'.length), res, false);
         return;
       }
       if (req.method === 'GET' && (path === '/world.html' || path.startsWith('/assets') || path.startsWith('/motions') || path.startsWith('/avatars') || /\.(js|css|png|svg|vrm|glb|fbx|webmanifest|ico)$/.test(path))) {

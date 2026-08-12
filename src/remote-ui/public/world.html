@@ -449,23 +449,77 @@ function microMotion(dt) {
     head.rotation.y += (Math.sin(micro.t * 0.31 + micro.gp1) * 0.6 + Math.sin(micro.t * 0.83 + micro.gp2) * 0.4) * 0.045;
     head.rotation.x += Math.sin(micro.t * 0.47 + micro.gp2) * 0.02;
   }
-  // まばたき: 2〜5.5秒間隔で120ms。表情が無いアバター(現サンプル)では静かに何もしない
-  //(ヒナタVRM=VRoid製は blink 表情を必ず持つので、体が来た日に自動で目が生きる)
+  // M200: 表情の3層スタック — L0無意識(内部状態の連続ブレンド)×L1発話強調×L2バースト
   const em = avatar.expressionManager;
   if (em) {
     if (micro.canBlink === null) micro.canBlink = !!em.getExpression?.('blink');
+    // L0: 内部状態へゆっくり追従(唐突に顔が変わらない)
+    const F = faceState;
+    const k = Math.min(1, dt * 1.6);
+    F.joy += (F.tj - F.joy) * k; F.fear += (F.tf - F.fear) * k;
+    F.sleepy += (F.ts - F.sleepy) * k; F.arousal += (F.ta - F.arousal) * k;
+    // ベース表情=連続混合+微小ノイズ(二度と同じ配合にならない)
+    const n1 = Math.sin(micro.t * 0.53 + micro.gp1) * 0.5 + Math.sin(micro.t * 1.31 + micro.gp2) * 0.5;
+    let happy = F.joy * (0.7 + 0.15 * n1);
+    let sad = F.fear * 0.55;
+    let surprised = 0;
+    let relaxed = Math.max(0, 0.35 - F.joy - F.fear) + F.sleepy * 0.25;
+    // L2: バースト(快楽・驚き・恐怖)は減衰エンベロープで上に乗る
+    if (F.burst) {
+      const age = (performance.now() - F.burst.at) / 1000;
+      if (age > 1.6) F.burst = null;
+      else {
+        const e = F.burst.power * Math.exp(-age * 2.4);
+        if (F.burst.kind === 'joy') happy = Math.min(1, happy + e);
+        else if (F.burst.kind === 'surprise') surprised = Math.max(surprised, e);
+        else { sad = Math.min(1, sad + e * 0.5); surprised = Math.max(surprised, e * 0.35); }
+      }
+    }
+    // L1: 発話の強調点=目を見開く(声のピッチ上昇とミリ秒同期)
+    let lidFloor = F.sleepy * 0.45; // 眠いとまぶたが重い(半開き)
+    if (F.emph) {
+      const et = performance.now() / 1000;
+      if (et > F.emph.until) F.emph = null;
+      else if (et >= F.emph.at) { surprised = Math.max(surprised, 0.45); lidFloor = 0; }
+    }
+    // まばたき(覚醒が高いほど速い)
     if (micro.canBlink) {
       if (micro.t >= micro.nextBlinkAt) {
         micro.blinkUntil = micro.t + 0.12;
-        micro.nextBlinkAt = micro.t + 2 + Math.random() * 3.5;
+        micro.nextBlinkAt = micro.t + (2 + Math.random() * 3.5) * (1 - F.arousal * 0.3);
       }
       const rem = micro.blinkUntil - micro.t;
-      em.setValue('blink', rem > 0 ? Math.sin((1 - rem / 0.12) * Math.PI) : 0);
-      em.update();
+      const blinkEnv = rem > 0 ? Math.sin((1 - rem / 0.12) * Math.PI) : 0;
+      em.setValue('blink', Math.max(lidFloor, blinkEnv));
     }
+    // 口パク: 声のモーラ時系列に追従(音が鳴らない環境でも口は動く=録画にも乗る)
+    const VOWEL = { a: 'aa', i: 'ih', u: 'ou', e: 'ee', o: 'oh' };
+    let mw = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
+    if (F.mouthQ) {
+      const mt = performance.now() / 1000 - F.mouthQ.start;
+      const tl = F.mouthQ.tl;
+      if (tl.length > 0 && mt > tl[tl.length - 1][0] + tl[tl.length - 1][2] + 0.25) F.mouthQ = null;
+      else {
+        for (const [st, vw, du] of tl) {
+          if (mt >= st && mt < st + du) {
+            const key = VOWEL[vw.toLowerCase?.() ?? vw];
+            if (key) mw[key] = 0.65;
+            break;
+          }
+        }
+      }
+    }
+    em.setValue('happy', Math.min(1, happy));
+    em.setValue('sad', Math.min(1, sad));
+    em.setValue('surprised', Math.min(1, surprised));
+    em.setValue('relaxed', Math.min(1, relaxed));
+    for (const [k2, v] of Object.entries(mw)) em.setValue(k2, v);
+    em.update();
   }
-  avatar.springBoneManager?.update(dt); // 髪・服の揺れ(こちらもヒナタVRMで本領発揮)
+  avatar.springBoneManager?.update(dt); // 髪・服の揺れ
 }
+// M200: 表情の状態(L0目標値・L2バースト・口パク・強調)。affect/affect_burst/sayコマンドが書く
+const faceState = { joy: 0, fear: 0, sleepy: 0, arousal: 0, tj: 0, tf: 0, ts: 0, ta: 0, burst: null, mouthQ: null, emph: null };
 
 // QA用フック(2026-08-02の教訓: 見えない状態はデバッグできない)。
 // 後方で宣言される変数もあるため全部getter(即時参照はTDZでモジュールごと死ぬ)
@@ -1126,6 +1180,16 @@ async function runCommand(c, quiet = false) {
       touchAppIdle();
       // M141: 配信画面では大きな字幕+音声読み上げ(スマホでチャットが読めない問題の対策)
       if (SPECTATE) showSubtitle(text, Math.max(3500, Math.min(20_000, text.length * 160)));
+      // M200: ヒナタの声(合成済み音声+口パク時系列+強調タイミング)。音が出せない環境でも口と目は動く
+      if (c.audio !== undefined && Array.isArray(c.mouth)) {
+        const start = performance.now() / 1000 + 0.1;
+        faceState.mouthQ = { start, tl: c.mouth };
+        if (typeof c.emphAt === 'number') faceState.emph = { at: start + c.emphAt, until: start + c.emphAt + Math.max(0.35, c.emphDur ?? 0.4) };
+        if (!EXECUTOR) { try { const au = new Audio(c.audio); au.volume = 0.9; void au.play().catch(() => { /* 初回タップ前は無音 */ }); } catch { /* noop */ } }
+        if (!quiet) await sleep(Math.min(6000, 400 + (c.mouth.length > 0 ? (c.mouth[c.mouth.length - 1][0] + c.mouth[c.mouth.length - 1][2]) * 1000 : text.length * 35)));
+        if (SPECTATE) { clearTimeout(subTimer); subTimer = setTimeout(() => { subtitle.style.display = 'none'; }, 1200); }
+        return;
+      }
       if (!quiet) {
         const spoken = await speak(text);
         if (SPECTATE) { clearTimeout(subTimer); subTimer = setTimeout(() => { subtitle.style.display = 'none'; }, 1200); }
@@ -1134,6 +1198,17 @@ async function runCommand(c, quiet = false) {
       }
       return;
     }
+    case 'affect':
+      // M200 L0: 内部状態→表情の目標値(microMotionがゆっくり追従)
+      if (c.affect) {
+        faceState.tj = c.affect.joy ?? 0; faceState.tf = c.affect.fear ?? 0;
+        faceState.ts = c.affect.sleepy ?? 0; faceState.ta = c.affect.arousal ?? 0;
+      }
+      return;
+    case 'affect_burst':
+      // M200 L2: 瞬間の大表情
+      if (c.burst) faceState.burst = { kind: c.burst.kind, power: Math.min(1, c.burst.power ?? 0.6), at: performance.now() };
+      return;
     case 'live_comment':
       renderLiveComment(c);
       return;
