@@ -928,14 +928,22 @@ async function speak(text) {
 // 解錠前に届いた声は「🔊 ヒナタの声をきく」ボタンを出して取りこぼしを見えるようにする
 let voiceUnlocked = false;
 let voiceBtn = null;
+let actx = null;
+function ensureActx() {
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return null; } }
+  return actx;
+}
 function unlockVoice() {
-  if (voiceUnlocked) return;
-  voiceUnlocked = true;
-  if (voiceBtn) { voiceBtn.remove(); voiceBtn = null; }
+  const ctx = ensureActx();
+  if (!ctx) return;
+  if (ctx.state === 'suspended') void ctx.resume().catch(() => { /* 次のタップで */ });
+  // 無音の極小バッファを1回鳴らして解錠を確定させる(iOSの作法)
   try {
-    const a = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA=');
-    a.volume = 0; void a.play().catch(() => { voiceUnlocked = false; });
-  } catch { voiceUnlocked = false; }
+    const b = ctx.createBuffer(1, 1, 22050);
+    const s = ctx.createBufferSource();
+    s.buffer = b; s.connect(ctx.destination); s.start(0);
+  } catch { /* noop */ }
+  if (ctx.state !== 'suspended') { voiceUnlocked = true; if (voiceBtn) { voiceBtn.remove(); voiceBtn = null; } }
 }
 addEventListener('pointerdown', unlockVoice, { once: false });
 addEventListener('keydown', unlockVoice, { once: false });
@@ -947,12 +955,26 @@ function showVoiceButton() {
   voiceBtn.onclick = unlockVoice;
   document.body.appendChild(voiceBtn);
 }
+// 声はWebAudioで鳴らす。iPhoneの消音スイッチはHTMLのAudio要素だけを黙らせるため
+// (実測: 同じ画面で弾幕のポン音=WebAudioは鳴るのに、声だけ無音だった)
 function playVoice(url) {
-  try {
-    const au = new Audio(url);
-    au.volume = 0.9;
-    void au.play().then(() => { voiceUnlocked = true; }).catch(() => showVoiceButton());
-  } catch { showVoiceButton(); }
+  void (async () => {
+    try {
+      const ctx = ensureActx();
+      if (!ctx) { showVoiceButton(); return; }
+      if (ctx.state === 'suspended') { try { await ctx.resume(); } catch { /* 解錠待ち */ } }
+      const buf = await (await fetch(url)).arrayBuffer();
+      const audio = await ctx.decodeAudioData(buf);
+      const src = ctx.createBufferSource();
+      const g = ctx.createGain();
+      g.gain.value = 0.95;
+      src.buffer = audio;
+      src.connect(g).connect(ctx.destination);
+      src.start();
+      if (ctx.state === 'running') { voiceUnlocked = true; if (voiceBtn) { voiceBtn.remove(); voiceBtn = null; } }
+      else showVoiceButton();
+    } catch { showVoiceButton(); }
+  })();
 }
 /** M141: 視聴者コメントの弾幕・採用ポップ */
 function renderLiveComment(c) {
@@ -984,9 +1006,8 @@ function renderLiveComment(c) {
   });
   setTimeout(() => d.remove(), 9500);
 }
-let actx = null;
 function chime(fs) {
-  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; } }
+  if (!ensureActx()) return;
   const t0 = actx.currentTime;
   fs.forEach((f) => {
     const o = actx.createOscillator(), g = actx.createGain();
