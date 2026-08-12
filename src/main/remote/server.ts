@@ -86,6 +86,8 @@ export interface RemoteServerDeps {
   auth: RemoteAuth;
   /** remote-ui のビルド出力(out/remote-ui)。無ければ静的配信は404 */
   staticDir: string;
+  /** M200: 分離世界モードのworld-server URL。ヒナタの声(/tts/)をアプリ経由で中継する */
+  worldTtsBase?: string;
   /** M120: 世界アプリの配信ルート(userData/world-apps)。未指定なら /world-apps/* は404 */
   worldAppsDir?: string;
   /** M121: 録画の保存先(userData/world-recordings)。未指定なら録画アップロードは404 */
@@ -1094,6 +1096,21 @@ export class RemoteServer {
     if (decoded.includes('\0')) throw new HttpError(400, 'bad path');
     let relative = decoded === '/' ? 'index.html' : decoded.replace(/^\/+/, '');
 
+    // M200: ヒナタの声の中継(分離世界のtts-cache→スマホのリモートUIへ)。ファイル名は英数のみ
+    if (relative.startsWith('tts/') && this.deps.worldTtsBase !== undefined) {
+      const name = relative.slice('tts/'.length);
+      if (!/^[a-zA-Z0-9._-]+\.wav$/.test(name)) throw new HttpError(404, 'not found');
+      try {
+        const r = await fetch(`${this.deps.worldTtsBase}/tts/${name}`, { signal: AbortSignal.timeout(8_000) });
+        if (!r.ok) throw new HttpError(404, 'not found');
+        const buf = Buffer.from(await r.arrayBuffer());
+        res.writeHead(200, { 'content-type': 'audio/wav', 'cache-control': 'no-cache' });
+        res.end(buf);
+        return;
+      } catch {
+        throw new HttpError(404, 'not found');
+      }
+    }
     // M120: 世界アプリ(userData/world-apps)の配信。ディレクトリ直指定は index.html へ
     let root = resolve(this.deps.staticDir);
     if (relative.startsWith('world-apps/')) {

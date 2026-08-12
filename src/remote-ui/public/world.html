@@ -924,6 +924,36 @@ async function speak(text) {
     return true;
   } catch { return false; }
 }
+// M200: ヒナタの声の再生。スマホは初回タップまで自動再生が禁止=最初の1タップで解錠し、
+// 解錠前に届いた声は「🔊 ヒナタの声をきく」ボタンを出して取りこぼしを見えるようにする
+let voiceUnlocked = false;
+let voiceBtn = null;
+function unlockVoice() {
+  if (voiceUnlocked) return;
+  voiceUnlocked = true;
+  if (voiceBtn) { voiceBtn.remove(); voiceBtn = null; }
+  try {
+    const a = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA=');
+    a.volume = 0; void a.play().catch(() => { voiceUnlocked = false; });
+  } catch { voiceUnlocked = false; }
+}
+addEventListener('pointerdown', unlockVoice, { once: false });
+addEventListener('keydown', unlockVoice, { once: false });
+function showVoiceButton() {
+  if (voiceUnlocked || voiceBtn) return;
+  voiceBtn = document.createElement('button');
+  voiceBtn.textContent = '🔊 ヒナタの声をきく';
+  voiceBtn.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:96px;z-index:50;padding:12px 18px;border:0;border-radius:22px;background:rgba(124,108,245,.92);color:#fff;font-size:15px;font-weight:700;box-shadow:0 4px 16px rgba(0,0,0,.18);';
+  voiceBtn.onclick = unlockVoice;
+  document.body.appendChild(voiceBtn);
+}
+function playVoice(url) {
+  try {
+    const au = new Audio(url);
+    au.volume = 0.9;
+    void au.play().then(() => { voiceUnlocked = true; }).catch(() => showVoiceButton());
+  } catch { showVoiceButton(); }
+}
 /** M141: 視聴者コメントの弾幕・採用ポップ */
 function renderLiveComment(c) {
   if (c.adopted === true) {
@@ -1185,7 +1215,7 @@ async function runCommand(c, quiet = false) {
         const start = performance.now() / 1000 + 0.1;
         faceState.mouthQ = { start, tl: c.mouth };
         if (typeof c.emphAt === 'number') faceState.emph = { at: start + c.emphAt, until: start + c.emphAt + Math.max(0.35, c.emphDur ?? 0.4) };
-        if (!EXECUTOR) { try { const au = new Audio(c.audio); au.volume = 0.9; void au.play().catch(() => { /* 初回タップ前は無音 */ }); } catch { /* noop */ } }
+        if (!EXECUTOR) playVoice(c.audio);
         if (!quiet) await sleep(Math.min(6000, 400 + (c.mouth.length > 0 ? (c.mouth[c.mouth.length - 1][0] + c.mouth[c.mouth.length - 1][2]) * 1000 : text.length * 35)));
         if (SPECTATE) { clearTimeout(subTimer); subTimer = setTimeout(() => { subtitle.style.display = 'none'; }, 1200); }
         return;
@@ -1521,6 +1551,10 @@ function startPolling() {
     if (document.visibilityState !== 'visible') return;
     try {
       const r = await fetch('/api/world/poll?stamp=' + encodeURIComponent(stamp));
+      // M200b: ポーリング窓が無い面(アプリのサーバ等)ではSSEへ戻す。ここで諦めると
+      // 「低速線のまま何も来ない」死に方をする(実測)。しかも叩き続けると認証失敗の
+      // ブロックリストに載ってSSEまで巻き添えで死ぬ=4xxは即撤退が正しい
+      if (r.status >= 400 && r.status < 500) { pollMode = false; bst.textContent = '再接続中…'; setTimeout(connect, 1500); return; }
       if (!r.ok) return;
       const j = await r.json();
       if (j.stamp !== stamp) {
@@ -1542,7 +1576,7 @@ function startPolling() {
     } catch { /* 次のtickで再挑戦 */ }
   };
   void tick();
-  setInterval(tick, 3000);
+  const pollTimer = setInterval(() => { if (!pollMode) { clearInterval(pollTimer); return; } void tick(); }, 3000);
 }
 if (TOKEN || SPECTATE || EXECUTOR) {
   connect();

@@ -2007,6 +2007,8 @@ export async function registerIpcHandlers(
       bus,
       auth: remoteAuth,
       staticDir: getRemoteUiDir(),
+      // M200: ヒナタの声は分離世界のworld-serverが持つ。スマホのリモートUIへ中継する
+      worldTtsBase: worldExternal !== null ? worldExternal.url : undefined,
       worldAppsDir,
       worldRecordingsDir,
       auditTail: (limit) => audit.tail(limit),
