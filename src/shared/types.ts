@@ -1524,6 +1524,8 @@ export interface WorldCommand {
   note?: string;
   /** record: 'start'|'stop'(実行係ページだけが録画する。stopでwebmが保存される) */
   op?: 'start' | 'stop';
+  /** record(start): ビットレート指定(M199リングバッファ用・省略時8Mbps) */
+  bps?: number;
   /** M128 chat_restore: 再入場ページへの直近チャット復元(restorePayload専用・world_actからは使えない) */
   entries?: { from: string; text: string }[];
   /** M129b app_state: アプリのpublish状態を全ページへ配る(main発・world_actからは使えない) */

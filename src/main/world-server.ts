@@ -10,7 +10,7 @@
  * electronに依存しない(プレーンNode)。
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, readFile, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFile, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, resolve, sep } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
@@ -173,6 +173,24 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     if (req.method === 'GET' && path === '/api/world/chatlog') {
       if (!keyed) { sendJson(res, 401, { error: 'unauthorized' }); return; }
       sendJson(res, 200, { log: world.chatHistory(200) });
+      return;
+    }
+    // M199: 実行係の録画保存口(成長実録のリングバッファ)。webmをそのまま受けて時刻名で保存
+    if (req.method === 'POST' && path === '/api/world/recording') {
+      if (!keyed) { sendJson(res, 401, { error: 'unauthorized' }); return; }
+      const dir = VISITORS_PATH !== undefined ? join(VISITORS_PATH, '..', 'recordings') : join(process.cwd(), 'recordings');
+      try { mkdirSync(dir, { recursive: true }); } catch { /* 既存 */ }
+      const file = join(dir, `rec-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`);
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const c of req) {
+        size += (c as Buffer).length;
+        if (size > 500 * 1024 * 1024) { res.writeHead(413); res.end(); return; }
+        chunks.push(c as Buffer);
+      }
+      writeFileSync(file, Buffer.concat(chunks));
+      log(`録画保存: ${file} (${Math.round(size / 1024 / 1024)}MB)`);
+      sendJson(res, 200, { ok: true, file });
       return;
     }
     // ヒナタ→テラの声の中継(アプリへ転送。アプリ不在でも世界は生きる=202で受ける)

@@ -1082,11 +1082,12 @@ function maskForLive(s) {
 
 // ================= M121: 世界内レコーダー(実行係専用) =================
 let recorder = null, recChunks = [];
-function startRecording() {
+function startRecording(bps) {
   if (recorder) throw new Error('record: すでに録画中');
   const stream = renderer.domElement.captureStream(30);
   recChunks = [];
-  recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9', videoBitsPerSecond: 8_000_000 });
+  // M199: リングバッファ常時録画はビットレートを落とせる(bps指定・既定は従来の8Mbps)
+  recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9', videoBitsPerSecond: typeof bps === 'number' && bps > 100_000 ? bps : 8_000_000 });
   recorder.ondataavailable = (e) => { if (e.data.size > 0) recChunks.push(e.data); };
   recorder.start(1000);
 }
@@ -1203,7 +1204,7 @@ async function runCommand(c, quiet = false) {
     case 'record': {
       // M121: 録画は実行係だけが担う(他のページで多重録画しない)。閲覧ページは黙って成功扱い
       if (!EXECUTOR) return;
-      if (c.op === 'start') startRecording();
+      if (c.op === 'start') startRecording(c.bps);
       else await stopRecording();
       return;
     }
