@@ -1,5 +1,17 @@
 # PROGRESS
 
+## M203/M203b: スタートアップスクリプト+合鍵の防御 (2026-08-15)
+- scripts/startup-all.mjs: PC起動で全系統を自動復旧(VOICEVOX→world-server→アプリ→デーモン→
+  記録係→トンネル)。冪等=稼働中はスキップ。スタートアップフォルダの ama-teras-startup.vbs から
+  コンソール非表示で実行。トンネルは ~/.cloudflared/config.yml があれば恒久(world.ama-teras.dev)、
+  無ければquick(URLを tools/tunnel-url.txt へ記録)
+- 【防御】proxy合鍵が公開リポジトリに露出していた(moment-recorder.mjs に前から+今回の
+  startup-all.mjs)。実害なし(合鍵はloopback限定・トンネルは鍵なし読み取り専用8790のみ公開)だが
+  根治: 合鍵を AppData/amateras/proxy.key(リポジトリ外)へ移動+ローテーション(旧キー401実測)。
+  git履歴に残る旧キーは死んだ値
+- バグ修正: プロセス検知が検査用cmd/powershell自身に自己マッチ→対象exe名で絞る形へ
+- 実測: 冪等スキップ・vbs経由起動・再起動後の新キー200/旧キー401・デーモン5秒自動再接続
+
 ## M201: 世界が空になる2つの根(復元スナップショット不在+CDN依存) (2026-08-12)
 - 【真因】分離世界モードでWorldRemoteClient.restorePayload()が常にnull=アプリ経由で開いた
   ページは「他の誰かがhelloを送って押し出しが起きる」まで世界が空だった(スマホで建物が出ない
