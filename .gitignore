@@ -30,3 +30,6 @@ lifeform/persona/
 lifeform/memory/
 # 朝の承認パック(運営内部文書。公開リポジトリに含めない)
 lifeform/MORNING-PACK*.md
+
+# 実行ツール置き場(cloudflared.exe等のバイナリ+実行ログ。コミット禁止)
+tools/
