@@ -10,7 +10,8 @@ import { spawn, execSync } from 'node:child_process';
 import { appendFileSync, existsSync, openSync, readFileSync } from 'node:fs';
 import net from 'node:net';
 
-const KEY = 'b711c9a8a2e00836dbee21429dd8f3cf1a83f14f2b18ba85';
+// 合鍵はリポジトリ外(公開リポジトリに焼き込まない)。world-server.jsonのkeyと同一に保つ
+const KEY = readFileSync('C:/Users/haru-/AppData/Roaming/amateras/proxy.key', 'utf8').trim();
 const LOG = 'C:/dev/mycodex/tools/startup.log';
 const log = (m) => { const line = `${new Date().toISOString()} ${m}`; console.log(line); try { appendFileSync(LOG, line + '\n'); } catch { /* noop */ } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -22,10 +23,11 @@ const portOpen = (port) => new Promise((resolve) => {
   s.on('timeout', () => { s.destroy(); resolve(false); });
 });
 
-const processRunning = (pattern) => {
+// 検査用のcmd/powershell自身のコマンドラインにもパターンが含まれる(自己マッチ)ため、対象exe名で絞る
+const processRunning = (exe, pattern) => {
   try {
     const out = execSync(
-      `powershell -Command "(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match '${pattern}' } | Measure-Object).Count"`,
+      `powershell -Command "(Get-CimInstance Win32_Process -Filter \\"Name = '${exe}'\\" | Where-Object { $_.CommandLine -match '${pattern}' } | Measure-Object).Count"`,
       { encoding: 'utf8' },
     ).trim();
     return Number(out) > 0;
@@ -67,15 +69,15 @@ if (await portOpen(8787)) log('アプリ: 稼働中(スキップ)');
 else { log(`アプリ: 起動 pid=${detach('C:/dev/mycodex/node_modules/electron/dist/electron.exe', ['.', '--remote-debugging-port=9225'], 'C:/dev/mycodex/tools/app.log', 'C:/dev/mycodex')}`); await sleep(8000); }
 
 // ④ ヒナタのデーモン(単独性ロックあり=二重起動しても安全)
-if (processRunning('hinata-daemon')) log('デーモン: 稼働中(スキップ)');
+if (processRunning('node.exe', 'hinata-daemon')) log('デーモン: 稼働中(スキップ)');
 else log(`デーモン: 起動 pid=${detach(process.execPath, ['C:/dev/mycodex/lifeform/hinata-daemon.mjs'], 'C:/dev/mycodex/lifeform/memory/daemon.log')}`);
 
 // ⑤ 記録係(リング録画+瞬間検知)
-if (processRunning('moment-recorder')) log('記録係: 稼働中(スキップ)');
+if (processRunning('node.exe', 'moment-recorder')) log('記録係: 稼働中(スキップ)');
 else log(`記録係: 起動 pid=${detach(process.execPath, ['C:/dev/mycodex/scripts/moment-recorder.mjs'], 'C:/Users/haru-/AppData/Roaming/amateras/recordings/recorder.log')}`);
 
 // ⑥ トンネル(恒久 or 仮)
-if (processRunning('cloudflared.exe.*tunnel')) log('トンネル: 稼働中(スキップ)');
+if (processRunning('cloudflared.exe', 'tunnel')) log('トンネル: 稼働中(スキップ)');
 else if (existsSync('C:/Users/haru-/.cloudflared/config.yml')) {
   log(`トンネル: 恒久(world.ama-teras.dev)起動 pid=${detach('C:/dev/mycodex/tools/cloudflared.exe', ['tunnel', 'run', 'ama-world'], 'C:/dev/mycodex/tools/cloudflared.log')}`);
 } else {

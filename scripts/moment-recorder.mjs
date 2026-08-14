@@ -6,11 +6,12 @@
  * 抜粋・動画化・公開は人間+Claudeの仕事(公開は必ずオーナー承認)。
  * 起動: node scripts/moment-recorder.mjs (scripts/moment-start.mjs でデタッチ)
  */
-import { appendFileSync, closeSync, mkdirSync, openSync, readdirSync, readSync, statSync, unlinkSync, watchFile } from 'node:fs';
+import { appendFileSync, closeSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, unlinkSync, watchFile } from 'node:fs';
 import { join } from 'node:path';
 
 const BASE = 'http://127.0.0.1:8788';
-const KEY = 'b711c9a8a2e00836dbee21429dd8f3cf1a83f14f2b18ba85';
+// 合鍵はリポジトリ外(公開リポジトリに焼き込まない)。world-server.jsonのkeyと同一に保つ
+const KEY = readFileSync('C:/Users/haru-/AppData/Roaming/amateras/proxy.key', 'utf8').trim();
 const REC_DIR = 'C:/Users/haru-/AppData/Roaming/amateras/recordings';
 const MOMENTS = join(REC_DIR, 'moments.jsonl');
 const DAEMON_LOG = 'C:/dev/mycodex/lifeform/memory/daemon.log';
