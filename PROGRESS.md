@@ -1,5 +1,13 @@
 # PROGRESS
 
+## M204: 世界URLの恒久化 world.ama-teras.dev (2026-08-15)
+- Cloudflare named tunnel「ama-world」(id d27ae587)。config.yml=~/.cloudflared(ingress: 8790)。
+  常駐ログ tools/cloudflared-named.log。startup-all.mjs はconfig.yml検知で自動的に恒久側を起動
+- つまずきの記録: cloudflared tunnel loginは**10分で時間切れ**(承認が遅いと受け手が消えて
+  cert.pem不達)。メール確認はOutlookのリンク保護でトークン消費→Gmail系に変えて解決
+- YouTube3本の概要欄を恒久URLへ(眠い/声=差し替え・仕組み解説=追記)。公開ページの生HTMLで
+  旧URL残0・新URL3/3を機械照合。quick tunnel停止後も200を実測。**以後URLは二度と変わらない**
+
 ## M203/M203b: スタートアップスクリプト+合鍵の防御 (2026-08-15)
 - scripts/startup-all.mjs: PC起動で全系統を自動復旧(VOICEVOX→world-server→アプリ→デーモン→
   記録係→トンネル)。冪等=稼働中はスキップ。スタートアップフォルダの ama-teras-startup.vbs から
