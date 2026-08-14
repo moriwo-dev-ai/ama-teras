@@ -132,6 +132,12 @@ try {
     } catch { /* 破損行 */ }
   }
 } catch { /* エピソードなし */ }
+// 日記の未来語も数える(統合の出力=彼女自身の言葉。実測: 8/14日記の「あしたは…楽しみ!」が
+// エピソードに無く未来語0と誤判定された)。引用ログ節(聞いた:等)は混入するため除外
+try {
+  const diaryBody = readFileSync(join(MEM, 'diary', `${day}.md`), 'utf8').split('## 記憶にのこすもの')[0];
+  for (const line of diaryBody.split('\n')) if (FUTURE_RE.test(line)) futureSays++;
+} catch { /* 日記なし */ }
 
 const rec = { ts: new Date().toISOString(), day, sentences: results.length, novel: novel.length,
   r2refs: results.filter((r) => r.r2ref).length, futureSays, anticipates, detail: results };
