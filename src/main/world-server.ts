@@ -602,11 +602,26 @@ const guestBySid = (sid: string): Guest | undefined => guests.find((g) => g.sid 
 const guestByKey = (vk: string): Guest | undefined => guests.find((g) => g.key === vk);
 const guestDaily = new Map<string, { day: string; n: number }>();
 
+// M206b: βテスト期間 — world-beta.json(sidの配列)が存在して空でない間は、載っている個体だけ昇格可。
+// 全公開に切り替えるときはファイルを消すか [] にする(再起動不要)
+const BETA_PATH = VISITORS_PATH !== undefined ? join(VISITORS_PATH, '..', 'world-beta.json') : undefined;
+const betaSids = (): string[] | null => {
+  try {
+    if (BETA_PATH === undefined) return null;
+    const a = JSON.parse(readFileSync(BETA_PATH, 'utf8')) as string[];
+    return Array.isArray(a) && a.length > 0 ? a : null;
+  } catch { return null; }
+};
+
 function handleGuestJoin(body: Record<string, unknown>): { code: number; res: unknown } {
   const sid = String(body['sid'] ?? '');
   const name = String(body['name'] ?? '').trim().slice(0, 12);
   if (!/^[0-9a-f]{16}$/.test(sid)) return { code: 400, res: { error: 'sidが不正' } };
   if (bannedSids().includes(sid)) return { code: 403, res: { error: 'この世界には入れません' } };
+  const beta = betaSids();
+  if (beta !== null && !beta.includes(sid)) {
+    return { code: 403, res: { error: 'いまはテスト期間中(βテスターのみ)。もうすぐみんなも入れるようになるよ!', beta: true } };
+  }
   if (name === '' || NG_WORDS.test(name)) return { code: 400, res: { error: 'その名前は使えない' } };
   if (RESERVED_NAME.test(name)) return { code: 400, res: { error: 'その名前は世界の住人のもの' } };
   // 同時歩行の上限(既に歩いている本人は再入場OK)
