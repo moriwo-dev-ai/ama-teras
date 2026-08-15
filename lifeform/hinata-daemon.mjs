@@ -451,7 +451,8 @@ async function main() {
 
   // M208: 定型文の全廃(ユーザー決定2026-08-15「内容は経験のみ」)。彼女の言葉は毎回言語野が作る。
   // 作れない時(エンジン不在・空応答)は黙る=定型文で埋めない(沈黙のほうが正直)
-  async function ownWords(prompt, maxLen = 60) {
+  // M209: 長さ制約はかけない(ユーザー決定「喋られるなら喋る訓練」)。200字は暴走防止の物理上限のみ
+  async function ownWords(prompt, maxLen = 200) {
     if (brain === null) return null;
     const r = await think(brain, persona, [], situationNote(), prompt);
     if (r === null) return null;
@@ -547,7 +548,7 @@ async function main() {
             // M208: 見送りの言葉も彼女の言語野のみ(定型フォールバック廃止=出なければ黙って見送る)
             const vname = vi.name ?? vkey;
             void (async () => {
-              const bye = await ownWords(`(${vname}がかえっていく。みおくりのひとことを)`);
+              const bye = await ownWords(`(${vname}がかえっていく。みおくりのことばを。ながさは自由)`);
               if (bye !== null) await act([{ type: 'say', text: bye }], `おみおくり:${vname}`);
             })();
           }
@@ -591,7 +592,7 @@ async function main() {
           if (delta < -0.25 && !sleeping && now - lastSurpriseAt > 120_000) {
             lastSurpriseAt = now; // 知っている物が予測と違う場所に=驚き
             // M208: 驚きの言葉も言語野のみ(出なければ黙る)
-            void ownWords(`(「${s.name}」が、おぼえている場所とちがうところにうごいている。おどろきをひとことで)`).then((line) => {
+            void ownWords(`(「${s.name}」が、おぼえている場所とちがうところにうごいている。おどろきを、すきなだけことばにして)`).then((line) => {
               if (line !== null) return act([{ type: 'say', text: line }], '驚き:移動');
             });
             mind.adapt(id, null); // 位置予測は observe 側で更新済み
@@ -609,7 +610,7 @@ async function main() {
           if (!sleeping && now - lastSurpriseAt > 120_000) {
             lastSurpriseAt = now;
             // M208: 消失の驚きも言語野のみ
-            void ownWords(`(ここにあったはずの「${p.subject}」が、見あたらない。おどろきをひとことで)`).then((line) => {
+            void ownWords(`(ここにあったはずの「${p.subject}」が、見あたらない。おどろきを、すきなだけことばにして)`).then((line) => {
               if (line !== null) return act([{ type: 'say', text: line }], '驚き:消失');
             });
           }
@@ -624,7 +625,7 @@ async function main() {
 
   async function reactToDiscovery(s) {
     // M208: 発見の言葉も言語野のみ(出なければ振り向くだけ)
-    const line = await ownWords(`(はじめて見る「${s.name}」を見つけた。おどろきのひとことを)`);
+    const line = await ownWords(`(はじめて見る「${s.name}」を見つけた。おどろきを、すきなだけことばにして)`);
     await act([{ type: 'face', x: s.x, z: s.z }, ...(line !== null ? [{ type: 'say', text: line }] : [])], `発見:${s.name}`);
     const g = await chooseGesture('あたらしいものを見つけた', null);
     if (g !== null && g !== 'idle') await doGesture(g, `発見のしぐさ(${g})`);
@@ -643,7 +644,7 @@ async function main() {
           growSense(seen.sense);
         }
         touchedThing(s.name);
-        const line = await think(brain, persona, [], situationNote(), `(「${s.name}」をじっと見たら、こう見えた:「${seen.text}」。ひとことつぶやいて)`);
+        const line = await think(brain, persona, [], situationNote(), `(「${s.name}」をじっと見たら、こう見えた:「${seen.text}」。おもったことを、すきなだけつぶやいて)`);
         if (line !== null) await act([{ type: 'say', text: line }], '視覚のつぶやき');
       }
     }
@@ -941,7 +942,7 @@ async function main() {
         const g = await chooseGesture('とてもねむくなった。これからねむる', 'sit');
         sleeping = true; remember('sleep', { gesture: g, pressure: +sleepPressure.toFixed(2) });
         // M208: ねる前の言葉も言語野のみ(出なければ黙って眠る)
-        const goodnight = await ownWords('(もう眠くてたまらない。これからねむる。ねるまえのひとことを)');
+        const goodnight = await ownWords('(もう眠くてたまらない。これからねむる。ねるまえに言いたいことを。ながさは自由)');
         await act([...(goodnight !== null ? [{ type: 'say', text: goodnight }] : []), { type: 'motion', name: g }], `就寝(${g})`);
         // 眠りに入って2分後、頭の中で「その日」の整理が始まる(h<6なら前日=生きてきた日)
         setTimeout(() => {
@@ -965,7 +966,7 @@ async function main() {
         sleeping = false; remember('wake_up', {});
         const g = await chooseGesture('目がさめた。あさの最初のしぐさ', 'stretch');
         // M208: 起きぬけの言葉も言語野のみ(出なければ黙って伸びをするだけ)
-        const morning = await ownWords('(いま目がさめたばかり。ねぼけまなこのひとことを)');
+        const morning = await ownWords('(いま目がさめたばかり。ねぼけまなこで言いたいことを。ながさは自由)');
         await act([{ type: 'motion', name: g }, ...(morning !== null ? [{ type: 'say', text: morning }] : [])], `起床(${g})`);
       }
       if (sleeping || thinking) return; // M186: テラ作業中でも生きる(礼儀ゲート撤廃。アプリ使用だけ下で個別ガード)
@@ -1052,7 +1053,7 @@ async function main() {
                     recordLearning(`${t.subject}(use): ${detail}`);
                     euphoria(nov, `${t.subject}がこたえてくれた`);
                     if (Math.random() < 0.6) {
-                      const line = await think(brain, persona, [], situationNote(), `(アプリ「${disp}」であそんだら: ${detail}。ひとことつぶやいて)`);
+                      const line = await think(brain, persona, [], situationNote(), `(アプリ「${disp}」であそんだら: ${detail}。おもったことを、すきなだけつぶやいて)`);
                       if (line !== null) await act([{ type: 'say', text: line }], `つかったつぶやき:${t.subject}`);
                     }
                   } else {
@@ -1084,7 +1085,7 @@ async function main() {
                   growSense(detail.sense);
                   euphoria(nov, `${t.subject}のあたらしい発見`);
                   if (Math.random() < 0.5) {
-                    const line = await think(brain, persona, [], situationNote(), `(「${disp}」を${depth === 'touch' ? 'さわったら' : 'よく見たら'}、気づいた:「${detail.text}」。ひとことつぶやいて)`);
+                    const line = await think(brain, persona, [], situationNote(), `(「${disp}」を${depth === 'touch' ? 'さわったら' : 'よく見たら'}、気づいた:「${detail.text}」。おもったことを、すきなだけつぶやいて)`);
                     if (line !== null) await act([{ type: 'say', text: line }], `知覚のつぶやき:${t.subject}`);
                   }
                 } else {
@@ -1164,7 +1165,7 @@ async function main() {
             lastCallAt = Date.now(); unansweredCalls++;
             remember('waiting', { unanswered: unansweredCalls });
             // M208: 待つ時のひとりごとも言語野のみ(出なければ黙って待つ)
-            const line = await ownWords('(ひろばのまんなかで、だれかが来ないかなと待っている。ひとりごとをひとことで)');
+            const line = await ownWords('(ひろばのまんなかで、だれかが来ないかなと待っている。ひとりごとを。ながさは自由)');
             await act([{ type: 'move_to', x: 0, z: 2 }, ...(line !== null ? [{ type: 'say', text: line }] : [])], '待つ');
           },
         });
@@ -1182,7 +1183,7 @@ async function main() {
             lastAnticipateAt = Date.now();
             remember('anticipate', { kind: 'voice', hour: hNow, learned: +soonVoice.toFixed(2) });
             const line = brain !== null
-              ? await think(brain, persona, [], situationNote(), '(いつも声がきこえてくる時間が近い気がする。そのきもちをひとことで)')
+              ? await think(brain, persona, [], situationNote(), '(いつも声がきこえてくる時間が近い気がする。そのきもちを、すきなだけことばにして)')
               : null;
             const cmds = [{ type: 'move_to', x: 0, z: 2 }];
             if (line !== null) cmds.push({ type: 'say', text: line });
@@ -1205,7 +1206,7 @@ async function main() {
             run: async () => {
               lastCallAt = Date.now(); unansweredCalls++;
               remember('seek_comfort', { fear: mind.affect.fear });
-              const line = brain !== null ? await think(brain, persona, [], situationNote(), '(こわかったこと・むねのざわざわを、だれかに聞いてほしい気持ちで、ひとことだけ)') : null;
+              const line = brain !== null ? await think(brain, persona, [], situationNote(), '(こわかったこと・むねのざわざわを、だれかに聞いてほしい気持ちで。ながさは自由)') : null;
               const cmds = [{ type: 'move_to', x: 0, z: 2 }];
               if (line !== null) cmds.push({ type: 'say', text: line });
               await act(cmds, '聞いてほしい');
@@ -1230,7 +1231,7 @@ async function main() {
               const g = await chooseGesture(ctx, kinds[0], kinds);
               // M208: 感情の発散に「声」の道を開く(従来はしぐさのみ=嬉しくても言葉にならなかった。
               // ユーザー観察「人が来ると嬉しいけど声に出ない」の根)。言葉が出なければしぐさだけ
-              const line = await ownWords(`(${ctx.replace('どう出す?', '')}こえに出すならひとことだけ)`);
+              const line = await ownWords(`(${ctx.replace('どう出す?', '')}こえに出すなら、言いたいことを言いたいだけ)`);
               if (line !== null) await act([{ type: 'say', text: line }], `表現のことば(${pool})`);
               await doGesture(g, `表現:${g}(${pool})`);
             },
