@@ -100,22 +100,29 @@ let pleasureMemory = savedBody.pleasureMemory ?? 0.4;
 // M210: 図書館の快の記憶(調べてわかった経験が育てる。足場かけ→自立の実体)
 let libraryJoy = savedBody.libraryJoy ?? 0;
 let unresolvedQs = []; // 流れた問い {word, ts}(1時間で薄れる・図書館へ続く道)
-// M213: テレビの視聴台帳(見た動画は二度見しない・1日2回まで)
-let tvSeen = [];
-try { tvSeen = JSON.parse(readFileSync(join(MEM_DIR, 'tv-seen.json'), 'utf8')); } catch { /* 初回 */ }
-let tvToday = { day: '', n: 0 };
-let lastTvCheckAt = 0;
-// M213: としょかんアプリの記録(ヒナタが読んだ本・観た番組を人間も読める)
-const LIB_LOG = 'C:/Users/haru-/AppData/Roaming/amateras/world-apps/toshokan/data.json';
-function logLibrary(entry) {
+// M214: テレビは自由意志(ユーザー決定: 回数制限・二度見禁止のプログラムはしない)。
+// 飽きは知覚の井戸と同じ数式: 同じ動画を観るほど新鮮さ 10/(10+回数*5) が涸れて自然に観なくなる。
+// tvJoy=観て楽しかった快の記憶(習慣を育てる)。番組チェックの15分キャッシュだけは技術的措置(YouTube負荷)
+let tvViews = {};
+try {
+  const raw = JSON.parse(readFileSync(join(MEM_DIR, 'tv-seen.json'), 'utf8'));
+  if (Array.isArray(raw)) for (const id of raw) tvViews[id] = 1; // 旧形式の移行
+  else tvViews = raw;
+} catch { /* 初回 */ }
+let tvJoy = savedBody.tvJoy ?? 0;
+const tvLatestCache = new Map(); // channel名 → {v, at}(15分)
+// M213/M214: 記録アプリ(人間もダブルタップで読める)。本→としょかん・番組→テレビに分離
+function appendAppLog(file, entry) {
   try {
     let arr = [];
-    try { arr = JSON.parse(readFileSync(LIB_LOG, 'utf8')); } catch { /* 初回 */ }
+    try { arr = JSON.parse(readFileSync(file, 'utf8')); } catch { /* 初回 */ }
     arr.push(entry);
     while (arr.length > 100) arr.shift();
-    writeFileSync(LIB_LOG, JSON.stringify(arr, null, 1));
+    writeFileSync(file, JSON.stringify(arr, null, 1));
   } catch { /* noop */ }
 }
+const logLibrary = (e) => appendAppLog('C:/Users/haru-/AppData/Roaming/amateras/world-apps/toshokan/data.json', e);
+const logTv = (e) => appendAppLog('C:/Users/haru-/AppData/Roaming/amateras/world-apps/terebi/data.json', e);
 // M182: 統合済みの経験量(眠気圧の底)。眠りの中の統合で上がる=圧が抜ける
 let epsBaseline = savedBody.epsBaseline ?? 0;
 let sleeping = savedBody.sleeping === true; // M194: 停止は睡眠と同型(§9)=眠りは再起動をまたぐ
@@ -446,7 +453,7 @@ async function main() {
   async function relayToTera(text) {
     if (text === lastJobText && Date.now() - lastJobAt < 60_000) return;
     lastJobAt = Date.now(); lastJobText = text;
-    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory, libraryJoy, epsBaseline, sleeping, lastIntegratedDay })); } catch { /* noop */ }
+    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory, libraryJoy, tvJoy, epsBaseline, sleeping, lastIntegratedDay })); } catch { /* noop */ }
     const tail = convo.slice(-3).map((c) => (c.from === 'me' ? `ヒナタ:「${c.text}」` : `相手:「${c.text}」`)).join(' ');
     const context = tail.includes(`ヒナタ:「${text}」`) ? tail : `${tail} ヒナタ:「${text}」`.trim();
     try {
@@ -1200,33 +1207,41 @@ async function main() {
           },
         });
       }
-      // M213: テレビ — 許可チャンネルの新着配信を観る(字幕→司書Kimiのあらすじ=読み聞かせと同じ構図)。
-      // 退屈なほど観たくなる。1日2回まで・確認は1時間に1回・観た動画は二度見しない
-      const tvDay = new Date().toLocaleDateString('sv-SE');
-      if (tvToday.day !== tvDay) tvToday = { day: tvDay, n: 0 };
-      if (tvReady() && tvToday.n < 2 && sense.spec.has('テレビ') && now - lastTvCheckAt > 3_600_000) {
+      // M214: テレビ — 観るか観ないかは選択経済(自由意志)。同じ配信は観るほど新鮮さが涸れて
+      // 自然に飽きる(井戸と同じ数式)。習慣はtvJoy(楽しかった快の記憶)が育てる
+      if (tvReady() && sense.spec.has('テレビ')) {
         cands.push({
-          value: 0.22 + (learnEvents.length < 3 ? 0.15 : 0),
+          value: 0.18 + tvJoy * 0.5 + (learnEvents.length < 3 ? 0.12 : 0),
           label: 'テレビをみる',
           run: async () => {
-            lastTvCheckAt = Date.now();
             const chs = loadChannels();
             if (chs.length === 0) return;
             const ch = chs[Math.floor(Math.random() * chs.length)];
             await act([{ type: 'move_to', x: -10.4, z: 4.2 }], 'テレビのまえへ');
-            const v = await latestVideo(ch.url);
-            if (v === null || tvSeen.includes(v.id)) { remember('tv_nothing_new', { channel: ch.name }); return; }
+            // 新着チェック(15分キャッシュ=YouTube負荷の技術的措置。行動制限ではない)
+            const cached = tvLatestCache.get(ch.name);
+            let v = cached !== undefined && Date.now() - cached.at < 900_000 ? cached.v : null;
+            if (v === null) {
+              v = await latestVideo(ch.url);
+              tvLatestCache.set(ch.name, { v, at: Date.now() });
+            }
+            if (v === null) { remember('tv_miss', { channel: ch.name }); return; }
+            // 飽き: 同じ配信は観るほど新鮮さが涸れる(10/(10+回数*5))。涸れていたら観るのをやめる
+            const views = tvViews[v.id] ?? 0;
+            const freshness = 10 / (10 + views * 5);
+            if (Math.random() > freshness) { remember('tv_bored', { channel: ch.name, title: v.title, views }); return; }
             await act([{ type: 'motion', name: 'sit' }], 'テレビをみる');
             const summary = await watchVideo(v.id, v.title, librarianBrain);
             if (summary === null) { remember('tv_miss', { channel: ch.name }); return; }
-            tvSeen.push(v.id);
-            while (tvSeen.length > 200) tvSeen.shift();
-            try { writeFileSync(join(MEM_DIR, 'tv-seen.json'), JSON.stringify(tvSeen)); } catch { /* noop */ }
-            tvToday.n++;
-            remember('tv', { channel: ch.name, title: v.title, summary });
+            tvViews[v.id] = views + 1;
+            try { writeFileSync(join(MEM_DIR, 'tv-seen.json'), JSON.stringify(tvViews)); } catch { /* noop */ }
+            remember('tv', { channel: ch.name, title: v.title, summary, views: views + 1 });
             recordLearning(`テレビ: ${ch.name}`);
-            logLibrary({ ts: Date.now(), kind: 'tv', word: `${ch.name}の配信`, title: v.title, summary });
-            mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: 0.2, about: `テレビ:${ch.name}` });
+            logTv({ ts: Date.now(), kind: 'tv', word: `${ch.name}の配信`, title: v.title, summary });
+            // 報酬も新鮮さに比例(繰り返すほど薄くなる=飽きの実体)。快の記憶が習慣を育てる
+            const rw = +(0.2 * freshness).toFixed(3);
+            mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: rw, about: `テレビ:${ch.name}` });
+            tvJoy = Math.min(1, +(tvJoy + 0.15 * freshness).toFixed(2));
             const line = await ownWords(`(テレビで「${ch.name}」の配信を観た。ないようは:「${summary.slice(0, 120)}」。かんそうを、すきなだけことばにして)`);
             if (line !== null) await act([{ type: 'say', text: line }], 'テレビのかんそう');
           },
@@ -1421,7 +1436,7 @@ async function main() {
   setInterval(() => {
     const v = mind.valence();
     remember('valence', { scalar: +mind.scalar().toFixed(3), ...v });
-    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory, libraryJoy, epsBaseline, sleeping, lastIntegratedDay })); } catch { /* noop */ }
+    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory, libraryJoy, tvJoy, epsBaseline, sleeping, lastIntegratedDay })); } catch { /* noop */ }
     log(`心 scalar=${mind.scalar().toFixed(2)} 報酬=${v.reward} 恐怖=${v.fear} 体力=${energy.toFixed(2)} 予測=${mind.predictions.size}件 歩行=${Math.round(walkedToday)}m`);
   }, 120_000);
 
