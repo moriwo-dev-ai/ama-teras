@@ -379,17 +379,18 @@ function traitsOf(seed: string): { mark: string; hue: number; colorName: string 
 }
 function handleVisitorPos(body: Record<string, unknown>): { code: number; res: unknown } {
   const vk = String(body['vk'] ?? '');
-  const v = loadVisitors().find((x) => x.key === vk);
-  if (v === undefined) return { code: 401, res: { error: '招待キーが違う' } };
+  const sp = speakerOf(vk); // M206: 招待客もゲストも歩ける
+  if (sp === undefined) return { code: 401, res: { error: '招待キーが違う' } };
+  if (sp.sid !== undefined && bannedSids().includes(sp.sid)) return { code: 403, res: { error: 'この世界には入れません' } };
   const x = Number(body['x']), z = Number(body['z']);
   if (!Number.isFinite(x) || !Number.isFinite(z)) return { code: 400, res: { error: '座標が不正' } };
   const cx = Math.max(-18, Math.min(18, x)), cz = Math.max(-18, Math.min(18, z));
   const prev = visitorStates.get(vk);
   const isNew = prev === undefined;
   const stance = ['stand','sit','crouch'].includes(String(body['stance'])) ? String(body['stance']) : 'stand';
-  visitorStates.set(vk, { name: v.name.slice(0, 12), x: cx, z: cz, stance, lastAt: Date.now() });
-  world.visitorSync(vidOf(vk), v.name.slice(0, 12), cx, cz, stance, traitsOf(vk));
-  if (isNew) log(`訪問者が入場: ${v.name} (${cx.toFixed(1)}, ${cz.toFixed(1)})`);
+  visitorStates.set(vk, { name: sp.name.slice(0, 12), x: cx, z: cz, stance, lastAt: Date.now() });
+  world.visitorSync(vidOf(vk), sp.name.slice(0, 12), cx, cz, stance, traitsOf(sp.traitSeed));
+  if (isNew) log(`訪問者が入場: ${sp.name}${sp.kind === 'guest' ? '(ゲスト)' : ''} (${cx.toFixed(1)}, ${cz.toFixed(1)})`);
   return { code: 200, res: { ok: true, id: vidOf(vk) } }; // M189: 自分のゴーストID(一人称視点で自分を消すため)
 }
 // 30秒音沙汰なし=退場(ゴーストを消し、ヒナタの知覚からも消える)
@@ -484,7 +485,8 @@ setInterval(() => {
 /** 訪問者+立ち見客(ヒナタの知覚・poll・観戦ページの全員に見える)。M198: 個体の見た目つき */
 function allGhosts(): { id: string; name: string; x: number; z: number; stance: string; mark: string; hue: number; colorName: string }[] {
   return [
-    ...[...visitorStates.entries()].map(([k, s]) => ({ id: vidOf(k), name: s.name, x: s.x, z: s.z, stance: s.stance, ...traitsOf(k) })),
+    // M206: ゲストの紋はsid由来=観戦時代と同一個体に見える(speakerOfが引けない瞬間はキーで代用)
+    ...[...visitorStates.entries()].map(([k, s]) => ({ id: vidOf(k), name: s.name, x: s.x, z: s.z, stance: s.stance, ...traitsOf(speakerOf(k)?.traitSeed ?? k) })),
     ...[...spectators.entries()].map(([sid, s]) => ({ id: s.id, name: s.name, x: s.x, z: s.z, stance: 'stand', ...traitsOf(sid) })),
   ];
 }
@@ -578,18 +580,90 @@ async function hinataVoice(c: WorldCommand): Promise<void> {
 }
 
 const NG_WORDS = /(死ね|殺す|きもい|うざい|ばか|バカ|アホ|http|www\.|\.com|\.jp)/i;
+
+// ---- M206: 一般公開ゲスト(観戦→歩ける昇格) ----
+// 鍵はsidから決定的に導出(=再訪で同じ個体・同じ紋と色)。名簿ファイルは分析用の記録。
+// 荒らし対策: 出禁リスト(sid)・予約名・50字・10秒に1回・1日200件・近接会話ゲート(5m)・同時5人
+type Guest = { sid: string; name: string; key: string; firstAt: string; lastAt: string };
+const GUESTS_PATH = VISITORS_PATH !== undefined ? join(VISITORS_PATH, '..', 'world-guests.json') : undefined;
+const BAN_PATH = VISITORS_PATH !== undefined ? join(VISITORS_PATH, '..', 'world-banned.json') : undefined;
+const RESERVED_NAME = /^(ヒナタ|ひなた|日向|テラ|てら|もりを|もりお|森川|運営|admin|owner)$/i;
+const GUEST_MAX_ACTIVE = 5;      // 同時歩行の上限
+const GUEST_TEXT_MAX = 50;       // 発言の文字数上限
+const GUEST_RATE_MS = 10_000;    // 発言間隔
+const GUEST_DAILY_MAX = 200;     // 1個体1日の発言数
+const TALK_RADIUS = 5;           // 声が届く距離(m)=近接会話ゲート
+let guests: Guest[] = [];
+try { if (GUESTS_PATH !== undefined) guests = JSON.parse(readFileSync(GUESTS_PATH, 'utf8')) as Guest[]; } catch { /* 初回 */ }
+const saveGuests = (): void => { try { if (GUESTS_PATH !== undefined) writeFileSync(GUESTS_PATH, JSON.stringify(guests, null, 1)); } catch { /* noop */ } };
+const bannedSids = (): string[] => { try { return BAN_PATH !== undefined ? (JSON.parse(readFileSync(BAN_PATH, 'utf8')) as string[]) : []; } catch { return []; } };
+const guestKeyOf = (sid: string): string => createHash('sha256').update(`guest:${sid}`).digest('hex').slice(0, 24);
+const guestBySid = (sid: string): Guest | undefined => guests.find((g) => g.sid === sid);
+const guestByKey = (vk: string): Guest | undefined => guests.find((g) => g.key === vk);
+const guestDaily = new Map<string, { day: string; n: number }>();
+
+function handleGuestJoin(body: Record<string, unknown>): { code: number; res: unknown } {
+  const sid = String(body['sid'] ?? '');
+  const name = String(body['name'] ?? '').trim().slice(0, 12);
+  if (!/^[0-9a-f]{16}$/.test(sid)) return { code: 400, res: { error: 'sidが不正' } };
+  if (bannedSids().includes(sid)) return { code: 403, res: { error: 'この世界には入れません' } };
+  if (name === '' || NG_WORDS.test(name)) return { code: 400, res: { error: 'その名前は使えない' } };
+  if (RESERVED_NAME.test(name)) return { code: 400, res: { error: 'その名前は世界の住人のもの' } };
+  // 同時歩行の上限(既に歩いている本人は再入場OK)
+  const activeGuests = [...visitorStates.keys()].filter((k) => guestByKey(k) !== undefined);
+  const myKey = guestKeyOf(sid);
+  if (!activeGuests.includes(myKey) && activeGuests.length >= GUEST_MAX_ACTIVE) {
+    return { code: 429, res: { error: `いまは満員(${GUEST_MAX_ACTIVE}人)。すこし待ってね` } };
+  }
+  const now = new Date().toISOString();
+  const g = guestBySid(sid);
+  if (g === undefined) guests.push({ sid, name, key: myKey, firstAt: now, lastAt: now });
+  else { g.name = name; g.lastAt = now; }
+  saveGuests();
+  log(`ゲスト昇格: ${name} [${sid.slice(0, 8)}]`);
+  return { code: 200, res: { ok: true, vk: myKey } };
+}
+
+/** 招待客(名簿)とゲストの両方を引く。ゲストの見た目はsid由来=観戦時代と同じ紋と色 */
+function speakerOf(vk: string): { name: string; kind: 'invite' | 'guest'; traitSeed: string; sid?: string } | undefined {
+  const v = loadVisitors().find((x) => x.key === vk);
+  if (v !== undefined) return { name: v.name, kind: 'invite', traitSeed: vk };
+  const g = guestByKey(vk);
+  if (g !== undefined) return { name: g.name, kind: 'guest', traitSeed: g.sid, sid: g.sid };
+  return undefined;
+}
+
 function handleVisitorChat(body: Record<string, unknown>): { code: number; res: unknown } {
   const vk = String(body['vk'] ?? '');
-  const text = String(body['text'] ?? '').trim().slice(0, 120);
-  const v = loadVisitors().find((x) => x.key === vk);
-  if (v === undefined) return { code: 401, res: { error: '招待キーが違う' } };
+  const sp = speakerOf(vk);
+  if (sp === undefined) return { code: 401, res: { error: '招待キーが違う' } };
+  if (sp.sid !== undefined && bannedSids().includes(sp.sid)) return { code: 403, res: { error: 'この世界には入れません' } };
+  const limit = sp.kind === 'guest' ? GUEST_TEXT_MAX : 120;
+  const text = String(body['text'] ?? '').trim().slice(0, limit);
   if (text === '') return { code: 400, res: { error: '空の発言' } };
+  const rate = sp.kind === 'guest' ? GUEST_RATE_MS : 5_000;
   const last = visitorLastAt.get(vk) ?? 0;
-  if (Date.now() - last < 5_000) return { code: 429, res: { error: 'ゆっくり話してね(5秒に1回)' } };
+  if (Date.now() - last < rate) return { code: 429, res: { error: `ゆっくり話してね(${Math.round(rate / 1000)}秒に1回)` } };
   if (NG_WORDS.test(text)) return { code: 400, res: { error: 'その言葉は世界に持ち込めない' } };
+  if (sp.kind === 'guest') {
+    const day = new Date().toLocaleDateString('sv-SE');
+    const d = guestDaily.get(vk) ?? { day, n: 0 };
+    if (d.day !== day) { d.day = day; d.n = 0; }
+    if (d.n >= GUEST_DAILY_MAX) return { code: 429, res: { error: 'きょうはたくさん話したね。また明日' } };
+    d.n++;
+    guestDaily.set(vk, d);
+    // 近接会話ゲート: 声は近くでしか届かない(叫べない世界=物理で守る)。
+    // 位置未登録の声は世界に立っていない=届かない(未登録での素通りを許さない)
+    const me = visitorStates.get(vk);
+    if (me === undefined) return { code: 200, res: { ok: false, detail: 'まだ世界に立っていないよ(ページを開き直してみて)' } };
+    const her = world.avatarPos();
+    if (her !== null && Math.hypot(me.x - her.x, me.z - her.z) > TALK_RADIUS) {
+      return { code: 200, res: { ok: false, detail: 'とおくて聞こえない。ヒナタのそばに行って話しかけてね' } };
+    }
+  }
   visitorLastAt.set(vk, Date.now());
-  world.visitorChat(v.name.slice(0, 12), text);
-  log(`訪問者の声: ${v.name}「${text.slice(0, 40)}」`);
+  world.visitorChat(sp.name.slice(0, 12), text);
+  log(`訪問者の声: ${sp.name}「${text.slice(0, 40)}」`);
   return { code: 200, res: { ok: true } };
 }
 
@@ -657,6 +731,14 @@ if (PUBLIC_PORT !== undefined) {
       // 観戦ページのhello/state報告は受けるふりだけして捨てる(書き込み経路は公開面に存在しない)
       if (req.method === 'POST' && path === '/api/world/event') {
         void readJsonBody(req).then(() => sendJson(res, 200, { ok: true }));
+        return;
+      }
+      // M206: 観戦→歩けるゲストへの昇格(sid→決定的な鍵。出禁・予約名・同時上限つき)
+      if (req.method === 'POST' && path === '/api/world/guest') {
+        void readJsonBody(req).then((body) => {
+          const { code, res: r } = handleGuestJoin(body);
+          sendJson(res, code, r);
+        });
         return;
       }
       // M175/M176: 訪問者の声と足(招待キー・レート制限・NG語つき)— 公開面で唯一の書き込み

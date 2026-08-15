@@ -520,6 +520,12 @@ export class WorldManager {
     });
   }
 
+  /** M206: ヒナタの現在位置(近接会話ゲート用)。不明ならnull */
+  avatarPos(): { x: number; z: number } | null {
+    const av = this.state?.avatar;
+    return av !== undefined && typeof av.x === 'number' && typeof av.z === 'number' ? { x: av.x, z: av.z } : null;
+  }
+
   visitorChat(name: string, text: string): void {
     this.pushChat(`guest:${name}` as 'user', text);
     this.bus.publish('world:event', {

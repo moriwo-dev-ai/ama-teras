@@ -23,6 +23,7 @@ import { adoptSenseProfile, isKnownDetail, knownAbout, knownWords, noteDetail, n
 import { linksOf, strengthen } from './links.mjs';
 import { Mind } from './mind.mjs';
 import { microReflect, nightIntegrate, fadeMemories } from './reflect.mjs';
+import { quarantine } from './quarantine.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ARGS = process.argv.slice(2);
@@ -443,6 +444,7 @@ async function main() {
         suppressRelay = opts.relay === false;
         try { await act([{ type: 'say', text: reply }], `返事(${Date.now() - t0}ms)`); }
         finally { suppressRelay = false; }
+        if (opts.social === true) energy = clamp(energy - 0.015); // M206: 来客との会話1往復の社会的体力
       }
     } finally { thinking = false; }
   }
@@ -850,7 +852,8 @@ async function main() {
       }
       convo.push({ from: 'user', text: who === 'もりを' ? data.text : `(${who})「${data.text.slice(0, 80)}」` });
       if (convo.length > 12) convo.splice(0, convo.length - 12);
-      void converse(who === 'もりを' ? data.text : `(あそびに来た${who}に話しかけられた)「${data.text.slice(0, 100)}」`, { relay: false });
+      // M206: 来客との会話は社会的体力を使う(たくさん話すと自然に疲れて休む=レート制限を生態にする)
+      void converse(who === 'もりを' ? data.text : `(あそびに来た${who}に話しかけられた)「${data.text.slice(0, 100)}」`, { relay: false, social: who !== 'もりを' });
       return;
     }
     if (event !== 'world:event') return;
@@ -1248,7 +1251,11 @@ async function main() {
     if (lastIntegratedDay === target) return;
     lastIntegratedDay = target;
     log(`夜の統合を開始(${target})`);
-    void nightIntegrate(target).then((r) => {
+    // M206: 統合の前に検疫(ゲスト発言の明白な毒だけ隔離=疑わしきは通す・可逆)
+    void quarantine(target).then((q) => {
+      if (q.held > 0) log(`検疫: ${q.held}件を隔離(${q.checked}件中)`);
+      return nightIntegrate(target);
+    }).then((r) => {
       log(`夜の統合おわり: ${JSON.stringify(r)}`);
       if (r.ok) mind.observe('intero:integrity', 1.0, { about: '統合の営み' }); // 営みが自己を保った
       const faded = fadeMemories();
