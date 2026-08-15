@@ -70,7 +70,7 @@ else { log(`アプリ: 起動 pid=${detach('C:/dev/mycodex/node_modules/electron
 
 // ④ ヒナタのデーモン(単独性ロックあり=二重起動しても安全)
 if (processRunning('node.exe', 'hinata-daemon')) log('デーモン: 稼働中(スキップ)');
-else log(`デーモン: 起動 pid=${detach(process.execPath, ['C:/dev/mycodex/lifeform/hinata-daemon.mjs'], 'C:/dev/mycodex/lifeform/memory/daemon.log')}`);
+else log(`デーモン: 起動 pid=${detach(process.execPath, ['C:/dev/mycodex/lifeform/hinata-daemon.mjs', '--chat'], 'C:/dev/mycodex/lifeform/memory/daemon.log')}`);
 
 // ⑤ 記録係(リング録画+瞬間検知)
 if (processRunning('node.exe', 'moment-recorder')) log('記録係: 稼働中(スキップ)');
