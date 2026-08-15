@@ -2021,7 +2021,7 @@ export async function registerIpcHandlers(
         executorKey: worldExternal !== null ? worldExternal.key : worldExecutorKey,
         // M212: 司書の脳(図書館/テレビの要約)= Kimi K3。会話の脳(ローカル4b)とは別。
         // 彼女の心・記憶はローカルのまま、外部知識(Wikipedia/字幕)のやさしい翻訳だけAPIに出す
-        summarize: async (system: string, text: string): Promise<string | null> => {
+        summarize: async (system: string, text: string, model?: string): Promise<string | null> => {
           const mk = secrets.get('moonshot');
           if (mk === null) return null;
           try {
@@ -2029,16 +2029,19 @@ export async function registerIpcHandlers(
               method: 'POST',
               headers: { 'content-type': 'application/json', authorization: `Bearer ${mk}` },
               body: JSON.stringify({
-                model: 'kimi-k3',
-                // kimi-k3は推論モデル=思考(reasoning_content)がトークンを先に消費する。
-                // 400だと本文が空になる実測 → 思考+本文が収まる余裕を持たせる
-                max_tokens: 2500,
+                // M215: 台本おこしは翻訳作業=推論不要。kimi-k3(推論モデル)は思考が長すぎて
+                // 170秒でも完走しない実測 → 同アカウントの非推論モデルで高速・安価に
+                model: model ?? 'kimi-k2.6',
+                // 思考を切る(台本おこしは翻訳作業=推論不要。思考がmax_tokensを食い尽くす実測への対策)
+                thinking: { type: 'disabled' },
+                max_tokens: 2000,
                 messages: [
                   { role: 'system', content: system.slice(0, 600) },
                   { role: 'user', content: text.slice(0, 8000) },
                 ],
               }),
-              signal: AbortSignal.timeout(35_000),
+              // 台本モード(M215)は思考+1200字生成で1分超えることがある実測
+              signal: AbortSignal.timeout(170_000),
             });
             if (!r.ok) {
               console.warn(`[summarize] moonshot ${r.status}: ${(await r.text()).slice(0, 200)}`);

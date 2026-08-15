@@ -110,7 +110,7 @@ export interface RemoteServerDeps {
      */
     executorKey?: string;
     /** M212: 司書の脳(図書館/テレビの要約)。mainがMoonshot APIで代行(鍵はOS暗号のためmainのみ復号可) */
-    summarize?: (system: string, text: string) => Promise<string | null>;
+    summarize?: (system: string, text: string, model?: string) => Promise<string | null>;
     /**
      * b案(AI生命体): 生命体デーモン(別プロセス)の世界コマンド投入口。
      * ループバック+実行キー限定。WorldManager.act に委譲(=検証・配信ガード・ackを共有)
@@ -386,7 +386,8 @@ export class RemoteServer {
       const system = String(body['system'] ?? '');
       const text = String(body['text'] ?? '');
       if (system === '' || text === '') throw new HttpError(400, 'system と text が必要');
-      const out = await this.deps.world.summarize(system, text);
+      const model = typeof body['model'] === 'string' ? body['model'] : undefined;
+      const out = await this.deps.world.summarize(system, text, model);
       return sendJson(res, 200, { ok: out !== null, text: out });
     }
     // c-3(ジョブキューv1): 生命体→大工(思考層)への発注。ループバック+実行キー限定。

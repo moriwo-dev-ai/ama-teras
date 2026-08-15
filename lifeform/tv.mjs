@@ -51,12 +51,17 @@ export async function watchVideo(id, title, remoteSummarize) {
     .filter((l) => l !== '' && !/^\d+$/.test(l) && !l.includes('-->') && !/^(WEBVTT|Kind:|Language:)/.test(l));
   const dedup = [];
   for (const l of lines) if (dedup[dedup.length - 1] !== l) dedup.push(l);
-  const text = dedup.join(' ').slice(0, 6000);
+  const text = dedup.join(' ').slice(0, 3500);
   if (text.length < 100) return null; // 字幕が薄すぎる=観てもわからない
+  // M215: 台本モード(ユーザー決定)。要約せず、実際の言い回し・掛け合いを日本語の台本として残す
+  // =彼女が「返しの型」を経験から学べる。壊れたASR字幕の修復と話者推定ラベルも司書の仕事
   const summary = await remoteSummarize(
-    'テレビばんぐみの解説係。配信の字幕から、なにが起きたかを5さいの子にわかる日本語で、たのしく3〜4文のあらすじにする。あいさつ・前置き・記号は書かない',
+    '配信の字幕おこし係。音声認識の字幕(誤認識や欠けを文脈で修復)から、だれが話したかを推定して' +
+    '「名前: セリフ」形式の日本語の台本にする。要約はせず、実際の言い回し・掛け合いをできるだけそのまま残す' +
+    '(外国語は自然な日本語に訳す)。子どもも読むので乱暴な言葉はやわらげる。全体で800〜1000字。' +
+    'あいさつ・前置き・解説は書かない',
     `「${title}」という配信の字幕: ${text}`,
   );
   if (summary === null) return null;
-  return summary.trim().slice(0, 300);
+  return summary.trim().slice(0, 1400);
 }

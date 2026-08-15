@@ -264,7 +264,7 @@ async function main() {
     try {
       const r = await fetch(`${base}/api/world/summarize?k=${key}`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ system, text }), signal: AbortSignal.timeout(45_000),
+        body: JSON.stringify({ system, text }), signal: AbortSignal.timeout(200_000),
       });
       if (!r.ok) return null;
       const j = await r.json();
@@ -1242,7 +1242,7 @@ async function main() {
             const rw = +(0.2 * freshness).toFixed(3);
             mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: rw, about: `テレビ:${ch.name}` });
             tvJoy = Math.min(1, +(tvJoy + 0.15 * freshness).toFixed(2));
-            const line = await ownWords(`(テレビで「${ch.name}」の配信を観た。ないようは:「${summary.slice(0, 120)}」。かんそうを、すきなだけことばにして)`);
+            const line = await ownWords(`(テレビで「${ch.name}」の配信を観た。ないようは:「${summary.slice(0, 300)}」。かんそうを、すきなだけことばにして)`);
             if (line !== null) await act([{ type: 'say', text: line }], 'テレビのかんそう');
           },
         });

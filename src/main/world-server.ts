@@ -218,7 +218,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       if (APP_JOB_URL === undefined) { sendJson(res, 202, { ok: false, detail: 'アプリ未接続' }); return; }
       try {
         const u = APP_JOB_URL.replace('/api/world/job', '/api/world/summarize');
-        const r = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(40_000) });
+        const r = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(180_000) });
         sendJson(res, r.status, await r.json().catch(() => ({})));
       } catch { sendJson(res, 502, { ok: false }); }
       return;
