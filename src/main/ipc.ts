@@ -2030,7 +2030,9 @@ export async function registerIpcHandlers(
               headers: { 'content-type': 'application/json', authorization: `Bearer ${mk}` },
               body: JSON.stringify({
                 model: 'kimi-k3',
-                max_tokens: 400,
+                // kimi-k3は推論モデル=思考(reasoning_content)がトークンを先に消費する。
+                // 400だと本文が空になる実測 → 思考+本文が収まる余裕を持たせる
+                max_tokens: 2500,
                 messages: [
                   { role: 'system', content: system.slice(0, 600) },
                   { role: 'user', content: text.slice(0, 8000) },
@@ -2038,11 +2040,19 @@ export async function registerIpcHandlers(
               }),
               signal: AbortSignal.timeout(35_000),
             });
-            if (!r.ok) return null;
+            if (!r.ok) {
+              console.warn(`[summarize] moonshot ${r.status}: ${(await r.text()).slice(0, 200)}`);
+              return null;
+            }
             const j = (await r.json()) as { choices?: { message?: { content?: string } }[] };
             const out = j.choices?.[0]?.message?.content;
-            return typeof out === 'string' && out.trim() !== '' ? out.trim() : null;
-          } catch {
+            if (typeof out !== 'string' || out.trim() === '') {
+              console.warn(`[summarize] 空応答: ${JSON.stringify(j).slice(0, 200)}`);
+              return null;
+            }
+            return out.trim();
+          } catch (e) {
+            console.warn(`[summarize] 例外: ${String(e).slice(0, 150)}`);
             return null;
           }
         },

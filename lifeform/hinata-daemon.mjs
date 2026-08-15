@@ -25,6 +25,7 @@ import { Mind } from './mind.mjs';
 import { microReflect, nightIntegrate, fadeMemories } from './reflect.mjs';
 import { quarantine } from './quarantine.mjs';
 import { lookup } from './librarian.mjs';
+import { tvReady, loadChannels, latestVideo, watchVideo } from './tv.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ARGS = process.argv.slice(2);
@@ -99,6 +100,22 @@ let pleasureMemory = savedBody.pleasureMemory ?? 0.4;
 // M210: 図書館の快の記憶(調べてわかった経験が育てる。足場かけ→自立の実体)
 let libraryJoy = savedBody.libraryJoy ?? 0;
 let unresolvedQs = []; // 流れた問い {word, ts}(1時間で薄れる・図書館へ続く道)
+// M213: テレビの視聴台帳(見た動画は二度見しない・1日2回まで)
+let tvSeen = [];
+try { tvSeen = JSON.parse(readFileSync(join(MEM_DIR, 'tv-seen.json'), 'utf8')); } catch { /* 初回 */ }
+let tvToday = { day: '', n: 0 };
+let lastTvCheckAt = 0;
+// M213: としょかんアプリの記録(ヒナタが読んだ本・観た番組を人間も読める)
+const LIB_LOG = 'C:/Users/haru-/AppData/Roaming/amateras/world-apps/toshokan/data.json';
+function logLibrary(entry) {
+  try {
+    let arr = [];
+    try { arr = JSON.parse(readFileSync(LIB_LOG, 'utf8')); } catch { /* 初回 */ }
+    arr.push(entry);
+    while (arr.length > 100) arr.shift();
+    writeFileSync(LIB_LOG, JSON.stringify(arr, null, 1));
+  } catch { /* noop */ }
+}
 // M182: 統合済みの経験量(眠気圧の底)。眠りの中の統合で上がる=圧が抜ける
 let epsBaseline = savedBody.epsBaseline ?? 0;
 let sleeping = savedBody.sleeping === true; // M194: 停止は睡眠と同型(§9)=眠りは再起動をまたぐ
@@ -1173,12 +1190,45 @@ async function main() {
             unresolvedQs = unresolvedQs.filter((u) => u.word !== uq.word);
             if (r === null) { remember('library_miss', { word: uq.word }); return; }
             remember('library', { word: uq.word, title: r.title, summary: r.summary });
+            logLibrary({ ts: Date.now(), kind: 'book', word: uq.word, title: r.title, summary: r.summary });
             noteDetail(wordKey(uq.word), 'library', `としょかんで調べた: ${r.summary.slice(0, 80)}`);
             recordLearning(`としょかん: ${uq.word}`);
             mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: 0.3, about: `しらべてわかった:${uq.word}` });
             libraryJoy = Math.min(1, +(libraryJoy + 0.15).toFixed(2));
             const line = await ownWords(`(としょかんで「${uq.word}」を調べたら、本にこう書いてあった:「${r.summary.slice(0, 100)}」。わかったときのきもちを、すきなだけことばにして)`);
             if (line !== null) await act([{ type: 'say', text: line }], `しらべもの:${uq.word}`);
+          },
+        });
+      }
+      // M213: テレビ — 許可チャンネルの新着配信を観る(字幕→司書Kimiのあらすじ=読み聞かせと同じ構図)。
+      // 退屈なほど観たくなる。1日2回まで・確認は1時間に1回・観た動画は二度見しない
+      const tvDay = new Date().toLocaleDateString('sv-SE');
+      if (tvToday.day !== tvDay) tvToday = { day: tvDay, n: 0 };
+      if (tvReady() && tvToday.n < 2 && sense.spec.has('テレビ') && now - lastTvCheckAt > 3_600_000) {
+        cands.push({
+          value: 0.22 + (learnEvents.length < 3 ? 0.15 : 0),
+          label: 'テレビをみる',
+          run: async () => {
+            lastTvCheckAt = Date.now();
+            const chs = loadChannels();
+            if (chs.length === 0) return;
+            const ch = chs[Math.floor(Math.random() * chs.length)];
+            await act([{ type: 'move_to', x: -10.4, z: 4.2 }], 'テレビのまえへ');
+            const v = await latestVideo(ch.url);
+            if (v === null || tvSeen.includes(v.id)) { remember('tv_nothing_new', { channel: ch.name }); return; }
+            await act([{ type: 'motion', name: 'sit' }], 'テレビをみる');
+            const summary = await watchVideo(v.id, v.title, librarianBrain);
+            if (summary === null) { remember('tv_miss', { channel: ch.name }); return; }
+            tvSeen.push(v.id);
+            while (tvSeen.length > 200) tvSeen.shift();
+            try { writeFileSync(join(MEM_DIR, 'tv-seen.json'), JSON.stringify(tvSeen)); } catch { /* noop */ }
+            tvToday.n++;
+            remember('tv', { channel: ch.name, title: v.title, summary });
+            recordLearning(`テレビ: ${ch.name}`);
+            logLibrary({ ts: Date.now(), kind: 'tv', word: `${ch.name}の配信`, title: v.title, summary });
+            mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: 0.2, about: `テレビ:${ch.name}` });
+            const line = await ownWords(`(テレビで「${ch.name}」の配信を観た。ないようは:「${summary.slice(0, 120)}」。かんそうを、すきなだけことばにして)`);
+            if (line !== null) await act([{ type: 'say', text: line }], 'テレビのかんそう');
           },
         });
       }

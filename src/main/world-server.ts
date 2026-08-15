@@ -717,6 +717,14 @@ if (PUBLIC_PORT !== undefined) {
         serveStatic(STATIC_DIR!, path.slice(1), res, false);
         return;
       }
+      // M213: 世界アプリ(としょかん等)の読み取り配信。見学者もダブルタップで開ける
+      if (req.method === 'GET' && path.startsWith('/world-apps/') && APPS_DIR !== undefined) {
+        let rel = path.slice('/world-apps/'.length);
+        if (rel === '' || rel.endsWith('/')) rel += 'index.html';
+        else if (!rel.split('/').pop()!.includes('.')) rel += '/index.html';
+        serveStatic(APPS_DIR, rel, res, true);
+        return;
+      }
       if (req.method === 'GET' && path === '/api/world/spectate') {
         if (publicSseCount >= 25) { res.writeHead(503); res.end('満員'); return; }
         publicSseCount++;
