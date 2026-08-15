@@ -211,6 +211,18 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       sendJson(res, 200, { ok: true, file });
       return;
     }
+    // M212: 司書の脳の中継(図書館/テレビの要約→アプリがKimi K3で代行)。アプリ不在は202
+    if (req.method === 'POST' && path === '/api/world/summarize') {
+      if (!keyed) { sendJson(res, 401, { error: 'unauthorized' }); return; }
+      const body = await readJsonBody(req);
+      if (APP_JOB_URL === undefined) { sendJson(res, 202, { ok: false, detail: 'アプリ未接続' }); return; }
+      try {
+        const u = APP_JOB_URL.replace('/api/world/job', '/api/world/summarize');
+        const r = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(40_000) });
+        sendJson(res, r.status, await r.json().catch(() => ({})));
+      } catch { sendJson(res, 502, { ok: false }); }
+      return;
+    }
     // ヒナタ→テラの声の中継(アプリへ転送。アプリ不在でも世界は生きる=202で受ける)
     if (req.method === 'POST' && path === '/api/world/job') {
       if (!keyed) { sendJson(res, 401, { error: 'unauthorized' }); return; }

@@ -109,6 +109,8 @@ export interface RemoteServerDeps {
      * キーは起動ごとにランダム生成され、main→隠しウィンドウのURLでのみ受け渡される
      */
     executorKey?: string;
+    /** M212: 司書の脳(図書館/テレビの要約)。mainがMoonshot APIで代行(鍵はOS暗号のためmainのみ復号可) */
+    summarize?: (system: string, text: string) => Promise<string | null>;
     /**
      * b案(AI生命体): 生命体デーモン(別プロセス)の世界コマンド投入口。
      * ループバック+実行キー限定。WorldManager.act に委譲(=検証・配信ガード・ackを共有)
@@ -376,6 +378,16 @@ export class RemoteServer {
       const file = join(dir, `rec-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`);
       await writeFile(file, Buffer.concat(chunks));
       return sendJson(res, 200, { ok: true, file });
+    }
+    // M212: 司書の要約(図書館/テレビ)。ループバック+実行キー限定
+    if (path === '/api/world/summarize' && req.method === 'POST' && this.isWorldExecutor(req, url)) {
+      if (this.deps.world?.summarize === undefined) throw new HttpError(404, 'summarize 未注入');
+      const body = await readJsonBody(req);
+      const system = String(body['system'] ?? '');
+      const text = String(body['text'] ?? '');
+      if (system === '' || text === '') throw new HttpError(400, 'system と text が必要');
+      const out = await this.deps.world.summarize(system, text);
+      return sendJson(res, 200, { ok: out !== null, text: out });
     }
     // c-3(ジョブキューv1): 生命体→大工(思考層)への発注。ループバック+実行キー限定。
     // エージェント側の既存ガードレール・承認フローを全て通過する(直接の世界操作ではない)

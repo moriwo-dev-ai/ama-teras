@@ -46,7 +46,7 @@ import { clearSentinel, writeSentinel } from './evolution/sentinel';
 import { healthCheckAfterPromotion, rebuildAndHealthBoot } from './evolution/supervisor';
 import { defaultRunCommand } from './evolution/gates';
 import { OperationsManager } from './operations/manager';
-import { DEFAULT_UPDATE_CHECK_URL } from '../shared/models';
+import { DEFAULT_UPDATE_CHECK_URL, MOONSHOT_BASE_URL } from '../shared/models';
 import { isRemoteSettable, pickRemoteSettings } from '../shared/remoteSettings';
 import { defaultCloudRunner } from './tsukuyomi/cloudTranscriber';
 import { TsukuyomiManager } from './tsukuyomi/manager';
@@ -2019,6 +2019,33 @@ export async function registerIpcHandlers(
         restorePayload: () => (worldClient !== null ? worldClient.restorePayload() : worldManager.restorePayload()),
         // M173: 分離世界モードでは合鍵がexecutorKey代わり(world-serverからのjob転送を通す)
         executorKey: worldExternal !== null ? worldExternal.key : worldExecutorKey,
+        // M212: 司書の脳(図書館/テレビの要約)= Kimi K3。会話の脳(ローカル4b)とは別。
+        // 彼女の心・記憶はローカルのまま、外部知識(Wikipedia/字幕)のやさしい翻訳だけAPIに出す
+        summarize: async (system: string, text: string): Promise<string | null> => {
+          const mk = secrets.get('moonshot');
+          if (mk === null) return null;
+          try {
+            const r = await fetch(`${MOONSHOT_BASE_URL}/chat/completions`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', authorization: `Bearer ${mk}` },
+              body: JSON.stringify({
+                model: 'kimi-k3',
+                max_tokens: 400,
+                messages: [
+                  { role: 'system', content: system.slice(0, 600) },
+                  { role: 'user', content: text.slice(0, 8000) },
+                ],
+              }),
+              signal: AbortSignal.timeout(35_000),
+            });
+            if (!r.ok) return null;
+            const j = (await r.json()) as { choices?: { message?: { content?: string } }[] };
+            const out = j.choices?.[0]?.message?.content;
+            return typeof out === 'string' && out.trim() !== '' ? out.trim() : null;
+          } catch {
+            return null;
+          }
+        },
         // b案(AI生命体): 生命体デーモンの世界コマンド(server.ts側でsay/motion/move_to/faceに制限済み)
         act: (cmds) => (worldClient !== null ? worldClient.act(cmds) : worldManager.act(cmds)),
         // b案P3(知覚拡張): 生命体が世界を見る(観察スナップショット)

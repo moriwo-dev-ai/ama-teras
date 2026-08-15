@@ -235,6 +235,19 @@ async function main() {
     return t;
   }
 
+  // M212: 司書の脳の中継(world-server→アプリ→Kimi K3)。落ちたらnull=librarian側が4bで代行
+  async function librarianBrain(system, text) {
+    try {
+      const r = await fetch(`${base}/api/world/summarize?k=${key}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ system, text }), signal: AbortSignal.timeout(45_000),
+      });
+      if (!r.ok) return null;
+      const j = await r.json();
+      return typeof j.text === 'string' && j.text !== '' ? j.text : null;
+    } catch { return null; }
+  }
+
   async function act(cmds, label) {
     if (sentThisMinute >= 6) return false;
     for (const c of cmds) {
@@ -1156,7 +1169,7 @@ async function main() {
           run: async () => {
             await act([{ type: 'move_to', x: -10.2, z: 0.9 }], 'としょかんへ');
             await act([{ type: 'motion', name: 'think' }], '本をさがす');
-            const r = await lookup(brain, uq.word);
+            const r = await lookup(brain, uq.word, librarianBrain);
             unresolvedQs = unresolvedQs.filter((u) => u.word !== uq.word);
             if (r === null) { remember('library_miss', { word: uq.word }); return; }
             remember('library', { word: uq.word, title: r.title, summary: r.summary });
