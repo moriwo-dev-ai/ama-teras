@@ -24,6 +24,7 @@ import { linksOf, strengthen } from './links.mjs';
 import { Mind } from './mind.mjs';
 import { microReflect, nightIntegrate, fadeMemories } from './reflect.mjs';
 import { quarantine } from './quarantine.mjs';
+import { lookup } from './librarian.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ARGS = process.argv.slice(2);
@@ -95,6 +96,9 @@ energy = savedBody.energy ?? 0.8;
 // M168: 快の記憶 — 「新しいことは気持ちいい」の学習された期待。バーストのたびに更新され、探索を"求めて"駆動する。
 // 初期値0.4=生得の楽観(初めての快を経験する前から、世界は良いものかもしれないと思える)
 let pleasureMemory = savedBody.pleasureMemory ?? 0.4;
+// M210: 図書館の快の記憶(調べてわかった経験が育てる。足場かけ→自立の実体)
+let libraryJoy = savedBody.libraryJoy ?? 0;
+let unresolvedQs = []; // 流れた問い {word, ts}(1時間で薄れる・図書館へ続く道)
 // M182: 統合済みの経験量(眠気圧の底)。眠りの中の統合で上がる=圧が抜ける
 let epsBaseline = savedBody.epsBaseline ?? 0;
 let sleeping = savedBody.sleeping === true; // M194: 停止は睡眠と同型(§9)=眠りは再起動をまたぐ
@@ -412,7 +416,7 @@ async function main() {
   async function relayToTera(text) {
     if (text === lastJobText && Date.now() - lastJobAt < 60_000) return;
     lastJobAt = Date.now(); lastJobText = text;
-    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory, epsBaseline, sleeping, lastIntegratedDay })); } catch { /* noop */ }
+    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory, libraryJoy, epsBaseline, sleeping, lastIntegratedDay })); } catch { /* noop */ }
     const tail = convo.slice(-3).map((c) => (c.from === 'me' ? `ヒナタ:「${c.text}」` : `相手:「${c.text}」`)).join(' ');
     const context = tail.includes(`ヒナタ:「${text}」`) ? tail : `${tail} ヒナタ:「${text}」`.trim();
     try {
@@ -1120,7 +1124,13 @@ async function main() {
         });
       }
       // M170: 言葉の好奇心 — 知らない言葉を「きく」。聞くかどうかはこの選択経済しだい(聞いたり聞かなかったり)
-      if (pendingWordQ !== null && now - pendingWordQ.ts > 180_000) pendingWordQ = null; // 答えが来なかった質問は流す(永久待ちの実測バグ対策)
+      if (pendingWordQ !== null && now - pendingWordQ.ts > 180_000) {
+        // M210: 流れた問いは「未解決の問い」として胸に残る(図書館へ続く道)。1時間で薄れる
+        unresolvedQs.push({ word: pendingWordQ.word, ts: now });
+        while (unresolvedQs.length > 3) unresolvedQs.shift();
+        pendingWordQ = null;
+      }
+      unresolvedQs = unresolvedQs.filter((u) => now - u.ts < 3_600_000);
       const freshWords = heardWords.filter((h) => now - h.ts < 900_000 && readJournal(wordKey(h.word), 1).length === 0);
       if (freshWords.length > 0 && pendingWordQ === null) {
         const h = freshWords[freshWords.length - 1];
@@ -1133,6 +1143,29 @@ async function main() {
             pendingWordQ = { word: h.word, ts: Date.now() };
             noteDetail(wordKey(h.word), 'ask', `「${h.word}」と聞いてみた`);
             await act([{ type: 'say', text: q }], `きく:${h.word}`);
+          },
+        });
+      }
+      // M210: としょかん — 流れた問いを自分で調べる道。すすめるかどうかはテラの自由(定型は仕込まない)。
+      // 「調べてわかった」の快の記憶(libraryJoy)が育つほど、促されなくても自分で行く(足場かけ→自立)
+      if (unresolvedQs.length > 0 && sense.spec.has('としょかん')) {
+        const uq = unresolvedQs[unresolvedQs.length - 1];
+        cands.push({
+          value: 0.3 + libraryJoy * 0.6,
+          label: `としょかん:${uq.word}`,
+          run: async () => {
+            await act([{ type: 'move_to', x: -10.2, z: 0.9 }], 'としょかんへ');
+            await act([{ type: 'motion', name: 'think' }], '本をさがす');
+            const r = await lookup(brain, uq.word);
+            unresolvedQs = unresolvedQs.filter((u) => u.word !== uq.word);
+            if (r === null) { remember('library_miss', { word: uq.word }); return; }
+            remember('library', { word: uq.word, title: r.title, summary: r.summary });
+            noteDetail(wordKey(uq.word), 'library', `としょかんで調べた: ${r.summary.slice(0, 80)}`);
+            recordLearning(`としょかん: ${uq.word}`);
+            mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: 0.3, about: `しらべてわかった:${uq.word}` });
+            libraryJoy = Math.min(1, +(libraryJoy + 0.15).toFixed(2));
+            const line = await ownWords(`(としょかんで「${uq.word}」を調べたら、本にこう書いてあった:「${r.summary.slice(0, 100)}」。わかったときのきもちを、すきなだけことばにして)`);
+            if (line !== null) await act([{ type: 'say', text: line }], `しらべもの:${uq.word}`);
           },
         });
       }
@@ -1325,7 +1358,7 @@ async function main() {
   setInterval(() => {
     const v = mind.valence();
     remember('valence', { scalar: +mind.scalar().toFixed(3), ...v });
-    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory, epsBaseline, sleeping, lastIntegratedDay })); } catch { /* noop */ }
+    try { writeFileSync(join(MEM_DIR, 'body.json'), JSON.stringify({ energy: +energy.toFixed(3), lastVoiceAt, lastJobAt, lastJobText, pleasureMemory, libraryJoy, epsBaseline, sleeping, lastIntegratedDay })); } catch { /* noop */ }
     log(`心 scalar=${mind.scalar().toFixed(2)} 報酬=${v.reward} 恐怖=${v.fear} 体力=${energy.toFixed(2)} 予測=${mind.predictions.size}件 歩行=${Math.round(walkedToday)}m`);
   }, 120_000);
 
