@@ -534,7 +534,18 @@ async function main() {
           remember('visitor_left', { name: vi.name ?? vkey });
           noteDetail(personKey(vkey), 'left', 'かえっていった');
           if (!sleeping && Date.now() - lastOwnActAt > 10_000) {
-            void act([{ type: 'say', text: `${vi.name ?? vkey}、またね〜!` }], `おみおくり:${vi.name ?? vkey}`);
+            // M207: 見送りの言葉は彼女の言語野が作る(定型「またね〜!」はエンジン不在時のフォールバックのみ。
+            // ユーザー指摘: 定型文は「内容は経験のみ」の原則に反する)
+            const vname = vi.name ?? vkey;
+            void (async () => {
+              let bye = null;
+              if (brain !== null) {
+                const r = await classify(brain, 'みおくりのひとこと係。かえる人の名前を呼んで、みじかいさよならのことばを1つだけ(15字以内)', `${vname}がかえっていく`);
+                if (r !== null) bye = sanitizeSay(r).slice(0, 20);
+              }
+              if (bye === null || bye === '') bye = `${vname}、またね〜!`;
+              await act([{ type: 'say', text: bye }], `おみおくり:${vname}`);
+            })();
           }
         }
       }
