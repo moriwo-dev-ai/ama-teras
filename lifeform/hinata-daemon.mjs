@@ -949,7 +949,11 @@ async function main() {
           if (!sleeping || lastIntegratedDay === day) return;
           lastIntegratedDay = day;
           log(`眠りの中で統合を開始(${day})`);
-          void nightIntegrate(day).then((r) => {
+          // M208b: こちらの統合経路にも検疫を接続(4時台経路だけだった穴。ゲスト会話が記憶になる前に通す)
+          void quarantine(day).then((q) => {
+            if (q.held > 0) log(`検疫: ${q.held}件を隔離(${q.checked}件中)`);
+            return nightIntegrate(day);
+          }).then((r) => {
             log(`眠りの統合おわり: ${JSON.stringify(r)}`);
             epsBaseline = epsToday; // 圧が抜けた
             if (r.ok) mind.observe('intero:integrity', 1.0, { about: '統合の営み' });
