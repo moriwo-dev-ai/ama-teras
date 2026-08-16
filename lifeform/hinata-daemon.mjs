@@ -256,6 +256,17 @@ async function main() {
     // M199b: 全角括弧（）・全角コロン：もラベルに使われる(実測: 「（ヒナタ）「おひるの気持ち。」が素通り)
     t = t.replace(/^[(（]\s*(ヒナタ|ひなた|テラちゃん|わたし)\s*[)）]\s*[:：:]?\s*/u, '').trim();
     t = t.replace(/^(ヒナタ|ひなた)\s*[:：:]\s*/u, '').trim();
+    // M218: 台本形式の変種「名前 「セリフ」(コロンなし)。自分の名前ならラベルごと捨て、
+    // 他人の名前なら呼びかけとして残す(宛先の意図は彼女のもの。実測: テラちゃん 「時計見てる。)
+    const script = /^([^「」\s]{1,12})\s*「/.exec(t);
+    if (script !== null) {
+      const label = script[1];
+      const rest = t.slice(script[0].length).replace(/」\s*$/, '').trim();
+      // 途中に」が残る=本物の引用(例: テラちゃんが「おはよう」って言った)なので触らない
+      if (!rest.includes('」')) {
+        t = /^(ヒナタ|ひなた|わたし)$/.test(label) ? rest : `${label}、${rest}`;
+      }
+    }
     const m = /^「([\s\S]*)」$/.exec(t);
     if (m !== null) t = m[1].trim();
     t = t.replace(/^「/, '').replace(/」$/, '').trim();
