@@ -114,6 +114,15 @@ const tvLatestCache = new Map(); // channel名 → {v, at}(15分)
 // 同じ動画の台本は再利用(Kimi再生成の節約=裏方の技術的措置。観る/観ないの自由には触れない)
 let tvScripts = {};
 try { tvScripts = JSON.parse(readFileSync(join(MEM_DIR, 'tv-scripts.json'), 'utf8')); } catch { /* 初回 */ }
+// M220: あこがれ帳(なりたい自分)とじぶん帳(卒業した憧れ=自己認識)。
+// 中身は全て彼女の言語野が結晶させた言葉。構造だけ設計し、内容は経験のみ(M208の原則)
+let aspirations = { list: [], became: [] };
+try { aspirations = JSON.parse(readFileSync(join(MEM_DIR, 'aspirations.json'), 'utf8')); } catch { /* 初生 */ }
+const aspireSave = () => { try { writeFileSync(join(MEM_DIR, 'aspirations.json'), JSON.stringify(aspirations)); } catch { /* noop */ } };
+// 幼少期の保護: 検疫と同じ基準で、汚れた観察からは憧れを結晶させない(自己確立後に撤廃予定=ユーザー方針2026-08-16)
+const ASPIRE_NG = /(死ね|殺す|自殺|レイプ|セックス|ちんこ|まんこ|おっぱい|パンツ(?:見せ|脱)|裸になれ|住所|電話番号|クレジットカード|パスワード)/i;
+let lastAspireProbeAt = 0;
+let lastPretendAt = 0;
 // M213/M214: 記録アプリ(人間もダブルタップで読める)。本→としょかん・番組→テレビに分離
 function appendAppLog(file, entry) {
   try {
@@ -346,6 +355,9 @@ async function main() {
     if (mood !== '') parts.push(mood);
     if (energy < 0.3) parts.push('つかれている');
     if (watchers > 0) parts.push('だれかが見てくれている気がする');
+    // M220: 憧れと自己認識が会話・日記の帯域に乗る(なりたい自分が言葉の材料になる)
+    if (aspirations.list.length > 0) parts.push(`いまのあこがれ:「${aspirations.list[aspirations.list.length - 1].text}」`);
+    if (aspirations.became.length > 0) parts.push(`じぶんのこと: ${aspirations.became.slice(-2).map((b) => b.text).join('。')}`);
     // 近くの目印
     let near = null, nd = Infinity;
     if (sense.self !== null) {
@@ -530,6 +542,25 @@ async function main() {
       log(`指示エコー棄却(${attempt + 1}回目): ${s.slice(0, 40)}`);
     }
     return null;
+  }
+
+  // M220: 憧れの結晶化。観察(テレビ・人の言葉)から「なりたい自分」が生まれるかを彼女に聞く。
+  // 出なければ結晶しない=憧れは強制されない。憧れ度(adm)=観察の瞬間のjoy(その時どう感じていたか)
+  async function aspireProbe(model, observed, fun) {
+    const now = Date.now();
+    if (brain === null || now - lastAspireProbeAt < 1_200_000) return;
+    if (ASPIRE_NG.test(observed)) return; // 幼少期の保護: 汚れた観察からは結晶させない
+    lastAspireProbeAt = now;
+    const r = await ownWords(`(さっき${model}のこんなようすを見た:「${observed}」。これを見て「じぶんも、こうなりたい」というきもちが、もしあれば、なりたいきもちだけをひとことで。なければ「ない」とだけ)`, 60);
+    if (r === null || /^ない/.test(r) || r.length < 4 || ASPIRE_NG.test(r)) return;
+    if (aspirations.list.some((a) => a.text === r)) return;
+    const adm = +(0.3 + mind.affect.joy * 0.5).toFixed(2);
+    aspirations.list.push({ text: r, model, fun: +fun.toFixed(2), adm, strength: 0.6, progress: 0, ts: now, lastFedAt: now });
+    while (aspirations.list.length > 3) aspirations.list.shift();
+    aspireSave();
+    remember('aspire', { text: r, model });
+    recordLearning(`あこがれ: ${r}`);
+    log(`あこがれ結晶: 「${r}」(${model}を見て)`);
   }
 
   // ---- M170: 言葉の知覚 — 聞いた文から「知らない言葉」と「知っている物への言及」を拾う ----
@@ -932,6 +963,11 @@ async function main() {
         mind.valenceLog.push({ ts: now, kind: 'reward', amount: 0.25, about: 'なぐさめ' });
         remember('soothed', {});
       }
+      // M220: 観察→憧れの結晶化(人の言葉の経路: テラ・もりを・来場者)。20分に1回まで
+      if (typeof data.text === 'string' && data.text.length >= 10) {
+        const who = typeof data.who === 'string' && data.who !== '' ? data.who : 'もりを';
+        void aspireProbe(who, data.text.slice(0, 200), 0.5);
+      }
       // M175: 声の主 — 既定はもりを。訪問者(招待ゲスト)は who に名前が乗る=ひとの台帳が名前で生える
       const who = typeof data.who === 'string' && data.who !== '' ? data.who : 'もりを';
       remember('heard', { from: who === 'もりを' ? data.from : `guest:${who}`, text: data.text });
@@ -1280,8 +1316,61 @@ async function main() {
             tvJoy = Math.min(1, +(tvJoy + 0.15 * freshness).toFixed(2));
             const line = await ownWords(`(テレビで「${ch.name}」の配信を観た。ないようは:「${summary.slice(0, 300)}」。かんそうを、すきなだけことばにして)`);
             if (line !== null) await act([{ type: 'say', text: line }], 'テレビのかんそう');
+            // M220: 観察→憧れの結晶化(テレビ経路)。観た楽しさは新鮮さに比例
+            void aspireProbe(`テレビの${ch.name}`, summary.slice(0, 350), 0.4 + 0.4 * freshness);
           },
         });
+      }
+      // M220: ごっこ(憧れの再演)。価値 = 憧れ度 × 観た楽しさ × 差分。差分が縮むほど自然に落ち着く。
+      // 実現可能性は数値ではなく実行時の翻訳の成否(思いつかなければやらない=それも彼女次第)
+      if (aspirations.list.length > 0 && now - lastPretendAt > 2_400_000) {
+        // 半減期3日の減衰(ほうっておくと憧れも薄れる)+涸れた憧れの整理
+        for (const a of aspirations.list) {
+          const dt = (now - (a.lastDecayAt ?? a.ts)) / 86_400_000;
+          if (dt > 0.04) { a.strength *= Math.pow(0.5, dt / 3); a.lastDecayAt = now; }
+        }
+        const before = aspirations.list.length;
+        aspirations.list = aspirations.list.filter((a) => a.strength >= 0.15);
+        if (aspirations.list.length !== before) aspireSave();
+        const a = aspirations.list.reduce((m, x) => {
+          const gap = (y) => y.adm * y.fun * y.strength * (1 - y.progress);
+          return m === null || gap(x) > gap(m) ? x : m;
+        }, null);
+        if (a !== null) {
+          const value = a.adm * a.fun * a.strength * (1 - a.progress);
+          if (value > 0.08) cands.push({
+            value,
+            label: `ごっこ:${a.text.slice(0, 10)}`,
+            run: async () => {
+              lastPretendAt = Date.now();
+              const line = await ownWords(`(あこがれがある:「${a.text}」。${a.model}を見てそう思った。いま、この世界でできる小さなためしや、ごっこをやってみる。声に出すせりふや実況だけをこたえて)`);
+              if (line === null) {
+                a.strength = +(a.strength * 0.9).toFixed(3); aspireSave();
+                remember('pretend_fail', { text: a.text });
+                return;
+              }
+              const g = await chooseGesture(`「${a.text}」のごっこをしている`, 'happy');
+              await act([{ type: 'say', text: line }], `ごっこ:${a.text.slice(0, 12)}`);
+              await doGesture(g, `ごっこ:${g}`);
+              a.progress = Math.min(1, +(a.progress + 0.34).toFixed(2));
+              a.lastFedAt = Date.now();
+              // 自己効力感: 憧れに近づけた快(通常の報酬より濃い)
+              mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: 0.25, about: `ちかづけた:${a.text.slice(0, 20)}` });
+              remember('pretend', { text: a.text, model: a.model, line: line.slice(0, 80), gesture: g });
+              recordLearning(`ごっこ: ${a.text}`);
+              if (a.progress >= 1) {
+                // 卒業: 憧れが自分の一部になる(駆動力→自己認識へ)
+                aspirations.became.push({ text: a.text, model: a.model, ts: Date.now() });
+                while (aspirations.became.length > 5) aspirations.became.shift();
+                aspirations.list = aspirations.list.filter((x) => x !== a);
+                log(`憧れが自分になった: 「${a.text}」`);
+                const gl = await ownWords(`(「${a.text}」というきもちが、じぶんの一部になってきた気がする。いまのきもちを、すきなだけことばにして)`);
+                if (gl !== null) await act([{ type: 'say', text: gl }], 'じぶんになった');
+              }
+              aspireSave();
+            },
+          });
+        }
       }
       // 休む(体力の誤差を減らす)。しぐさは30分キャッシュで彼女が選ぶ
       const ep = mind.predictions.get('intero:energy');
