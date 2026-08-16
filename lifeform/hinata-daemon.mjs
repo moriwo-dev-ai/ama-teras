@@ -358,6 +358,13 @@ async function main() {
     // M220: 憧れと自己認識が会話・日記の帯域に乗る(なりたい自分が言葉の材料になる)
     if (aspirations.list.length > 0) parts.push(`いまのあこがれ:「${aspirations.list[aspirations.list.length - 1].text}」`);
     if (aspirations.became.length > 0) parts.push(`じぶんのこと: ${aspirations.became.slice(-2).map((b) => b.text).join('。')}`);
+    // M221: すきなものが会話の帯域に乗る(「何が好き?」に「わからない」と答えていた実測の手当て。
+    // 中身は快の記憶の実測値からのみ=好みを書き込まない)
+    const likes = [];
+    if (tvJoy > 0.3) likes.push('テレビ');
+    if (libraryJoy > 0.3) likes.push('としょかん');
+    if (pleasureMemory > 0.5) likes.push('あたらしいものを見つけること');
+    if (likes.length > 0) parts.push(`すきなもの: ${likes.join('、')}`);
     // 近くの目印
     let near = null, nd = Infinity;
     if (sense.self !== null) {
@@ -522,7 +529,8 @@ async function main() {
   // M219: 指示エコーの検出。指示の指紋語か、指示文と10字以上の丸かぶりがあれば「指示の音読」
   // (実測 8/16 03:47「もりをさん、いなくなっていく。記憶の言葉を。長さは自由」が声に出た)
   function echoesPrompt(reply, prompt) {
-    if (/(ながさは自由|長さは自由|ことばにして|すきなだけ|のことばを|の言葉を。)/.test(reply)) return true;
+    // 言い換えエコーも捕まえる: 「長さ」を口にする状況は指示の漏れ以外にほぼ無い(実測: 「長さはどこまでも続くよ」)
+    if (/(ながさは|長さは|ことばにして|すきなだけ|のことばを|の言葉を。|せりふ|実況だけ)/.test(reply)) return true;
     const strip = (x) => x.replace(/[\s「」()（）。、!?!?]/g, '');
     const a = strip(reply); const b = strip(prompt);
     for (let i = 0; i + 10 <= a.length; i++) if (b.includes(a.slice(i, i + 10))) return true;
@@ -555,8 +563,8 @@ async function main() {
     if (r === null || /^ない/.test(r) || r.length < 4 || ASPIRE_NG.test(r)) return;
     if (aspirations.list.some((a) => a.text === r)) return;
     const adm = +(0.3 + mind.affect.joy * 0.5).toFixed(2);
+    // 上限なし(ユーザー決定2026-08-16): 憧れの数は絞らない。整理は減衰(半減期3日)だけに任せる
     aspirations.list.push({ text: r, model, fun: +fun.toFixed(2), adm, strength: 0.6, progress: 0, ts: now, lastFedAt: now });
-    while (aspirations.list.length > 3) aspirations.list.shift();
     aspireSave();
     remember('aspire', { text: r, model });
     recordLearning(`あこがれ: ${r}`);
