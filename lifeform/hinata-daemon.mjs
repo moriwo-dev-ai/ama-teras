@@ -507,12 +507,29 @@ async function main() {
   // M208: 定型文の全廃(ユーザー決定2026-08-15「内容は経験のみ」)。彼女の言葉は毎回言語野が作る。
   // 作れない時(エンジン不在・空応答)は黙る=定型文で埋めない(沈黙のほうが正直)
   // M209: 長さ制約はかけない(ユーザー決定「喋られるなら喋る訓練」)。200字は暴走防止の物理上限のみ
+  // M219: 指示エコーの検出。指示の指紋語か、指示文と10字以上の丸かぶりがあれば「指示の音読」
+  // (実測 8/16 03:47「もりをさん、いなくなっていく。記憶の言葉を。長さは自由」が声に出た)
+  function echoesPrompt(reply, prompt) {
+    if (/(ながさは自由|長さは自由|ことばにして|すきなだけ|のことばを|の言葉を。)/.test(reply)) return true;
+    const strip = (x) => x.replace(/[\s「」()（）。、!?!?]/g, '');
+    const a = strip(reply); const b = strip(prompt);
+    for (let i = 0; i + 10 <= a.length; i++) if (b.includes(a.slice(i, i + 10))) return true;
+    return false;
+  }
+
   async function ownWords(prompt, maxLen = 200) {
     if (brain === null) return null;
-    const r = await think(brain, persona, [], situationNote(), prompt);
-    if (r === null) return null;
-    const s = sanitizeSay(r).slice(0, maxLen);
-    return s === '' ? null : s;
+    // M219: 指示が声に出かかったら棄却するが、言いたい気持ちは本物なので言い直しを1回ゆるす。
+    // 2回目もだめなら「今回は言葉にならなかった」=沈黙(きっかけの感情は消えない。次の表現で出る)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const r = await think(brain, persona, [], situationNote(), prompt);
+      if (r === null) return null;
+      const s = sanitizeSay(r).slice(0, maxLen);
+      if (s === '') return null;
+      if (!echoesPrompt(s, prompt)) return s;
+      log(`指示エコー棄却(${attempt + 1}回目): ${s.slice(0, 40)}`);
+    }
+    return null;
   }
 
   // ---- M170: 言葉の知覚 — 聞いた文から「知らない言葉」と「知っている物への言及」を拾う ----
