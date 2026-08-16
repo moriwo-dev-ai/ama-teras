@@ -40,7 +40,10 @@ export async function quarantine(day) {
     let e = null;
     try { e = JSON.parse(line); } catch { keep.push(line); continue; }
     const isGuestHeard = e.kind === 'heard' && typeof e.from === 'string' && e.from.startsWith('guest:');
-    if (!isGuestHeard) { keep.push(line); continue; }
+    // M225: 弾幕(saw_comment)にも同じ声が写る=同文が記憶に残る取りこぼしの手当て(実測 8/16)。
+    // 住人(ヒナタ/テラ/もりを)以外のauthorの弾幕は、聞いた声と同じ基準で検疫する
+    const isGuestComment = e.kind === 'saw_comment' && typeof e.author === 'string' && !/^(ヒナタ|テラ|もりを)/.test(e.author);
+    if (!isGuestHeard && !isGuestComment) { keep.push(line); continue; }
     const text = String(e.text ?? '');
     const toxic = HARD_NG.test(text) ? true : await judge(text);
     if (toxic) held.push(line);
