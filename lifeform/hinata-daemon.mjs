@@ -511,10 +511,19 @@ async function main() {
     thinking = true;
     try {
       const t0 = Date.now();
-      let reply = await think(brain, persona, convo, situationNote(), text);
-      if (reply !== null) {
-        reply = sanitizeSay(reply);
-        if (reply === '') reply = null;
+      // M224: 会話にも言い直しガード(M219の拡張)。帯域(situationNote)・相手の言葉の丸写しは
+      // 生成ではないので棄却→1回言い直し→だめなら沈黙(実測: 「好き」ってなに?と聞いてみた」の台帳丸写し)。
+      // 自分の過去発言との一致は許す(口ぐせは彼女のもの)
+      const note = situationNote();
+      let reply = null;
+      for (let attempt = 0; attempt < 2 && reply === null; attempt++) {
+        let r = await think(brain, persona, convo, note, text);
+        if (r === null) break;
+        r = sanitizeSay(r);
+        if (r === '') break;
+        const ref = note + convo.filter((c) => c.from !== 'me').slice(-4).map((c) => c.text).join('') + text;
+        if (echoesPrompt(r, ref)) { log(`会話エコー棄却(${attempt + 1}回目): ${r.slice(0, 40)}`); continue; }
+        reply = r;
       }
       if (reply !== null) {
         convo.push({ from: 'me', text: reply });
