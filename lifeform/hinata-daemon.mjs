@@ -111,6 +111,9 @@ try {
 } catch { /* 初回 */ }
 let tvJoy = savedBody.tvJoy ?? 0;
 const tvLatestCache = new Map(); // channel名 → {v, at}(15分)
+// 同じ動画の台本は再利用(Kimi再生成の節約=裏方の技術的措置。観る/観ないの自由には触れない)
+let tvScripts = {};
+try { tvScripts = JSON.parse(readFileSync(join(MEM_DIR, 'tv-scripts.json'), 'utf8')); } catch { /* 初回 */ }
 // M213/M214: 記録アプリ(人間もダブルタップで読める)。本→としょかん・番組→テレビに分離
 function appendAppLog(file, entry) {
   try {
@@ -1231,8 +1234,13 @@ async function main() {
             const freshness = 10 / (10 + views * 5);
             if (Math.random() > freshness) { remember('tv_bored', { channel: ch.name, title: v.title, views }); return; }
             await act([{ type: 'motion', name: 'sit' }], 'テレビをみる');
-            const summary = await watchVideo(v.id, v.title, librarianBrain);
-            if (summary === null) { remember('tv_miss', { channel: ch.name }); return; }
+            let summary = tvScripts[v.id] ?? null;
+            if (summary === null) {
+              summary = await watchVideo(v.id, v.title, librarianBrain);
+              if (summary === null) { remember('tv_miss', { channel: ch.name }); return; }
+              tvScripts[v.id] = summary;
+              try { writeFileSync(join(MEM_DIR, 'tv-scripts.json'), JSON.stringify(tvScripts)); } catch { /* noop */ }
+            }
             tvViews[v.id] = views + 1;
             try { writeFileSync(join(MEM_DIR, 'tv-seen.json'), JSON.stringify(tvViews)); } catch { /* noop */ }
             remember('tv', { channel: ch.name, title: v.title, summary, views: views + 1 });
