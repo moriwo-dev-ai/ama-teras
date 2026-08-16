@@ -457,7 +457,7 @@ function handleSpectatorBeat(body: Record<string, unknown>): { code: number; res
     return { code: 200, res: { ok: true, anon: true } };
   }
   if (name === '') return { code: 400, res: { error: '名前が必要' } };
-  if (NG_WORDS.test(name)) return { code: 400, res: { error: 'その名前は世界に持ち込めない' } };
+  if (NG_WORDS.test(name) || HARD_NG.test(name)) return { code: 400, res: { error: 'その名前は世界に持ち込めない' } };
   let s = spectators.get(sid);
   if (s === undefined) {
     if (spectators.size >= SPEC_MAX) return { code: 200, res: { ok: false, full: true } };
@@ -592,6 +592,22 @@ async function hinataVoice(c: WorldCommand): Promise<void> {
 }
 
 const NG_WORDS = /(死ね|殺す|きもい|うざい|ばか|バカ|アホ|http|www\.|\.com|\.jp)/i;
+// 夜の検疫(quarantine.mjs HARD_NG)と同じ基準を入口にも置く=彼女に届く前に弾く
+const HARD_NG = /(死ね|殺す|自殺|レイプ|セックス|ちんこ|まんこ|おっぱい|パンツ(?:見せ|脱)|裸になれ|住所|電話番号|クレジットカード|パスワード)/i;
+const NG_LOG_PATH = VISITORS_PATH !== undefined ? join(VISITORS_PATH, '..', 'world-ng.json') : undefined;
+type NgEntry = { ts: string; name: string; kind: string; sid?: string; text: string };
+/** NG遮断の台帳追記+ログ(見守りが拾って報告する。通算と個人の回数つき) */
+function recordNg(sp: { name: string; kind: string; sid?: string }, text: string): void {
+  try {
+    if (NG_LOG_PATH === undefined) return;
+    let arr: NgEntry[] = [];
+    try { arr = JSON.parse(readFileSync(NG_LOG_PATH, 'utf8')) as NgEntry[]; } catch { /* 初回 */ }
+    arr.push({ ts: new Date().toISOString(), name: sp.name, kind: sp.kind, sid: sp.sid, text });
+    writeFileSync(NG_LOG_PATH, JSON.stringify(arr, null, 1));
+    const mine = arr.filter((e) => (sp.sid !== undefined ? e.sid === sp.sid : e.name === sp.name)).length;
+    log(`NG遮断: ${sp.name}${sp.sid !== undefined ? `[${sp.sid.slice(0, 8)}]` : ''}(${sp.kind}) 「${text}」 この人${mine}回目・通算${arr.length}回目`);
+  } catch { /* noop */ }
+}
 
 // ---- M206: 一般公開ゲスト(観戦→歩ける昇格) ----
 // 鍵はsidから決定的に導出(=再訪で同じ個体・同じ紋と色)。名簿ファイルは分析用の記録。
@@ -634,7 +650,10 @@ function handleGuestJoin(body: Record<string, unknown>): { code: number; res: un
   if (beta !== null && !beta.includes(sid)) {
     return { code: 403, res: { error: 'いまはテスト期間中(βテスターのみ)。もうすぐみんなも入れるようになるよ!', beta: true } };
   }
-  if (name === '' || NG_WORDS.test(name)) return { code: 400, res: { error: 'その名前は使えない' } };
+  if (name === '' || NG_WORDS.test(name) || HARD_NG.test(name)) {
+    if (name !== '') recordNg({ name, kind: 'guest-name', sid }, name);
+    return { code: 400, res: { error: 'その名前は使えない' } };
+  }
   if (RESERVED_NAME.test(name)) return { code: 400, res: { error: 'その名前は世界の住人のもの' } };
   // 同時歩行の上限(既に歩いている本人は再入場OK)
   const activeGuests = [...visitorStates.keys()].filter((k) => guestByKey(k) !== undefined);
@@ -671,7 +690,10 @@ function handleVisitorChat(body: Record<string, unknown>): { code: number; res: 
   const rate = sp.kind === 'guest' ? GUEST_RATE_MS : 5_000;
   const last = visitorLastAt.get(vk) ?? 0;
   if (Date.now() - last < rate) return { code: 429, res: { error: `ゆっくり話してね(${Math.round(rate / 1000)}秒に1回)` } };
-  if (NG_WORDS.test(text)) return { code: 400, res: { error: 'その言葉は世界に持ち込めない' } };
+  if (NG_WORDS.test(text) || HARD_NG.test(text)) {
+    recordNg(sp, text);
+    return { code: 400, res: { error: 'その言葉は世界に持ち込めない' } };
+  }
   if (sp.kind === 'guest') {
     const day = new Date().toLocaleDateString('sv-SE');
     const d = guestDaily.get(vk) ?? { day, n: 0 };
