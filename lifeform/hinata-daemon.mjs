@@ -123,6 +123,7 @@ const aspireSave = () => { try { writeFileSync(join(MEM_DIR, 'aspirations.json')
 const ASPIRE_NG = /(死ね|殺す|自殺|レイプ|セックス|ちんこ|まんこ|おっぱい|パンツ(?:見せ|脱)|裸になれ|住所|電話番号|クレジットカード|パスワード)/i;
 let lastAspireProbeAt = 0;
 let lastPretendAt = 0;
+const selfNoteCache = { text: '', at: 0 }; // M222: じぶんノート(self.md)の60秒キャッシュ
 // M213/M214: 記録アプリ(人間もダブルタップで読める)。本→としょかん・番組→テレビに分離
 function appendAppLog(file, entry) {
   try {
@@ -407,6 +408,12 @@ async function main() {
       const k2 = knownAbout(rt.name, 3);
       if (k2 !== '') parts.push(`さっきさわった「${rt.name}」でおぼえたこと: ${k2}`);
     }
+    // M222: じぶんノート — 夜の内省で彼女が全文管理する自己記述を無加工で帯域に乗せる
+    if (Date.now() - selfNoteCache.at > 60_000) {
+      try { selfNoteCache.text = readFileSync(join(MEM_DIR, 'self.md'), 'utf8').trim(); } catch { selfNoteCache.text = ''; }
+      selfNoteCache.at = Date.now();
+    }
+    if (selfNoteCache.text !== '') parts.push(`じぶんノート(じぶんで書いた): ${selfNoteCache.text.replace(/\n/g, ' / ')}`);
     return parts.join('。');
   }
   // M171: 想起=活性化拡散(1ホップ・上位2件)。連想は説明でなく「思い出す」として帯域に乗る

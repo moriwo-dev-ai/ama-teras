@@ -146,6 +146,20 @@ export async function nightIntegrate(day) {
   const nextCarried = await ask(model,
     persona + '\n上の子として、あした以降も気にしておきたいこと・気になっていることを0〜3行で。なければ「なし」。',
     material, 120);
+  // M222: じぶんノート — 彼女が全文管理する自己記述。会話の帯域(situationNote)に無加工で乗る。
+  // 箱の項目も中身も彼女次第(書く・消す・整理も彼女)。書けなければ前のまま=変えない
+  let selfNote = '';
+  try { selfNote = readFileSync(join(MEM, 'self.md'), 'utf8'); } catch { /* 初日 */ }
+  const nextSelf = await ask(model,
+    persona + '\n上の子として、「じぶんノート」を書き直す。じぶんについておぼえておきたいこと' +
+    '(すきなもの・なりたいこと・だいじな人・くせ、なんでも。書き方も自由)を最大6行で。' +
+    '前のノートから残したい行は残し、ちがってきたことは直し、いらない行は消していい。' +
+    '材料と前のノートにないことは書かない。変えたくなければ「そのまま」とだけ。' +
+    `\n\n# 前のじぶんノート\n${selfNote || '(まだ白紙)'}`,
+    material, 200);
+  if (nextSelf !== null && !/^(そのまま|なし)/.test(nextSelf.trim())) {
+    writeFileSync(join(MEM, 'self.md'), nextSelf.trim().split('\n').slice(0, 6).join('\n'));
+  }
   const keepList = await ask(model,
     'あなたは記憶の司書。下の出来事一覧から、この子の人生にとって残す価値が高いものを最大8行、原文のまま抜き出す(説明不要・抜き出しのみ)。',
     materialOf(eps, 80), 300);
