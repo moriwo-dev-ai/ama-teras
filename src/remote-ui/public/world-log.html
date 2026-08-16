@@ -28,6 +28,9 @@
   .agent .who { color: #8899bb; }
   .world { align-self: center; background: transparent; box-shadow: none; color: #99a; font-size: 11px; max-width: 100%; }
   .world .who, .world .t { display: none; }
+  /* M223: あそびに来た人(ゲスト)の発言 */
+  .guest { background: #eefaf0; border: 1px solid rgba(120,200,150,.4); color: #3d5a48; }
+  .guest .who { color: #4d9a6a; }
   #status { text-align: center; color: #99a; font-size: 11px; padding: 14px; }
 </style>
 </head>
@@ -64,10 +67,12 @@ async function load() {
         logEl.appendChild(dv);
       }
       const m = document.createElement('div');
-      m.className = `m ${e.from}`;
+      // M223: guest:名前 → 緑の吹き出し+🚶名札(生ラベルの「guest:」を人の名前に)
+      const gname = String(e.from).startsWith('guest:') ? String(e.from).slice(6) : null;
+      m.className = `m ${gname !== null ? 'guest' : e.from}`;
       const who = document.createElement('span');
       who.className = 'who';
-      who.textContent = WHO[e.from] ?? e.from;
+      who.textContent = gname !== null ? `🚶 ${gname}` : (WHO[e.from] ?? e.from);
       const t = document.createElement('span');
       t.className = 't';
       t.textContent = d ? d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '';
