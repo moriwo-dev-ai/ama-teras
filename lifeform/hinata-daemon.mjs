@@ -1147,7 +1147,9 @@ async function main() {
     try {
       const now = Date.now();
       // M230: 旧・自動就寝/起床の状態機械は撤去(眠りは競売候補「ねむる」へ。統合もそちらで開始)
-      if (sleeping || thinking) return; // M186: テラ作業中でも生きる(礼儀ゲート撤廃。アプリ使用だけ下で個別ガード)
+      // M230b: sleepingでの停止を撤廃(消し忘れ=就寝後に競売ごと止まり、ねむりつづける自身も
+      // 実行されずブロック回復が永久に来ない昏睡バグの根治。実測: 体力0.00で88分凍結)
+      if (thinking) return;
 
       // 候補の列挙と価値付け
       const me = sense.self ?? { x: 0, z: 0 };
@@ -1630,8 +1632,10 @@ async function main() {
                 remember('sleep_block', { depth: sleepSession.depth, gain: sleepSession.gain });
                 sleepSession.blockStartAt = t;
               }
-              // 統合: 連続2分眠ったら開始(非同期完走=途中で起こされても壊れない)
-              if (!sleepSession.integrationStarted && t - sleepSession.sleptSinceAt > 120_000) {
+              // 統合: 夜(22〜6時)の眠りで連続2分たったら開始(非同期完走=途中で起こされても壊れない)。
+              // M230b: 昼寝で当日分を早消化してしまうと夜の本統合がスキップされるため夜間限定
+              const hh2 = new Date().getHours();
+              if ((hh2 >= 22 || hh2 < 6) && !sleepSession.integrationStarted && t - sleepSession.sleptSinceAt > 120_000) {
                 sleepSession.integrationStarted = true;
                 const day = new Date().getHours() < 6 ? localDay(new Date(t - 86_400_000)) : localDay();
                 if (lastIntegratedDay !== day) {
