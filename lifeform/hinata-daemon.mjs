@@ -313,7 +313,9 @@ async function main() {
   async function act(cmds, label) {
     // M231: 会話の返事は優先枠(10/分)。生成された返事がレート制限で黙殺され、直後の独り言が
     // 返事のふりをして表示される事故の根治(実測 8/18朝「なにがきれい?」→答え「…光るライト。」が消えた)
-    if (sentThisMinute >= (label.startsWith('返事') ? 10 : 6)) return false;
+    // 返事20/分=人間との会話では実質無制限(生成の直列化が天然の上限)。完全無制限にしないのは
+    // テラとの無限往復のような暴走への安全弁(ユーザー決定2026-08-18)
+    if (sentThisMinute >= (label.startsWith('返事') ? 20 : 6)) return false;
     for (const c of cmds) {
       if (c.type === 'say' && typeof c.text === 'string') {
         const s = sanitizeSay(c.text);
