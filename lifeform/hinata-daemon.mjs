@@ -311,7 +311,9 @@ async function main() {
   }
 
   async function act(cmds, label) {
-    if (sentThisMinute >= 6) return false;
+    // M231: 会話の返事は優先枠(10/分)。生成された返事がレート制限で黙殺され、直後の独り言が
+    // 返事のふりをして表示される事故の根治(実測 8/18朝「なにがきれい?」→答え「…光るライト。」が消えた)
+    if (sentThisMinute >= (label.startsWith('返事') ? 10 : 6)) return false;
     for (const c of cmds) {
       if (c.type === 'say' && typeof c.text === 'string') {
         const s = sanitizeSay(c.text);
@@ -339,6 +341,16 @@ async function main() {
       }
     }
     remember('act', { label, cmds });
+    // M231: 挨拶・つぶやき・感想など全発話を会話履歴にも積む(返事はconverse側が積むので除外)。
+    // 自分の独り言への追問(「なにがきれい?」)に会話層が文脈を持てるようになる(実測欠陥①の根治)
+    if (!label.startsWith('返事')) {
+      for (const c of cmds) {
+        if (c.type === 'say' && typeof c.text === 'string' && c.text !== '') {
+          convo.push({ from: 'me', text: c.text });
+          if (convo.length > 12) convo.splice(0, convo.length - 12);
+        }
+      }
+    }
     // c-3 v3/M184: 世界で発した言葉は門番(名前呼び=無条件・他はローカル判定・深夜停止)を通ってテラへ。
     // M185: もりをとの会話中でも「テラ」と名前を呼べば召喚される(3人の会話。うるさければ
     // もりをが「少し黙ってて」と言えばテラは従う)
