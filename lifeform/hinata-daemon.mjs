@@ -153,6 +153,7 @@ let sleepSession = null; // {depth, blockMs, gain, blockStartAt, sleptSinceAt, p
 let wakeGraceUntil = 0;  // 起床後5分=ねぼけ表示
 let sleepDisturb = 0;    // 声の揺さぶり(ねむり価値を数心拍さげる)
 let asleepHeard = null;  // 眠っている時に聞こえた声 {text, raw, who, ts}
+let pausedSleep = null;  // M230c: 中断された眠り {s, at}(3分以内の二度寝で続きから)
 
 // M194: 彼女の五感の感度(身体側)。初期はフラット、新発見した感覚が少しずつ育つ
 const SENSES_PATH = join(MEM_DIR, 'senses.json');
@@ -1621,6 +1622,18 @@ async function main() {
           run: async () => {
             const t = Date.now();
             if (sleepSession === null) {
+              // M230c: 3分以内の二度寝なら中断前のブロックを続きから(中断ぶんだけ時計を進める)
+              if (pausedSleep !== null && t - pausedSleep.at < 180_000) {
+                const gap = t - pausedSleep.at;
+                sleepSession = pausedSleep.s;
+                sleepSession.blockStartAt += gap;
+                sleepSession.sleptSinceAt += gap;
+                pausedSleep = null;
+                sleeping = true;
+                await act([{ type: 'motion', name: sleepSession.pose }], `二度寝(${sleepSession.depth})`);
+                return;
+              }
+              pausedSleep = null;
               const depth = energy < 0.3 ? ['deep', 45 * 60_000, 0.25] : energy < 0.55 ? ['mid', 30 * 60_000, 0.12] : ['nap', 12 * 60_000, 0.05];
               const pose = await chooseGesture('とてもねむい。これからねむる', 'sleep', ['sleep', 'sit']);
               const goodnight = await ownWords('(ねむくなってきた。ねるまえに、いいたいことがあれば)');
@@ -1680,6 +1693,10 @@ async function main() {
         // M230: ねむり以外が勝った=目がさめる(ブロック途中の回復は没収。30分以上寝ていたら起きぬけの一言)
         if (sleepSession !== null && !pick.label.startsWith('ねむ')) {
           const sleptMs = Date.now() - sleepSession.sleptSinceAt;
+          // M230c: 3分以内に眠りへ戻ったらブロックは続きから(中断時間は数えない=一時停止)。
+          // ソフトマックスの揺らぎ+来客の朝では45分ノーカットが確率的に不可能だった実測への手当て。
+          // 「まとまった眠りだけが回復」の原則は維持(ブロックに数えるのは実際に眠った時間のみ)
+          pausedSleep = { s: sleepSession, at: Date.now() };
           sleepSession = null; sleeping = false; wakeGraceUntil = Date.now() + 300_000;
           remember('wake_up', { sleptMin: Math.round(sleptMs / 60_000) });
           if (sleptMs > 30 * 60_000) {
