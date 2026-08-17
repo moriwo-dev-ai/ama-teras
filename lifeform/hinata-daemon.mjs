@@ -124,6 +124,14 @@ const ASPIRE_NG = /(死ね|殺す|自殺|レイプ|セックス|ちんこ|まん
 let lastAspireProbeAt = 0;
 let lastPretendAt = 0;
 const selfNoteCache = { text: '', at: 0 }; // M222: じぶんノート(self.md)の60秒キャッシュ
+// M228: さそい(提案)の競売回路 — 誘いは欲求候補になるだけ(強制ではない)。寿命10分。
+// 乗らなかった誘いは黙って流れる(断りの言語化はしない=ユーザー決定c)。対象は全員(決定b)
+let invitation = null; // {kind:'いく'|'てれび'|'ごっこ'|'しぐさ', target?, who, ts, promised}
+const INVITE_TTL = 600_000;
+const inviteBoost = (kind) =>
+  invitation !== null && invitation.kind === kind && Date.now() - invitation.ts < INVITE_TTL
+    ? 0.2 + (invitation.promised ? 0.15 : 0)
+    : 0;
 // M213/M214: 記録アプリ(人間もダブルタップで読める)。本→としょかん・番組→テレビに分離
 function appendAppLog(file, entry) {
   try {
@@ -505,6 +513,45 @@ async function main() {
     } catch (e) { log('中継失敗', String(e).slice(0, 80)); }
   }
 
+  // M228: さそいに乗れた時の報酬と絆(実行した候補側から呼ぶ)
+  function consumeInvitation(kind) {
+    if (invitation === null || invitation.kind !== kind) return;
+    mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: 0.15, about: `さそいにのれた:${invitation.who}` });
+    remember('invited_done', { kind, who: invitation.who });
+    invitation = null;
+  }
+
+  // M228: 提案の検出。誘い語を含む発言だけ4Bに分類させ、欲求候補(さそい)を立てる。
+  // 彼女の返事が前向きなら「約束ブースト」=自分の言葉が自分への賭け金になる(ユーザー決定a)
+  const INVITE_HINT = /(してみ|しよ(う|っ)|見に|みに|行こ|いこ|おいで|来て|きて|やってみ|いっしょに|一緒に|どうかな|あそぼ)/;
+  async function detectInvitation(text, reply, who) {
+    if (brain === null || !INVITE_HINT.test(text)) return;
+    try {
+      const k = await classify(brain,
+        'あなたは分類係。相手の言葉が「ヒナタに何かをしようと誘っている」なら、内容に一番近い1語だけ答える: いく / てれび / ごっこ / しぐさ / ちがう。誘いでなければ「ちがう」',
+        text.slice(0, 120));
+      const kind = (k ?? '').trim();
+      if (!['いく', 'てれび', 'ごっこ', 'しぐさ'].includes(kind)) return;
+      const promised = reply !== null
+        && /(そうする|いいよ|うん|いく|行く|みる|見る|やる|する)/.test(reply)
+        && !/(いや|やだ|しない|いかない|行かない|むり|無理|あとで|いまはいい|今はいい|ない)/.test(reply);
+      let target = null;
+      if (kind === 'いく') {
+        const objs = [...mind.predictions.values()].filter((p) => p.kind === 'world' && typeof p.expected === 'object');
+        if (objs.length === 0) return;
+        const t = await classify(brain,
+          `誘いの行き先を1つだけ答える(次の中から。無ければ「わからない」): ${objs.slice(0, 25).map((p) => p.subject).join(' / ')}`,
+          text.slice(0, 120));
+        const hit = objs.find((p) => (t ?? '').includes(p.subject));
+        if (hit === undefined) return; // 行き先が分からない誘いは立てない(できないことはできないまま)
+        target = { name: hit.subject, x: hit.expected.x, z: hit.expected.z };
+      }
+      invitation = { kind, target, who, ts: Date.now(), promised };
+      remember('invited', { kind, who, target: target?.name, promised });
+      log(`さそい検出: ${kind}${target !== null ? ':' + target.name : ''} from ${who}${promised ? '(前向きな返事=約束)' : ''}`);
+    } catch { /* 検出失敗=誘いは立たない */ }
+  }
+
   // ---- 会話層(器官は4Bのまま) ----
   async function converse(text, opts = {}) {
     if (!CHAT_ENABLED || brain === null || thinking) return;
@@ -536,6 +583,8 @@ async function main() {
         finally { suppressRelay = false; }
         if (opts.social === true) energy = clamp(energy - 0.015); // M206: 来客との会話1往復の社会的体力
       }
+      // M228: 返事の後に誘いを検出(返事が前向きなら約束ブースト付き)
+      void detectInvitation(opts.raw ?? text, reply, opts.who ?? 'もりを');
     } finally { thinking = false; }
   }
 
@@ -1009,7 +1058,7 @@ async function main() {
       convo.push({ from: 'user', text: who === 'もりを' ? data.text : `(${who})「${data.text.slice(0, 80)}」` });
       if (convo.length > 12) convo.splice(0, convo.length - 12);
       // M206: 来客との会話は社会的体力を使う(たくさん話すと自然に疲れて休む=レート制限を生態にする)
-      void converse(who === 'もりを' ? data.text : `(あそびに来た${who}に話しかけられた)「${data.text.slice(0, 100)}」`, { relay: false, social: who !== 'もりを' });
+      void converse(who === 'もりを' ? data.text : `(あそびに来た${who}に話しかけられた)「${data.text.slice(0, 100)}」`, { relay: false, social: who !== 'もりを', who, raw: data.text });
       return;
     }
     if (event !== 'world:event') return;
@@ -1028,7 +1077,7 @@ async function main() {
         if (convo.length > 12) convo.splice(0, convo.length - 12);
         if ((/(ヒナタ|ひなた)/.test(c.text) || /[??]\s*$/.test(c.text)) && now - lastTeraReplyAt > 60_000) {
           lastTeraReplyAt = now;
-          void converse(`(テラちゃんに話しかけられた)「${c.text.slice(0, 100)}」`); // 返事はテラにも届く=会話が続く
+          void converse(`(テラちゃんに話しかけられた)「${c.text.slice(0, 100)}」`, { who: 'テラちゃん', raw: c.text }); // 返事はテラにも届く=会話が続く
         }
         continue;
       }
@@ -1302,7 +1351,7 @@ async function main() {
       // 自然に飽きる(井戸と同じ数式)。習慣はtvJoy(楽しかった快の記憶)が育てる
       if (tvReady() && sense.spec.has('テレビ')) {
         cands.push({
-          value: 0.18 + tvJoy * 0.5 + (learnEvents.length < 3 ? 0.12 : 0),
+          value: 0.18 + tvJoy * 0.5 + (learnEvents.length < 3 ? 0.12 : 0) + inviteBoost('てれび'),
           label: 'テレビをみる',
           run: async () => {
             const chs = loadChannels();
@@ -1337,11 +1386,40 @@ async function main() {
             // 報酬も新鮮さに比例(繰り返すほど薄くなる=飽きの実体)。快の記憶が習慣を育てる
             const rw = +(0.2 * freshness).toFixed(3);
             mind.valenceLog.push({ ts: Date.now(), kind: 'reward', amount: rw, about: `テレビ:${ch.name}` });
+            consumeInvitation('てれび'); // M228: 誘われて観たなら、それも嬉しい
             tvJoy = Math.min(1, +(tvJoy + 0.15 * freshness).toFixed(2));
             const line = await ownWords(`(テレビで「${ch.name}」の配信を観た。ないようは:「${summary.slice(0, 300)}」。かんそうを、すきなだけことばにして)`);
             if (line !== null) await act([{ type: 'say', text: line }], 'テレビのかんそう');
             // M220: 観察→憧れの結晶化(テレビ経路)。観た楽しさは新鮮さに比例
             void aspireProbe(`テレビの${ch.name}`, summary.slice(0, 350), 0.4 + 0.4 * freshness);
+          },
+        });
+      }
+      // M228: さそい(いく/しぐさ) — 誘われたことが欲求候補になる。競売で負けたら黙って流れる
+      if (invitation !== null && now - invitation.ts >= INVITE_TTL) invitation = null;
+      if (invitation !== null && invitation.kind === 'いく' && invitation.target !== null) {
+        const inv = invitation;
+        cands.push({
+          value: 0.25 + mind.affect.joy * 0.2 + (inv.promised ? 0.15 : 0),
+          label: `さそい:${inv.target.name}`,
+          run: async () => {
+            await act([{ type: 'move_to', x: inv.target.x, z: inv.target.z }], `さそい:${inv.target.name}へ`);
+            noteDetail(inv.target.name, 'visit', `${inv.who}にさそわれて見に来た`);
+            consumeInvitation('いく');
+            const line = await ownWords(`(${inv.who}にさそわれて「${inv.target.name}」のところへ来た。おもったことをひとこと)`);
+            if (line !== null) await act([{ type: 'say', text: line }], 'さそいのかんそう');
+          },
+        });
+      }
+      if (invitation !== null && invitation.kind === 'しぐさ') {
+        const inv = invitation;
+        cands.push({
+          value: 0.22 + mind.affect.joy * 0.25 + (inv.promised ? 0.15 : 0),
+          label: 'さそい:あそぶ',
+          run: async () => {
+            const g = await chooseGesture(`${inv.who}にさそわれて、いっしょにあそぶ`, 'dance');
+            await doGesture(g, `さそい:${g}`);
+            consumeInvitation('しぐさ');
           },
         });
       }
@@ -1361,7 +1439,7 @@ async function main() {
           return m === null || gap(x) > gap(m) ? x : m;
         }, null);
         if (a !== null) {
-          const value = a.adm * a.fun * a.strength * (1 - a.progress);
+          const value = a.adm * a.fun * a.strength * (1 - a.progress) + inviteBoost('ごっこ');
           if (value > 0.08) cands.push({
             value,
             label: `ごっこ:${a.text.slice(0, 10)}`,
@@ -1376,6 +1454,7 @@ async function main() {
               const g = await chooseGesture(`「${a.text}」のごっこをしている`, 'happy');
               await act([{ type: 'say', text: line }], `ごっこ:${a.text.slice(0, 12)}`);
               await doGesture(g, `ごっこ:${g}`);
+              consumeInvitation('ごっこ'); // M228
               a.progress = Math.min(1, +(a.progress + 0.34).toFixed(2));
               a.lastFedAt = Date.now();
               // 自己効力感: 憧れに近づけた快(通常の報酬より濃い)
