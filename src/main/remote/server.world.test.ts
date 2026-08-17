@@ -147,9 +147,13 @@ describe('RemoteServer × WorldManager 統合', () => {
     const r1 = await postJson(port, '/api/world/event', { kind: 'hello', state: { note: 'test' } }, auth);
     expect(r1.status).toBe(200);
     expect(world.isConnected()).toBe(true);
-    const r2 = await postJson(port, '/api/world/event', { kind: 'chat', text: '世界からこんにちは' }, auth);
+    // b案P2(2026-08-09): 雑談はヒナタ(world:chatバス)へ、作業指示だけがテラのハンドラへ届く
+    const r2 = await postJson(port, '/api/world/event', { kind: 'chat', text: 'テラ、時計を直して' }, auth);
     expect(r2.status).toBe(200);
-    expect(seen).toEqual(['世界からこんにちは']);
+    expect(seen).toEqual(['テラ、時計を直して']);
+    const r3 = await postJson(port, '/api/world/event', { kind: 'chat', text: '世界からこんにちは' }, auth);
+    expect(r3.status).toBe(200);
+    expect(seen).toEqual(['テラ、時計を直して']); // 雑談はハンドラに来ない(ヒナタ行き)
   });
 
   it('act のコマンドが SSE(world:event) で届き、ack で act が解決する', async () => {
