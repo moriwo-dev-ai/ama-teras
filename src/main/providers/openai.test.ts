@@ -300,3 +300,22 @@ describe('M29-1: baseURL の末尾スラッシュ正規化', () => {
     expect(urlOf(withSlash).endsWith('/')).toBe(false);
   });
 });
+
+describe('M227: gpt-5.6系×ツールの reasoning_effort 回避', () => {
+  const req = {
+    system: 's', maxTokens: 100, signal: undefined as unknown as AbortSignal,
+    messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] }],
+    tools: [{ name: 't', description: 'd', inputSchema: { type: 'object' } }],
+  };
+  it('gpt-5.6-sol+ツールあり → reasoning_effort:"none" を明示する', () => {
+    const p = buildOpenAIParams(req as never, 'gpt-5.6-sol') as unknown as Record<string, unknown>;
+    expect(p['reasoning_effort']).toBe('none');
+  });
+  it('ツールなし・他モデルには付けない(推論の既定を尊重)', () => {
+    const noTools = { ...req, tools: [] };
+    const p1 = buildOpenAIParams(noTools as never, 'gpt-5.6-sol') as unknown as Record<string, unknown>;
+    const p2 = buildOpenAIParams(req as never, 'gpt-5.5') as unknown as Record<string, unknown>;
+    expect(p1['reasoning_effort']).toBeUndefined();
+    expect(p2['reasoning_effort']).toBeUndefined();
+  });
+});

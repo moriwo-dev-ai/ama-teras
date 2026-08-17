@@ -115,6 +115,11 @@ export function buildOpenAIParams(
           })),
         }
       : {}),
+    // M227: gpt-5.6系は /v1/chat/completions でツールと推論(サーバ既定でON)を併用できず
+    // 400 "Function tools with reasoning_effort are not supported for gpt-5.6-sol" になる(配布版の実報告)。
+    // APIエラー文の指示どおり、ツール使用時は reasoning_effort:'none' を明示して回避する
+    // ('none'はAPI実仕様には存在するがSDKのReasoningEffort型が未追随のためキャスト)
+    ...(req.tools.length > 0 && /^gpt-5\.6/.test(model) ? { reasoning_effort: 'none' as never } : {}),
   };
 }
 
