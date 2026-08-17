@@ -453,7 +453,9 @@ function fadeTo(name) {
 try {
   const loader = new GLTFLoader();
   loader.register((p) => new VRMLoaderPlugin(p));
-  const gltf = await loader.loadAsync('https://raw.githubusercontent.com/pixiv/three-vrm/dev/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm');
+  // M229: VRMをローカル配信に(GitHub直読みは来場者増で429=全ビューアで彼女が消えた実障害。
+  // 外部依存の根絶はM201と同方針。VRoid製アバター完成時はこのファイルを差し替えるだけ)
+  const gltf = await loader.loadAsync('/avatars/hinata.vrm');
   avatar = gltf.userData.vrm;
   VRMUtils.rotateVRM0(avatar);
   scene.add(avatar.scene);
