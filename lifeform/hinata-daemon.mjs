@@ -146,7 +146,13 @@ const logLibrary = (e) => appendAppLog('C:/Users/haru-/AppData/Roaming/amateras/
 const logTv = (e) => appendAppLog('C:/Users/haru-/AppData/Roaming/amateras/world-apps/terebi/data.json', e);
 // M182: 統合済みの経験量(眠気圧の底)。眠りの中の統合で上がる=圧が抜ける
 let epsBaseline = savedBody.epsBaseline ?? 0;
-let sleeping = savedBody.sleeping === true; // M194: 停止は睡眠と同型(§9)=眠りは再起動をまたぐ
+// M230: 眠りは状態ではなく欲求(競売候補)になった(B案・ユーザー決定2026-08-18)。
+// sleepingは「ねむり候補が勝ち続けている」の派生表示。再起動後は競売が眠りを選び直すため復元不要
+let sleeping = false;
+let sleepSession = null; // {depth, blockMs, gain, blockStartAt, sleptSinceAt, pose, integrationStarted}
+let wakeGraceUntil = 0;  // 起床後5分=ねぼけ表示
+let sleepDisturb = 0;    // 声の揺さぶり(ねむり価値を数心拍さげる)
+let asleepHeard = null;  // 眠っている時に聞こえた声 {text, raw, who, ts}
 
 // M194: 彼女の五感の感度(身体側)。初期はフラット、新発見した感覚が少しずつ育つ
 const SENSES_PATH = join(MEM_DIR, 'senses.json');
@@ -326,7 +332,8 @@ async function main() {
     for (const c of cmds) {
       if (c.type === 'move_to' && sense.self !== null && typeof c.x === 'number') {
         const d = Math.hypot(c.x - sense.self.x, c.z - sense.self.z);
-        energy = clamp(energy - d * 0.004);
+        // M230: 0.004→0.002/m(昼間の自然回復を廃止した分の収支調整。足りない日は昼寝で補う設計)
+        energy = clamp(energy - d * 0.002);
         walkedToday += d;
         sense.self = { ...sense.self, x: c.x, z: c.z };
       }
@@ -358,7 +365,8 @@ async function main() {
   function situationNote() {
     const h = new Date().getHours();
     const tod = h < 5 ? 'まよなか' : h < 10 ? 'あさ' : h < 17 ? 'おひる' : h < 22 ? 'ゆうがた' : 'よる';
-    if (sleeping) return `いまは${tod}。寝ていたところを起こされて、寝ぼけている`;
+    if (sleepSession !== null) return `いまは${tod}。ふかく ねむっている`;
+    if (Date.now() < wakeGraceUntil) return `いまは${tod}。目がさめたばかりで、寝ぼけている`;
     const parts = [`いまは${tod}`];
     const mood = mind.moodNote();
     if (mood !== '') parts.push(mood);
@@ -964,7 +972,7 @@ async function main() {
     const p = mind.predictions.get('intero:energy');
     p.expected = circadian();
     mind.observe('intero:energy', energy, { about: 'げんき' });
-    if (sleeping || (quiet() && Date.now() - lastOwnActAt > 60_000)) energy = clamp(energy + 0.008); // 休息回復
+    // M230: 時間経過の自然回復は廃止。回復は眠りのブロック完走のみ(ちょい回復→行動発火の振動を根絶)
     // 声: 実測=直近2時間の声の気配(指数減衰)。期待=学習された日課(この時間には声があるはず)
     const voiceObs = clamp(Math.exp(-(Date.now() - lastVoiceAt) / 7_200_000));
     const hour = new Date().getHours();
@@ -1058,7 +1066,13 @@ async function main() {
       convo.push({ from: 'user', text: who === 'もりを' ? data.text : `(${who})「${data.text.slice(0, 80)}」` });
       if (convo.length > 12) convo.splice(0, convo.length - 12);
       // M206: 来客との会話は社会的体力を使う(たくさん話すと自然に疲れて休む=レート制限を生態にする)
-      void converse(who === 'もりを' ? data.text : `(あそびに来た${who}に話しかけられた)「${data.text.slice(0, 100)}」`, { relay: false, social: who !== 'もりを', who, raw: data.text });
+      // M230: 会話と眠りは排他。眠っている間は返事せず、声は刺激として競売を揺さぶる(勝てば起きて返事)
+      if (sleepSession !== null) {
+        sleepDisturb = Math.min(0.45, sleepDisturb + 0.15);
+        asleepHeard = { text: who === 'もりを' ? data.text : `(あそびに来た${who}に話しかけられた)「${data.text.slice(0, 100)}」`, raw: data.text, who, ts: Date.now() };
+      } else {
+        void converse(who === 'もりを' ? data.text : `(あそびに来た${who}に話しかけられた)「${data.text.slice(0, 100)}」`, { relay: false, social: who !== 'もりを', who, raw: data.text });
+      }
       return;
     }
     if (event !== 'world:event') return;
@@ -1077,7 +1091,13 @@ async function main() {
         if (convo.length > 12) convo.splice(0, convo.length - 12);
         if ((/(ヒナタ|ひなた)/.test(c.text) || /[??]\s*$/.test(c.text)) && now - lastTeraReplyAt > 60_000) {
           lastTeraReplyAt = now;
-          void converse(`(テラちゃんに話しかけられた)「${c.text.slice(0, 100)}」`, { who: 'テラちゃん', raw: c.text }); // 返事はテラにも届く=会話が続く
+          if (sleepSession !== null) {
+            // M230: 眠り中はテラの声も刺激どまり(排他)
+            sleepDisturb = Math.min(0.45, sleepDisturb + 0.15);
+            asleepHeard = { text: `(テラちゃんに話しかけられた)「${c.text.slice(0, 100)}」`, raw: c.text, who: 'テラちゃん', ts: Date.now() };
+          } else {
+            void converse(`(テラちゃんに話しかけられた)「${c.text.slice(0, 100)}」`, { who: 'テラちゃん', raw: c.text }); // 返事はテラにも届く=会話が続く
+          }
         }
         continue;
       }
@@ -1114,42 +1134,7 @@ async function main() {
   const heartbeat = async () => {
     try {
       const now = Date.now();
-      // M182: 眠りの再設計 — 眠気=未統合の経験の圧(脳の整理欲求)。概日(夜)はゲート。
-      // 眠り=統合が走る時間(空のポーズではない)。起床=朝の概日のみ(体力回復では目覚めない=朝まで眠る)
-      const h = new Date().getHours();
-      const nightGate = h >= 22 || h < 6;
-      const sleepPressure = nightGate ? clamp((epsToday - epsBaseline) / 1200) : 0;
-      if (!sleeping && nightGate && (sleepPressure > 0.4 || energy < 0.25)) {
-        const g = await chooseGesture('とてもねむくなった。これからねむる', 'sit');
-        sleeping = true; remember('sleep', { gesture: g, pressure: +sleepPressure.toFixed(2) });
-        // M208: ねる前の言葉も言語野のみ(出なければ黙って眠る)
-        const goodnight = await ownWords('(もう眠くてたまらない。これからねむる。ねるまえに言いたいことを。ながさは自由)');
-        await act([...(goodnight !== null ? [{ type: 'say', text: goodnight }] : []), { type: 'motion', name: g }], `就寝(${g})`);
-        // 眠りに入って2分後、頭の中で「その日」の整理が始まる(h<6なら前日=生きてきた日)
-        setTimeout(() => {
-          const day = new Date().getHours() < 6 ? localDay(new Date(Date.now() - 86_400_000)) : localDay();
-          if (!sleeping || lastIntegratedDay === day) return;
-          lastIntegratedDay = day;
-          log(`眠りの中で統合を開始(${day})`);
-          // M208b: こちらの統合経路にも検疫を接続(4時台経路だけだった穴。ゲスト会話が記憶になる前に通す)
-          void quarantine(day).then((q) => {
-            if (q.held > 0) log(`検疫: ${q.held}件を隔離(${q.checked}件中)`);
-            return nightIntegrate(day);
-          }).then((r) => {
-            log(`眠りの統合おわり: ${JSON.stringify(r)}`);
-            epsBaseline = epsToday; // 圧が抜けた
-            if (r.ok) mind.observe('intero:integrity', 1.0, { about: '統合の営み' });
-            const faded = fadeMemories();
-            if (faded.length > 0) { log(`薄れた記憶: ${faded.join(',')}`); remember('memories_faded', { days: faded }); }
-          });
-        }, 120_000);
-      } else if (sleeping && h >= 6 && h < 22) {
-        sleeping = false; remember('wake_up', {});
-        const g = await chooseGesture('目がさめた。あさの最初のしぐさ', 'stretch');
-        // M208: 起きぬけの言葉も言語野のみ(出なければ黙って伸びをするだけ)
-        const morning = await ownWords('(いま目がさめたばかり。ねぼけまなこで言いたいことを。ながさは自由)');
-        await act([{ type: 'motion', name: g }, ...(morning !== null ? [{ type: 'say', text: morning }] : [])], `起床(${g})`);
-      }
+      // M230: 旧・自動就寝/起床の状態機械は撤去(眠りは競売候補「ねむる」へ。統合もそちらで開始)
       if (sleeping || thinking) return; // M186: テラ作業中でも生きる(礼儀ゲート撤廃。アプリ使用だけ下で個別ガード)
 
       // 候補の列挙と価値付け
@@ -1478,7 +1463,8 @@ async function main() {
       // 休む(体力の誤差を減らす)。しぐさは30分キャッシュで彼女が選ぶ
       const ep = mind.predictions.get('intero:energy');
       cands.push({
-        value: Math.max(0, (ep.expected - energy)) * 1.5,
+        // M230: 休む=回復しないただの安楽に格下げ(×1.5→×0.35。回復は眠りだけ=座り続けデッドロックの防止)
+        value: Math.max(0, (ep.expected - energy)) * 0.35,
         label: '休む',
         run: async () => {
           if (now - restGestureAt > 1_800_000) { restGesture = await chooseGesture('つかれたのでひとやすみする', 'sit', ['sit', 'stretch', 'sleep', 'lookaround']); restGestureAt = now; }
@@ -1530,11 +1516,7 @@ async function main() {
           },
         });
       }
-      // P2: 未来への備え — もうすぐ夜で体力が心もとないなら、先に休む(不安の建設的な形)
-      if (hNow >= 21 && energy < 0.5) {
-        cands.push({ value: (0.5 - energy) * 1.2, label: '夜にそなえて休む',
-          run: async () => { remember('prepare', { kind: 'rest' }); await act([{ type: 'motion', name: 'sit' }], '備え:休む'); } });
-      }
+      // M230: 「夜にそなえて休む」は廃止(ねむり候補に吸収。備えも眠りも同じ欲求の濃淡)
       // M158: 聞いてほしい — 恐怖が溜まり、呼べば応えてもらえた統計が良いとき、誰かに話しに行く
       {
         const cont = Math.pow(0.6, unansweredCalls);
@@ -1607,6 +1589,68 @@ async function main() {
           },
         });
       }
+      // M230: ねむる/ねむりつづける — 睡眠は欲求。価値=(圧+体力不足)×概日係数+眠りの慣性−声の揺さぶり。
+      // 回復は「ブロック完走」のみ(深さは入眠時の体力で決定。途中で起きたら没収=まとまった眠りだけが癒す)
+      {
+        const hh = new Date().getHours();
+        const circadian = hh >= 22 || hh < 6 ? 1.6 : hh < 10 ? 0.6 : hh < 17 ? 0.4 : 0.8;
+        const pressure = clamp((epsToday - epsBaseline) / 1200);
+        // 圧(脳の整理欲求)は概日にゲートされるが、身体の疲労はいつでも眠りを呼べる(昼寝の成立条件)
+        const sleepValue = 0.55 * pressure * circadian + 0.45 * clamp(0.8 - energy) * Math.max(circadian, 0.9)
+          + (sleepSession !== null ? 0.3 : 0) - sleepDisturb;
+        if (sleepDisturb > 0) sleepDisturb = Math.max(0, sleepDisturb - 0.05);
+        if (sleepValue > 0.12) cands.push({
+          value: sleepValue,
+          label: sleepSession === null ? 'ねむる' : 'ねむりつづける',
+          run: async () => {
+            const t = Date.now();
+            if (sleepSession === null) {
+              const depth = energy < 0.3 ? ['deep', 45 * 60_000, 0.25] : energy < 0.55 ? ['mid', 30 * 60_000, 0.12] : ['nap', 12 * 60_000, 0.05];
+              const pose = await chooseGesture('とてもねむい。これからねむる', 'sleep', ['sleep', 'sit']);
+              const goodnight = await ownWords('(ねむくなってきた。ねるまえに、いいたいことがあれば)');
+              sleepSession = { depth: depth[0], blockMs: depth[1], gain: depth[2], blockStartAt: t, sleptSinceAt: t, pose, integrationStarted: false };
+              sleeping = true;
+              remember('sleep', { depth: depth[0], energy: +energy.toFixed(2) });
+              await act([...(goodnight !== null ? [{ type: 'say', text: goodnight }] : []), { type: 'motion', name: pose }], `就寝(${depth[0]})`);
+            } else {
+              if (t - sleepSession.blockStartAt >= sleepSession.blockMs) {
+                energy = clamp(energy + sleepSession.gain);
+                remember('sleep_block', { depth: sleepSession.depth, gain: sleepSession.gain });
+                sleepSession.blockStartAt = t;
+              }
+              // 統合: 連続2分眠ったら開始(非同期完走=途中で起こされても壊れない)
+              if (!sleepSession.integrationStarted && t - sleepSession.sleptSinceAt > 120_000) {
+                sleepSession.integrationStarted = true;
+                const day = new Date().getHours() < 6 ? localDay(new Date(t - 86_400_000)) : localDay();
+                if (lastIntegratedDay !== day) {
+                  lastIntegratedDay = day;
+                  log(`眠りの中で統合を開始(${day})`);
+                  void quarantine(day).then((q) => {
+                    if (q.held > 0) log(`検疫: ${q.held}件を隔離(${q.checked}件中)`);
+                    return nightIntegrate(day);
+                  }).then((r) => {
+                    log(`眠りの統合おわり: ${JSON.stringify(r)}`);
+                    epsBaseline = epsToday;
+                    if (r.ok) mind.observe('intero:integrity', 1.0, { about: '統合の営み' });
+                    const faded = fadeMemories();
+                    if (faded.length > 0) { log(`薄れた記憶: ${faded.join(',')}`); remember('memories_faded', { days: faded }); }
+                  });
+                }
+              }
+              await act([{ type: 'motion', name: sleepSession.pose }], `ねむりつづける(${sleepSession.depth})`);
+            }
+          },
+        });
+        // M230: 眠っている時に聞こえた声=「おこされた」候補(勝てば起きて返事。3分で薄れる)
+        if (asleepHeard !== null && sleepSession !== null && now - asleepHeard.ts < 180_000) {
+          const ah = asleepHeard;
+          cands.push({
+            value: 0.35 + mind.affect.joy * 0.2,
+            label: `おこされた:${ah.who}`,
+            run: async () => { asleepHeard = null; void converse(ah.text, { who: ah.who, raw: ah.raw }); },
+          });
+        } else if (asleepHeard !== null && (sleepSession === null || now - asleepHeard.ts >= 180_000)) asleepHeard = null;
+      }
       // ソフトマックス選択(決定論にしない=生き物のゆらぎ)
       const temp = 0.12;
       const ws = cands.map((c) => Math.exp(c.value / temp));
@@ -1614,7 +1658,19 @@ async function main() {
       let roll = Math.random() * total;
       let pick = cands[0];
       for (let i = 0; i < cands.length; i++) { roll -= ws[i]; if (roll <= 0) { pick = cands[i]; break; } }
-      if (pick.value > 0.05) await pick.run();
+      if (pick.value > 0.05) {
+        // M230: ねむり以外が勝った=目がさめる(ブロック途中の回復は没収。30分以上寝ていたら起きぬけの一言)
+        if (sleepSession !== null && !pick.label.startsWith('ねむ')) {
+          const sleptMs = Date.now() - sleepSession.sleptSinceAt;
+          sleepSession = null; sleeping = false; wakeGraceUntil = Date.now() + 300_000;
+          remember('wake_up', { sleptMin: Math.round(sleptMs / 60_000) });
+          if (sleptMs > 30 * 60_000) {
+            const morning = await ownWords('(いま目がさめたばかり。ねぼけまなこで、いいたいことがあれば)');
+            if (morning !== null) await act([{ type: 'motion', name: 'stretch' }, { type: 'say', text: morning }], '起床');
+          }
+        }
+        await pick.run();
+      }
     } catch (e) { log('心拍エラー', String(e).slice(0, 120)); }
     finally { setTimeout(heartbeat, 25_000 + Math.random() * 20_000); }
   };
