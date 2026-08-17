@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { DEFAULT_REGISTRY_URL, DEFAULT_UPDATE_CHECK_URL } from '../shared/models';
+import { DEFAULT_REGISTRY_URL, DEFAULT_UPDATE_CHECK_URL, normalizeModelId } from '../shared/models';
 import type {
   AppConfig,
   AutonomousRegistryScope,
@@ -147,7 +147,7 @@ export function parseOperationsConfig(raw: unknown): OperationsConfig | undefine
     if (typeof v !== 'object' || v === null) return undefined;
     const b = v as Record<string, unknown>;
     if ((b['provider'] === 'anthropic' || b['provider'] === 'openai' || b['provider'] === 'moonshot') && typeof b['model'] === 'string') {
-      return { provider: b['provider'], model: b['model'] };
+      return { provider: b['provider'], model: normalizeModelId(b['provider'], b['model']) };
     }
     return undefined;
   };
@@ -227,7 +227,7 @@ function parseBand(raw: unknown): ModelBand | null {
   if (!rec) return null;
   if (rec['provider'] !== 'anthropic' && rec['provider'] !== 'openai' && rec['provider'] !== 'moonshot') return null;
   if (typeof rec['model'] !== 'string') return null;
-  return { provider: rec['provider'], model: rec['model'] };
+  return { provider: rec['provider'], model: normalizeModelId(rec['provider'], rec['model']) };
 }
 
 /** M19: レビュー閾値・回数のクランプ範囲 */
@@ -358,7 +358,8 @@ export class ConfigStore {
       if (rec['provider'] === 'anthropic' || rec['provider'] === 'openai' || rec['provider'] === 'moonshot') {
         merged.provider = rec['provider'];
       }
-      if (typeof rec['model'] === 'string') merged.model = rec['model'];
+      // M226: 手打ち時代の誤記ID(例: gpt5.6-sol)を既知IDへ自動補正(本当のカスタムIDは不変)
+      if (typeof rec['model'] === 'string') merged.model = normalizeModelId(merged.provider, rec['model']);
       // M92-A5-a: 生成専用モデル(空文字・非文字列は未設定=本体と同じ)
       // M113-1: 一晩モード(boolean以外は無視=OFF扱い)
       if (typeof rec['overnightMode'] === 'boolean') merged.overnightMode = rec['overnightMode'];

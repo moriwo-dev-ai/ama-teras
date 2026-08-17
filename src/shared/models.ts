@@ -212,6 +212,21 @@ export function isKnownModel(provider: ProviderId, model: string): boolean {
 }
 
 /**
+ * M226: 保存済みモデルIDの誤記を自動補正する。
+ * 背景: 手打ち時代に「gpt5.6-sol」(ハイフン抜け)等で保存された設定は、リスト選択化(M119)後も
+ * 直らずに残り、404フォールバックのパターンにも合わず「使えない」が続いた(配布版の実報告)。
+ * 記号(-._ 空白)と大小文字を無視した一致で既知IDに解決できる場合だけ補正し、それ以外は触らない
+ * (本当にカスタムなIDを壊さないため)。
+ */
+export function normalizeModelId(provider: ProviderId, model: string): string {
+  const m = model.trim();
+  if (m === '' || isKnownModel(provider, m)) return m;
+  const canon = (s: string) => s.toLowerCase().replace(/[-._\s]/g, '');
+  const hit = KNOWN_MODELS[provider].find((k) => canon(k.id) === canon(m));
+  return hit !== undefined ? hit.id : m;
+}
+
+/**
  * M110: モデルIDがどのプロバイダの既知モデルかを引く(未知IDは null)。
  * 実機事故: Provider=Anthropic のまま model=kimi-k3(Moonshotの既定)が残り、
  * AnthropicへKimiのIDを送って課金エラーの陰に隠れた。設定の食い違い検出に使う

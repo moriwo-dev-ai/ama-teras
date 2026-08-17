@@ -137,3 +137,19 @@ describe('M110: providerOfKnownModel', () => {
     expect(PROVIDER_LABELS.moonshot).toContain('Kimi');
   });
 });
+
+describe('M226: normalizeModelId(誤記の自動補正)', () => {
+  it('ハイフン抜け・ドット揺れ・大小文字を既知IDへ解決する', async () => {
+    const { normalizeModelId } = await import('./models');
+    expect(normalizeModelId('openai', 'gpt5.6-sol')).toBe('gpt-5.6-sol');
+    expect(normalizeModelId('openai', 'gpt-56-sol')).toBe('gpt-5.6-sol');
+    expect(normalizeModelId('openai', 'GPT-5.6-SOL')).toBe('gpt-5.6-sol');
+    expect(normalizeModelId('anthropic', 'claudeopus48')).toBe('claude-opus-4-8');
+  });
+  it('既知IDと本当のカスタムIDは変更しない', async () => {
+    const { normalizeModelId } = await import('./models');
+    expect(normalizeModelId('openai', 'gpt-5.6-sol')).toBe('gpt-5.6-sol');
+    expect(normalizeModelId('openai', 'my-fine-tune-01')).toBe('my-fine-tune-01');
+    expect(normalizeModelId('openai', '')).toBe('');
+  });
+});
