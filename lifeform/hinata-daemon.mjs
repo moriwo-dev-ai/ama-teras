@@ -154,6 +154,17 @@ let wakeGraceUntil = 0;  // 起床後5分=ねぼけ表示
 let sleepDisturb = 0;    // 声の揺さぶり(ねむり価値を数心拍さげる)
 let asleepHeard = null;  // 眠っている時に聞こえた声 {text, raw, who, ts}
 let pausedSleep = null;  // M230c: 中断された眠り {s, at}(3分以内の二度寝で続きから)
+// M230d: ブロック完走の精算。「ねむりつづける」を引いた瞬間にしか判定が走らないと、
+// 45分貯めた直後に起こされただけで没収される(実測: sleptMin=45到達でsleep_block 0件・体力0のまま)。
+// 実際に眠った時間がブロックを満たしていれば、起床時・二度寝時にも回復を与える
+function settleSleepBlock(t) {
+  if (sleepSession === null) return;
+  if (t - sleepSession.blockStartAt >= sleepSession.blockMs) {
+    energy = clamp(energy + sleepSession.gain);
+    remember('sleep_block', { depth: sleepSession.depth, gain: sleepSession.gain });
+    sleepSession.blockStartAt = t;
+  }
+}
 
 // M194: 彼女の五感の感度(身体側)。初期はフラット、新発見した感覚が少しずつ育つ
 const SENSES_PATH = join(MEM_DIR, 'senses.json');
@@ -1630,6 +1641,7 @@ async function main() {
                 sleepSession.sleptSinceAt += gap;
                 pausedSleep = null;
                 sleeping = true;
+                settleSleepBlock(t); // M230d: 中断前に満了していたブロックはここで精算
                 await act([{ type: 'motion', name: sleepSession.pose }], `二度寝(${sleepSession.depth})`);
                 return;
               }
@@ -1642,11 +1654,7 @@ async function main() {
               remember('sleep', { depth: depth[0], energy: +energy.toFixed(2) });
               await act([...(goodnight !== null ? [{ type: 'say', text: goodnight }] : []), { type: 'motion', name: pose }], `就寝(${depth[0]})`);
             } else {
-              if (t - sleepSession.blockStartAt >= sleepSession.blockMs) {
-                energy = clamp(energy + sleepSession.gain);
-                remember('sleep_block', { depth: sleepSession.depth, gain: sleepSession.gain });
-                sleepSession.blockStartAt = t;
-              }
+              settleSleepBlock(t);
               // 統合: 夜(22〜6時)の眠りで連続2分たったら開始(非同期完走=途中で起こされても壊れない)。
               // M230b: 昼寝で当日分を早消化してしまうと夜の本統合がスキップされるため夜間限定
               const hh2 = new Date().getHours();
@@ -1692,6 +1700,7 @@ async function main() {
       if (pick.value > 0.05) {
         // M230: ねむり以外が勝った=目がさめる(ブロック途中の回復は没収。30分以上寝ていたら起きぬけの一言)
         if (sleepSession !== null && !pick.label.startsWith('ねむ')) {
+          settleSleepBlock(Date.now()); // M230d: 眠り切ったブロックは起こされても没収しない
           const sleptMs = Date.now() - sleepSession.sleptSinceAt;
           // M230c: 3分以内に眠りへ戻ったらブロックは続きから(中断時間は数えない=一時停止)。
           // ソフトマックスの揺らぎ+来客の朝では45分ノーカットが確率的に不可能だった実測への手当て。
