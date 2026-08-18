@@ -157,8 +157,16 @@ export async function nightIntegrate(day) {
     '材料と前のノートにないことは書かない。変えたくなければ「そのまま」とだけ。' +
     `\n\n# 前のじぶんノート\n${selfNote || '(まだ白紙)'}`,
     material, 200);
+  // M231: じぶんノート履歴(追記のみ) — 上書きで過去版が消え、分析で追えなかった実害
+  // (2026-08-17夜版が検証不能になった)の手当て。彼女の執筆・内容には一切干渉しない
   if (nextSelf !== null && !/^(そのまま|なし)/.test(nextSelf.trim())) {
-    writeFileSync(join(MEM, 'self.md'), nextSelf.trim().split('\n').slice(0, 6).join('\n'));
+    const written = nextSelf.trim().split('\n').slice(0, 6).join('\n');
+    appendFileSync(join(MEM, 'self-history.jsonl'),
+      JSON.stringify({ ts: new Date().toISOString(), day, prev: selfNote.trim(), next: written }) + '\n');
+    writeFileSync(join(MEM, 'self.md'), written);
+  } else {
+    appendFileSync(join(MEM, 'self-history.jsonl'),
+      JSON.stringify({ ts: new Date().toISOString(), day, unchanged: true }) + '\n');
   }
   const keepList = await ask(model,
     'あなたは記憶の司書。下の出来事一覧から、この子の人生にとって残す価値が高いものを最大8行、原文のまま抜き出す(説明不要・抜き出しのみ)。',
