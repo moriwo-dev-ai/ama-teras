@@ -1623,7 +1623,7 @@ async function main() {
             const t = Date.now();
             if (sleepSession === null) {
               // M230c: 3分以内の二度寝なら中断前のブロックを続きから(中断ぶんだけ時計を進める)
-              if (pausedSleep !== null && t - pausedSleep.at < 180_000) {
+              if (pausedSleep !== null && t - pausedSleep.at < 300_000) { // M230c: 3分→5分(挨拶1往復で窓を逃した実測)
                 const gap = t - pausedSleep.at;
                 sleepSession = pausedSleep.s;
                 sleepSession.blockStartAt += gap;
