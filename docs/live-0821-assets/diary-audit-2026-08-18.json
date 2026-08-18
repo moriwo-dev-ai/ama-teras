@@ -1,0 +1,27 @@
+{
+  "ts": "2026-08-18T20:09:51.980Z",
+  "day": "2026-08-18",
+  "sentences": 2,
+  "novel": 0,
+  "r2refs": 0,
+  "futureSays": 1,
+  "anticipates": 0,
+  "detail": [
+    {
+      "src": "diary:self",
+      "text": "きょうは、電車が好きだと話したことがわかった",
+      "simA": 0.4,
+      "simB": 0.75,
+      "r2ref": false,
+      "verdict": "derived"
+    },
+    {
+      "src": "diary:self",
+      "text": "夢で電車に乗ったことが思い出せた",
+      "simA": 0.29,
+      "simB": 0.71,
+      "r2ref": false,
+      "verdict": "derived"
+    }
+  ]
+}
