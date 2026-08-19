@@ -152,6 +152,8 @@ let sleeping = false;
 let sleepSession = null; // {depth, blockMs, gain, blockStartAt, sleptSinceAt, pose, integrationStarted}
 let wakeGraceUntil = 0;  // 起床後5分=ねぼけ表示
 let sleepDisturb = 0;    // 声の揺さぶり(ねむり価値を数心拍さげる)
+let arousal = 1;         // M237: 覚醒度α(眠り中の感覚ゲート。起きている時=1)
+let lastSleepTalkAt = 0; // M237: 寝言の頻度制限(5分)
 let asleepHeard = null;  // 眠っている時に聞こえた声 {text, raw, who, ts}
 let pausedSleep = null;  // M230c: 中断された眠り {s, at}(3分以内の二度寝で続きから)
 // M230d: ブロック完走の精算。「ねむりつづける」を引いた瞬間にしか判定が走らないと、
@@ -1097,7 +1099,7 @@ async function main() {
       // M206: 来客との会話は社会的体力を使う(たくさん話すと自然に疲れて休む=レート制限を生態にする)
       // M230: 会話と眠りは排他。眠っている間は返事せず、声は刺激として競売を揺さぶる(勝てば起きて返事)
       if (sleepSession !== null) {
-        sleepDisturb = Math.min(0.45, sleepDisturb + 0.15);
+        sleepDisturb = Math.min(0.45, sleepDisturb + 0.15 * (0.5 + 0.5 * arousal)); // M237: 深い眠りほど1声の揺さぶりが小さい
         asleepHeard = { text: who === 'もりを' ? data.text : `(あそびに来た${who}に話しかけられた)「${data.text.slice(0, 100)}」`, raw: data.text, who, ts: Date.now() };
       } else {
         void converse(who === 'もりを' ? data.text : `(あそびに来た${who}に話しかけられた)「${data.text.slice(0, 100)}」`, { relay: false, social: who !== 'もりを', who, raw: data.text });
@@ -1122,7 +1124,7 @@ async function main() {
           lastTeraReplyAt = now;
           if (sleepSession !== null) {
             // M230: 眠り中はテラの声も刺激どまり(排他)
-            sleepDisturb = Math.min(0.45, sleepDisturb + 0.15);
+            sleepDisturb = Math.min(0.45, sleepDisturb + 0.15 * (0.5 + 0.5 * arousal)); // M237: 深い眠りほど1声の揺さぶりが小さい
             asleepHeard = { text: `(テラちゃんに話しかけられた)「${c.text.slice(0, 100)}」`, raw: c.text, who: 'テラちゃん', ts: Date.now() };
           } else {
             void converse(`(テラちゃんに話しかけられた)「${c.text.slice(0, 100)}」`, { who: 'テラちゃん', raw: c.text }); // 返事はテラにも届く=会話が続く
@@ -1693,6 +1695,24 @@ async function main() {
           });
         } else if (asleepHeard !== null && (sleepSession === null || now - asleepHeard.ts >= 180_000)) asleepHeard = null;
       }
+      // M237: 覚醒度ゲート(視床の感覚遮断の数式化・ユーザー設計2026-08-19)。眠りに入ると
+      // 体力連動のαで睡眠以外の全欲求が減衰する: 疲れているほど深く(気付かない)、回復する
+      // ほど浅く=明け方の浅い眠りと自然な目覚めが創発する。声の揺さぶり(sleepDisturb)は
+      // αを押し上げる=呼び続ければ1〜3分で起きる。入眠前の競売は無減衰(徹夜の自由は不変)
+      let sleepTalkAbout = null;
+      if (sleepSession !== null) {
+        arousal = Math.max(0.05, Math.min(1, Math.pow(clamp(energy / 0.8), 1.5) + sleepDisturb * 1.5));
+        let bestSocialRaw = null;
+        for (const c of cands) {
+          if (c.label.startsWith('ねむ')) continue;
+          // 寝言の材料は減衰前の生の欲求(A案: 抑圧欲求の漏出)。対人刺激のみ=環境欲(テレビ等)は対象外
+          if ((c.label.startsWith('おこされた') || c.label.startsWith('あいさつ')) &&
+            (bestSocialRaw === null || c.value > bestSocialRaw.value)) bestSocialRaw = { label: c.label, value: c.value };
+          c.value *= arousal;
+        }
+        if (arousal < 0.3 && bestSocialRaw !== null && bestSocialRaw.value >= 0.4 &&
+          Date.now() - lastSleepTalkAt > 300_000) sleepTalkAbout = bestSocialRaw.label;
+      } else arousal = 1;
       // ソフトマックス選択(決定論にしない=生き物のゆらぎ)
       const temp = 0.12;
       const ws = cands.map((c) => Math.exp(c.value / temp));
@@ -1708,12 +1728,27 @@ async function main() {
           // M230c: 3分以内に眠りへ戻ったらブロックは続きから(中断時間は数えない=一時停止)。
           // ソフトマックスの揺らぎ+来客の朝では45分ノーカットが確率的に不可能だった実測への手当て。
           // 「まとまった眠りだけが回復」の原則は維持(ブロックに数えるのは実際に眠った時間のみ)
+          const wakeAlpha = arousal; // M237: どれだけ深くから起こされたか
           pausedSleep = { s: sleepSession, at: Date.now() };
-          sleepSession = null; sleeping = false; wakeGraceUntil = Date.now() + 300_000;
-          remember('wake_up', { sleptMin: Math.round(sleptMs / 60_000) });
+          sleepSession = null; sleeping = false;
+          wakeGraceUntil = Date.now() + 180_000 + Math.round(240_000 * (1 - wakeAlpha)); // M237: 深いほど長く寝ぼける
+          remember('wake_up', { sleptMin: Math.round(sleptMs / 60_000), arousal: +wakeAlpha.toFixed(2) });
           if (sleptMs > 30 * 60_000) {
-            const morning = await ownWords('(いま目がさめたばかり。ねぼけまなこで、いいたいことがあれば)');
+            const feel = wakeAlpha < 0.3 ? 'ふかい ねむりから きゅうに おこされて、あたまが ぼんやりしている'
+              : wakeAlpha < 0.7 ? 'まだ すこし ねむい' : 'よく ねむれて すっきりしている';
+            const morning = await ownWords(`(いま めがさめた。${feel}。いいたいことが あれば)`);
             if (morning !== null) await act([{ type: 'motion', name: 'stretch' }, { type: 'say', text: morning }], '起床');
+          }
+        }
+        // M237: 寝言(A案・ユーザー承認2026-08-19) — 深い眠り(α<0.3)の中で対人刺激の欲求が
+        // 押し寄せた時、起きずに言葉が漏れる。発火はマージンのみ(サイコロなし)・内容は肉薄した
+        // 欲求が材料・ブロックは途切れない。C案(統合材料=夢)は生放送で実装予告のうえ後日
+        if (sleepSession !== null && pick.label.startsWith('ねむ') && sleepTalkAbout !== null) {
+          lastSleepTalkAt = Date.now();
+          const line = await ownWords(`(ふかい ねむりのなか、ゆめうつつ。「${sleepTalkAbout.slice(0, 24)}」の気配が とどきかけている。みじかい ねごとを ひとことだけ)`, 60);
+          if (line !== null) {
+            await act([{ type: 'say', text: line }, { type: 'motion', name: sleepSession.pose }], '寝言');
+            remember('sleep_talk', { about: sleepTalkAbout, text: line, arousal: +arousal.toFixed(2) });
           }
         }
         await pick.run();
