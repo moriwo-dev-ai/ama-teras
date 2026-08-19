@@ -1474,7 +1474,12 @@ ${d.body}`))
    */
   async runGodNow(godId: string): Promise<{ ok: boolean; detail: string; tokensUsed: number }> {
     if (!this.ensureInitialized()) return { ok: false, detail: 'オーナーモードがOFF', tokensUsed: 0 };
-    return this.runGod(godId);
+    const result = await this.runGod(godId);
+    // M235: 手動実行(UIボタン/神議チャット発)の消費も1日予算へ計上する。
+    // 定刻実行は scheduler.tick が addSpent 済みだが、この経路だけ財布の外にいた
+    // (押し放題=予算ガードの抜け道)。時計(nextRun)は従来どおり動かさない
+    this.scheduler?.recordSpend(godId, result.tokensUsed);
+    return result;
   }
 
   // ---- M33: UI用アクセサ ----
