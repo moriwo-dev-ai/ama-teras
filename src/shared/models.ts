@@ -284,6 +284,17 @@ export function contextLimitFor(model: string): number {
 }
 
 /**
+ * M234: コスト意識の圧縮上限。従来の「文脈上限の70%で圧縮」は1Mコンテキスト機
+ * (kimi-k3等)では閾値70万tok=事実上無限になり、履歴が19〜23万tok/コールまで肥大して
+ * キャッシュ読みだけで$13/日を溶かした(実測2026-08-18: 147コール・入力27.7M tok)。
+ * 有料プロバイダは「財布の上限」で先に畳む。ローカル(ollama)はタダなので文脈上限まで使う
+ */
+export const COST_COMPACTION_CAP = 32_000;
+export function costCompactionCapFor(provider: string): number {
+  return provider === 'ollama' ? Number.POSITIVE_INFINITY : COST_COMPACTION_CAP;
+}
+
+/**
  * M41-4: 既知モデルの単価($/1Mトークン)。前方一致で照合。未知モデルはコスト非表示。
  * main(usage)と renderer(想定コスト表示)の両方が使うので shared に置く
  */

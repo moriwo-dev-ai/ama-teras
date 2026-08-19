@@ -41,6 +41,7 @@ import { runAgentLoop } from '../agent/loop';
 import { loadOvernightPending, saveOvernightPending } from './overnight';
 import {
   contextLimitFor,
+  costCompactionCapFor,
   DEFAULT_MODELS,
   isLocalBaseUrl,
   MOONSHOT_BASE_URL,
@@ -1584,8 +1585,12 @@ export class AgentService {
     override?: { thresholdTokens: number; measuredTokens: number },
   ): Promise<boolean> {
     // M18: policy有効時のメイン会話は planner 帯のモデル上限で判定する(currentLLMが吸収)
+    // M234: 有料プロバイダはコスト上限(32k)で先に畳む。1M文脈機で70%閾値が無限化し
+    // 履歴23万tok×147コール/日=$13/日を溶かした実測の手当て
+    const llm = this.currentLLM();
     const threshold =
-      override?.thresholdTokens ?? Math.floor(contextLimitFor(this.currentLLM().model) * 0.7);
+      override?.thresholdTokens ??
+      Math.min(Math.floor(contextLimitFor(llm.model) * 0.7), costCompactionCapFor(llm.provider));
     const ws = conv.run?.workspace ?? this.getWorkspace();
     const compacted = await compactHistory(provider, conv.history, {
       signal,

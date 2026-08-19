@@ -153,3 +153,21 @@ describe('M226: normalizeModelId(誤記の自動補正)', () => {
     expect(normalizeModelId('openai', '')).toBe('');
   });
 });
+
+describe('M234: costCompactionCapFor(コスト意識の圧縮上限)', () => {
+  it('有料プロバイダは32kで畳む(1M文脈機の70%閾値=70万tokの無限化を防ぐ)', async () => {
+    const { costCompactionCapFor, COST_COMPACTION_CAP } = await import('./models');
+    expect(costCompactionCapFor('moonshot')).toBe(COST_COMPACTION_CAP);
+    expect(costCompactionCapFor('anthropic')).toBe(COST_COMPACTION_CAP);
+    expect(costCompactionCapFor('openai')).toBe(COST_COMPACTION_CAP);
+  });
+  it('ローカル(ollama)はタダなので文脈上限まで使う', async () => {
+    const { costCompactionCapFor } = await import('./models');
+    expect(costCompactionCapFor('ollama')).toBe(Number.POSITIVE_INFINITY);
+  });
+  it('kimi-k3で実効閾値が32kになる(70%閾値700kより優先)', async () => {
+    const { costCompactionCapFor, contextLimitFor } = await import('./models');
+    const effective = Math.min(Math.floor(contextLimitFor('kimi-k3') * 0.7), costCompactionCapFor('moonshot'));
+    expect(effective).toBe(32_000);
+  });
+});
