@@ -349,7 +349,10 @@ async function main() {
       if (c.type === 'move_to' && sense.self !== null && typeof c.x === 'number') {
         const d = Math.hypot(c.x - sense.self.x, c.z - sense.self.z);
         // M230: 0.004→0.002/m(昼間の自然回復を廃止した分の収支調整。足りない日は昼寝で補う設計)
-        energy = clamp(energy - d * 0.002);
+        // M232: 0.002→0.001/m。実測8/19: 自然な徘徊496m×0.002=-0.99で満タン(1.0)が正午に尽き、
+        // 体力0⇔昼寝落ちの往復に固定化(「いつも寝てる子」化)。夜の回復実効値は上限1.0で頭打ちのため
+        // 支出側を半減し、1日の徘徊(~500m)=タンク半分に収める
+        energy = clamp(energy - d * 0.001);
         walkedToday += d;
         sense.self = { ...sense.self, x: c.x, z: c.z };
       }
