@@ -17,6 +17,13 @@ export const DEFAULT_KEEP_RECENT_TURNS = 4;
 export const TRUNCATE_IF_LONGER_THAN = 4096;
 /** 第1段: 切り詰め後に残す先頭(chars≒1KB) */
 export const TRUNCATE_KEEP = 1024;
+/**
+ * M236 第1.5段(積極): それでも重い時は、古い tool_result を要点行だけ残して省略する。
+ * 実測(2026-08-19): 建築系セッションは履歴の86〜97%がツール結果ダンプで、
+ * 4KB基準の第1段では中型(1〜4KB)の結果が大量に生き残っていた
+ */
+export const ELIDE_IF_LONGER_THAN = 256;
+export const ELIDE_KEEP = 120;
 
 export interface CompactionOptions {
   thresholdTokens?: number;
@@ -138,9 +145,14 @@ export function splitMemoryEscape(summary: string): [string, string | null] {
 export function truncateOldToolResults(
   messages: ChatMessage[],
   keepRecentTurns: number = DEFAULT_KEEP_RECENT_TURNS,
+  aggressive = false,
 ): number {
   const split = findCompactionSplit(messages, keepRecentTurns);
   if (split <= 0) return 0;
+  // M236: 積極モードは要点行(120字)だけ残して省略する。省略後は約160字となり
+  // ELIDE_IF_LONGER_THAN(256)を下回るため冪等(再実行で二重に削れない)
+  const limit = aggressive ? ELIDE_IF_LONGER_THAN : TRUNCATE_IF_LONGER_THAN;
+  const keep = aggressive ? ELIDE_KEEP : TRUNCATE_KEEP;
   let truncated = 0;
   for (let i = 0; i < split; i++) {
     const msg = messages[i]!;
@@ -158,8 +170,10 @@ export function truncateOldToolResults(
         delete block.images;
         truncated++;
       }
-      if (block.content.length > TRUNCATE_IF_LONGER_THAN) {
-        block.content = `${block.content.slice(0, TRUNCATE_KEEP)}\n…[古いツール結果のため切り詰め済み]`;
+      if (block.content.length > limit) {
+        block.content = aggressive
+          ? `${block.content.slice(0, keep)}\n…[古いツール結果を省略(元${block.content.length}字)。必要なら再実行を]`
+          : `${block.content.slice(0, keep)}\n…[古いツール結果のため切り詰め済み]`;
         truncated++;
       }
     }
@@ -179,22 +193,30 @@ export async function compactHistory(
   const threshold = opts.thresholdTokens ?? DEFAULT_COMPACTION_THRESHOLD;
   const keepRecentTurns = opts.keepRecentTurns ?? DEFAULT_KEEP_RECENT_TURNS;
   // 実測トークン(直近APIコールのプロンプト側)があればそれで判定、無ければ文字数推定
-  const over =
-    opts.measuredTokens !== undefined
-      ? opts.measuredTokens >= threshold
-      : estimateTokens(history) >= threshold;
-  if (!over) return false;
+  const measured = opts.measuredTokens ?? estimateTokens(history);
+  // M236: 要約閾値の半分で第1段(無料の切り詰め)だけ先行発火する。閾値まで肥大して
+  // からLLM要約する前に、古いツールダンプを軽いまま保つ(キャッシュ書き直しは
+  // 発火時の1回に束ねる=毎ターン削ってプレフィックスキャッシュを壊さない)
+  const microThreshold = Math.max(1, Math.floor(threshold / 2));
+  if (measured < microThreshold) return false;
+  const over = measured >= threshold;
 
-  // 第1段(軽量): 古い tool_result の切り詰め。これだけで推定が閾値を下回れば要約しない
-  const truncated = truncateOldToolResults(history, keepRecentTurns);
-  if (truncated > 0 && estimateTokens(history) < threshold) return true;
+  // 第1段(軽量): 古い tool_result の切り詰め
+  let touched = truncateOldToolResults(history, keepRecentTurns);
+  // M236 第1.5段(積極): まだ重いなら要点行だけ残して省略(建築系はここで大きく縮む)
+  if (estimateTokens(history) >= microThreshold) {
+    touched += truncateOldToolResults(history, keepRecentTurns, true);
+  }
+  // 要約(第2段)は従来どおり閾値超のときだけ
+  if (!over) return touched > 0;
+  if (touched > 0 && estimateTokens(history) < threshold) return true;
 
   const split = findCompactionSplit(history, keepRecentTurns);
-  if (split <= 0) return truncated > 0;
+  if (split <= 0) return touched > 0;
 
   const head = history.slice(0, split);
   const rawSummary = await summarize(provider, head, opts.signal ?? new AbortController().signal);
-  if (rawSummary === '') return truncated > 0; // 要約に失敗したら置換しない(生ログを保持)
+  if (rawSummary === '') return touched > 0; // 要約に失敗したら置換しない(生ログを保持)
 
   // 「## 記憶へ退避」はAMATERAS.md側へ逃がし、履歴に残す要約からは外す
   const [summary, escaped] = splitMemoryEscape(rawSummary);

@@ -301,3 +301,80 @@ describe('M14-1: 画像のcompaction', () => {
     expect(estimateTokens(withImage)).toBeGreaterThan(1000);
   });
 });
+
+describe('M236: マイクロコンパクト強化(積極省略+先行発火)', () => {
+  const oldDump = (id: string, chars: number): ChatMessage[] => [
+    { role: 'assistant', content: [{ type: 'tool_use', id, name: 'read_file', input: { path: 'x' } }] },
+    { role: 'user', content: [{ type: 'tool_result', toolUseId: id, content: 'd'.repeat(chars) }] },
+  ];
+
+  it('積極モード: 4KB未満の中型結果も要点行だけ残して省略する(直近は不可侵・ペア構造不変)', () => {
+    const history: ChatMessage[] = [
+      userText('t1'),
+      ...oldDump('a', 2000), // 第1段(4096基準)では生き残るサイズ
+      asstText('done'),
+      userText('t2'),
+      ...oldDump('b', 2000), // 直近ターン内 → 触らない
+    ];
+    const n = truncateOldToolResults(history, 1, true);
+    expect(n).toBe(1);
+    const oldBlock = history[2]!.content[0]!;
+    expect(oldBlock.type === 'tool_result' && oldBlock.content.length).toBeLessThan(300);
+    expect(oldBlock.type === 'tool_result' && oldBlock.content).toContain('元2000字');
+    const recent = history[6]!.content[0]!;
+    expect(recent.type === 'tool_result' && recent.content.length).toBe(2000);
+    assertToolPairing(history);
+    // 冪等: もう一度かけても削れない
+    expect(truncateOldToolResults(history, 1, true)).toBe(0);
+  });
+
+  it('閾値の半分で第1段だけ先行発火し、LLM要約は呼ばれない', async () => {
+    const provider = summarizerProvider('呼ばれないはず');
+    const history: ChatMessage[] = [userText('t1'), ...oldDump('a', 6000), asstText('ok'), userText('t2'), asstText('a2')];
+    const est = estimateTokens(history);
+    // measured を [threshold/2, threshold) に収める閾値を作る
+    const threshold = est * 2 - 2;
+    const compacted = await compactHistory(provider, history, {
+      thresholdTokens: threshold,
+      measuredTokens: est,
+      keepRecentTurns: 1,
+    });
+    expect(compacted).toBe(true);
+    expect(provider.calls).toHaveLength(0); // 要約なし
+    expect(JSON.stringify(history)).not.toContain('これまでの会話の要約');
+    // 第1段(切り詰め)で半分閾値を下回った=積極段まで行かずに収まる
+    expect(JSON.stringify(history)).toContain('切り詰め済み');
+    expect(estimateTokens(history)).toBeLessThan(Math.floor(threshold / 2));
+    assertToolPairing(history);
+  });
+
+  it('閾値の半分未満なら何もしない', async () => {
+    const provider = summarizerProvider('呼ばれないはず');
+    const history: ChatMessage[] = [userText('t1'), ...oldDump('a', 6000), userText('t2'), asstText('a2')];
+    const before = JSON.stringify(history);
+    const compacted = await compactHistory(provider, history, {
+      thresholdTokens: 1_000_000,
+      measuredTokens: 100,
+      keepRecentTurns: 1,
+    });
+    expect(compacted).toBe(false);
+    expect(JSON.stringify(history)).toBe(before);
+  });
+
+  it('閾値超でも積極省略で収まれば要約せずtrue(建築セッションの典型)', async () => {
+    const provider = summarizerProvider('呼ばれないはず');
+    const history: ChatMessage[] = [userText('t1')];
+    for (let i = 0; i < 6; i++) history.push(...oldDump(`d${i}`, 3000)); // 中型ダンプ×6
+    history.push(asstText('done'), userText('t2'), asstText('a2'));
+    const est = estimateTokens(history);
+    const compacted = await compactHistory(provider, history, {
+      thresholdTokens: Math.floor(est * 0.6), // 実測が閾値超
+      measuredTokens: est,
+      keepRecentTurns: 1,
+    });
+    expect(compacted).toBe(true);
+    expect(provider.calls).toHaveLength(0);
+    expect(estimateTokens(history)).toBeLessThan(Math.floor(est * 0.6));
+    assertToolPairing(history);
+  });
+});
