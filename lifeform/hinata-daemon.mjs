@@ -308,6 +308,9 @@ async function main() {
     const m = /^「([\s\S]*)」$/.exec(t);
     if (m !== null) t = m[1].trim();
     t = t.replace(/^「/, '').replace(/」$/, '').trim();
+    // M238b: 全角/半角括弧で丸ごと包まれた発話は中身だけ話す(実測:「（もりをさんとの出会いが…）」が素通り)
+    const paren = /^[（(]([\s\S]*)[)）]$/.exec(t);
+    if (paren !== null) t = paren[1].trim();
     return t;
   }
 
@@ -465,7 +468,17 @@ async function main() {
   }
   // M171: 想起=活性化拡散(1ホップ・上位2件)。連想は説明でなく「思い出す」として帯域に乗る
   function recallInto(parts, cue) {
-    const ls = linksOf(cue, 2);
+    // M238: 注意=知覚の優先。目の前に来客がいる間、その場にいない「人」の連想は言葉の帯域に
+    // 載せない(もとるの見送りで最強ノード「もりを」(w9.8)が混入し、別人の話をする実測3件/日の根治。
+    // ひとりの時の想起は自由なまま。テラちゃんは住人なので常に可)
+    const present = sense.visitors.size > 0
+      ? new Set([...sense.visitors.values()].map((p) => p.name ?? ''))
+      : null;
+    const ls = linksOf(cue, 2).filter((l) => {
+      if (present === null || !String(l.other).startsWith('ひと:')) return true;
+      const n = plainName(l.other);
+      return n === 'テラちゃん' || present.has(n);
+    });
     if (ls.length === 0) return;
     parts.push(`「${plainName(cue)}」から思い出す: ${ls.map((l) => plainName(l.other) + (l.note !== undefined ? `(${l.note})` : '')).join('、')}`);
   }
