@@ -15,7 +15,7 @@
  * 起動: node lifeform/hinata-daemon.mjs [--port N] [--key K] [--chat]
  */
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { classify, detectBrain, think } from './brain.mjs';
@@ -604,6 +604,41 @@ async function main() {
     } catch { /* 検出失敗=誘いは立たない */ }
   }
 
+  // M241: 聞かれた名前は知覚扱い。相手の発話に既知の人物名があれば、その人の記憶(来訪回数・
+  // 最後に会った時・言われた言葉)を不在でも帯域に載せる。M238(不在者の"自発"連想の遮断)は
+  // そのまま — 混入事故は勝手な連想で起きたのであり、名前を出された想起は知覚と同じ
+  // (実測: M238導入後「かえでんのこと覚えてる?」に材料ゼロで答えられなかった)
+  function mentionedPeopleNote(text) {
+    try {
+      const dir = join(MEM_DIR, 'objects');
+      const names = [...new Set(readdirSync(dir)
+        .filter((f) => f.startsWith('ひと_') && f.endsWith('.jsonl'))
+        .map((f) => f.slice(3, -6).split('·')[0]))]
+        .filter((n) => n.length >= 2 && n !== 'テラちゃん' && text.includes(n));
+      const parts = [];
+      for (const n of names.slice(0, 2)) {
+        // 同名の分裂個体(sidサフィックス)も合算して1人として思い出す
+        const files = readdirSync(dir).filter((f) => f.startsWith(`ひと_${n}`) && f.endsWith('.jsonl'));
+        let came = 0; let lastMet = ''; let lastTs = '';
+        for (const f of files) {
+          const rows = readFileSync(join(dir, f), 'utf8').split('\n').filter(Boolean);
+          for (const row of rows) {
+            try {
+              const j = JSON.parse(row);
+              if (j.level === 'came') came++;
+              if (j.level === 'met' && j.ts > lastTs) { lastTs = j.ts; lastMet = j.detail ?? ''; }
+            } catch { /* 壊れ行は無視 */ }
+          }
+        }
+        if (came === 0 && lastMet === '') continue;
+        let s = `「${n}」のこと、おぼえてる: ${came}回あそびに来てくれた`;
+        if (lastMet !== '') s += `。まえに${lastMet.slice(0, 60)}`;
+        parts.push(s);
+      }
+      return parts.length > 0 ? '\n' + parts.join('\n') : '';
+    } catch { return ''; }
+  }
+
   // ---- 会話層(器官は4Bのまま) ----
   async function converse(text, opts = {}) {
     if (!CHAT_ENABLED || brain === null || thinking) return;
@@ -613,7 +648,7 @@ async function main() {
       // M224: 会話にも言い直しガード(M219の拡張)。帯域(situationNote)・相手の言葉の丸写しは
       // 生成ではないので棄却→1回言い直し→だめなら沈黙(実測: 「好き」ってなに?と聞いてみた」の台帳丸写し)。
       // 自分の過去発言との一致は許す(口ぐせは彼女のもの)
-      const note = situationNote();
+      const note = situationNote() + mentionedPeopleNote(text); // M241: 聞かれた名前は思い出せる
       let reply = null;
       for (let attempt = 0; attempt < 2 && reply === null; attempt++) {
         let r = await think(brain, persona, convo, note, text);
