@@ -1783,11 +1783,11 @@ async function main() {
           wakeGraceUntil = Date.now() + 180_000 + Math.round(240_000 * (1 - wakeAlpha)); // M237: 深いほど長く寝ぼける
           remember('wake_up', { sleptMin: Math.round(sleptMs / 60_000), arousal: +wakeAlpha.toFixed(2) });
           if (sleptMs > 30 * 60_000) {
-            const feel = wakeAlpha < 0.3 ? 'ふかい ねむりから きゅうに おこされて、あたまが ぼんやりしている'
-              : wakeAlpha < 0.7 ? 'まだ すこし ねむい' : 'よく ねむれて すっきりしている';
-            // M240: 「いいたいことが あれば」の誘発句を削除(漢字変換エコーでM219をすり抜けて
-            // 「言いたいことが あれば」が起床の一言に6回混入した実測への根治)
-            const morning = await ownWords(`(いま めがさめた。${feel})`);
+            // M240b: feel記述もプロンプトから撤去。眠気/寝ぼけはwakeGrace中のsituationNote
+            // (「目がさめたばかりで、寝ぼけている」)が既に伝えており、二重に書くと状況文の
+            // 音読(実測: 「いま 目 が さ メた。よ く ねむ れ て す い き り で いる。」の劣化コピー)の
+            // 材料になるだけだった。プロンプトは合図だけ、中身は帯域から
+            const morning = await ownWords('(いま めがさめた)');
             if (morning !== null) await act([{ type: 'motion', name: 'stretch' }, { type: 'say', text: morning }], '起床');
           }
         }
