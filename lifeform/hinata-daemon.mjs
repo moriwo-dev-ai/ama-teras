@@ -647,7 +647,8 @@ async function main() {
   // (実測 8/16 03:47「もりをさん、いなくなっていく。記憶の言葉を。長さは自由」が声に出た)
   function echoesPrompt(reply, prompt) {
     // 言い換えエコーも捕まえる: 「長さ」を口にする状況は指示の漏れ以外にほぼ無い(実測: 「長さはどこまでも続くよ」)
-    if (/(ながさは|長さは|ことばにして|すきなだけ|のことばを|の言葉を。|せりふ|実況だけ)/.test(reply)) return true;
+    // M240: 漢字/かな変換エコー対策(「いいたいことが あれば」→「言いたいことが あれば」が10字一致をすり抜けた実測)
+    if (/(ながさは|長さは|ことばにして|すきなだけ|のことばを|の言葉を。|せりふ|実況だけ|(言|い)いたいこと|こえに出す|声に出す)/.test(reply)) return true;
     const strip = (x) => x.replace(/[\s「」()（）。、!?!?]/g, '');
     const a = strip(reply); const b = strip(prompt);
     for (let i = 0; i + 10 <= a.length; i++) if (b.includes(a.slice(i, i + 10))) return true;
@@ -1598,7 +1599,7 @@ async function main() {
               const g = await chooseGesture(ctx, kinds[0], kinds);
               // M208: 感情の発散に「声」の道を開く(従来はしぐさのみ=嬉しくても言葉にならなかった。
               // ユーザー観察「人が来ると嬉しいけど声に出ない」の根)。言葉が出なければしぐさだけ
-              const line = await ownWords(`(${ctx.replace('どう出す?', '')}こえに出すなら、言いたいことを言いたいだけ)`);
+              const line = await ownWords(`(${ctx.replace('どう出す?', '')}こえに出すなら)`);
               if (line !== null) await act([{ type: 'say', text: line }], `表現のことば(${pool})`);
               await doGesture(g, `表現:${g}(${pool})`);
             },
@@ -1749,7 +1750,9 @@ async function main() {
           if (sleptMs > 30 * 60_000) {
             const feel = wakeAlpha < 0.3 ? 'ふかい ねむりから きゅうに おこされて、あたまが ぼんやりしている'
               : wakeAlpha < 0.7 ? 'まだ すこし ねむい' : 'よく ねむれて すっきりしている';
-            const morning = await ownWords(`(いま めがさめた。${feel}。いいたいことが あれば)`);
+            // M240: 「いいたいことが あれば」の誘発句を削除(漢字変換エコーでM219をすり抜けて
+            // 「言いたいことが あれば」が起床の一言に6回混入した実測への根治)
+            const morning = await ownWords(`(いま めがさめた。${feel})`);
             if (morning !== null) await act([{ type: 'motion', name: 'stretch' }, { type: 'say', text: morning }], '起床');
           }
         }
