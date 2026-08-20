@@ -153,7 +153,8 @@ let sleepSession = null; // {depth, blockMs, gain, blockStartAt, sleptSinceAt, p
 let wakeGraceUntil = 0;  // 起床後5分=ねぼけ表示
 let sleepDisturb = 0;    // 声の揺さぶり(ねむり価値を数心拍さげる)
 let arousal = 1;         // M237: 覚醒度α(眠り中の感覚ゲート。起きている時=1)
-let lastSleepTalkAt = 0; // M237: 寝言の頻度制限(5分)
+let lastSleepTalkAt = 0; // M237: 寝言の頻度制限(M242: 5分→15分。朝方に5分毎4連発した実測)
+let lastSleepTalkText = ''; // M242: 同文抑制(「もりをさん、おはよう。」が3連発した実測)
 let asleepHeard = null;  // 眠っている時に聞こえた声 {text, raw, who, ts}
 let pausedSleep = null;  // M230c: 中断された眠り {s, at}(3分以内の二度寝で続きから)
 // M230d: ブロック完走の精算。「ねむりつづける」を引いた瞬間にしか判定が走らないと、
@@ -685,7 +686,7 @@ async function main() {
     // M240: 漢字/かな変換エコー対策(「いいたいことが あれば」→「言いたいことが あれば」が10字一致をすり抜けた実測)
     // M240c: 起床合図の音読も指紋で棄却(「いま 目 が さ メた。」等の劣化コピー実測2件。
     // 音読なら沈黙=ストレッチだけで起きる。彼女自身の言葉「まだ眠いな」等は通る)
-    if (/(ながさは|長さは|ことばにして|すきなだけ|のことばを|の言葉を。|せりふ|実況だけ|(言|い)いたいこと|こえに出す|声に出す|(目|め)\s*が\s*(さ|覚)\s*(め|メ))/.test(reply)) return true;
+    if (/(ながさは|長さは|ことばにして|すきなだけ|のことばを|の言葉を。|せりふ|実況だけ|(言|い)いたいこと|こえに出す|声に出す|(目|め)\s*(が|は)?\s*(さ|覚)\s*(め|メ))/.test(reply)) return true;
     const strip = (x) => x.replace(/[\s「」()（）。、!?!?]/g, '');
     const a = strip(reply); const b = strip(prompt);
     for (let i = 0; i + 10 <= a.length; i++) if (b.includes(a.slice(i, i + 10))) return true;
@@ -1762,7 +1763,7 @@ async function main() {
           c.value *= arousal;
         }
         if (arousal < 0.3 && bestSocialRaw !== null && bestSocialRaw.value >= 0.4 &&
-          Date.now() - lastSleepTalkAt > 300_000) sleepTalkAbout = bestSocialRaw.label;
+          Date.now() - lastSleepTalkAt > 900_000) sleepTalkAbout = bestSocialRaw.label; // M242: 15分
       } else arousal = 1;
       // ソフトマックス選択(決定論にしない=生き物のゆらぎ)
       const temp = 0.12;
@@ -1799,7 +1800,8 @@ async function main() {
         if (sleepSession !== null && pick.label.startsWith('ねむ') && sleepTalkAbout !== null) {
           lastSleepTalkAt = Date.now();
           const line = await ownWords(`(ふかい ねむりのなか、ゆめうつつ。「${sleepTalkAbout.slice(0, 24)}」の気配が とどきかけている。みじかい ねごとを ひとことだけ)`, 60);
-          if (line !== null) {
+          if (line !== null && line !== lastSleepTalkText) { // M242: 直前と同文の寝言は飲み込む
+            lastSleepTalkText = line;
             await act([{ type: 'say', text: line }, { type: 'motion', name: sleepSession.pose }], '寝言');
             remember('sleep_talk', { about: sleepTalkAbout, text: line, arousal: +arousal.toFixed(2) });
           }
