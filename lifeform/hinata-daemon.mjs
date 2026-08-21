@@ -157,6 +157,12 @@ let lastSleepTalkAt = 0; // M237: 寝言の頻度制限(M242: 5分→15分。朝
 let lastSleepTalkText = ''; // M242: 同文抑制(「もりをさん、おはよう。」が3連発した実測)
 let asleepHeard = null;  // 眠っている時に聞こえた声 {text, raw, who, ts}
 let pausedSleep = null;  // M230c: 中断された眠り {s, at}(3分以内の二度寝で続きから)
+// M250: ベッド寝(ユーザー依頼2026-08-21・開発クロード設計)。ねむる競売に「ベッドでねむる」候補を追加し、
+// 選ばれたらベッドまで歩いてからsleepモーション。ベッドで寝ている間はheartbeatごとに微小追加回復。
+// 歩行など移動行動が出たら自動解除。既存のブロック回復・覚醒度ゲート・寝言は一切変更しない
+let bedSleeping = false;   // ベッドで寝ているか(派生表示)
+const BED_POS = { x: 4.99, z: 11.44 }; // 世界の正本(world-state.json)のbed_hinataの位置
+const BED_RECOVER_PER_BEAT = 0.004;    // ブロック回復と併用・二重取りにならないよう控えめに
 // M230d: ブロック完走の精算。「ねむりつづける」を引いた瞬間にしか判定が走らないと、
 // 45分貯めた直後に起こされただけで没収される(実測: sleptMin=45到達でsleep_block 0件・体力0のまま)。
 // 実際に眠った時間がブロックを満たしていれば、起床時・二度寝時にも回復を与える
@@ -361,6 +367,11 @@ async function main() {
         energy = clamp(energy - d * 0.001);
         walkedToday += d;
         sense.self = { ...sense.self, x: c.x, z: c.z };
+        // M250: ベッドから離れる移動が出たらベッド寝は自動解除(ベッドの上1.5m以内への移動は解除しない)
+        if (bedSleeping && Math.hypot(c.x - BED_POS.x, c.z - BED_POS.z) > 1.5) {
+          bedSleeping = false;
+          remember('bed_leave', { to: { x: c.x, z: c.z } });
+        }
       }
     }
     remember('act', { label, cmds });
@@ -1737,6 +1748,70 @@ async function main() {
             }
           },
         });
+        // M250: 「ねむる(ベッドで)」— ベッドで寝る欲求。価値は通常の眠り+ベッドの快適さ(+0.08)。
+        // 選ばれたらベッドまで歩いてからsleepモーション。ベッドで寝ている間はheartbeatごとに微小追加回復。
+        // ラベルを「ねむ」始まりにするのは、覚醒度ゲート(M237)で睡眠候補として減衰対象外にするため
+        const bedDist = sense.self !== null ? Math.hypot(sense.self.x - BED_POS.x, sense.self.z - BED_POS.z) : 99;
+        const bedValue = sleepValue + 0.08 - (bedDist > 20 ? 0.15 : 0); // 遠すぎる時は価値を下げる
+        if (sleepValue > 0.12 && bedValue > 0.12) cands.push({
+          value: bedValue,
+          label: sleepSession === null ? 'ねむる(ベッドで)' : 'ねむりつづける(ベッドで)',
+          run: async () => {
+            const t = Date.now();
+            // ベッドまで歩く(まだ遠い場合のみ)
+            if (sense.self !== null && bedDist > 1.5) {
+              await act([{ type: 'move_to', x: BED_POS.x, z: BED_POS.z }], 'ベッドへ');
+            }
+            if (sleepSession === null) {
+              // 新しい眠り(ベッド)
+              if (pausedSleep !== null && t - pausedSleep.at < 300_000) {
+                const gap = t - pausedSleep.at;
+                sleepSession = pausedSleep.s;
+                sleepSession.blockStartAt += gap;
+                sleepSession.sleptSinceAt += gap;
+                pausedSleep = null;
+                sleeping = true; bedSleeping = true;
+                settleSleepBlock(t);
+                await act([{ type: 'motion', name: sleepSession.pose }], `二度寝(ベッド・${sleepSession.depth})`);
+                return;
+              }
+              pausedSleep = null;
+              const depth = energy < 0.3 ? ['deep', 45 * 60_000, 0.25] : energy < 0.55 ? ['mid', 30 * 60_000, 0.12] : ['nap', 12 * 60_000, 0.05];
+              const pose = await chooseGesture('とてもねむい。これからベッドでねむる', 'sleep', ['sleep']);
+              // M250レビュー修正(クロード): 「いいたいことがあれば」はM240で根絶した指示エコー誘発句のため除去
+              const goodnight = await ownWords('(ベッドに入って ねむくなってきた)');
+              sleepSession = { depth: depth[0], blockMs: depth[1], gain: depth[2], blockStartAt: t, sleptSinceAt: t, pose, integrationStarted: false };
+              sleeping = true; bedSleeping = true;
+              remember('sleep', { depth: depth[0], energy: +energy.toFixed(2), bed: true });
+              await act([...(goodnight !== null ? [{ type: 'say', text: goodnight }] : []), { type: 'motion', name: pose }], `就寝(ベッド・${depth[0]})`);
+            } else {
+              settleSleepBlock(t);
+              // 統合(夜間限定・既存ロジックを踏襲)
+              const hh2 = new Date().getHours();
+              if ((hh2 >= 22 || hh2 < 6) && !sleepSession.integrationStarted && t - sleepSession.sleptSinceAt > 120_000) {
+                sleepSession.integrationStarted = true;
+                const day = new Date().getHours() < 6 ? localDay(new Date(t - 86_400_000)) : localDay();
+                if (lastIntegratedDay !== day) {
+                  lastIntegratedDay = day;
+                  log(`ベッドで眠りの中で統合を開始(${day})`);
+                  void quarantine(day).then((q) => {
+                    if (q.held > 0) log(`検疫: ${q.held}件を隔離(${q.checked}件中)`);
+                    return nightIntegrate(day);
+                  }).then((r) => {
+                    log(`眠りの統合おわり: ${JSON.stringify(r)}`);
+                    epsBaseline = epsToday;
+                    if (r.ok) mind.observe('intero:integrity', 1.0, { about: '統合の営み' });
+                    const faded = fadeMemories();
+                    if (faded.length > 0) { log(`薄れた記憶: ${faded.join(',')}`); remember('memories_faded', { days: faded }); }
+                  });
+                }
+              }
+              // ベッドで寝ている間はheartbeatごとに微小追加回復(ブロック回復と併用・控えめ)
+              energy = clamp(energy + BED_RECOVER_PER_BEAT);
+              await act([{ type: 'motion', name: sleepSession.pose }], `ねむりつづける(ベッド・${sleepSession.depth})`);
+            }
+          },
+        });
         // M230: 眠っている時に聞こえた声=「おこされた」候補(勝てば起きて返事。3分で薄れる)
         if (asleepHeard !== null && sleepSession !== null && now - asleepHeard.ts < 180_000) {
           const ah = asleepHeard;
@@ -1782,7 +1857,7 @@ async function main() {
           // 「まとまった眠りだけが回復」の原則は維持(ブロックに数えるのは実際に眠った時間のみ)
           const wakeAlpha = arousal; // M237: どれだけ深くから起こされたか
           pausedSleep = { s: sleepSession, at: Date.now() };
-          sleepSession = null; sleeping = false;
+          sleepSession = null; sleeping = false; bedSleeping = false;
           wakeGraceUntil = Date.now() + 180_000 + Math.round(240_000 * (1 - wakeAlpha)); // M237: 深いほど長く寝ぼける
           remember('wake_up', { sleptMin: Math.round(sleptMs / 60_000), arousal: +wakeAlpha.toFixed(2) });
           if (sleptMs > 30 * 60_000) {
