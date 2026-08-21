@@ -1806,8 +1806,7 @@ async function main() {
                   });
                 }
               }
-              // ベッドで寝ている間はheartbeatごとに微小追加回復(ブロック回復と併用・控えめ)
-              energy = clamp(energy + BED_RECOVER_PER_BEAT);
+              // M250b: 追加回復はheartbeat共通処理へ移動(交互勝ちで半分しか乗らなかった実測)
               await act([{ type: 'motion', name: sleepSession.pose }], `ねむりつづける(ベッド・${sleepSession.depth})`);
             }
           },
@@ -1828,6 +1827,9 @@ async function main() {
       // αを押し上げる=呼び続ければ1〜3分で起きる。入眠前の競売は無減衰(徹夜の自由は不変)
       let sleepTalkAbout = null;
       if (sleepSession !== null) {
+        // M250b(クロード): ベッド追加回復は候補のrun内でなくここで毎拍与える
+        // (実測: 通常「ねむりつづける」とベッド版が交互に勝ち、回復が拍の半分しか乗らなかった)
+        if (bedSleeping) energy = clamp(energy + BED_RECOVER_PER_BEAT);
         arousal = Math.max(0.05, Math.min(1, Math.pow(clamp(energy / 0.8), 1.5) + sleepDisturb * 1.5));
         let bestSocialRaw = null;
         for (const c of cands) {
